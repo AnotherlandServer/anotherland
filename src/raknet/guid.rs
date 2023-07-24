@@ -1,7 +1,7 @@
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use rand::prelude::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Guid {
     pub g: [u32; 4],
 }

@@ -16,13 +16,13 @@ pub type MessageNumber = u32;
 pub type AckRange = (MessageNumber, MessageNumber);
 pub type BitInput<'a> = (&'a [u8], usize);
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum PacketSplit {
     NotSplit,
     Split{ id: u16, index: u32, count: u32},
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Reliability {
     Unreliable,
     UnreliableSequenced(PacketSequence),
@@ -31,7 +31,7 @@ pub enum Reliability {
     ReliableSequenced(PacketSequence),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct PacketSequence {
     pub channel: u8,
     pub index: u32,
@@ -43,11 +43,17 @@ pub enum Packet {
     SystemTime(Duration),
     OfflineMessage(Message),
     OnlineMessage(MessageNumber, Message),
-    RawMessage {
+    RawRequest {
         number: MessageNumber,
         reliability: Reliability,
         split: PacketSplit,
         data: Vec<u8>,
+    },
+    RawResponse {
+        number: MessageNumber,
+        reliability: Reliability,
+        split: PacketSplit,
+        message: Message,
     }
 }
 
@@ -177,8 +183,9 @@ impl Packet {
 
     fn parse_data(i: BitInput) -> IResult<BitInput, Vec<u8>, VerboseError<BitInput>> {
         let (i, message_len) = context("message length", Self::parse_compressed_bytes(2usize, true))(i)?;
+
         context("message data", map(bits::bytes(
-            bytes::complete::take::<_, _, VerboseError<&[u8]>>(u16::from_le_bytes(message_len.try_into().unwrap()))
+            bytes::complete::take::<_, _, VerboseError<&[u8]>>(u16::from_le_bytes(message_len.try_into().unwrap()) / 8)
         ), |r| r.to_vec()))(i)
     }
 
@@ -224,12 +231,11 @@ impl Packet {
         context("message", map(tuple((
             // Message Number
             context("message number", Self::parse_message_number),
-
             context("reliability", Self::parse_reliability),
             context("split", Self::parse_packet_split),
             context("data", Self::parse_data),
         )), |(number, reliability, split, data)| {
-            Self::RawMessage { number, reliability, split, data }
+            Self::RawRequest { number, reliability, split, data }
         }))(input)
     }
 }
@@ -267,7 +273,7 @@ impl Packet {
                 writer.write_bytes(message.to_bytes().as_slice())?;
             },
 
-            Self::RawMessage { number, reliability, split, data } => {
+            Self::RawResponse { number, reliability, split, message } => {
                 writer.write(32, number.to_be())?; // Packet number
 
                 // Reliability
@@ -303,9 +309,11 @@ impl Packet {
                 }
 
                 // Message
-                Self::write_compressed(writer, true, &((data.len() * 8) as u16).to_le_bytes())?;
+                let message_bytes = message.to_bytes();
+
+                Self::write_compressed(writer, true, &((message_bytes.len() * 8) as u16).to_le_bytes())?;
                 writer.byte_align()?; // Align bytes to start writing payload
-                writer.write_bytes(&data)?;
+                writer.write_bytes(&message_bytes)?;
             },
 
             _ => panic!("Unsupported message type for serialization"),
@@ -322,8 +330,6 @@ impl Packet {
         let byte_match = if unsigned { 0 } else { 0xFF };
 
         for b in (1..data.len()).rev() {
-            println!("Byte [{}] {:02X}", b, data[b]);
-
             if data[b] == byte_match {
                 w.write_bit(true)?;
             } else {
@@ -331,8 +337,6 @@ impl Packet {
                 return w.write_bytes(&data[0..b+1]);
             }
         }
-
-        println!("Byte [{}] {:02X}", 0, data[0]);
 
         if (data[0] & 0xF0) == (byte_match & 0xF0) {
             w.write_bit(true)?;

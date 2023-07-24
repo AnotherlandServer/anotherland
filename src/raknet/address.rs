@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct PeerAddress {
     pub ip: Ipv4Addr,
     pub port: u16,

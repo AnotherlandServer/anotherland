@@ -1,5 +1,6 @@
-use super::{Guid, Error, PeerAddress, Packet, MessageNumber, Reliability, PacketSplit};
-use std::{time::Instant, sync::Arc, net::{UdpSocket, SocketAddr}, collections::VecDeque};
+use super::{Guid, Error, PeerAddress, Packet, MessageNumber, Reliability, PacketSplit, RakNetRequest, RakNetResponse, Message, RequestHandler};
+use std::{time::Instant, time::Duration, sync::Arc, net::{SocketAddr}, collections::VecDeque};
+use tokio::net::UdpSocket;
 use async_trait::async_trait;
 
 struct ResendBuffer {
@@ -13,17 +14,29 @@ pub enum Priority {
     Low,
 }
 
+pub enum State {
+    Unconnected,
+    Connected,
+}
+
 impl Priority {
     pub fn count_priorities() -> usize { 4 }
 }
 
 pub struct RakNetPeer {
     guid: Guid,
-    address: PeerAddress,
+    remote_address: PeerAddress,
+    local_address: PeerAddress,
+    socket: Arc<UdpSocket>,
 
     awaiting_ack_queue: VecDeque<Packet>,
     resend_queue: VecDeque<Packet>,
     send_queue_prioritized: Vec<VecDeque<Packet>>,
+    remote_time: Duration,
+    created: Instant,
+
+    next_send_message_id: u32,
+    next_recv_message_id: u32,
 }
 
 impl RakNetPeer {
@@ -37,24 +50,112 @@ impl RakNetPeer {
         vec
     }
 
-    pub fn new<'a>(addr: SocketAddr) -> Result<Self, Error<'a>> {
-        match addr {
+    pub fn new<'a>(socket: Arc<UdpSocket>, remote_addr: SocketAddr, local_addr: SocketAddr) -> Result<Self, Error<'a>> {
+        match remote_addr {
             SocketAddr::V4(a) => {
                 Ok(Self {
                     guid: Guid::create_random(),
-                    address: PeerAddress::new(a.ip(), a.port()),
+                    remote_address: PeerAddress::new(a.ip(), a.port()),
+                    local_address: match local_addr {
+                        SocketAddr::V4(a) => PeerAddress::new(a.ip(), a.port()),
+                        _ => panic!("Unsupported address type!"),
+                    },
+                    socket,
 
                     awaiting_ack_queue: VecDeque::new(),
                     resend_queue: VecDeque::new(),
                     send_queue_prioritized: Self::create_prioritized_send_queue(),
+                    remote_time: Duration::default(),
+                    created: Instant::now(),
+
+                    next_send_message_id: 0,
+                    next_recv_message_id: 0,
                 })
             },
             _ => Err(Error::InvalidAddressFormat),
         }
     }
 
-    pub async fn handle_raw_message(&mut self, number: MessageNumber, reliability: Reliability, split: PacketSplit, data: Vec<u8>) {
-        
+    pub async fn handle_raw_message(&mut self, number: MessageNumber, reliability: Reliability, split: PacketSplit, data: Vec<u8>) -> (Option<RakNetRequest>, RakNetResponse) {
+        let mut response = RakNetResponse::new(self.remote_time.clone());
+
+        if number >= self.next_recv_message_id {
+            match reliability {
+                Reliability::Reliable | Reliability::ReliableOrdered(_) |Reliability::ReliableSequenced(_) => 
+                    response.add_ack(number),
+                _ => (),
+            }
+
+            self.next_recv_message_id = number.wrapping_add(1);
+
+            if let Ok((_, message)) = Message::from_bytes(data.as_slice()) {
+                (Some(RakNetRequest::new(message)), response)
+            } else {
+                println!("Message parse error");
+                (None, response)
+            }
+        } else {
+            println!("Unexpected message number");
+            (None, RakNetResponse::new(self.remote_time.clone()))
+        }
+    }
+
+    pub async fn handle_request(&mut self, handler: &mut dyn RequestHandler, request: RakNetRequest, response: &mut RakNetResponse) {
+        //println!("Message: {:#?}", *request.message());
+
+        match request.message() {
+            Message::InternalPing { time } => {
+                self.remote_time = time.clone();
+
+                response.add_packet(Packet::RawResponse { 
+                    number: self.generate_next_message_id(), 
+                    reliability: Reliability::Unreliable, 
+                    split: PacketSplit::NotSplit, 
+                    message: Message::ConnectedPong { remote_time: self.remote_time, local_time: Instant::now().duration_since(self.created) } 
+                });
+            },
+
+            Message::ConnectionRequest { password } => {
+                println!("Got connection reqeuest!");
+
+                response.add_packet(Packet::RawResponse { 
+                    number: self.generate_next_message_id(), 
+                    reliability: Reliability::Reliable, 
+                    split: PacketSplit::NotSplit, 
+                    message: Message::ConnectionRequestAccepted { 
+                        index: 0, 
+                        peer_addr: self.remote_address, 
+                        own_addr: self.local_address,
+                        guid: self.guid, 
+                    }
+                });
+            },
+
+            Message::NewIncomingConnection { primary_address, secondary_addresses } => {
+                println!("Primary address: {:#?}", primary_address);
+                println!("Secondary addresses: {:#?}", secondary_addresses);
+
+                response.add_packet(Packet::RawResponse { 
+                    number: self.generate_next_message_id(), 
+                    reliability: Reliability::Unreliable, 
+                    split: PacketSplit::NotSplit, 
+                    message: Message::InternalPing { time: Instant::now().duration_since(self.created) } 
+                });
+            },
+
+            _ => { let _ = handler.handle_request(self, &request, response).await; },
+        }
+    }
+
+    pub fn generate_next_message_id(&mut self) -> u32 {
+        let msg = self.next_send_message_id;
+        self.next_send_message_id = self.next_send_message_id.wrapping_add(1);
+
+        msg
+    }
+
+    pub fn remote_address(&self) -> PeerAddress {
+        self.remote_address
     }
 
     pub async fn run_update(&mut self) {

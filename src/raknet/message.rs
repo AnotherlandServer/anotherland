@@ -1,6 +1,7 @@
 use std::{net::{Ipv4Addr}, io};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
+use std::time::Duration;
 use nom::{number::complete::{le_u8, le_u32, le_u16}, combinator::{flat_map, fail, map, rest_len, peek}, error::{context, VerboseError}, IResult, sequence::tuple, bytes::complete::{take, tag}, multi::{many0, count}};
 
 use super::{Guid, PeerAddress};
@@ -26,15 +27,16 @@ const ID_CONNECTION_LOST: u8 = 17;
 const ID_INVALID_PASSWORD: u8 = 19;
 const ID_MODIFIED_PACKET: u8 = 20;
 const ID_CONNECTION_BANNED: u8 = 23;
+const ID_RECEIVED_STATIC_DATA: u8 = 27; // Unsure about this
 //const ID_RSA_PUBLIC_KEY_MISMATCH: u8 = 121;
 const ID_USER_MESSAGE_START: u8 = 100;
 
 #[derive(Debug)]
 pub enum Message {
-    InternalPing,
+    InternalPing{time: Duration},
     PingOpenConnections,
     Ping,
-    ConnectedPong,
+    ConnectedPong{remote_time: Duration, local_time: Duration},
     ConnectionRequest{password: String},
     SecuredConnectionResponse{hash: [u8; 20], e: u32, modulus: [u8; 64]},
     SecuredConnectionConfirmation,
@@ -43,7 +45,7 @@ pub enum Message {
     ConnectionRequestAccepted{index: u16, peer_addr: PeerAddress, own_addr: PeerAddress, guid: Guid},
     ConnectionAttemptFailed,
     AlreadyConnected,
-    NewIncomingConnection,
+    NewIncomingConnection{primary_address: PeerAddress, secondary_addresses: Vec<PeerAddress>},
     NoFreeIncomingConnections,
     DisconnectionNotification,
     ConnectionList,
@@ -51,6 +53,7 @@ pub enum Message {
     ModifiedPacket,
     ConnectionBanned,
     RSAPublicKeyMismatch,
+    ReceivedStaticData{data: Vec<u8>},
     User{number: u8, data: Vec<u8>},
 }
 
@@ -62,6 +65,33 @@ impl Message {
 
 // Parsing
 impl Message {
+    fn parse_peer_address<'a>(data: &'a [u8]) -> IResult<&'a [u8], PeerAddress, VerboseError<&'a[u8]>> {
+        map(tuple((le_u32, le_u16)), |(address, port)| PeerAddress::new(&Ipv4Addr::from(address), port))(data)
+    }
+
+    fn parse_internal_ping<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+        context("internal_ping", map(
+            tuple((
+                tag([ID_INTERNAL_PING]),
+                le_u32,
+            )),
+            |(_, timestamp)| {
+                Message::InternalPing { time: Duration::from_millis(timestamp.into()) }
+            }))(data)
+    }
+
+    fn parse_new_incoming_connection<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+        context("new_incoming_connection", map(
+            tuple((
+                tag([ID_NEW_INCOMING_CONNECTION]),
+                Self::parse_peer_address,
+                many0(Self::parse_peer_address),
+            )),
+            |(_, primary_address, secondary_addresses)| {
+                Message::NewIncomingConnection { primary_address, secondary_addresses }
+            }))(data)
+    }
+
     fn parse_connection_request<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
         context("conenction_request", map(
             tuple((
@@ -120,6 +150,13 @@ impl Message {
                 }))(data)
     }
 
+    fn parse_received_static_data<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+        context("static_data", map(tuple((
+            tag::<[u8;1],&'a [u8],_>([ID_RECEIVED_STATIC_DATA]),
+            flat_map(rest_len, take)
+        )), |(_, data)| Message::ReceivedStaticData { data: data.to_vec() }))(data)
+    }
+
     fn parse_user_message<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
         context("user_message", map(tuple((
             le_u8::<&[u8], _>, 
@@ -136,11 +173,14 @@ impl Message {
             flat_map(peek(le_u8),
             |msg_id| {
                 match msg_id {
+                    ID_INTERNAL_PING => Self::parse_internal_ping,
+                    ID_NEW_INCOMING_CONNECTION => Self::parse_new_incoming_connection,
                     ID_CONNECTION_REQUEST => Self::parse_connection_request,
                     ID_SECURED_CONNECTION_RESPONSE => Self::parse_secured_connection_response,
                     ID_OPEN_CONNECTION_REQUEST => Self::parse_open_connection_request,
                     ID_OPEN_CONNECTION_REPLY => Self::parse_open_connection_reply,
                     ID_CONNECTION_REQUEST_ACCEPTED => Self::parse_connection_request_accepted,
+                    ID_RECEIVED_STATIC_DATA => Self::parse_received_static_data,
                     ID_USER_MESSAGE_START..=u8::MAX => Self::parse_user_message,
                     _ => Self::parse_unknown_message,
                 }
@@ -152,6 +192,15 @@ impl Message {
 impl Message {
     fn write(&self, writer: &mut ByteWriter<&mut Vec<u8>, LittleEndian>) -> io::Result<()> {
         match self {
+            Self::InternalPing { time } => {
+                writer.write(ID_INTERNAL_PING)?;
+                writer.write(time.as_millis() as u32)?;
+            }
+            Self::ConnectedPong { remote_time, local_time } => {
+                writer.write(ID_CONNECTED_PONG)?;
+                writer.write(remote_time.as_millis() as u32)?;
+                writer.write(local_time.as_millis() as u32)?;
+            },
             Self::ConnectionRequest { password } => {
                 writer.write(ID_CONNECTION_REQUEST)?;
                 writer.write_bytes(password.as_bytes())?;
