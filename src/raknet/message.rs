@@ -4,30 +4,35 @@ use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use std::time::Duration;
 use nom::{number::complete::{le_u8, le_u32, le_u16}, combinator::{flat_map, fail, map, rest_len, peek}, error::{context, VerboseError}, IResult, sequence::tuple, bytes::complete::{take, tag}, multi::{many0, count}};
 
+use crate::atlas::Pkt;
+
 use super::{Guid, PeerAddress};
 
 // Message IDs named in a way similar to the RakNet sources for easier comparison
 // All these IDs differ from stock RakNet and are unique to Otherland
-const ID_INTERNAL_PING: u8 = 1;
-const ID_PING_OPEN_CONNECTIONS: u8 = 2;
-const ID_PING: u8 = 3;
-const ID_CONNECTED_PONG: u8 = 4;
-const ID_CONNECTION_REQUEST: u8 = 5;
-const ID_SECURED_CONNECTION_RESPONSE: u8 = 6;
-const ID_SECURED_CONNECTION_CONFIRMATION: u8 = 7;
-const ID_OPEN_CONNECTION_REQUEST: u8 = 9;
-const ID_OPEN_CONNECTION_REPLY: u8 = 10;
-const ID_CONNECTION_REQUEST_ACCEPTED: u8 = 11;
-const ID_CONNECTION_ATTEMPT_FAILED: u8 = 12;
-const ID_ALREADY_CONNECTED: u8 = 13;
-const ID_NEW_INCOMING_CONNECTION: u8 = 14;
-const ID_NO_FREE_INCOMING_CONNECTIONS: u8 = 15;
-const ID_DISCONNECTION_NOTIFICATION: u8 = 16;
-const ID_CONNECTION_LOST: u8 = 17;
-const ID_INVALID_PASSWORD: u8 = 19;
-const ID_MODIFIED_PACKET: u8 = 20;
-const ID_CONNECTION_BANNED: u8 = 23;
-const ID_RECEIVED_STATIC_DATA: u8 = 27; // Unsure about this
+pub const ID_INTERNAL_PING: u8 = 1;
+pub const ID_PING_OPEN_CONNECTIONS: u8 = 2;
+pub const ID_PING: u8 = 3;
+pub const ID_CONNECTED_PONG: u8 = 4;
+pub const ID_CONNECTION_REQUEST: u8 = 5;
+pub const ID_SECURED_CONNECTION_RESPONSE: u8 = 6;
+pub const ID_SECURED_CONNECTION_CONFIRMATION: u8 = 7;
+pub const ID_OPEN_CONNECTION_REQUEST: u8 = 9;
+pub const ID_OPEN_CONNECTION_REPLY: u8 = 10;
+pub const ID_CONNECTION_REQUEST_ACCEPTED: u8 = 11;
+pub const ID_CONNECTION_ATTEMPT_FAILED: u8 = 12;
+pub const ID_ALREADY_CONNECTED: u8 = 13;
+pub const ID_NEW_INCOMING_CONNECTION: u8 = 14;
+pub const ID_NO_FREE_INCOMING_CONNECTIONS: u8 = 15;
+pub const ID_DISCONNECTION_NOTIFICATION: u8 = 16;
+pub const ID_CONNECTION_LOST: u8 = 17;
+pub const ID_INVALID_PASSWORD: u8 = 19;
+pub const ID_MODIFIED_PACKET: u8 = 20;
+pub const ID_PONG: u8 = 21;
+pub const ID_CONNECTION_BANNED: u8 = 23;
+
+pub const ID_ATLAS_PKT_LOGIN: u8 = 27; 
+
 //const ID_RSA_PUBLIC_KEY_MISMATCH: u8 = 121;
 const ID_USER_MESSAGE_START: u8 = 100;
 
@@ -53,7 +58,8 @@ pub enum Message {
     ModifiedPacket,
     ConnectionBanned,
     RSAPublicKeyMismatch,
-    ReceivedStaticData{data: Vec<u8>},
+    //ReceivedStaticData{data: Vec<u8>},
+    AtlasPkt(Pkt),
     User{number: u8, data: Vec<u8>},
 }
 
@@ -77,6 +83,18 @@ impl Message {
             )),
             |(_, timestamp)| {
                 Message::InternalPing { time: Duration::from_millis(timestamp.into()) }
+            }))(data)
+    }
+
+    fn parse_connected_pong<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+        context("connected_pong", map(
+            tuple((
+                tag([ID_CONNECTED_PONG]),
+                le_u32,
+                le_u32,
+            )),
+            |(_, remote_time, local_time)| {
+                Message::ConnectedPong { remote_time: Duration::from_millis(remote_time.into()), local_time: Duration::from_millis(local_time.into()) }
             }))(data)
     }
 
@@ -150,12 +168,16 @@ impl Message {
                 }))(data)
     }
 
-    fn parse_received_static_data<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_atlas_pkt<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+        context("atlas_pkt", map(Pkt::from_bytes, |pkt| Message::AtlasPkt(pkt)))(data)
+    }
+
+    /*fn parse_received_static_data<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
         context("static_data", map(tuple((
             tag::<[u8;1],&'a [u8],_>([ID_RECEIVED_STATIC_DATA]),
             flat_map(rest_len, take)
         )), |(_, data)| Message::ReceivedStaticData { data: data.to_vec() }))(data)
-    }
+    }*/
 
     fn parse_user_message<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
         context("user_message", map(tuple((
@@ -174,13 +196,17 @@ impl Message {
             |msg_id| {
                 match msg_id {
                     ID_INTERNAL_PING => Self::parse_internal_ping,
-                    ID_NEW_INCOMING_CONNECTION => Self::parse_new_incoming_connection,
                     ID_CONNECTION_REQUEST => Self::parse_connection_request,
+                    ID_CONNECTED_PONG => Self::parse_connected_pong,
+                    ID_NEW_INCOMING_CONNECTION => Self::parse_new_incoming_connection,
                     ID_SECURED_CONNECTION_RESPONSE => Self::parse_secured_connection_response,
                     ID_OPEN_CONNECTION_REQUEST => Self::parse_open_connection_request,
                     ID_OPEN_CONNECTION_REPLY => Self::parse_open_connection_reply,
                     ID_CONNECTION_REQUEST_ACCEPTED => Self::parse_connection_request_accepted,
-                    ID_RECEIVED_STATIC_DATA => Self::parse_received_static_data,
+                    //ID_RECEIVED_STATIC_DATA => Self::parse_received_static_data,
+                    
+                    ID_ATLAS_PKT_LOGIN => Self::parse_atlas_pkt,
+
                     ID_USER_MESSAGE_START..=u8::MAX => Self::parse_user_message,
                     _ => Self::parse_unknown_message,
                 }

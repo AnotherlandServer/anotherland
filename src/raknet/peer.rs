@@ -23,15 +23,15 @@ impl Priority {
     pub fn count_priorities() -> usize { 4 }
 }
 
-pub struct RakNetPeer {
+pub struct RakNetPeer<'a> {
     guid: Guid,
     remote_address: PeerAddress,
     local_address: PeerAddress,
     socket: Arc<UdpSocket>,
 
-    awaiting_ack_queue: VecDeque<Packet>,
-    resend_queue: VecDeque<Packet>,
-    send_queue_prioritized: Vec<VecDeque<Packet>>,
+    awaiting_ack_queue: VecDeque<Packet<'a>>,
+    resend_queue: VecDeque<Packet<'a>>,
+    send_queue_prioritized: Vec<VecDeque<Packet<'a>>>,
     remote_time: Duration,
     created: Instant,
 
@@ -39,8 +39,8 @@ pub struct RakNetPeer {
     next_recv_message_id: u32,
 }
 
-impl RakNetPeer {
-    fn create_prioritized_send_queue() -> Vec<VecDeque<Packet>> {
+impl <'a>RakNetPeer<'a> {
+    fn create_prioritized_send_queue() -> Vec<VecDeque<Packet<'a>>> {
         let mut vec = Vec::new();
 
         for i in 0..Priority::count_priorities() {
@@ -50,7 +50,7 @@ impl RakNetPeer {
         vec
     }
 
-    pub fn new<'a>(socket: Arc<UdpSocket>, remote_addr: SocketAddr, local_addr: SocketAddr) -> Result<Self, Error<'a>> {
+    pub fn new<'b>(socket: Arc<UdpSocket>, remote_addr: SocketAddr, local_addr: SocketAddr) -> Result<Self, Error<'b>> {
         match remote_addr {
             SocketAddr::V4(a) => {
                 Ok(Self {
@@ -88,11 +88,13 @@ impl RakNetPeer {
 
             self.next_recv_message_id = number.wrapping_add(1);
 
-            if let Ok((_, message)) = Message::from_bytes(data.as_slice()) {
-                (Some(RakNetRequest::new(message)), response)
-            } else {
-                println!("Message parse error");
-                (None, response)
+            match Message::from_bytes(data.as_slice()) {
+                Ok((_, message)) => (Some(RakNetRequest::new(message)), response),
+                Err(e) => {
+                    println!("Message parse error:\n{:#?}", e);
+                    panic!();
+                    (None, response)
+                }
             }
         } else {
             println!("Unexpected message number");
@@ -107,40 +109,28 @@ impl RakNetPeer {
             Message::InternalPing { time } => {
                 self.remote_time = time.clone();
 
-                response.add_packet(Packet::RawResponse { 
-                    number: self.generate_next_message_id(), 
-                    reliability: Reliability::Unreliable, 
-                    split: PacketSplit::NotSplit, 
-                    message: Message::ConnectedPong { remote_time: self.remote_time, local_time: Instant::now().duration_since(self.created) } 
+                response.add_message(Reliability::Unreliable, Message::ConnectedPong { 
+                    remote_time: self.remote_time, 
+                    local_time: Instant::now().duration_since(self.created) 
                 });
             },
 
             Message::ConnectionRequest { password } => {
                 println!("Got connection reqeuest!");
 
-                response.add_packet(Packet::RawResponse { 
-                    number: self.generate_next_message_id(), 
-                    reliability: Reliability::Reliable, 
-                    split: PacketSplit::NotSplit, 
-                    message: Message::ConnectionRequestAccepted { 
+                response.add_message(Reliability::Reliable, Message::ConnectionRequestAccepted { 
                         index: 0, 
                         peer_addr: self.remote_address, 
                         own_addr: self.local_address,
                         guid: self.guid, 
-                    }
-                });
+                    });
             },
 
             Message::NewIncomingConnection { primary_address, secondary_addresses } => {
                 println!("Primary address: {:#?}", primary_address);
                 println!("Secondary addresses: {:#?}", secondary_addresses);
 
-                response.add_packet(Packet::RawResponse { 
-                    number: self.generate_next_message_id(), 
-                    reliability: Reliability::Unreliable, 
-                    split: PacketSplit::NotSplit, 
-                    message: Message::InternalPing { time: Instant::now().duration_since(self.created) } 
-                });
+                response.add_message(Reliability::Unreliable, Message::InternalPing { time: Instant::now().duration_since(self.created) });
             },
 
             _ => { let _ = handler.handle_request(self, &request, response).await; },

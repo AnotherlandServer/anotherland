@@ -70,13 +70,13 @@ impl RakNetListener {
     }
 }
 
-struct RakNetListenerImpl {
+struct RakNetListenerImpl<'a> {
     socket: Arc<UdpSocket>,
-    peers: HashMap<SocketAddr, RakNetPeer>,
+    peers: HashMap<SocketAddr, RakNetPeer<'a>>,
     handler: Box<dyn RequestHandler>,
 }
 
-impl RakNetListenerImpl {
+impl <'a>RakNetListenerImpl<'a> {
     pub fn new(socket: Arc<UdpSocket>, handler: Box<dyn RequestHandler>) -> Self {
         Self {
             socket,
@@ -131,7 +131,7 @@ impl RakNetListenerImpl {
         }
     }
 
-    fn parse_datagram<'a>(data: &'a[u8]) -> IResult<&'a[u8], Vec<Packet>, VerboseError<&'a[u8]>> {
+    fn parse_datagram<'b>(data: &'b[u8]) -> IResult<&'b[u8], Vec<Packet>, VerboseError<&'b[u8]>> {
         if Message::test_offline_message(data) {
             Message::from_bytes(data).map(|(i, m)| (i, vec![Packet::OfflineMessage(m)]))
         } else {

@@ -4,12 +4,17 @@ use bitstream_io::{BitWriter, BigEndian, BitWrite};
 
 use super::{AckRange, Reliability, PacketSplit, MessageNumber, Packet, peer::RakNetPeer, Message};
 
+struct ResponsePacket {
+    pub reliability: Reliability,
+    pub message: Message,
+}
+
 pub struct RakNetResponse {
     acks: (Duration, Vec<MessageNumber>),
     time: Option<Duration>,
     reliability: Option<Reliability>, 
     split: Option<PacketSplit>,
-    packets: Vec<Packet>,
+    packets: Vec<ResponsePacket>,
 }
 
 impl RakNetResponse {
@@ -27,8 +32,11 @@ impl RakNetResponse {
         self.acks.1.push(message_number);
     }
 
-    pub fn add_packet(&mut self, packet: Packet) {
-        self.packets.push(packet);
+    pub fn add_message(&mut self, reliability: Reliability, message: Message) {
+        self.packets.push(ResponsePacket {
+            reliability,
+            message
+        });
     }
 
     pub fn pack_response(&self, peer: &mut RakNetPeer) -> Vec<u8> {
@@ -69,7 +77,12 @@ impl RakNetResponse {
         }
 
         for packet in &self.packets {
-            let _ = packet.serialize_to_bitwriter(&mut writer);
+            let _ = Packet::RawResponse { 
+                number: peer.generate_next_message_id(), 
+                reliability: packet.reliability, 
+                split: PacketSplit::NotSplit, 
+                message: &packet.message 
+            }.serialize_to_bitwriter(&mut writer);
         }
 
         /*if let Some(packet) = &self.packets {

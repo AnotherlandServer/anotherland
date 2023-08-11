@@ -38,7 +38,7 @@ pub struct PacketSequence {
 }
 
 #[derive(Debug)]
-pub enum Packet {
+pub enum Packet<'a> {
     Ack(Duration, Vec<AckRange>),
     SystemTime(Duration),
     OfflineMessage(Message),
@@ -53,11 +53,11 @@ pub enum Packet {
         number: MessageNumber,
         reliability: Reliability,
         split: PacketSplit,
-        message: Message,
+        message: &'a Message,
     }
 }
 
-impl Packet {
+impl <'a>Packet<'a> {
     fn parse_duration(i: BitInput) -> IResult<BitInput, Duration, VerboseError<BitInput>> {
         context("duration", map(
             count(bit_parser::take(8usize), 4), 
@@ -189,7 +189,7 @@ impl Packet {
         ), |r| r.to_vec()))(i)
     }
 
-    pub fn parse_ack(input: BitInput) -> IResult<BitInput, Packet, VerboseError<BitInput>> {
+    pub fn parse_ack<'b>(input: BitInput<'b>) -> IResult<BitInput<'b>, Packet, VerboseError<BitInput<'b>>>  where 'a: 'b {
         context("ack", map(tuple((
             Self::parse_duration,
             length_count(
@@ -220,14 +220,14 @@ impl Packet {
         )), |(system_time, ack_range)| Self::Ack(system_time, ack_range)))(input)
     }
 
-    pub fn parse_system_time(input: BitInput) -> IResult<BitInput, Packet, VerboseError<BitInput>> {
+    pub fn parse_system_time<'b>(input: BitInput<'b>) -> IResult<BitInput<'b>, Packet, VerboseError<BitInput<'b>>> where 'a: 'b {
         context("system_time", map(
             Self::parse_duration, 
             |duration| Self::SystemTime(duration))
         )(input)
     }
 
-    pub fn parse_packet(input: BitInput) -> IResult<BitInput, Packet, VerboseError<BitInput>> {
+    pub fn parse_packet<'b>(input: BitInput<'b>) -> IResult<BitInput<'b>, Packet, VerboseError<BitInput<'b>>>  where 'a: 'b {
         context("message", map(tuple((
             // Message Number
             context("message number", Self::parse_message_number),
@@ -240,7 +240,7 @@ impl Packet {
     }
 }
 
-impl Packet {
+impl <'a>Packet<'a> {
     pub fn serialize_to_bitwriter<E, W>(&self, writer: &mut BitWriter<E, W>) -> io::Result<()> 
     where
     E: io::Write,

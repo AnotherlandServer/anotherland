@@ -1,11 +1,14 @@
 mod raknet;
 mod login_server;
+mod cluster_server;
 mod queue_server;
+mod atlas;
 
 // Import modules
 use std::{time::Duration, net::{SocketAddrV4, Ipv4Addr}};
 
 use chrono::Utc;
+use cluster_server::ClusterServer;
 use nom::{error::convert_error, Finish};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use rsa::traits::PublicKeyParts;
@@ -20,6 +23,7 @@ use queue_server::QueueServer;
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let login_server = LoginServer::bind_server("0.0.0.0:6112").await?;
+    let cluster_server = ClusterServer::bind_server("0.0.0.0:6113").await?;
     let queue_server = QueueServer::bind_server("0.0.0.0:53292").await?;
 
     match signal::ctrl_c().await {
