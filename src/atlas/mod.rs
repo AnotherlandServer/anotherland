@@ -1,5 +1,6 @@
-mod pkt;
-mod pkt_login;
+mod cpkt;
+mod parsers;
 
-pub use pkt::*;
-pub use pkt_login::*;
+include!(concat!(env!("OUT_DIR"), "/generated_packets.rs"));
+
+pub use cpkt::*;

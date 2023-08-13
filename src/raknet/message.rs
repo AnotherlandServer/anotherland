@@ -4,7 +4,7 @@ use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use std::time::Duration;
 use nom::{number::complete::{le_u8, le_u32, le_u16}, combinator::{flat_map, fail, map, rest_len, peek}, error::{context, VerboseError}, IResult, sequence::tuple, bytes::complete::{take, tag}, multi::{many0, count}};
 
-use crate::atlas::Pkt;
+use crate::atlas::CPkt;
 
 use super::{Guid, PeerAddress};
 
@@ -30,8 +30,6 @@ pub const ID_INVALID_PASSWORD: u8 = 19;
 pub const ID_MODIFIED_PACKET: u8 = 20;
 pub const ID_PONG: u8 = 21;
 pub const ID_CONNECTION_BANNED: u8 = 23;
-
-pub const ID_ATLAS_PKT_LOGIN: u8 = 27; 
 
 //const ID_RSA_PUBLIC_KEY_MISMATCH: u8 = 121;
 const ID_USER_MESSAGE_START: u8 = 100;
@@ -59,7 +57,7 @@ pub enum Message {
     ConnectionBanned,
     RSAPublicKeyMismatch,
     //ReceivedStaticData{data: Vec<u8>},
-    AtlasPkt(Pkt),
+    AtlasPkt(CPkt),
     User{number: u8, data: Vec<u8>},
 }
 
@@ -169,7 +167,7 @@ impl Message {
     }
 
     fn parse_atlas_pkt<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
-        context("atlas_pkt", map(Pkt::from_bytes, |pkt| Message::AtlasPkt(pkt)))(data)
+        context("atlas_pkt", map(CPkt::from_bytes, |pkt| Message::AtlasPkt(pkt)))(data)
     }
 
     /*fn parse_received_static_data<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
@@ -203,12 +201,8 @@ impl Message {
                     ID_OPEN_CONNECTION_REQUEST => Self::parse_open_connection_request,
                     ID_OPEN_CONNECTION_REPLY => Self::parse_open_connection_reply,
                     ID_CONNECTION_REQUEST_ACCEPTED => Self::parse_connection_request_accepted,
-                    //ID_RECEIVED_STATIC_DATA => Self::parse_received_static_data,
-                    
-                    ID_ATLAS_PKT_LOGIN => Self::parse_atlas_pkt,
-
                     ID_USER_MESSAGE_START..=u8::MAX => Self::parse_user_message,
-                    _ => Self::parse_unknown_message,
+                    _ => Self::parse_atlas_pkt,
                 }
             }))(data)
     }

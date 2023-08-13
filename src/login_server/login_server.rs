@@ -6,7 +6,7 @@ use nom::{IResult, error::{VerboseError, convert_error}, sequence::tuple, combin
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use tokio::{net::{UdpSocket, ToSocketAddrs}, io, task::JoinHandle};
 
-use crate::{raknet::{RakNetListener, RequestHandler, RakNetRequest, RakNetResponse, Message, RakNetPeer, Packet, Reliability}, atlas::{self, PktLogin, PktBody}};
+use crate::{raknet::{RakNetListener, RequestHandler, RakNetRequest, RakNetResponse, Message, RakNetPeer, Packet, Reliability}, atlas::{self, CPkt}};
 
 pub struct LoginServer {
     listener: RakNetListener,
@@ -21,14 +21,17 @@ impl RequestHandler for LoginServerMessageHandler {
     async fn handle_request<'a>(&'a mut self, peer: &RakNetPeer, request: &'a RakNetRequest, response: &'a mut RakNetResponse) -> Result<(), crate::raknet::Error<'a>> {
         match request.message() {
             Message::AtlasPkt(pkt) => {
-                match &pkt.body {
-                    PktBody::Login(login_pkt) => {
+                match &pkt {
+                    CPkt::CPktLogin(login_pkt) => {
+                        println!("{:#?}", login_pkt);
+                    },
+                    /*PktBody::Login(login_pkt) => {
                         println!("{:#?}", pkt);
 
                         let mut buf = Vec::new();
                         let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
 
-                        let login_str = "Hey, it works!";
+                        let login_str = "172.22.96.1:6113";
 
                         // Header
                         writer.write(0u8);
@@ -68,7 +71,7 @@ impl RequestHandler for LoginServerMessageHandler {
                         writer.write_bytes(guid.to_bytes().as_slice())?;*/
 
                         response.add_message(Reliability::Reliable, Message::User { number: 34, data: buf });
-                    },
+                    },*/
                     _ => (),
                 }
             }

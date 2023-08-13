@@ -6,7 +6,7 @@ use nom::{IResult, error::{VerboseError, convert_error}, sequence::tuple, combin
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use tokio::{net::{UdpSocket, ToSocketAddrs}, io, task::JoinHandle};
 
-use crate::{raknet::{RakNetListener, RequestHandler, RakNetRequest, RakNetResponse, Message, RakNetPeer, Packet, Reliability}, atlas::{self, PktLogin, PktBody}};
+use crate::{raknet::{RakNetListener, RequestHandler, RakNetRequest, RakNetResponse, Message, RakNetPeer, Packet, Reliability}, atlas::{self}};
 
 pub struct ClusterServer {
     listener: RakNetListener,
@@ -21,8 +21,8 @@ impl RequestHandler for ClusterServerMessageHandler {
     async fn handle_request<'a>(&'a mut self, peer: &RakNetPeer, request: &'a RakNetRequest, response: &'a mut RakNetResponse) -> Result<(), crate::raknet::Error<'a>> {
         match request.message() {
             Message::AtlasPkt(pkt) => {
-                match &pkt.body {
-                    _ => println("Cluster pkt: \n{:#?}", pkt),
+                match &pkt {
+                    _ => println!("Cluster pkt: \n{:#?}", pkt),
                 }
             }
             _ => {},
@@ -52,7 +52,7 @@ impl ClusterServerMessageHandler {
 }
 
 impl ClusterServer {
-    pub async fn bind_server<A: ToSocketAddrs>(addr: A) -> io::Result<LoginServer> {
+    pub async fn bind_server<A: ToSocketAddrs>(addr: A) -> io::Result<ClusterServer> {
         let mut listener = RakNetListener::bind(Box::new(ClusterServerMessageHandler {}), addr).await?;
 
         /*let mut rng = rand::thread_rng();
