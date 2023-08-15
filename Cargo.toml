@@ -14,4 +14,21 @@ bitstream-io = "1.6.0"
 rsa = "0.9.2"
 sha1 = "0.10.5"
 num-traits = "0.2.15"
-async-trait = "0.1.71"
+async-trait = "0.1.72"
+
+
+[build-dependencies]
+serde = { version = "1.0.183",  features = ["derive"] }
+serde_yaml = "0.9.25"
+quote = "1.0.32"
+rustfmt = "0.10.0"
+typify = "0.0.13"
+prettyplease = "0.2.12"
+syn = "2.0.28"
+proc-macro2 = { version = "1.0.66", features = ["span-locations"] }
+convert_case = "0.6.0"
+yaml-rust = "0.4.5"
+linked-hash-map = "0.5.6"
+
+[dev-dependencies]
+rustfmt = "0.10.0"

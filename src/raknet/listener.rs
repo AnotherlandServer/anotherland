@@ -1,12 +1,13 @@
 use std::{sync::{Arc, mpsc::Receiver}, net::{SocketAddr, SocketAddrV4}, collections::{VecDeque, LinkedList, HashMap}, future::Future};
 
 use nom::{bits, sequence::tuple, error::{context, VerboseError}, combinator::{flat_map, cond, map}, IResult, multi::many0, Map};
-use tokio::{net::{ToSocketAddrs, UdpSocket}, io, sync::{mpsc::{self, Sender}, broadcast}, sync::oneshot};
+use tokio::{net::{ToSocketAddrs, UdpSocket}, io, sync::{mpsc::{self, Sender}, broadcast}, sync::oneshot, time};
 
-use super::{peer::RakNetPeer, Packet, RakNetRequest, Message, RequestHandler, RakNetResponse};
+use super::{peer::RakNetPeer, Packet, RakNetRequest, Message, RequestHandler, RakNetResponse, State, PeerAddress};
 
 enum RakNetListenerCommand {
     ReceivedDatagram(SocketAddr, Vec<u8>),
+    UpdateClients,
 }
 
 pub struct RakNetListener {
@@ -42,6 +43,18 @@ impl RakNetListener {
             });
         }
 
+        // Update timer
+        {
+            let timer_thread_tx = thread_tx.clone();
+            tokio::task::spawn(async move {
+                let mut interval = time::interval(time::Duration::from_millis(1000));
+                loop {
+                    interval.tick().await;
+                    let _ = timer_thread_tx.send(RakNetListenerCommand::UpdateClients).await;
+                }
+            });
+        }
+
         {
             let socket = bound_socket.clone();
             tokio::task::spawn(async move {
@@ -52,6 +65,7 @@ impl RakNetListener {
                     match thread_rx.recv().await {
                         Some(cmd) => match cmd {
                             RakNetListenerCommand::ReceivedDatagram(addr, data) => listener.ingest_datagram(addr, data).await,
+                            RakNetListenerCommand::UpdateClients => listener.update_clients().await,
                         },
                         None => { break 'update_loop; }
                     }
@@ -128,6 +142,31 @@ impl <'a>RakNetListenerImpl<'a> {
                     _ => unreachable!("Unexpected message parsed"),
                 }
             }
+        }
+    }
+
+    pub async fn update_clients(&mut self) {
+        let mut remove_peers = Vec::new();
+
+        for (addr, peer) in &mut self.peers {
+            let mut update = RakNetResponse::new(peer.remote_time());
+
+            if peer.state() == State::HalfClosed || peer.state() == State::Disconnected {
+                remove_peers.push(addr.clone());
+                continue;
+            }
+
+            self.handler.update_client(&peer, &mut update).await;
+
+            let update_data = update.pack_response(peer);
+            if !update_data.is_empty() {
+                let _ = self.socket.send_to(&update_data, SocketAddr::V4(SocketAddrV4::new(peer.remote_address().ip, peer.remote_address().port))).await;
+            }
+        }
+
+        // Cleanup clients
+        for addr in remove_peers {
+            self.peers.remove(&addr);
         }
     }
 

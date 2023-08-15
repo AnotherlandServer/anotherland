@@ -3,6 +3,8 @@ use std::collections::{LinkedList, VecDeque};
 use std::time::Duration;
 use tokio::{net::{TcpListener, ToSocketAddrs, TcpStream}, io::{self, AsyncWriteExt}, task::JoinHandle};
 
+use crate::atlas::oaPktLoginQueueUpdate;
+
 pub struct QueueServer {  
     listen_thread: JoinHandle<()>,
     client_thread: JoinHandle<()>,
@@ -32,8 +34,13 @@ impl QueueServer {
                     }
 
                     for c in clients.iter_mut() {
-                        // Send client hello / keepalive
-                        let _ = c.write_u8(0x01u8);
+                        let mut queue_update = oaPktLoginQueueUpdate::default();
+                        
+                        queue_update.field36_0x24 = 1;
+                        queue_update.field37_0x28 = 2;
+                        queue_update.field38_0x2c = 3;
+
+                        c.write(queue_update.to_bytes().as_slice());
                     }
 
                     std::thread::sleep(Duration::from_secs(1));

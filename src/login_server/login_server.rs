@@ -1,4 +1,4 @@
-use std::{sync::Arc, fs};
+use std::{sync::Arc, fs, net::Ipv4Addr};
 
 use async_trait::async_trait;
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
@@ -6,14 +6,14 @@ use nom::{IResult, error::{VerboseError, convert_error}, sequence::tuple, combin
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use tokio::{net::{UdpSocket, ToSocketAddrs}, io, task::JoinHandle};
 
-use crate::{raknet::{RakNetListener, RequestHandler, RakNetRequest, RakNetResponse, Message, RakNetPeer, Packet, Reliability}, atlas::{self, CPkt}};
+use crate::{raknet::{RakNetListener, RequestHandler, RakNetRequest, RakNetResponse, Message, RakNetPeer, Packet, Reliability}, atlas::{self, CPkt, CPktLoginResult, oaPktLoginQueueUpdate, oaPktRealmStatusList}};
 
 pub struct LoginServer {
     listener: RakNetListener,
 }
 
 struct LoginServerMessageHandler {
-
+    temp_field_count: u32,
 }
 
 #[async_trait]
@@ -23,116 +23,90 @@ impl RequestHandler for LoginServerMessageHandler {
             Message::AtlasPkt(pkt) => {
                 match &pkt {
                     CPkt::CPktLogin(login_pkt) => {
+                        let mut result = CPktLoginResult::default();
+
+                        result.login_success = true;
+                        result.ui_state = 2;
+                        result.user_id = Some(1234);
+                        result.username = Some(login_pkt.username.to_owned());
+                        result.magic_bytes = Some(login_pkt.magic_bytes.clone());
+                        result.field_0x4 = Some(true);
+                        result.field29_0x24 = Some(123);
+                        result.realm_ip = Some(u32::from_be(Ipv4Addr::new(172, 22, 96, 1).into()));
+                        result.realm_port = Some(6113);
+                        result.field38_0x34 = Some(0xBEEF);
+                        result.unknown_string = Some("Test String".to_owned());
+                        result.field_12 = Some(0xA0A0);
+                        result.field_13 = Some(0x1234);
+                        result.field_14 = Some(0xBB00);
+                        result.field_15 = Some(0x42);
+                        result.field_16 = Some(0xFE);
+                        result.field_17 = Some(0x11);
+                        result.field_18 = Some(0x22);
+                        result.field_19 = Some(0x33);
+                        result.field_20 = Some(0x44);
+                        result.field_21 = Some(0x55);
+                        result.field_22 = Some(0x66);
+
                         println!("{:#?}", login_pkt);
+                        println!("{:#?}", result);
+                        println!("{:#?}", result.to_bytes());
+
+                        response.add_message(Reliability::Reliable, result.to_message());
+
+                        let mut queue_update = oaPktLoginQueueUpdate::default();
+                        
+                        queue_update.field36_0x24 = 1;
+                        queue_update.field37_0x28 = 2;
+                        queue_update.field38_0x2c = 3;
+
+                        response.add_message(Reliability::Reliable, queue_update.to_message());
+
+                        let mut realm_status = oaPktRealmStatusList::default();
+                        
+                        realm_status.realm_count = 1;
+                        realm_status.realm_id = 1;
+                        realm_status.realm_name = "Test server".to_owned();
+                        realm_status.channel_count = 2;
+                        realm_status.field_5.push(1);
+                        realm_status.field_5.push(2);
+                        realm_status.channel_flag_count = 2;
+                        realm_status.field_7.push(0);
+                        realm_status.field_7.push(0);
+    
+                        
+                        response.add_message(Reliability::Reliable, realm_status.to_message());
                     },
-                    /*PktBody::Login(login_pkt) => {
-                        println!("{:#?}", pkt);
-
-                        let mut buf = Vec::new();
-                        let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
-
-                        let login_str = "172.22.96.1:6113";
-
-                        // Header
-                        writer.write(0u8);
-                        writer.write(0u64);
-
-                        // flag
-                        writer.write(1u8);
-                        writer.write(0u32);
-
-                        writer.write(0u8);
-                        writer.write(0u32);
-                        writer.write(0u32);
-                        writer.write(0u16);
-                        writer.write(0u32);
-                        writer.write(login_str.len() as u16);
-                        writer.write_bytes(login_str.as_bytes());
-                        writer.write_bytes(login_pkt.magic.as_slice());
-                        writer.write(0u32);
-                        writer.write(login_pkt.username.len() as u16);
-                        writer.write_bytes(login_pkt.username.as_bytes());
-                        writer.write(0u32);
-                        writer.write(0u16);
-                        writer.write(0u16);
-                        writer.write(0u8);
-                        writer.write(0u8);
-                        writer.write(0u8);
-                        writer.write(0u8);
-                        writer.write(0u8);
-                        writer.write(0u8);
-                        writer.write(0u8);
-                        writer.write(0u8);
-
-                        /*writer.write(ID_CONNECTION_REQUEST_ACCEPTED)?;
-                        writer.write_bytes(peer_addr.to_bytes().as_slice())?;
-                        writer.write(*index)?;
-                        writer.write_bytes(own_addr.to_bytes().as_slice())?;
-                        writer.write_bytes(guid.to_bytes().as_slice())?;*/
-
-                        response.add_message(Reliability::Reliable, Message::User { number: 34, data: buf });
-                    },*/
+                    CPkt::oaPktRealmStatusList(pkt) => {
+                        println!("{:?}", pkt);
+                    }
                     _ => (),
                 }
             }
-            /*Message::ReceivedStaticData { data } => {
-                let result = PktLogin::from_bytes(data);
-
-                if let Ok((_, pkt)) = result {
-                    println!("{:#?}", pkt);
-                } else if let Err(e) = result {
-                    println!(
-                        "verbose errors:\n{}",
-                        convert_error(data.as_slice(), e)
-                      );
-                }
-                /*fs::write("logindata.bin", data);
-
-                if let Ok((_, (_, email, password, _, strings))) 
-                    = tuple((
-                        take(9usize), 
-                        Self::parse_utf8_string, // username
-                        Self::parse_utf8_string, // password
-                        take(23usize), // ??
-                        count(Self::parse_utf16_string, 30usize)
-                    ))(data) {
-                    println!("Username: {}", email);
-                    println!("Password: {}", password);
-                    println!("Strings: {:#?}", strings);
-                } else {
-                    panic!("Static data parse failed");
-                }*/
-
-            },*/
             _ => {},
         }
 
         Ok(())
     }
-}
 
-impl LoginServerMessageHandler {
-    fn parse_utf8_string<'a>(data: &'a [u8]) -> IResult<&'a [u8], String, VerboseError<&'a[u8]>> {
-        map(length_data(nom::number::complete::le_u16), |b| String::from_utf8_lossy(b).to_string())(data)
-    }
+    async fn update_client<'a>(&'a mut self, peer: &RakNetPeer, update: &'a mut RakNetResponse) -> Result<(), crate::raknet::Error<'a>> {
+        let mut queue_update = oaPktLoginQueueUpdate::default();
+                        
+        queue_update.field36_0x24 = 0;
+        queue_update.field37_0x28 = 1;
+        queue_update.field38_0x2c = 1;
 
-    fn parse_utf16_string<'a>(data: &'a [u8]) -> IResult<&'a [u8], String, VerboseError<&'a[u8]>> {
-        map(length_data(map(nom::number::complete::le_u16, |i| i*2)), |b: &[u8]| {
-            let (front, slice, back) = unsafe {
-                b.align_to::<u16>()
-            };
-            if front.is_empty() && back.is_empty() {
-                String::from_utf16_lossy(slice).to_string()
-            } else {
-                String::new()
-            }
-        })(data)
+        update.add_message(Reliability::Reliable, queue_update.to_message());
+
+        self.temp_field_count += 1;
+
+        Ok(())
     }
 }
 
 impl LoginServer {
     pub async fn bind_server<A: ToSocketAddrs>(addr: A) -> io::Result<LoginServer> {
-        let mut listener = RakNetListener::bind(Box::new(LoginServerMessageHandler {}), addr).await?;
+        let mut listener = RakNetListener::bind(Box::new(LoginServerMessageHandler { temp_field_count: 0 }), addr).await?;
 
         /*let mut rng = rand::thread_rng();
         let bits = 2048;

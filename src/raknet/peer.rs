@@ -14,9 +14,12 @@ pub enum Priority {
     Low,
 }
 
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum State {
-    Unconnected,
+    HalfOpen,
     Connected,
+    HalfClosed,
+    Disconnected,
 }
 
 impl Priority {
@@ -28,6 +31,7 @@ pub struct RakNetPeer<'a> {
     remote_address: PeerAddress,
     local_address: PeerAddress,
     socket: Arc<UdpSocket>,
+    state: State,
 
     awaiting_ack_queue: VecDeque<Packet<'a>>,
     resend_queue: VecDeque<Packet<'a>>,
@@ -61,6 +65,7 @@ impl <'a>RakNetPeer<'a> {
                         _ => panic!("Unsupported address type!"),
                     },
                     socket,
+                    state: State::HalfOpen,
 
                     awaiting_ack_queue: VecDeque::new(),
                     resend_queue: VecDeque::new(),
@@ -118,6 +123,8 @@ impl <'a>RakNetPeer<'a> {
             Message::ConnectionRequest { password } => {
                 println!("Got connection reqeuest!");
 
+                self.state = State::Connected;
+
                 response.add_message(Reliability::Reliable, Message::ConnectionRequestAccepted { 
                         index: 0, 
                         peer_addr: self.remote_address, 
@@ -133,6 +140,12 @@ impl <'a>RakNetPeer<'a> {
                 response.add_message(Reliability::Unreliable, Message::InternalPing { time: Instant::now().duration_since(self.created) });
             },
 
+            Message::DisconnectionNotification => {
+                self.state = State::HalfClosed;
+
+                response.add_message(Reliability::Reliable, Message::DisconnectionNotification);
+            }
+
             _ => { let _ = handler.handle_request(self, &request, response).await; },
         }
     }
@@ -146,6 +159,14 @@ impl <'a>RakNetPeer<'a> {
 
     pub fn remote_address(&self) -> PeerAddress {
         self.remote_address
+    }
+
+    pub fn remote_time(&self) -> Duration {
+        self.remote_time
+    }
+
+    pub fn state(&self) -> State { 
+        self.state
     }
 
     pub async fn run_update(&mut self) {

@@ -197,14 +197,14 @@ impl <'a>Packet<'a> {
                     Self::parse_compressed_bytes(2, true),
                     |v| {
                         let r = u16::from_le_bytes(v.as_slice().try_into().unwrap());
-                        println!("Ack count {}", r);
+                        //println!("Ack count {}", r);
                         r
                     }
                 )), 
                 //Pase range entry
                 context("ack data", flat_map(bit_parser::bool, 
                     |max_equals_min| {
-                        println!("Max = Min: {}", max_equals_min);
+                        //println!("Max = Min: {}", max_equals_min);
                         map(
                             tuple((
                                 context("min message id", Self::parse_message_number),

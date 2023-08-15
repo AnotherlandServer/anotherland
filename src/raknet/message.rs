@@ -108,6 +108,14 @@ impl Message {
             }))(data)
     }
 
+    fn parse_disconnection_notification<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+        context("disconnection_notification", map(
+            tag([ID_DISCONNECTION_NOTIFICATION]),
+            |(_)| {
+                Message::DisconnectionNotification { }
+            }))(data)
+    }
+
     fn parse_connection_request<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
         context("conenction_request", map(
             tuple((
@@ -194,14 +202,14 @@ impl Message {
             |msg_id| {
                 match msg_id {
                     ID_INTERNAL_PING => Self::parse_internal_ping,
-                    ID_CONNECTION_REQUEST => Self::parse_connection_request,
                     ID_CONNECTED_PONG => Self::parse_connected_pong,
-                    ID_NEW_INCOMING_CONNECTION => Self::parse_new_incoming_connection,
+                    ID_CONNECTION_REQUEST => Self::parse_connection_request,
                     ID_SECURED_CONNECTION_RESPONSE => Self::parse_secured_connection_response,
                     ID_OPEN_CONNECTION_REQUEST => Self::parse_open_connection_request,
                     ID_OPEN_CONNECTION_REPLY => Self::parse_open_connection_reply,
                     ID_CONNECTION_REQUEST_ACCEPTED => Self::parse_connection_request_accepted,
-                    ID_USER_MESSAGE_START..=u8::MAX => Self::parse_user_message,
+                    ID_NEW_INCOMING_CONNECTION => Self::parse_new_incoming_connection,
+                    ID_DISCONNECTION_NOTIFICATION => Self::parse_disconnection_notification,
                     _ => Self::parse_atlas_pkt,
                 }
             }))(data)
@@ -245,11 +253,13 @@ impl Message {
                 writer.write_bytes(own_addr.to_bytes().as_slice())?;
                 writer.write_bytes(guid.to_bytes().as_slice())?;
             },
+            Self::DisconnectionNotification => {
+                writer.write(ID_DISCONNECTION_NOTIFICATION)?;
+            }
             Self::User { number, data } => {
                 writer.write(*number)?;
                 writer.write_bytes(data)?;
             }
-
             _ => panic!("Packet writer unimplemented!"),
         }
 
