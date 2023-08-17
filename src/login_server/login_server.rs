@@ -21,9 +21,11 @@ impl RequestHandler for LoginServerMessageHandler {
     async fn handle_request<'a>(&'a mut self, peer: &RakNetPeer, request: &'a RakNetRequest, response: &'a mut RakNetResponse) -> Result<(), crate::raknet::Error<'a>> {
         match request.message() {
             Message::AtlasPkt(pkt) => {
+                println!("{:#?}", pkt);
+
                 match &pkt {
                     CPkt::CPktLogin(login_pkt) => {
-                        let mut result = CPktLoginResult::default();
+                        /*let mut result = CPktLoginResult::default();
 
                         result.login_success = true;
                         result.ui_state = 2;
@@ -75,7 +77,7 @@ impl RequestHandler for LoginServerMessageHandler {
                         realm_status.field_7.push(0);
     
                         
-                        response.add_message(Reliability::Reliable, realm_status.to_message());
+                        response.add_message(Reliability::Reliable, realm_status.to_message());*/
                     },
                     CPkt::oaPktRealmStatusList(pkt) => {
                         println!("{:?}", pkt);
@@ -90,7 +92,7 @@ impl RequestHandler for LoginServerMessageHandler {
     }
 
     async fn update_client<'a>(&'a mut self, peer: &RakNetPeer, update: &'a mut RakNetResponse) -> Result<(), crate::raknet::Error<'a>> {
-        let mut queue_update = oaPktLoginQueueUpdate::default();
+        /*let mut queue_update = oaPktLoginQueueUpdate::default();
                         
         queue_update.field36_0x24 = 0;
         queue_update.field37_0x28 = 1;
@@ -98,7 +100,7 @@ impl RequestHandler for LoginServerMessageHandler {
 
         update.add_message(Reliability::Reliable, queue_update.to_message());
 
-        self.temp_field_count += 1;
+        self.temp_field_count += 1;*/
 
         Ok(())
     }

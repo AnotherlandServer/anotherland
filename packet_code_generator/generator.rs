@@ -1,7 +1,10 @@
 use std::{io, env, collections::HashMap, cell::RefCell, rc::Rc, path::{PathBuf, Path}, fs};
 
 use proc_macro2::TokenStream;
+use quote::format_ident;
 use ::quote::quote;
+
+use crate::packet_code_generator::struct_generator::GeneratedStructSource;
 
 use super::{yaml_reader::{load_struct_definitions, load_packet_definitions}, struct_generator::GeneratedStruct, code_generator::{generate_enum_code, generate_struct_code, generate_implementation_code}};
 
@@ -66,7 +69,68 @@ pub fn generate_packet_code() -> io::Result<()> {
     let struct_code = generate_struct_code(&struct_list);
     let impl_code = generate_implementation_code(&struct_list);
 
+    let packet_struct_enums: Vec<_> = struct_list.iter()
+        .filter(|v| {
+            match v.borrow().definition {
+                super::struct_generator::GeneratedStructSource::PacketDefintion(_) => true,
+                _ => false,
+            }
+        })
+        .map(|v| {
+            let struct_ident = format_ident!("{}", v.borrow().name);
+            quote! { #struct_ident(Box<#struct_ident>), }
+        }).collect();
+
+    let packet_struct_parser: Vec<_> = struct_list.iter()
+        .filter(|v| {
+            match v.borrow().definition {
+                super::struct_generator::GeneratedStructSource::PacketDefintion(_) => true,
+                _ => false,
+            }
+        })
+        .map(|v| {
+            let v = v.borrow();
+            let struct_ident = format_ident!("{}", v.name);
+            let (id, sub_id) = match &v.definition {
+                GeneratedStructSource::PacketDefintion(def) => {
+                    let def = def.borrow();
+                    (def.id, def.sub_id)
+                },
+                _ => unreachable!(),
+            };
+            quote! { (#id, #sub_id) => #struct_ident::from_bytes, }
+        }).collect();
+
     write_source(&out_dir_path.join("generated_packets.rs"), quote! {
+        use nom::{IResult, Err, error::{VerboseError, context, ErrorKind}, combinator::*, sequence::*, multi::*, number::complete::*};
+        use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
+        use parsers::*;
+        use std::io;
+        use std::cmp::min;
+        use super::raknet::Message;
+
+        #[derive(Debug)]
+        pub enum CPkt {
+            #(#packet_struct_enums)*
+        }
+
+        impl CPkt {
+            pub fn from_bytes<'a>(i: &'a [u8]) -> IResult<&'a [u8], CPkt, VerboseError<&'a [u8]>> {
+                context("CPkt", flat_map(tuple((le_u8, le_u8)), 
+                    |v| {
+                        match v {
+                            #(#packet_struct_parser)*
+                            _ => Self::pkt_fail,
+                        }
+                    }
+                ))(i)
+            }
+
+            fn pkt_fail<'a>(i: &'a [u8]) -> IResult<&'a [u8], CPkt, VerboseError<&'a [u8]>> {
+                fail(i)
+            }
+        }
+
         #enum_code
         #struct_code
         #impl_code

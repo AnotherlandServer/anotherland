@@ -34,13 +34,13 @@ impl QueueServer {
                     }
 
                     for c in clients.iter_mut() {
-                        let mut queue_update = oaPktLoginQueueUpdate::default();
+                        /*let mut queue_update = oaPktLoginQueueUpdate::default();
                         
                         queue_update.field36_0x24 = 1;
                         queue_update.field37_0x28 = 2;
                         queue_update.field38_0x2c = 3;
 
-                        c.write(queue_update.to_bytes().as_slice());
+                        c.write(queue_update.to_bytes().as_slice());*/
                     }
 
                     std::thread::sleep(Duration::from_secs(1));
