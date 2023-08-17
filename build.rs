@@ -1,21 +1,15 @@
 use std::{env, path::Path, fs};
 
-use crate::packet_parser::load_definitions;
+use crate::packet_code_generator::generate_packet_code;
 
-mod packet_parser;
-
-
+mod packet_code_generator;
 
 fn main() {
-    let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR not set");
-    //let out_dir_path = Path::new(&out_dir);
-
-    let definitions = load_definitions("./packet_definitions/packets")
-        .expect("Failed to parse packet defintions");
-
-    panic!();
+    generate_packet_code()
+        .expect("Failed to generate packet handling code");
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=packet_code_generator/");
     println!("cargo:rerun-if-changed=packet_definitions/");
     println!("cargo:rerun-if-changed=packet_definitions/packets/");
     println!("cargo:rerun-if-changed=packet_definitions/structs/");
