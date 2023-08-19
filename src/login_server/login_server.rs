@@ -6,7 +6,7 @@ use nom::{IResult, error::{VerboseError, convert_error}, sequence::tuple, combin
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use tokio::{net::{UdpSocket, ToSocketAddrs}, io, task::JoinHandle};
 
-use crate::{raknet::{RakNetListener, RequestHandler, RakNetRequest, RakNetResponse, Message, RakNetPeer, Packet, Reliability}, atlas::{self, CPkt, CPktLoginResult, oaPktLoginQueueUpdate, oaPktRealmStatusList}};
+use crate::{raknet::{RakNetListener, RequestHandler, RakNetRequest, RakNetResponse, Message, RakNetPeer, Packet, Reliability}, atlas::{self, CPkt, CPktLoginResult, oaPktLoginQueueUpdate, oaPktRealmStatusList, CpktLoginResultUiState, Uuid}};
 
 pub struct LoginServer {
     listener: RakNetListener,
@@ -25,10 +25,10 @@ impl RequestHandler for LoginServerMessageHandler {
 
                 match &pkt {
                     CPkt::CPktLogin(login_pkt) => {
-                        /*let mut result = CPktLoginResult::default();
+                        let mut result = CPktLoginResult::default();
 
                         result.login_success = true;
-                        result.ui_state = 2;
+                        result.ui_state = CpktLoginResultUiState::CharacterSelection;
                         result.user_id = Some(1234);
                         result.username = Some(login_pkt.username.to_owned());
                         result.magic_bytes = Some(login_pkt.magic_bytes.clone());
@@ -38,31 +38,13 @@ impl RequestHandler for LoginServerMessageHandler {
                         result.realm_port = Some(6113);
                         result.field38_0x34 = Some(0xBEEF);
                         result.unknown_string = Some("Test String".to_owned());
-                        result.field_12 = Some(0xA0A0);
-                        result.field_13 = Some(0x1234);
-                        result.field_14 = Some(0xBB00);
-                        result.field_15 = Some(0x42);
-                        result.field_16 = Some(0xFE);
-                        result.field_17 = Some(0x11);
-                        result.field_18 = Some(0x22);
-                        result.field_19 = Some(0x33);
-                        result.field_20 = Some(0x44);
-                        result.field_21 = Some(0x55);
-                        result.field_22 = Some(0x66);
+                        result.session_id = Some(Uuid::new_v4());
 
                         println!("{:#?}", login_pkt);
                         println!("{:#?}", result);
                         println!("{:#?}", result.to_bytes());
 
                         response.add_message(Reliability::Reliable, result.to_message());
-
-                        let mut queue_update = oaPktLoginQueueUpdate::default();
-                        
-                        queue_update.field36_0x24 = 1;
-                        queue_update.field37_0x28 = 2;
-                        queue_update.field38_0x2c = 3;
-
-                        response.add_message(Reliability::Reliable, queue_update.to_message());
 
                         let mut realm_status = oaPktRealmStatusList::default();
                         
@@ -77,7 +59,7 @@ impl RequestHandler for LoginServerMessageHandler {
                         realm_status.field_7.push(0);
     
                         
-                        response.add_message(Reliability::Reliable, realm_status.to_message());*/
+                        response.add_message(Reliability::Reliable, realm_status.to_message());
                     },
                     CPkt::oaPktRealmStatusList(pkt) => {
                         println!("{:?}", pkt);
@@ -94,9 +76,9 @@ impl RequestHandler for LoginServerMessageHandler {
     async fn update_client<'a>(&'a mut self, peer: &RakNetPeer, update: &'a mut RakNetResponse) -> Result<(), crate::raknet::Error<'a>> {
         /*let mut queue_update = oaPktLoginQueueUpdate::default();
                         
-        queue_update.field36_0x24 = 0;
-        queue_update.field37_0x28 = 1;
-        queue_update.field38_0x2c = 1;
+        queue_update.channel = 1;
+        queue_update.number = 10;
+        queue_update.field38_0x2c = self.temp_field_count;
 
         update.add_message(Reliability::Reliable, queue_update.to_message());
 

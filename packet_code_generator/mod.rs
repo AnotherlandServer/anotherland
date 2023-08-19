@@ -5,5 +5,3 @@ mod generator;
 
 pub use generator::*;
 use yaml_reader::*;
-use struct_generator::*;
-use code_generator::*;

@@ -1,10 +1,10 @@
-use std::{rc::Rc, cell::RefCell, primitive};
+use std::{rc::Rc, cell::RefCell};
 
-use quote::{format_ident, TokenStreamExt};
+use quote::format_ident;
 use ::quote::quote;
 use proc_macro2::{TokenStream, Ident};
 
-use super::{struct_generator::{GeneratedEnum, GeneratedStruct, GeneratedFieldType, GeneratedEnumReference, GeneratedStructReference, GeneratedStructSource}, yaml_reader::{FieldDefinition, FieldTypeDefinition, FieldLengthDefinition, PacketDefinitionReference, StructDefinitionReference}};
+use super::{struct_generator::{GeneratedEnum, GeneratedStruct, GeneratedFieldType, GeneratedEnumReference, GeneratedStructReference, GeneratedStructSource, GeneratedField}, yaml_reader::{FieldDefinition, FieldTypeDefinition, FieldLengthDefinition, PacketDefinitionReference, StructDefinitionReference}};
 
 pub fn generate_enum_code(enums: &Vec<Rc<RefCell<GeneratedEnum>>>) -> TokenStream {
     let mut code = quote!();
@@ -17,8 +17,9 @@ pub fn generate_enum_code(enums: &Vec<Rc<RefCell<GeneratedEnum>>>) -> TokenStrea
             .map(|v| format_ident!("{}", v.1)).collect();
 
         code.extend(quote! {
-            #[derive(Debug)]
+            #[derive(Debug, Default)]
             pub enum #enum_identifier {
+                #[default]
                 #(#values),*
             }
         });
@@ -83,14 +84,14 @@ pub fn generate_struct_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>) -> Toke
             let type_ident = generate_field_type_code(&field.r#type);
 
             if field.optional {
-                quote! {#field_ident: Option<#type_ident>}
+                quote! {pub #field_ident: Option<#type_ident>}
             } else {
-                quote! {#field_ident: #type_ident}
+                quote! {pub #field_ident: #type_ident}
             }
         }).collect();
 
         code.extend(quote! {
-            #[derive(Debug)]
+            #[derive(Debug, Default)]
             pub struct #struct_ident {
                 #(#field),*
             }
@@ -126,7 +127,7 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
         
                     quote! { #primitive_parser }
                 },
-                FieldTypeDefinition::Enum { primitive, values } => {
+                FieldTypeDefinition::Enum { primitive, .. } => {
                     let primitive_parser = match primitive.as_ref() {
                         FieldTypeDefinition::Primitive(primitive) => generate_nom_parser_for_primitive(primitive),
                         _ => panic!("Enum primitive type is not a primitive"),
@@ -218,10 +219,10 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
                         count(#parser, #len_ident)
                     }
                 },
-                FieldTypeDefinition::CString { maxlen } => {
+                FieldTypeDefinition::CString { .. } => {
                     quote! { parse_pkt_cstring }
                 },
-                FieldTypeDefinition::WString { maxlen } => {
+                FieldTypeDefinition::WString { .. } => {
                     quote! { parse_pkt_wstring }
                 },
                 FieldTypeDefinition::Struct(_) => {
@@ -257,7 +258,7 @@ pub fn generate_field_parser_code(generated_struct: &GeneratedStruct, field: &Fi
 
             parser_code
         },
-        FieldDefinition::Field { name, r#type } => {
+        FieldDefinition::Field { name, .. } => {
             let generated_field = generated_struct.fields_mapped.get(name.as_ref().unwrap()).unwrap().borrow();
             let field_ident = format_ident!("{}", generated_field.name);
             let parser = generate_nom_parser_for_field(generated_struct, field);
@@ -357,6 +358,266 @@ pub fn generate_parser_code(generated_struct: &GeneratedStruct) -> TokenStream {
 
 }
 
+pub fn generate_primitive_writer_code(primitive: &str, generated_field: &GeneratedField) -> TokenStream {
+    let field_name_ident = format_ident!("{}", generated_field.name);
+    let field_getter = if generated_field.optional {
+        quote! { self.#field_name_ident.unwrap_or_default() }
+    } else {
+        quote! { self.#field_name_ident }
+    };
+
+    match primitive {
+        "bool" => quote! { writer.write(#field_getter as u8)?; },
+        "u8" => quote! { writer.write(#field_getter as u8)?; },
+        "u16" => quote! { writer.write(#field_getter as u16)?; },
+        "u32" => quote! { writer.write(#field_getter as u32)?; },
+        "u64" => quote! { writer.write(#field_getter as u64)?; },
+        "i8" => quote! { writer.write(#field_getter as i8)?; },
+        "i16" => quote! { writer.write(#field_getter as i16)?; },
+        "i32" => quote! { writer.write(#field_getter as i32)?; },
+        "i64" => quote! { writer.write(#field_getter as i64)?; },
+        _ => panic!("Tried to serialize unkown primitive"),
+    }
+}
+
+pub fn generate_field_writer_code(generated_struct: &GeneratedStruct, field_def: &FieldDefinition) -> TokenStream {
+    match field_def {
+        FieldDefinition::Branch { field, is_true, is_false } => {
+            let generated_test_field = generated_struct.fields_mapped.get(field).unwrap().borrow();
+            let generated_test_field_ident = format_ident!("{}", generated_test_field.name);
+
+            let true_fields: Vec<_> = is_true.iter().map(|v| generate_field_writer_code(generated_struct, v)).collect();
+            let false_fields: Vec<_> = is_false.iter().map(|v| generate_field_writer_code(generated_struct, v)).collect();
+            
+            if generated_test_field.optional {
+                quote! {
+                    if self.#generated_test_field_ident.unwrap_or_default() {
+                        #(#true_fields)*
+                    } else {
+                        #(#false_fields)*
+                    }
+                }
+            } else {
+                quote! {
+                    if self.#generated_test_field_ident {
+                        #(#true_fields)*
+                    } else {
+                        #(#false_fields)*
+                    }
+                }
+            }
+        },
+        FieldDefinition::Field { name, r#type } => {
+            let generated_field = generated_struct.fields_mapped.get(name.as_ref().unwrap()).unwrap().borrow();
+            let generated_field_ident = format_ident!("{}", generated_field.name);
+
+            match r#type {
+                FieldTypeDefinition::Primitive(primitive) => {
+                    generate_primitive_writer_code(primitive, &generated_field)
+                },
+                FieldTypeDefinition::CString { maxlen } => {
+                    let maxlen_ident = if let Some(maxlen) = maxlen {
+                        quote! { Some(#maxlen) }
+                    } else {
+                        quote! { None }
+                    };
+
+                    if generated_field.optional {
+                        quote! { write_pkt_cstring(&mut writer, self.#generated_field_ident.as_ref().map(|v| v.as_ref()), #maxlen_ident)?; }
+                    } else {
+                        quote! { write_pkt_cstring(&mut writer, Some(&self.#generated_field_ident), #maxlen_ident)?; }
+                    }
+                },
+                FieldTypeDefinition::WString { maxlen } => {
+                    let maxlen_ident = if let Some(maxlen) = maxlen {
+                        quote! { Some(#maxlen) }
+                    } else {
+                        quote! { None }
+                    };
+
+                    if generated_field.optional {
+                        quote! { write_pkt_wstring(&mut writer, self.#generated_field_ident.as_ref().map(|v| v.as_ref()), #maxlen_ident)?; }
+                    } else {
+                        quote! { write_pkt_wstring(&mut writer, Some(&self.#generated_field_ident), #maxlen_ident)?; }
+                    }
+                },
+                FieldTypeDefinition::Struct(struct_def) => {
+                    if generated_field.optional {
+                        quote! { writer.write_bytes(self.#generated_field_ident.as_ref().unwrap().to_bytes().as_slice())?; }
+                    } else {
+                        quote! { writer.write_bytes(&self.#generated_field_ident.to_bytes().as_slice())?; }
+                    }
+                },
+                FieldTypeDefinition::Enum { primitive, values } => {
+                    let generated_enum = match &generated_field.r#type {
+                        GeneratedFieldType::Enum(GeneratedEnumReference::Resolved(generated_enum)) => generated_enum.borrow(),
+                        _ => panic!("Enum type mismatch"),
+                    };
+
+                    let primitive_datatype = match primitive.as_ref() {
+                        FieldTypeDefinition::Primitive(primitive) => primitive.as_str(),
+                        _ => panic!("Expected primitive type"),
+                    };
+
+                    let generated_enum_ident = format_ident!("{}", generated_enum.name);
+
+                    let enum_write_arms: Vec<_> = generated_enum.values.iter()
+                        .map(|v| {
+                            let enum_value_ident = format_ident!("{}", v.1);
+                            let enum_value = v.0;
+                            let write_primitive = match primitive_datatype {
+                                "bool" => quote! { writer.write( as u8)? },
+                                "u8" => quote! { writer.write(#enum_value as u8)? },
+                                "u16" => quote! { writer.write(#enum_value as u16)? },
+                                "u32" => quote! { writer.write(#enum_value as u32)? },
+                                "u64" => quote! { writer.write(#enum_value as u64)? },
+                                "i8" => quote! { writer.write(#enum_value as i8)? },
+                                "i16" => quote! { writer.write(#enum_value as i16)? },
+                                "i32" => quote! { writer.write(#enum_value as i32)? },
+                                "i64" => quote! { writer.write(#enum_value as i64)? },
+                                _ => panic!("Tried to serialize unkown primitive"),
+                            };
+
+                            quote! {
+                                #generated_enum_ident::#enum_value_ident => #write_primitive,
+                            }
+                        })
+                        .collect();
+
+                    quote! {
+                        match self.#generated_field_ident {
+                            #(#enum_write_arms)*
+                        }
+                    }
+                },
+                FieldTypeDefinition::Array { len, r#type } => {
+                    let value_writer = match r#type.as_ref() {
+                        FieldTypeDefinition::Primitive(primitive) => {
+                            match primitive.as_str() {
+                                "bool" => quote! { writer.write(*v as u8)?; },
+                                "u8" => quote! { writer.write(*v as u8)?; },
+                                "u16" => quote! { writer.write(*v as u16)?; },
+                                "u32" => quote! { writer.write(*v as u32)?; },
+                                "u64" => quote! { writer.write(*v as u64)?; },
+                                "i8" => quote! { writer.write(*v as i8)?; },
+                                "i16" => quote! { writer.write(*v as i16)?; },
+                                "i32" => quote! { writer.write(*v as i32)?; },
+                                "i64" => quote! { writer.write(*v as i64)?; },
+                                _ => panic!("Tried to serialize unkown primitive"),
+                            }
+                        },
+                        FieldTypeDefinition::CString { maxlen } => {
+                            let maxlen_ident = if let Some(maxlen) = maxlen {
+                                quote! { Some(#maxlen) }
+                            } else {
+                                quote! { None }
+                            };
+        
+                            quote! { write_pkt_cstring(&mut writer, Some(v), #maxlen_ident)?; }
+                        },
+                        FieldTypeDefinition::WString { maxlen } => {
+                            let maxlen_ident = if let Some(maxlen) = maxlen {
+                                quote! { Some(#maxlen) }
+                            } else {
+                                quote! { None }
+                            };
+
+                            quote! { write_pkt_wstring(&mut writer, Some(v), #maxlen_ident)?; }
+                        },
+                        FieldTypeDefinition::Struct(struct_def) => {
+                            quote! { writer.write_bytes(v.to_bytes().as_slice())?; }
+                        },
+                        _ => panic!("Invalid array subtipe"),
+                    };
+
+                    if generated_field.optional {
+                        quote! {
+                            if let Some(arr) = &self.#generated_field_ident {
+                                for v in arr {
+                                    #value_writer
+                                }
+                            }
+                        }
+                    } else {
+                        quote! {
+                            for v in &self.#generated_field_ident {
+                                #value_writer
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub fn generate_writer_code<'a>(generated_struct: &GeneratedStruct) -> TokenStream {
+    let packet_subid_writer = match &generated_struct.definition {
+        GeneratedStructSource::PacketDefintion(def) => {
+            let def = def.borrow();
+            let subid = def.sub_id;
+
+            quote! {writer.write(#subid);}
+        },
+        _ => quote!(),
+    };
+
+    let parent_field_writers: Vec<_> =  match &generated_struct.definition {
+        GeneratedStructSource::PacketDefintion(def) => {
+            let def = def.borrow();
+            if let Some(parent) = &def.inherit {
+                match parent {
+                    PacketDefinitionReference::Resolved(packet_def) => {
+                        packet_def.borrow().fields.iter().map(|v| generate_field_writer_code(generated_struct, v)).collect()
+                    },
+                    _ => panic!("Unresolved parent definition"),
+                }
+            } else {
+                Vec::new()
+            }
+        },
+        GeneratedStructSource::StructDefinition(def) => {
+            let def = def.borrow();
+            if let Some(parent) = &def.inherit {
+                match parent {
+                    StructDefinitionReference::Resolved(packet_def) => {
+                        packet_def.borrow().fields.iter().map(|v| generate_field_writer_code(generated_struct, v)).collect()
+                    },
+                    _ => panic!("Unresolved parent definition"),
+                }
+            } else {
+                Vec::new()
+            }
+        }
+    };
+
+    let field_writers: Vec<_> =  match &generated_struct.definition {
+        GeneratedStructSource::PacketDefintion(def) => {
+            def.borrow().fields.iter().map(|v| generate_field_writer_code(generated_struct, v)).collect()
+        },
+        GeneratedStructSource::StructDefinition(def) => {
+            def.borrow().fields.iter().map(|v| generate_field_writer_code(generated_struct, v)).collect()
+        }
+    };
+
+    quote! {
+        pub fn to_bytes(&self) -> Vec<u8> {
+            let r: io::Result<Vec<u8>> = (|| {
+                let mut buf = Vec::new();
+                let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
+
+                #packet_subid_writer
+
+                #(#parent_field_writers)*
+                #(#field_writers)*
+                Ok(buf)
+            })();
+            
+            r.expect("Message serialization failed")
+        }
+    }
+}
+
 pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>) -> TokenStream {
     let mut code = quote!();
 
@@ -370,10 +631,24 @@ pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>)
 
         let struct_ident = format_ident!("{}", generated_struct.name);
         let parser_code = generate_parser_code(&generated_struct);
+        let writer_code = generate_writer_code(&generated_struct);
+        let message_code = match &generated_struct.definition {
+            GeneratedStructSource::PacketDefintion(def) => {
+                let packet_id = def.borrow().id;
+                quote!{ 
+                    pub fn to_message(&self) -> Message {
+                        Message::User { number: #packet_id, data: self.to_bytes() }
+                    }
+                }
+            },
+            _ => quote!(),
+        };
 
         code.extend(quote! {
             impl #struct_ident {
                 #parser_code
+                #writer_code
+                #message_code
             }
         });
     }

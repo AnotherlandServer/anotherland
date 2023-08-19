@@ -39,7 +39,7 @@ pub fn generate_packet_code() -> io::Result<()> {
     }
 
     // generate packet layouts & enums
-    for (name, struct_definition) in &struct_definitions {
+    for (_, struct_definition) in &struct_definitions {
         let mut generated_struct = 
             GeneratedStruct::generate_from_struct_definition(&struct_definition)?;
         
@@ -51,7 +51,7 @@ pub fn generate_packet_code() -> io::Result<()> {
     }
 
     // generate struct layouts & enums
-    for (name, packet_definition) in &packet_definitions {
+    for (_, packet_definition) in &packet_definitions {
         let mut generated_struct = 
             GeneratedStruct::generate_from_packet_definition(&packet_definition, &generated_structs)?;
         
@@ -101,14 +101,20 @@ pub fn generate_packet_code() -> io::Result<()> {
             quote! { (#id, #sub_id) => #struct_ident::from_bytes, }
         }).collect();
 
-    write_source(&out_dir_path.join("generated_packets.rs"), quote! {
-        use nom::{IResult, Err, error::{VerboseError, context, ErrorKind}, combinator::*, sequence::*, multi::*, number::complete::*};
-        use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
-        use parsers::*;
-        use std::io;
-        use std::cmp::min;
-        use super::raknet::Message;
+    let packet_writer_enum: Vec<_> = struct_list.iter()
+    .filter(|v| {
+        match v.borrow().definition {
+            super::struct_generator::GeneratedStructSource::PacketDefintion(_) => true,
+            _ => false,
+        }
+    })
+    .map(|v| {
+        let v = v.borrow();
+        let struct_ident = format_ident!("{}", v.name);
+        quote! { CPkt::#struct_ident(pkt) => pkt.to_message() }
+    }).collect();
 
+    write_source(&out_dir_path.join("generated_packets.rs"), quote! {
         #[derive(Debug)]
         pub enum CPkt {
             #(#packet_struct_enums)*
@@ -129,12 +135,18 @@ pub fn generate_packet_code() -> io::Result<()> {
             fn pkt_fail<'a>(i: &'a [u8]) -> IResult<&'a [u8], CPkt, VerboseError<&'a [u8]>> {
                 fail(i)
             }
+
+            pub fn to_message(&self) -> Message {
+                match self {
+                    #(#packet_writer_enum),*
+                }
+            }
         }
 
         #enum_code
         #struct_code
         #impl_code
-    });
+    })?;
 
     Ok(())
 }

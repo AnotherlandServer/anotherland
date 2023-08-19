@@ -1,6 +1,5 @@
 use std::{fs, io, path::Path, collections::HashMap, rc::Rc, cell::RefCell};
-use yaml_rust::{YamlLoader, yaml, Yaml};
-use linked_hash_map::LinkedHashMap;
+use yaml_rust::{YamlLoader, Yaml};
 
 #[derive(Debug)]
 pub struct PacketDefintion {
@@ -248,7 +247,7 @@ impl FieldDefinition {
 
     pub fn resolve_references(&mut self, packets: &HashMap<String, Rc<RefCell<PacketDefintion>>>, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
         match self {
-            FieldDefinition::Branch { field, is_true, is_false } => {
+            FieldDefinition::Branch { is_true, is_false, .. } => {
                 for field in is_true {
                     field.resolve_references(packets, structs)?;
                 }

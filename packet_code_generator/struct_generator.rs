@@ -177,7 +177,7 @@ impl GeneratedField {
                         let enum_name = naming_case.convert(format!("{}_{}", prefix, self.name));
 
                         match def {
-                            FieldTypeDefinition::Enum { primitive, values } => {
+                            FieldTypeDefinition::Enum { values, .. } => {
                                 let enum_values = values.iter()
                                     .map(|v| (v.0, naming_case.convert(&v.1)))
                                     .collect();
