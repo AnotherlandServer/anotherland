@@ -2,6 +2,7 @@ mod raknet;
 mod login_server;
 mod realm_server;
 mod queue_server;
+mod world_server;
 mod atlas;
 
 // Import modules
@@ -24,7 +25,9 @@ use queue_server::QueueServer;
 async fn main() -> io::Result<()> {
     let login_server = LoginServer::bind_server("0.0.0.0:6112").await?;
     let realm_server = RealmServer::bind_server("0.0.0.0:6113").await?;
+    let world_server = RealmServer::bind_server("0.0.0.0:6114").await?;
     let queue_server = QueueServer::bind_server("0.0.0.0:53292").await?;
+
 
     match signal::ctrl_c().await {
         Ok(()) => {},

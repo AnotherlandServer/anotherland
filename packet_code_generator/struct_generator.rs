@@ -159,6 +159,14 @@ impl GeneratedStruct {
 
         Ok(generated)
     }
+
+    pub fn resolve_references(&mut self, struct_registry: &HashMap<String, Rc<RefCell<GeneratedStruct>>>) -> io::Result<()> {
+        for field in &self.fields {
+            field.borrow_mut().resolve_references(struct_registry)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl GeneratedField {
@@ -201,6 +209,10 @@ impl GeneratedField {
 
         enums
     }
+
+    pub fn resolve_references(&mut self, struct_registry: &HashMap<String, Rc<RefCell<GeneratedStruct>>>) -> io::Result<()> {
+        self.r#type.resolve_references(struct_registry)
+    }
 }
 
 impl GeneratedFieldType {
@@ -236,6 +248,35 @@ impl GeneratedFieldType {
                 },
             FieldTypeDefinition::Enum { .. } => 
                 GeneratedFieldType::Enum(GeneratedEnumReference::Unresolved(definition.clone())),
+        }
+    }
+
+    pub fn resolve_references(&mut self, struct_registry: &HashMap<String, Rc<RefCell<GeneratedStruct>>>) -> io::Result<()> {
+        match self {
+            GeneratedFieldType::Struct(reference) => {
+                match reference {
+                    GeneratedStructReference::Unresolved(name) => {
+                        println!("Resolving {}", name);
+
+                        let resolved = struct_registry.get(name);
+                        if let Some(resolved) = resolved {
+                            *reference = GeneratedStructReference::Resolved(resolved.clone());
+                        } else {
+                            panic!("Failed to resolve previously resolved struct reference")
+                        }
+                        Ok(())
+                    },
+                    GeneratedStructReference::Resolved(_) => {
+                        println!("Struct is resolved");
+                        Ok(())
+                    },
+                    _ => Ok(())
+                }
+            },
+            GeneratedFieldType::Array(r#type) => {
+                r#type.resolve_references(struct_registry)
+            }
+            _ => Ok(())
         }
     }
 }

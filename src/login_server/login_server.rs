@@ -63,7 +63,7 @@ impl RequestHandler for LoginServerMessageHandler {
                     },
                     CPkt::oaPktRealmStatusList(pkt) => {
                         println!("{:?}", pkt);
-                    }
+                    },
                     _ => (),
                 }
             }

@@ -30,15 +30,15 @@ pub fn generate_packet_code() -> io::Result<()> {
         def.borrow_mut().normalize();
     }
 
-    for (_, def) in &struct_definitions {
+    /*for (_, def) in &struct_definitions {
         println!("{:#?}", def);
     }
 
     for (_, def) in &packet_definitions {
         println!("{:#?}", def);
-    }
+    }*/
 
-    // generate packet layouts & enums
+    // generate struct layouts & enums
     for (_, struct_definition) in &struct_definitions {
         let mut generated_struct = 
             GeneratedStruct::generate_from_struct_definition(&struct_definition)?;
@@ -46,11 +46,15 @@ pub fn generate_packet_code() -> io::Result<()> {
         let mut enums = generated_struct.generate_and_resolve_enums();
         generated_enums.append(&mut enums);
 
-        println!("Struct\n{:#?}", generated_struct);
+        //println!("Struct\n{:#?}", generated_struct);
         generated_structs.insert(generated_struct.name.clone(), Rc::new(RefCell::new(generated_struct)));
     }
 
-    // generate struct layouts & enums
+    for (_, generated) in &generated_structs {
+        generated.borrow_mut().resolve_references(&generated_structs)?;
+    }
+
+    // generate packets layouts & enums
     for (_, packet_definition) in &packet_definitions {
         let mut generated_struct = 
             GeneratedStruct::generate_from_packet_definition(&packet_definition, &generated_structs)?;
@@ -58,7 +62,7 @@ pub fn generate_packet_code() -> io::Result<()> {
         let mut enums = generated_struct.generate_and_resolve_enums();
         generated_enums.append(&mut enums);
 
-        println!("Struct\n{:#?}", generated_struct);
+        //println!("Struct\n{:#?}", generated_struct);
         generated_structs.insert(generated_struct.name.clone(), Rc::new(RefCell::new(generated_struct)));
     }
 

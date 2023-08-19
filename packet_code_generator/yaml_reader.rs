@@ -67,8 +67,7 @@ impl PacketDefintion {
         let sub_id = yaml_defintion["subId"].as_i64()
             .ok_or(io::Error::new(io::ErrorKind::Other, "subId required"))? as u8;
         let inherit = yaml_defintion["inherit"].as_str();
-        let fields = yaml_defintion["fields"].as_vec()
-            .ok_or(io::Error::new(io::ErrorKind::Other, "fields required"))?;
+        let fields = yaml_defintion["fields"].as_vec();;
 
         let mut definition = Self {
             id,
@@ -78,8 +77,10 @@ impl PacketDefintion {
             fields: Vec::new(),
         };
 
-        for yaml_field in fields {
-            definition.fields.push(FieldDefinition::load_from_yaml(yaml_field)?);
+        if let Some(fields) = fields {
+            for yaml_field in fields {
+                definition.fields.push(FieldDefinition::load_from_yaml(yaml_field)?);
+            }
         }
 
         Ok(definition)
@@ -370,6 +371,8 @@ impl FieldTypeDefinition {
                 match struct_reference {
                     StructDefinitionReference::Unresolved(name) => {
                         if let Some(resolved) = structs.get(name) {
+                            println!("Resolved {}", name);
+
                             *struct_reference = StructDefinitionReference::Resolved(resolved.clone());
                             Ok(())
                         } else {

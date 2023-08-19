@@ -17,7 +17,7 @@ pub fn generate_enum_code(enums: &Vec<Rc<RefCell<GeneratedEnum>>>) -> TokenStrea
             .map(|v| format_ident!("{}", v.1)).collect();
 
         code.extend(quote! {
-            #[derive(Debug, Default)]
+            #[derive(Debug, Clone, Copy, Default)]
             pub enum #enum_identifier {
                 #[default]
                 #(#values),*
@@ -81,6 +81,8 @@ pub fn generate_struct_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>) -> Toke
             let field = v.borrow();
             let field_ident = format_ident!("{}", field.name);
 
+            println!("Generating {}::{}", generated_struct.name, field.name);
+
             let type_ident = generate_field_type_code(&field.r#type);
 
             if field.optional {
@@ -91,7 +93,7 @@ pub fn generate_struct_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>) -> Toke
         }).collect();
 
         code.extend(quote! {
-            #[derive(Debug, Default)]
+            #[derive(Debug, Clone, Default)]
             pub struct #struct_ident {
                 #(#field),*
             }
@@ -188,11 +190,22 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
                         FieldTypeDefinition::CString { .. } => quote! { parse_pkt_cstring },
                         FieldTypeDefinition::WString { .. } => quote! { parse_pkt_wstring },
                         FieldTypeDefinition::Struct(_) => {
+                            println!("{:#?}", field);
+                            println!("{:#?}", generated_field);
                             match &generated_field.r#type {
                                 GeneratedFieldType::Struct(GeneratedStructReference::Resolved(generated_struct)) => {
                                     let struct_ident = format_ident!("{}", generated_struct.borrow().name);
                                     quote! { #struct_ident::from_bytes }
                                 },
+                                GeneratedFieldType::Array(r#type) => {
+                                    match r#type.as_ref() {
+                                        GeneratedFieldType::Struct(GeneratedStructReference::Resolved(generated_struct)) => {
+                                            let struct_ident = format_ident!("{}", generated_struct.borrow().name);
+                                            quote! { #struct_ident::from_bytes }
+                                        },
+                                        _ => panic!(),
+                                    }
+                                }
                                 _ => panic!("Generated field type does not match field definition"),
                             }
                         },
@@ -216,7 +229,7 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
                     };
                     
                     quote! {
-                        count(#parser, #len_ident)
+                        nom::multi::count(#parser, #len_ident)
                     }
                 },
                 FieldTypeDefinition::CString { .. } => {
