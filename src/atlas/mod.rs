@@ -1,16 +1,10 @@
-mod cpkt;
-mod parsers;
+pub mod parsers;
 mod uuid;
+mod cparam;
+mod nativeparam;
+mod generated;
 
-use nom::{IResult, Err, error::{VerboseError, context, ErrorKind}, combinator::*, sequence::*, multi::*, number::complete::*};
-use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
-use parsers::*;
-use std::io;
-use std::cmp::min;
-use super::raknet::Message;
-use parsers::*;
-
-include!(concat!(env!("OUT_DIR"), "/generated_packets.rs"));
-
-pub use cpkt::*;
+pub use cparam::*;
 pub use self::uuid::*;
+pub use nativeparam::*;
+pub use generated::*;

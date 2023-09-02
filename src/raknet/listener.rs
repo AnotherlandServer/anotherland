@@ -34,7 +34,7 @@ impl RakNetListener {
                 loop {
                     // Pump new packets to update thread
                     if let Ok((size, addr)) = socket.recv_from(&mut buf).await {
-                        println!("Got message from {:#?} len {}", addr, size);
+                        //println!("Got message from {:#?} len {}", addr, size);
                         let _ = data_pump_thread_tx.send(RakNetListenerCommand::ReceivedDatagram(addr, buf[0..size].to_vec())).await;
                     } else {
                         break;
@@ -187,7 +187,7 @@ impl <'a>RakNetListenerImpl<'a> {
                 if let Some(acks) = acks { res.push(acks); }
                 if let Some(system_time) = system_time { res.push(system_time); }
 
-                println!("{:#?}", packets);
+                //println!("{:#?}", packets);
                 res.append(&mut packets);
 
                 res

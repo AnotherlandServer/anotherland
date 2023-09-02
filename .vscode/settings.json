@@ -3,6 +3,10 @@
         ".\\Cargo.toml",
         ".\\Cargo.toml",
         ".\\Cargo.toml",
+        ".\\Cargo.toml",
         ".\\Cargo.toml"
-    ]
+    ],
+    "yaml.schemas": {
+        "otherland-proto": "${workspaceFolder}/packet_definitions/otherproto.schema.yaml",
+    }
 }

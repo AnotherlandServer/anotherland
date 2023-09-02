@@ -30,9 +30,16 @@ pub enum StructDefinitionReference {
 }
 
 #[derive(Debug)]
+pub enum BranchTestDefinition {
+    BoolValue,
+    TestFlag(u32),
+    TestEqual(u32),
+}
+
+#[derive(Debug)]
 pub enum FieldDefinition {
     Field { name: Option<String>, r#type: FieldTypeDefinition },
-    Branch { field: String, is_true: Vec<FieldDefinition>, is_false: Vec<FieldDefinition> },
+    Branch { field: String, test: BranchTestDefinition, is_true: Vec<FieldDefinition>, is_false: Vec<FieldDefinition> },
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +74,7 @@ impl PacketDefintion {
         let sub_id = yaml_defintion["subId"].as_i64()
             .ok_or(io::Error::new(io::ErrorKind::Other, "subId required"))? as u8;
         let inherit = yaml_defintion["inherit"].as_str();
-        let fields = yaml_defintion["fields"].as_vec();;
+        let fields = yaml_defintion["fields"].as_vec();
 
         let mut definition = Self {
             id,
@@ -224,18 +231,27 @@ impl FieldDefinition {
         if !yaml["branch"].is_badvalue() && !yaml["branch"].is_null() {
             let field = yaml["branch"]["field"].as_str()
                 .ok_or(io::Error::new(io::ErrorKind::Other, "field required"))?;
-            let yaml_is_true = yaml["branch"]["isTrue"]["fields"].as_vec()
-                .ok_or(io::Error::new(io::ErrorKind::Other, "fields required"))?;
-            let yaml_is_false = yaml["branch"]["isFalse"]["fields"].as_vec()
-                .ok_or(io::Error::new(io::ErrorKind::Other, "fields required"))?;
 
             let mut is_true = Vec::new();
             let mut is_false = Vec::new();
 
-            for yaml_field in yaml_is_true { is_true.push(Self::load_from_yaml(yaml_field)?); }
-            for yaml_field in yaml_is_false { is_false.push(Self::load_from_yaml(yaml_field)?); }
+            if let Some(yaml_is_true) = yaml["branch"]["isTrue"]["fields"].as_vec() {
+                for yaml_field in yaml_is_true { is_true.push(Self::load_from_yaml(yaml_field)?); }
+            }
+ 
+            if let Some(yaml_is_false) = yaml["branch"]["isFalse"]["fields"].as_vec() {
+                for yaml_field in yaml_is_false { is_false.push(Self::load_from_yaml(yaml_field)?); }
+            }
 
-            Ok(FieldDefinition::Branch { field: field.to_owned(), is_true, is_false })
+            let branch_test = if let Some(yaml_test_flag) = yaml["branch"]["test_flag"].as_i64() {
+                BranchTestDefinition::TestFlag(yaml_test_flag as u32)
+            } else if let Some(yaml_test_equal) = yaml["branch"]["test_equal"].as_i64() {
+                BranchTestDefinition::TestEqual(yaml_test_equal as u32)
+            } else {
+                BranchTestDefinition::BoolValue
+            };
+                
+            Ok(FieldDefinition::Branch { field: field.to_owned(), test: branch_test, is_true, is_false })
         } else if !yaml["type"].is_badvalue() && !yaml["type"].is_null() {
             let name = yaml["name"].as_str().map(|v| v.to_owned());
             let yaml_type = &yaml["type"];
@@ -339,7 +355,9 @@ impl FieldTypeDefinition {
                 "i8" | 
                 "i16" | 
                 "i32" | 
-                "i64" => Ok(Self::Primitive(type_name.to_owned())),
+                "i64" |
+                "f32" |
+                "nativeparam" => Ok(Self::Primitive(type_name.to_owned())),
                 "cstring" => {
                     let maxlen = yaml["maxlen"].as_i64().map(|v| v as usize);
                     Ok(Self::CString { maxlen })

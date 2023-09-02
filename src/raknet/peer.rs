@@ -146,7 +146,10 @@ impl <'a>RakNetPeer<'a> {
                 response.add_message(Reliability::Reliable, Message::DisconnectionNotification);
             }
 
-            _ => { let _ = handler.handle_request(self, &request, response).await; },
+            _ => { 
+                println!("RX {}: {:#?}", self.socket.local_addr().unwrap().port(), request.message());
+                let _ = handler.handle_request(self, &request, response).await; 
+            },
         }
     }
 
@@ -160,6 +163,11 @@ impl <'a>RakNetPeer<'a> {
     pub fn remote_address(&self) -> PeerAddress {
         self.remote_address
     }
+
+    pub fn local_address(&self) -> PeerAddress {
+        self.local_address
+    }
+
 
     pub fn remote_time(&self) -> Duration {
         self.remote_time

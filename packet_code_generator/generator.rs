@@ -85,6 +85,25 @@ pub fn generate_packet_code() -> io::Result<()> {
             quote! { #struct_ident(Box<#struct_ident>), }
         }).collect();
 
+    let packet_enum_ids: Vec<_> = struct_list.iter()
+        .filter(|v| {
+            match v.borrow().definition {
+                super::struct_generator::GeneratedStructSource::PacketDefintion(_) => true,
+                _ => false,
+            }
+        })
+        .map(|v| {
+            let struct_ident = format_ident!("{}", v.borrow().name);
+            let (id, subid) = match &v.borrow().definition {
+                GeneratedStructSource::PacketDefintion(def) => {
+                    (def.borrow().id, def.borrow().sub_id)
+                },
+                _ => unreachable!(),
+            };
+
+            quote! { Self::#struct_ident(..) => (#id, #subid), }
+        }).collect();
+
     let packet_struct_parser: Vec<_> = struct_list.iter()
         .filter(|v| {
             match v.borrow().definition {
@@ -115,10 +134,11 @@ pub fn generate_packet_code() -> io::Result<()> {
     .map(|v| {
         let v = v.borrow();
         let struct_ident = format_ident!("{}", v.name);
-        quote! { CPkt::#struct_ident(pkt) => pkt.to_message() }
+        quote! { CPkt::#struct_ident(pkt) => pkt.to_bytes() }
     }).collect();
 
     write_source(&out_dir_path.join("generated_packets.rs"), quote! {
+        #[allow(non_camel_case_types)]
         #[derive(Debug)]
         pub enum CPkt {
             #(#packet_struct_enums)*
@@ -140,9 +160,15 @@ pub fn generate_packet_code() -> io::Result<()> {
                 fail(i)
             }
 
-            pub fn to_message(&self) -> Message {
+            pub fn to_bytes(&self) -> Vec<u8> {
                 match self {
                     #(#packet_writer_enum),*
+                }
+            }
+
+            pub fn get_id(&self) -> (u8, u8) {
+                match self {
+                    #(#packet_enum_ids)*
                 }
             }
         }

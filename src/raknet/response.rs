@@ -77,12 +77,16 @@ impl RakNetResponse {
         }
 
         for packet in &self.packets {
-            let _ = Packet::RawResponse { 
+            let response = Packet::RawResponse { 
                 number: peer.generate_next_message_id(), 
                 reliability: packet.reliability, 
                 split: PacketSplit::NotSplit, 
                 message: &packet.message 
-            }.serialize_to_bitwriter(&mut writer);
+            };
+
+            println!("TX {}: {:#?}", peer.local_address().port, packet.message);
+            
+            let _ = response.serialize_to_bitwriter(&mut writer);
         }
 
         /*if let Some(packet) = &self.packets {

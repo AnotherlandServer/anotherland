@@ -1,4 +1,4 @@
-use std::{net::{Ipv4Addr}, io};
+use std::{net::{Ipv4Addr}, io, fs};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use std::time::Duration;
@@ -175,6 +175,9 @@ impl Message {
     }
 
     fn parse_atlas_pkt<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+        /*let (_, (id, sub_id)) = tuple((le_u8, le_u8))(data)?;
+        fs::write(format!("dump/{:#02x}_{:#02x}.bin", id, sub_id), data);*/
+
         context("atlas_pkt", map(CPkt::from_bytes, |pkt| Message::AtlasPkt(pkt)))(data)
     }
 
@@ -255,6 +258,12 @@ impl Message {
             },
             Self::DisconnectionNotification => {
                 writer.write(ID_DISCONNECTION_NOTIFICATION)?;
+            }
+            Self::AtlasPkt(pkt) => {
+                let (id, subid) = pkt.get_id();
+                writer.write(id)?;
+                writer.write(subid)?;
+                writer.write_bytes(pkt.to_bytes().as_slice())?;
             }
             Self::User { number, data } => {
                 writer.write(*number)?;

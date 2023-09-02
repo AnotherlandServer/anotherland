@@ -59,7 +59,9 @@ pub enum GeneratedFieldType {
     I16,
     I32,
     I64,
+    F32,
     String,
+    NativeParam,
     Array(Box<GeneratedFieldType>),
     Struct(GeneratedStructReference),
     Enum(GeneratedEnumReference)
@@ -88,8 +90,10 @@ impl GeneratedStruct {
                             optional: as_optional,
                         }));
 
-                        self.fields.push(field.clone());
-                        self.fields_mapped.insert(name.as_ref().unwrap().to_owned(), field.clone());
+                        if !self.fields_mapped.contains_key(name.as_ref().unwrap()) {
+                            self.fields.push(field.clone());
+                            self.fields_mapped.insert(name.as_ref().unwrap().to_owned(), field.clone());
+                        }
                     } 
                 },
                 FieldDefinition::Branch { is_true, is_false, .. } => {
@@ -229,6 +233,8 @@ impl GeneratedFieldType {
                     "i16" => GeneratedFieldType::I16,
                     "i32" => GeneratedFieldType::I32,
                     "i64" => GeneratedFieldType::I64,
+                    "f32" => GeneratedFieldType::F32,
+                    "nativeparam" => GeneratedFieldType::NativeParam,
                     _ => panic!()
                 }
             },
@@ -270,7 +276,6 @@ impl GeneratedFieldType {
                         println!("Struct is resolved");
                         Ok(())
                     },
-                    _ => Ok(())
                 }
             },
             GeneratedFieldType::Array(r#type) => {
