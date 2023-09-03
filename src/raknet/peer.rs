@@ -111,32 +111,6 @@ impl RakNetPeer {
         }
     }
 
-    /*pub async fn handle_raw_message(&mut self, number: MessageNumber, reliability: Reliability, split: PacketSplit, data: Vec<u8>) -> (Option<RakNetRequest>, RakNetResponse) {
-        let mut response = RakNetResponse::new(self.remote_time.clone());
-
-        if number >= self.next_recv_message_id {
-            match reliability {
-                Reliability::Reliable | Reliability::ReliableOrdered(_) |Reliability::ReliableSequenced(_) => 
-                    response.add_ack(number),
-                _ => (),
-            }
-
-            self.next_recv_message_id = number.wrapping_add(1);
-
-            match Message::from_bytes(data.as_slice()) {
-                Ok((_, message)) => (Some(RakNetRequest::new(message)), response),
-                Err(e) => {
-                    println!("Message parse error:\n{:#?}", e);
-                    panic!();
-                    (None, response)
-                }
-            }
-        } else {
-            println!("Unexpected message number");
-            (None, RakNetResponse::new(self.remote_time.clone()))
-        }
-    }*/
-
     pub async fn send(&mut self, priority: Priority, reliability: Reliability, message: Message) -> RakNetResult<()> {
         let message_data = message.to_bytes();
         
@@ -241,6 +215,8 @@ impl RakNetPeer {
                                     own_addr: self.local_address, 
                                     guid: self.guid.clone() 
                                 }).await?;
+                            },
+                            Message::ConnectedPong { remote_time, local_time } => {
                             },
                             Message::DisconnectionNotification => {
                                 self.state = State::HalfClosed;

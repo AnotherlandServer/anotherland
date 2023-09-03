@@ -17,7 +17,7 @@ pub struct RakNetInternal {
     
     //pub request_connection_queue: RwLock<LinkedList<RakNetPeerHandle>>,
     pub request_queue_tx: mpsc::Sender<RakNetRequest>,
-    pub request_queue_rx: RwLock<mpsc::Receiver<RakNetRequest>>,
+    pub request_queue_rx: Arc<RwLock<mpsc::Receiver<RakNetRequest>>>,
 }
 
 impl RakNetInternal {
@@ -30,7 +30,7 @@ impl RakNetInternal {
             peer_address_map: RwLock::new(HashMap::new()),
             //request_connection_queue: RwLock::new(LinkedList::new()),
             request_queue_tx,
-            request_queue_rx: RwLock::new(request_queue_rx),
+            request_queue_rx: Arc::new(RwLock::new(request_queue_rx)),
         }
     }
 
@@ -190,14 +190,14 @@ impl RakNetListener {
     }
 
     pub async fn next_request<'a>(&self) -> Option<RakNetRequest> {
-        let listener = self.internal.write().await;
-        let request = listener.request_queue_rx.write().await.recv().await;
+        let rx = self.internal.read().await.request_queue_rx.clone();
+        let request = rx.write().await.recv().await;
         request
     }
 
     pub async fn try_next_request<'a>(&self) -> Option<RakNetRequest> {
-        let listener = self.internal.write().await;
-        let request = listener.request_queue_rx.write().await.try_recv().ok();
+        let rx = self.internal.read().await.request_queue_rx.clone();
+        let request = rx.write().await.try_recv().ok();
         request
     }
 

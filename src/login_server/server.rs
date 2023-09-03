@@ -1,6 +1,6 @@
 use std::sync::{Arc};
 
-use log::{info, debug};
+use log::{info, debug, trace};
 use tokio::{sync::RwLock, task::JoinHandle};
 
 use crate::{raknet::{RakNetListener, Message}, util::AnotherlandResult, CONF, atlas::{CPktLogin, CPkt}};
@@ -43,9 +43,11 @@ impl LoginServerInternal {
                         AtlasPkt(CPkt::CPktLogin(pkt)) => {
                             debug!("Login request for {}", pkt.username);
                         },
-                        _ => (),
+                        _ => trace!("Unhandled request: {:#?}", request.message()),
                     }
                 }
+
+                trace!("Stopping login server loop...");
             }))
         };
 
