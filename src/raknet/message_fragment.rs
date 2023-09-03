@@ -37,27 +37,29 @@ pub struct PacketSequence {
     pub index: u32,
 }
 
+#[derive(Debug, Clone)]
+pub struct OnlineMessage {
+    pub number: MessageNumber,
+    pub reliability: Reliability,
+    pub split: PacketSplit,
+    pub data: Vec<u8>,
+}
+
 #[derive(Debug)]
-pub enum Packet<'a> {
+pub enum MessageFragment {
     Ack(Duration, Vec<AckRange>),
     SystemTime(Duration),
     OfflineMessage(Message),
-    OnlineMessage(MessageNumber, Message),
-    RawRequest {
+    OnlineMessage(OnlineMessage),
+    /*RawResponse {
         number: MessageNumber,
         reliability: Reliability,
         split: PacketSplit,
-        data: Vec<u8>,
-    },
-    RawResponse {
-        number: MessageNumber,
-        reliability: Reliability,
-        split: PacketSplit,
-        message: &'a Message,
-    }
+        message: Message,
+    }*/
 }
 
-impl <'a>Packet<'a> {
+impl MessageFragment {
     fn parse_duration(i: BitInput) -> IResult<BitInput, Duration, VerboseError<BitInput>> {
         context("duration", map(
             count(bit_parser::take(8usize), 4), 
@@ -189,7 +191,7 @@ impl <'a>Packet<'a> {
         ), |r| r.to_vec()))(i)
     }
 
-    pub fn parse_ack<'b>(input: BitInput<'b>) -> IResult<BitInput<'b>, Packet, VerboseError<BitInput<'b>>>  where 'a: 'b {
+    pub fn parse_ack<'a>(input: BitInput<'a>) -> IResult<BitInput<'a>, MessageFragment, VerboseError<BitInput<'a>>> {
         context("ack", map(tuple((
             Self::parse_duration,
             length_count(
@@ -220,14 +222,14 @@ impl <'a>Packet<'a> {
         )), |(system_time, ack_range)| Self::Ack(system_time, ack_range)))(input)
     }
 
-    pub fn parse_system_time<'b>(input: BitInput<'b>) -> IResult<BitInput<'b>, Packet, VerboseError<BitInput<'b>>> where 'a: 'b {
+    pub fn parse_system_time<'a>(input: BitInput<'a>) -> IResult<BitInput<'a>, MessageFragment, VerboseError<BitInput<'a>>> {
         context("system_time", map(
             Self::parse_duration, 
             |duration| Self::SystemTime(duration))
         )(input)
     }
 
-    pub fn parse_packet<'b>(input: BitInput<'b>) -> IResult<BitInput<'b>, Packet, VerboseError<BitInput<'b>>>  where 'a: 'b {
+    pub fn parse_packet<'a>(input: BitInput<'a>) -> IResult<BitInput<'a>, MessageFragment, VerboseError<BitInput<'a>>> {
         context("message", map(tuple((
             // Message Number
             context("message number", Self::parse_message_number),
@@ -235,12 +237,12 @@ impl <'a>Packet<'a> {
             context("split", Self::parse_packet_split),
             context("data", Self::parse_data),
         )), |(number, reliability, split, data)| {
-            Self::RawRequest { number, reliability, split, data }
+            Self::OnlineMessage(OnlineMessage { number, reliability, split, data })
         }))(input)
     }
 }
 
-impl <'a>Packet<'a> {
+impl MessageFragment {
     pub fn serialize_to_bitwriter<E, W>(&self, writer: &mut BitWriter<E, W>) -> io::Result<()> 
     where
     E: io::Write,
@@ -273,11 +275,11 @@ impl <'a>Packet<'a> {
                 writer.write_bytes(message.to_bytes().as_slice())?;
             },
 
-            Self::RawResponse { number, reliability, split, message } => {
-                writer.write(32, number.to_be())?; // Packet number
+            Self::OnlineMessage(message) => {
+                writer.write(32, message.number.to_be())?; // Packet number
 
                 // Reliability
-                match reliability {
+                match message.reliability {
                     Reliability::Unreliable => writer.write(3, 0)?,
                     Reliability::UnreliableSequenced(sequence) => {
                         writer.write(3, 1)?;
@@ -298,7 +300,7 @@ impl <'a>Packet<'a> {
                 }
         
                 // Split
-                match split {
+                match message.split {
                     PacketSplit::NotSplit => writer.write_bit(false)?,
                     PacketSplit::Split { id, index, count } => {
                         writer.write_bit(true)?;
@@ -309,11 +311,9 @@ impl <'a>Packet<'a> {
                 }
 
                 // Message
-                let message_bytes = message.to_bytes();
-
-                Self::write_compressed(writer, true, &((message_bytes.len() * 8) as u16).to_le_bytes())?;
+                Self::write_compressed(writer, true, &((message.data.len() * 8) as u16).to_le_bytes())?;
                 writer.byte_align()?; // Align bytes to start writing payload
-                writer.write_bytes(&message_bytes)?;
+                writer.write_bytes(&message.data)?;
             },
 
             _ => panic!("Unsupported message type for serialization"),

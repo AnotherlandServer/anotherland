@@ -1,3 +1,3 @@
-mod login_server;
+mod server;
 
-pub use login_server::*;
+pub use server::*;

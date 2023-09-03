@@ -1,34 +1,73 @@
+mod util;
+mod config;
 mod raknet;
 mod login_server;
-mod realm_server;
+/*mod realm_server;
+mod world_server;*/
 mod queue_server;
-mod world_server;
 mod atlas;
 
 // Import modules
-use std::fs;
+use std::{fs, path::Path, env};
+use ::config::File;
+use log::{LevelFilter, info};
+use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, Root, Logger}};
+use glob::glob;
 
-use realm_server::RealmServer;
-
+use nom::error::ErrorKind;
+use once_cell::sync::Lazy;
+use surrealdb::{Surreal, engine::{local::{Db, Mem, SpeeDb}, remote::ws::Ws}};
 // Use
-use tokio::{io, signal};
-use login_server::LoginServer;
+use tokio::{io, signal, sync::RwLock};
 use queue_server::QueueServer;
-use world_server::WorldServer;
+use util::AnotherlandResult;
+/*use login_server::LoginServer;
+use realm_server::RealmServer;
+use world_server::WorldServer;*/
 
-use crate::atlas::CParamClass_faction;
+use crate::{atlas::CParamClass_faction, raknet::RakNetListener, config::ConfMain, login_server::LoginServer};
+
+static DB: Lazy<Surreal<Db>> = Lazy::new(Surreal::init);
+static CONF: Lazy<ConfMain> = Lazy::new(|| {
+    type Config = ::config::Config;
+    
+    Config::builder()
+        .add_source(
+            glob("conf/*.toml")
+                .unwrap()
+                .map(|path| File::from(path.unwrap()))
+                .collect::<Vec<_>>(),
+        )
+        .build()
+        .unwrap()
+        .try_deserialize::<ConfMain>()
+        .expect("Failed to parse config")
+});
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
-    let bytes = fs::read("Faction_8sqzaredred.bin").expect("Read not ok");
-    let (_, faction) = CParamClass_faction::from_bytes(bytes.as_ref()).expect("parse not ok");
-    let faction_bytes = faction.to_bytes();
+async fn main() -> AnotherlandResult<()> {
+    // Setup logging
+    if let Err(_) = log4rs::init_file("log4rs.yaml", Default::default()) {
+        let stdout = ConsoleAppender::builder().build();
+        let config = Config::builder()
+            .appender(Appender::builder().build("stdout", Box::new(stdout)))
+            .build(Root::builder().appender("stdout").build(LevelFilter::Info))
+            .unwrap();
 
-    let login_server = LoginServer::bind_server("0.0.0.0:6112").await?;
-    let realm_server = RealmServer::bind_server("0.0.0.0:6113").await?;
-    let world_server = WorldServer::bind_server("0.0.0.0:6114").await?;
+        log4rs::init_config(config).unwrap();
+    }
+
+    // Database
+    info!("Opening database...");
+    DB.connect::<SpeeDb>(env::current_dir().unwrap().join("data/database")).await?;
+    DB.use_ns("anotherland").await?;
+
+    let login_server = LoginServer::init().await?;
+
+    //let login_server = LoginServer::bind_server("0.0.0.0:6112").await?;
+    //let realm_server = RealmServer::bind_server("0.0.0.0:6113").await?;
+    //let world_server = WorldServer::bind_server("0.0.0.0:6114").await?;
     //let queue_server = QueueServer::bind_server("0.0.0.0:53292").await?;
-
 
     match signal::ctrl_c().await {
         Ok(()) => {},

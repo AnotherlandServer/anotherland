@@ -1,187 +1,224 @@
-use std::{sync::{Arc, mpsc::Receiver}, net::{SocketAddr, SocketAddrV4}, collections::{VecDeque, LinkedList, HashMap}, future::Future};
+use std::{sync::{Arc}, collections::{HashMap, VecDeque, LinkedList}, thread};
 
-use nom::{bits, sequence::tuple, error::{context, VerboseError}, combinator::{flat_map, cond, map}, IResult, multi::many0, Map};
-use tokio::{net::{ToSocketAddrs, UdpSocket}, io, sync::{mpsc::{self, Sender}, broadcast}, sync::oneshot, time};
+use log::{error, trace, debug};
+use nom::{IResult, error::{VerboseError, context}, bits, combinator::{map, flat_map, cond}, sequence::tuple, multi::many0};
+use tokio::{net::{ToSocketAddrs, UdpSocket, unix::SocketAddr}, task::{JoinHandle, self}, time::{self, Interval}, sync::{RwLock, watch::Ref, mpsc}, io};
 
-use super::{peer::RakNetPeer, Packet, RakNetRequest, Message, RequestHandler, RakNetResponse, State, PeerAddress};
+use crate::{atlas::Uuid, raknet::{RakNetPeer, State}};
 
-enum RakNetListenerCommand {
-    ReceivedDatagram(SocketAddr, Vec<u8>),
-    UpdateClients,
+use super::{RakNetPeerHandle, MessageFragment, Message, PeerAddress, RakNetResult, RakNetRequest};
+
+pub const MAX_MTU_SIZE: usize = 1492;
+
+pub struct RakNetInternal {
+    pub socket: Option<Arc<UdpSocket>>,
+    pub peer_guid_map: RwLock<HashMap<Uuid, RakNetPeerHandle>>,
+    pub peer_address_map: RwLock<HashMap<PeerAddress, RakNetPeerHandle>>,
+    
+    //pub request_connection_queue: RwLock<LinkedList<RakNetPeerHandle>>,
+    pub request_queue_tx: mpsc::Sender<RakNetRequest>,
+    pub request_queue_rx: RwLock<mpsc::Receiver<RakNetRequest>>,
+}
+
+impl RakNetInternal {
+    pub fn new() -> Self {
+        let (request_queue_tx, request_queue_rx) = mpsc::channel(10);
+
+        Self {
+            socket: None,
+            peer_guid_map: RwLock::new(HashMap::new()),
+            peer_address_map: RwLock::new(HashMap::new()),
+            //request_connection_queue: RwLock::new(LinkedList::new()),
+            request_queue_tx,
+            request_queue_rx: RwLock::new(request_queue_rx),
+        }
+    }
+
+    async fn enqueue_connecting_peer(&self, peer: RakNetPeer) -> RakNetPeerHandle {
+        let peer_handle = Arc::new(RwLock::new(peer));
+        let peer = peer_handle.read().await;
+
+        trace!("Try adding new peer to maps");
+
+        self.peer_address_map.write().await.insert(peer.remote_address().clone(), peer_handle.clone());
+        self.peer_guid_map.write().await.insert(peer.guid().clone(), peer_handle.clone());
+        //self.request_connection_queue.write().await.push_back(peer_handle.clone());
+
+        trace!("Added peer instance for {:#?} with guid {}", peer.remote_address(), peer.guid());
+
+        peer_handle.clone()
+    }
 }
 
 pub struct RakNetListener {
-    sender: Sender<RakNetListenerCommand>,
-    messages: broadcast::Receiver<Arc<RakNetRequest>>,
+    internal: Arc<RwLock<RakNetInternal>>,
+    update_task: Option<Arc<JoinHandle<()>>>,
 }
 
-const MAX_MTU_SIZE: usize = 1492;
-const MAX_ACCEPT_BACKLOG: usize = 10;
+ /* //first message needs to be a connection request, else we ignore it
+if let Some(packet) = fragments.get(0) {
+    match packet {
+        MessageFragment::OfflineMessage(Message::OpenConnectionRequest { version }) => {
+            if *version == 3 {
+                debug!("Got connection handshake from {}", addr.to_string());
+
+                match RakNetPeer::new(socket.to_owned(), addr, socket.local_addr().unwrap()) {
+                    Ok(peer) => listener.enqueue_connecting_peer(peer).await,
+                    Err(e) => error!("Failed to create peer: {:#?}", e),
+                }
+            } else {
+                debug!("Got unexpected raknet version from peer {}. Got {} expected 3!", addr.to_string(), version);
+            }
+        },
+        _ => debug!("Ignored message from unconnected peer {}: {:#?}", addr.to_string(), packet),
+    }
+} else {
+    debug!("Received empty message from unconnected peer {}. Ignoring.", addr.to_string());
+}
+}
+
+*/
 
 impl RakNetListener {
-    pub async fn bind<A: ToSocketAddrs>(handler: Box<dyn RequestHandler>, addr: A) -> io::Result<RakNetListener> {
-        let bound_socket = Arc::new(UdpSocket::bind(addr).await?);
-        let (thread_tx,  mut thread_rx) = mpsc::channel::<RakNetListenerCommand>(100);
-        let (request_tx, request_rx) = broadcast::channel::<Arc<RakNetRequest>>(100);
-
-        // Data pump
-        {
-            let data_pump_thread_tx = thread_tx.clone();
-            let socket = bound_socket.clone();
-            tokio::task::spawn(async move {
-                let mut buf: [u8; MAX_MTU_SIZE] = [0; MAX_MTU_SIZE];
-
-                loop {
-                    // Pump new packets to update thread
-                    if let Ok((size, addr)) = socket.recv_from(&mut buf).await {
-                        //println!("Got message from {:#?} len {}", addr, size);
-                        let _ = data_pump_thread_tx.send(RakNetListenerCommand::ReceivedDatagram(addr, buf[0..size].to_vec())).await;
-                    } else {
-                        break;
-                    }
-                }
-            });
+    pub fn new() -> Self {
+        Self {
+            internal: Arc::new(RwLock::new(RakNetInternal::new())),
+            update_task: None,
         }
+    }
 
-        // Update timer
+    pub async fn listen<'a, A: ToSocketAddrs>(&mut self, addr: A) -> RakNetResult<()> {
+        let mut internal: tokio::sync::RwLockWriteGuard<'_, RakNetInternal> = self.internal.write().await;
+        let mut disconnected_peers = VecDeque::<RakNetPeerHandle>::new();
+
+        internal.socket = Some(Arc::new(
+            UdpSocket::bind(addr).await?
+        ));
+
+        debug!("Listening on {}", internal.socket.as_ref().unwrap().local_addr().unwrap().to_string());
+        
         {
-            let timer_thread_tx = thread_tx.clone();
-            tokio::task::spawn(async move {
-                let mut interval = time::interval(time::Duration::from_millis(1000));
+            let listener = self.internal.clone();
+            self.update_task = Some(Arc::new(task::spawn(async move {
+                let mut buf = vec![0u8; MAX_MTU_SIZE];
+                let mut interval = time::interval(time::Duration::from_millis(1));
+                
+                let socket = {
+                    let listener = listener.read().await;
+                    listener.socket.as_ref().expect("Running update task without open socket").to_owned()
+                };
+
                 loop {
                     interval.tick().await;
-                    let _ = timer_thread_tx.send(RakNetListenerCommand::UpdateClients).await;
-                }
-            });
-        }
+                    
+                    // Parse all received messages
+                    while let Ok((size, addr)) = socket.try_recv_from(buf.as_mut()) {
+                        match Self::parse_datagram(&buf[..size]) {
+                            Ok((_, fragments)) => {
+                                trace!("Received message fragments from {} - {:#?}", addr, fragments);
 
-        {
-            let socket = bound_socket.clone();
-            tokio::task::spawn(async move {
-                let mut listener = RakNetListenerImpl::new(socket, handler);
+                                let listener = listener.read().await;
+                                if let Ok(peer_address) = PeerAddress::try_from(addr) {
 
-                'update_loop: loop {
-                    // Check for commands
-                    match thread_rx.recv().await {
-                        Some(cmd) => match cmd {
-                            RakNetListenerCommand::ReceivedDatagram(addr, data) => listener.ingest_datagram(addr, data).await,
-                            RakNetListenerCommand::UpdateClients => listener.update_clients().await,
-                        },
-                        None => { break 'update_loop; }
+                                    let mut peer = listener.peer_address_map.read().await.get(&peer_address).map(|v| v.to_owned());
+                                    
+                                    if peer.is_none() {
+                                        debug!("Got new connection from {}", addr.to_string());
+
+                                        // peer is not connected yet, create new connection and add to connection queue
+                                        match RakNetPeer::new(socket.to_owned(), addr, socket.local_addr().unwrap()) {
+                                            Ok(new_peer) => {
+                                                peer = Some(listener.enqueue_connecting_peer(new_peer).await);
+                                            },
+                                            Err(e) => {
+                                                error!("Failed to create peer: {:#?}", e);
+                                            },
+                                        }
+                                    }
+
+                                    // Have we got a valid peer instance?
+                                    // Then digest message fragments
+                                    if let Some(peer) = peer {
+                                        match peer.write().await.digest_message_fragments(fragments).await {
+                                            Ok(messages) => {
+                                                for message in messages {
+                                                    listener.request_queue_tx.send(RakNetRequest::new(peer.to_owned(), message)).await;
+                                                }
+                                            },
+                                            Err(e) => {
+                                                error!("Error while digesting message fragments: {}", e.to_string())
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    error!("Peer ({}) has invalid address format. Otherland can only handle ipv4!", addr.to_string());
+                                }
+                            },
+                            Err(e) => {
+                                error!("Received malformed packet: {}", e.to_string());
+                            }
+                        }
+                    }
+
+                    let listener = listener.read().await;
+
+                    // Update raknet peers
+                    for peer in listener.peer_guid_map.read().await.values() {
+                        if let Err(e) = peer.write().await.run_update().await {
+                            error!("Peer update failed. Closing. Error: {}", e.to_string());
+
+                            peer.write().await.disconnect_immediate();
+                        }
+
+                        if peer.read().await.state() == State::Disconnected {
+                            disconnected_peers.push_back(peer.to_owned());
+                        }
+                    }
+
+                    // Remove disconnected peers
+                    while let Some(disconnected_peer) = disconnected_peers.pop_back() {
+                        let disconnected_peer = disconnected_peer.read().await;
+
+                        listener.peer_guid_map.write().await.remove(disconnected_peer.guid());
+                        listener.peer_address_map.write().await.remove(disconnected_peer.remote_address());
                     }
                 }
-            });
+            })));
         }
 
-        Ok(Self {
-            sender: thread_tx,
-            messages: request_rx,
-        })
+        Ok(())
     }
 
-    pub fn get_request_receiver(&self) -> broadcast::Receiver<Arc<RakNetRequest>> {
-        self.messages.resubscribe()
-    }
-}
-
-struct RakNetListenerImpl<'a> {
-    socket: Arc<UdpSocket>,
-    peers: HashMap<SocketAddr, RakNetPeer<'a>>,
-    handler: Box<dyn RequestHandler>,
-}
-
-impl <'a>RakNetListenerImpl<'a> {
-    pub fn new(socket: Arc<UdpSocket>, handler: Box<dyn RequestHandler>) -> Self {
-        Self {
-            socket,
-            peers: HashMap::new(),
-            handler,
-        }
+    pub async fn next_request<'a>(&self) -> Option<RakNetRequest> {
+        let listener = self.internal.write().await;
+        let request = listener.request_queue_rx.write().await.recv().await;
+        request
     }
 
-    pub async fn ingest_datagram(&mut self, addr: SocketAddr, data: Vec<u8>) {
-        if let Ok((_, packets)) = Self::parse_datagram(data.as_slice()) {
-            for p in packets {
-                match p {
-                    // Handle initial handshake
-                    Packet::OfflineMessage(Message::OpenConnectionRequest { version }) => {
-                        // TODO: Send failure message on version mismatch or error during creation
-                        // of RakNetPeer
-                        if version == 3 {
-                            if let Ok(peer) = RakNetPeer::new(self.socket.clone(), addr, self.socket.local_addr().unwrap()) {
-                                if let Ok(_) = self.socket.send_to(Message::OpenConnectionReply.to_bytes().as_slice(), addr).await {
-                                    // Create new unconnected peer and add it to the list
-                                    self.peers.insert(addr, peer);
-                                }
-                            }
-                        }
-                    },
-
-                    Packet::OfflineMessage(Message::OpenConnectionReply) => {},
-
-                    Packet::Ack(_, _) => {},
-
-                    Packet::SystemTime(_) => {},
-
-                    // All messages are raw messages directly after parsing. 
-                    // We need to combine and order them here for the higher layers.
-                    Packet::RawRequest { number, reliability, split, data } => {
-                        if let Some(peer) = self.peers.get_mut(&addr) {
-                            let (request, mut response) = peer.handle_raw_message(number, reliability, split, data).await;
-                            
-                            // Run request handlers
-                            if let Some(request) =  request{
-                                let _ = peer.handle_request(self.handler.as_mut(), request, &mut response).await;
-                            }
-
-                            let response_data = response.pack_response(peer);
-                            let _ = self.socket.send_to(&response_data, SocketAddr::V4(SocketAddrV4::new(peer.remote_address().ip, peer.remote_address().port))).await;
-                        }
-                    },
-
-                    _ => unreachable!("Unexpected message parsed"),
-                }
-            }
-        }
+    pub async fn try_next_request<'a>(&self) -> Option<RakNetRequest> {
+        let listener = self.internal.write().await;
+        let request = listener.request_queue_rx.write().await.try_recv().ok();
+        request
     }
 
-    pub async fn update_clients(&mut self) {
-        let mut remove_peers = Vec::new();
-
-        for (addr, peer) in &mut self.peers {
-            let mut update = RakNetResponse::new(peer.remote_time());
-
-            if peer.state() == State::HalfClosed || peer.state() == State::Disconnected {
-                remove_peers.push(addr.clone());
-                continue;
-            }
-
-            self.handler.update_client(&peer, &mut update).await;
-
-            let update_data = update.pack_response(peer);
-            if !update_data.is_empty() {
-                let _ = self.socket.send_to(&update_data, SocketAddr::V4(SocketAddrV4::new(peer.remote_address().ip, peer.remote_address().port))).await;
-            }
-        }
-
-        // Cleanup clients
-        for addr in remove_peers {
-            self.peers.remove(&addr);
-        }
+    pub fn get_peer(&self, guid: Uuid) -> Option<RakNetPeerHandle> {
+        let listener = self.internal.blocking_read();
+        let peer = listener.peer_guid_map.blocking_read().get(&guid).map(|v| v.to_owned());
+        peer
     }
 
-    fn parse_datagram<'b>(data: &'b[u8]) -> IResult<&'b[u8], Vec<Packet>, VerboseError<&'b[u8]>> {
+    fn parse_datagram<'b>(data: &'b[u8]) -> IResult<&'b[u8], Vec<MessageFragment>, VerboseError<&'b[u8]>> {
         if Message::test_offline_message(data) {
-            Message::from_bytes(data).map(|(i, m)| (i, vec![Packet::OfflineMessage(m)]))
+            Message::from_bytes(data).map(|(i, m)| (i, vec![MessageFragment::OfflineMessage(m)]))
         } else {
             bits(map(tuple((
                 context("acks", flat_map(
                     nom::bits::complete::bool, 
-                    |has_acks| cond(has_acks, Packet::parse_ack))),
+                    |has_acks| cond(has_acks, MessageFragment::parse_ack))),
                 context("system_time", flat_map(
                     nom::bits::complete::bool, 
-                    |has_time| cond(has_time, Packet::parse_system_time))),
-                many0(Packet::parse_packet)
+                    |has_time| cond(has_time, MessageFragment::parse_system_time))),
+                many0(MessageFragment::parse_packet)
             )), |(acks, system_time, mut packets)| {
                 let mut res  = Vec::new();
                 if let Some(acks) = acks { res.push(acks); }
@@ -194,4 +231,4 @@ impl <'a>RakNetListenerImpl<'a> {
             }))(data)
         }
     }
-} 
+}

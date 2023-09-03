@@ -4,9 +4,9 @@ use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use std::time::Duration;
 use nom::{number::complete::{le_u8, le_u32, le_u16}, combinator::{flat_map, fail, map, rest_len, peek}, error::{context, VerboseError}, IResult, sequence::tuple, bytes::complete::{take, tag}, multi::{many0, count}};
 
-use crate::atlas::CPkt;
+use crate::atlas::{CPkt, Uuid};
 
-use super::{Guid, PeerAddress};
+use super::{PeerAddress};
 
 // Message IDs named in a way similar to the RakNet sources for easier comparison
 // All these IDs differ from stock RakNet and are unique to Otherland
@@ -45,7 +45,7 @@ pub enum Message {
     SecuredConnectionConfirmation,
     OpenConnectionRequest{version: u8},
     OpenConnectionReply,
-    ConnectionRequestAccepted{index: u16, peer_addr: PeerAddress, own_addr: PeerAddress, guid: Guid},
+    ConnectionRequestAccepted{index: u16, peer_addr: PeerAddress, own_addr: PeerAddress, guid: Uuid},
     ConnectionAttemptFailed,
     AlreadyConnected,
     NewIncomingConnection{primary_address: PeerAddress, secondary_addresses: Vec<PeerAddress>},
@@ -163,14 +163,14 @@ impl Message {
                 tuple((le_u32, le_u16)),
                 le_u16,
                 tuple((le_u32, le_u16)),
-                count(le_u32, 4),
+                count(le_u8, 16),
             )),
             |(_, peer_addr, index, own_addr, guid)| 
                 Message::ConnectionRequestAccepted { 
                     index: index, 
                     peer_addr: PeerAddress::new(&Ipv4Addr::from(peer_addr.0), peer_addr.1), 
                     own_addr: PeerAddress::new(&Ipv4Addr::from(own_addr.0), own_addr.1),
-                    guid: Guid { g: guid.as_slice().try_into().unwrap() }
+                    guid: Uuid::from_bytes(&guid).unwrap().1,
                 }))(data)
     }
 
