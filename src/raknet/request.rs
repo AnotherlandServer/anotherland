@@ -1,4 +1,4 @@
-use tokio::sync::RwLockReadGuard;
+use tokio::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 use super::{Message, RakNetPeerHandle, RakNetPeer};
 
@@ -15,8 +15,8 @@ impl RakNetRequest {
         }
     }
 
-    pub fn peer(&self) -> RwLockReadGuard<'_, RakNetPeer> {
-        self.peer.blocking_read()
+    pub fn peer(&self) -> RakNetPeerHandle {
+        self.peer.clone()
     }
 
     pub fn message(&self) -> &Message {

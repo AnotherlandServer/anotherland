@@ -87,6 +87,13 @@ impl RakNetListener {
         }
     }
 
+    pub fn clone(&self) -> Self {
+        Self {
+            internal: self.internal.clone(),
+            update_task: self.update_task.as_ref().map(|v| v.clone()),
+        }
+    }
+
     pub async fn listen<'a, A: ToSocketAddrs>(&mut self, addr: A) -> RakNetResult<()> {
         let mut internal: tokio::sync::RwLockWriteGuard<'_, RakNetInternal> = self.internal.write().await;
         let mut disconnected_peers = VecDeque::<RakNetPeerHandle>::new();

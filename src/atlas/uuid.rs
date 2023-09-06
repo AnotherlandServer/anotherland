@@ -2,6 +2,9 @@ use std::{io, fmt};
 use std::hash::{Hash, Hasher};
 
 use super::generated::Uuid;
+use serde::de::{Visitor, Expected};
+use serde::{Serialize, Deserialize};
+use surrealdb::sql::Id;
 use uuid::Uuid as external_uuid;
 
 impl Uuid {
@@ -62,5 +65,59 @@ impl fmt::Display for Uuid {
         let euuid = external_uuid::from_bytes_le(bytes.as_slice().try_into().unwrap());
 
         write!(f, "{}", euuid.to_string())
+    }
+}
+
+impl Serialize for Uuid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+struct UuidVisitor;
+
+impl<'de> Visitor<'de> for UuidVisitor {
+    type Value = String;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a uuid in a format like 00000000-0000-0000-0000-000000000000")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error, {
+        if v.len() == 36 {
+            Ok(v.to_owned())
+        } else {
+            Err(E::custom(format!("Expected string with len 36: {}", v)))
+        }
+    }
+
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error, {
+
+        if v.len() == 36 {
+            Ok(v)
+        } else {
+            Err(E::custom(format!("Expected string with len 36: {}", v)))
+        } 
+    }
+}
+
+impl <'de>Deserialize<'de> for Uuid {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de> {
+        let string_representation = deserializer.deserialize_str(UuidVisitor)?;
+        Uuid::from_str(&string_representation).map_err(|e| serde::de::Error::custom(e.to_string()))
+    }
+}
+
+impl Into<Id> for Uuid {
+    fn into(self) -> Id {
+        Id::String(self.to_string())
     }
 }

@@ -1,14 +1,17 @@
 use std::{io, error::Error, fmt::Display};
 
+use bcrypt::BcryptError;
 use nom::error::VerboseError;
 
 use crate::raknet::{RakNetPeerHandle, RakNetError};
 
 #[derive(Debug)]
 pub enum AnotherlandErrorKind {
+    // Module errors
     RakNetError,
     DBError,
     IOError,
+    BcryptError,
 }
 
 impl AnotherlandErrorKind {
@@ -18,6 +21,7 @@ impl AnotherlandErrorKind {
             RakNetError => "raknet error",
             DBError => "db error",
             IOError => "io error",
+            BcryptError => "bcrypt error",
         }
     }
 }
@@ -74,6 +78,12 @@ impl From<surrealdb::Error> for AnotherlandError {
 impl From<io::Error> for AnotherlandError {
     fn from(value: io::Error) -> Self {
         Self::new(AnotherlandErrorKind::IOError, value)
+    }
+}
+
+impl From<BcryptError> for AnotherlandError {
+    fn from(value: BcryptError) -> Self {
+        Self::new(AnotherlandErrorKind::BcryptError, value)
     }
 }
 

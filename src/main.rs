@@ -1,4 +1,5 @@
 mod util;
+mod db;
 mod config;
 mod raknet;
 mod login_server;
@@ -10,7 +11,7 @@ mod atlas;
 // Import modules
 use std::{fs, path::Path, env};
 use ::config::File;
-use log::{LevelFilter, info};
+use log::{LevelFilter, info, debug};
 use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, Root, Logger}};
 use glob::glob;
 
@@ -25,7 +26,7 @@ use util::AnotherlandResult;
 use realm_server::RealmServer;
 use world_server::WorldServer;*/
 
-use crate::{atlas::CParamClass_faction, raknet::RakNetListener, config::ConfMain, login_server::LoginServer};
+use crate::{atlas::CParamClass_faction, raknet::RakNetListener, config::ConfMain, login_server::LoginServer, db::AccountRecord};
 
 static DB: Lazy<Surreal<Db>> = Lazy::new(Surreal::init);
 static CONF: Lazy<ConfMain> = Lazy::new(|| {
@@ -60,14 +61,27 @@ async fn main() -> AnotherlandResult<()> {
     // Database
     info!("Opening database...");
     DB.connect::<SpeeDb>(env::current_dir().unwrap().join("data/database")).await?;
-    DB.use_ns("anotherland").await?;
+    DB.use_ns("anotherland").use_db("anotherland").await?;
+
+    info!("Applying schema...");
+    DB.query(include_str!(concat!(env!("OUT_DIR"), "/schema.surql"))).await?;
+
+    // Create Admin account if it doesn't exist yet
+    debug!("Admin account: {:#?}", AccountRecord::get_by_username_or_mail("admin").await?);
+    if AccountRecord::get_by_username_or_mail("admin").await?.is_none() {
+        AccountRecord::create("admin".to_owned(), "admin@localhost".to_owned(), "1234".to_owned()).await?;
+
+        info!("=========== ADMIN ACCOUNT PASSWORD ===========");
+        info!("1234");
+        info!("==============================================");
+    }
 
     let login_server = LoginServer::init().await?;
+    //let queue_server = QueueServer::bind_server("0.0.0.0:53292").await?;
 
     //let login_server = LoginServer::bind_server("0.0.0.0:6112").await?;
     //let realm_server = RealmServer::bind_server("0.0.0.0:6113").await?;
     //let world_server = WorldServer::bind_server("0.0.0.0:6114").await?;
-    //let queue_server = QueueServer::bind_server("0.0.0.0:53292").await?;
 
     match signal::ctrl_c().await {
         Ok(()) => {},
