@@ -2,13 +2,15 @@ use std::{sync::{Arc}, collections::{HashMap, VecDeque, LinkedList}, thread};
 
 use log::{error, trace, debug};
 use nom::{IResult, error::{VerboseError, context}, bits, combinator::{map, flat_map, cond}, sequence::tuple, multi::many0};
-use tokio::{net::{ToSocketAddrs, UdpSocket, unix::SocketAddr}, task::{JoinHandle, self}, time::{self, Interval}, sync::{RwLock, watch::Ref, mpsc}, io};
+use tokio::{net::{ToSocketAddrs, UdpSocket}, task::{JoinHandle, self}, time::{self, Interval}, sync::{RwLock, watch::Ref, mpsc}, io};
 
 use crate::{atlas::Uuid, raknet::{RakNetPeer, State}};
 
 use super::{RakNetPeerHandle, MessageFragment, Message, PeerAddress, RakNetResult, RakNetRequest};
 
-pub const MAX_MTU_SIZE: usize = 1492;
+//pub const MAX_MTU_SIZE: usize = 1492;
+pub const MAX_MTU_SIZE: usize = 1024;
+pub const RECV_BUFFER_SIZE: usize = 2048;
 
 pub struct RakNetInternal {
     pub socket: Option<Arc<UdpSocket>>,
@@ -44,7 +46,7 @@ impl RakNetInternal {
         self.peer_guid_map.write().await.insert(peer.guid().clone(), peer_handle.clone());
         //self.request_connection_queue.write().await.push_back(peer_handle.clone());
 
-        trace!("Added peer instance for {:#?} with guid {}", peer.remote_address(), peer.guid());
+        trace!("Added peer instance for {:#?} with guid {}", peer.remote_address(), peer.guid().to_string());
 
         peer_handle.clone()
     }
@@ -107,7 +109,7 @@ impl RakNetListener {
         {
             let listener = self.internal.clone();
             self.update_task = Some(Arc::new(task::spawn(async move {
-                let mut buf = vec![0u8; MAX_MTU_SIZE];
+                let mut buf = vec![0u8; RECV_BUFFER_SIZE];
                 let mut interval = time::interval(time::Duration::from_millis(1));
                 
                 let socket = {
@@ -185,6 +187,8 @@ impl RakNetListener {
                     // Remove disconnected peers
                     while let Some(disconnected_peer) = disconnected_peers.pop_back() {
                         let disconnected_peer = disconnected_peer.read().await;
+
+                        debug!("Peer {} disconnected.", disconnected_peer.guid().to_string());
 
                         listener.peer_guid_map.write().await.remove(disconnected_peer.guid());
                         listener.peer_address_map.write().await.remove(disconnected_peer.remote_address());

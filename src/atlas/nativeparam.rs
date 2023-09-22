@@ -203,7 +203,7 @@ impl NativeParam {
             },
             Self::Buffer(val) => {
                 let _ = writer.write(14u8);
-                let _ = writer.write(val.len() as u16);
+                let _ = writer.write(val.len() as u32);
                 let _ = writer.write_bytes(val);
             },
             Self::UInt(val) => {

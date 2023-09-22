@@ -6,11 +6,13 @@ use bitstream_io::ByteWrite;
 use nom::IResult;
 use nom::bytes::complete::take;
 use nom::error::VerboseError;
+use nom::multi;
 use nom::multi::count;
 use nom::number;
 use nom::combinator::fail;
 
 use glam::f32::{Vec3, Vec4};
+use nom::number::complete::le_u32;
 use super::generated::*;
 
 #[allow(dead_code)]
@@ -114,6 +116,11 @@ impl CParam {
                 let (i, val) = number::complete::le_i64(i)?;
                 Ok((i, CParam::Int64(val)))
             },
+            29 => {
+                let (i, count) = number::complete::le_u32(i)?;
+                let (i, data) = multi::count(le_u32, count as usize)(i)?;
+                Ok((i, CParam::IntArray(data)))
+            }
             41 => {
                 let (i, len) = number::complete::le_u32(i)?;
                 let (i, class) = number::complete::le_u32(i)?;
@@ -184,6 +191,13 @@ impl CParam {
                 let _ = writer.write(19u8);
                 let _ = writer.write(*val);
             },
+            Self::IntArray(val) => {
+                let _ = writer.write(29u8);
+                let _ = writer.write(val.len() as u32);
+                for &i in val {
+                    let _ = writer.write(i);
+                }
+            }
             Self::Any(class, val) => {
                 let _ = writer.write(41u8);
                 let _ = writer.write(*class);

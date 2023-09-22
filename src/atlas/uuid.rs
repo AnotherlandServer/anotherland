@@ -2,6 +2,7 @@ use std::{io, fmt};
 use std::hash::{Hash, Hasher};
 
 use super::generated::Uuid;
+use log::debug;
 use serde::de::{Visitor, Expected};
 use serde::{Serialize, Deserialize};
 use surrealdb::sql::Id;
@@ -9,7 +10,9 @@ use uuid::Uuid as external_uuid;
 
 impl Uuid {
     pub fn from_str(val: &str) -> Result<Self, io::Error> {
-        let uuid = external_uuid::parse_str(val).unwrap();
+        let sanitized: String = val.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
+        debug!("{} - {}", val, sanitized);
+        let uuid = external_uuid::parse_str(&sanitized).unwrap();
         let (time_low, time_mid, time_hi_and_version, tail) = uuid.to_fields_le();
         Ok(Self {
             time_low: time_low.swap_bytes(),
@@ -119,5 +122,11 @@ impl <'de>Deserialize<'de> for Uuid {
 impl Into<Id> for Uuid {
     fn into(self) -> Id {
         Id::String(self.to_string())
+    }
+}
+
+impl Default for Uuid {
+    fn default() -> Self {
+        Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap()
     }
 }

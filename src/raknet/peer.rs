@@ -112,6 +112,14 @@ impl RakNetPeer {
     }
 
     pub async fn send(&mut self, priority: Priority, reliability: Reliability, message: Message) -> RakNetResult<()> {
+        if self.state == State::HalfClosed || self.state == State::Disconnected {
+            return Err(RakNetError::new(RakNetErrorKind::IOError, io::Error::from(io::ErrorKind::BrokenPipe)));
+        }
+        
+        self.send_internal(priority, reliability, message).await
+    }
+
+    async fn send_internal(&mut self, priority: Priority, reliability: Reliability, message: Message) -> RakNetResult<()> {
         let message_data = message.to_bytes();
         
         match reliability {
@@ -187,7 +195,7 @@ impl RakNetPeer {
                         debug!("Got unexpected raknet version from peer {:#?}. Got {} expected 3!", self.remote_address(), version);
                         self.disconnect().await;
                     } else {
-                        self.send(Priority::System, Reliability::Unreliable, Message::OpenConnectionReply).await?;
+                        self.send_internal(Priority::System, Reliability::Unreliable, Message::OpenConnectionReply).await?;
                     }
                 },
                 MessageFragment::OnlineMessage(message) => {
@@ -195,13 +203,13 @@ impl RakNetPeer {
                         match message {
                             Message::InternalPing { time } => {
                                 self.remote_time = time;
-                                self.send(Priority::System, Reliability::Unreliable, Message::ConnectedPong { 
+                                self.send_internal(Priority::System, Reliability::Unreliable, Message::ConnectedPong { 
                                     remote_time: self.remote_time, 
                                     local_time: Instant::now().duration_since(self.created), 
                                 }).await?;
                             },
                             Message::NewIncomingConnection { primary_address, secondary_addresses } => {
-                                self.send(Priority::System, Reliability::Unreliable, Message::InternalPing { 
+                                self.send_internal(Priority::System, Reliability::Unreliable, Message::InternalPing { 
                                     time: Instant::now().duration_since(self.created), 
                                 }).await?;
                             },
@@ -209,7 +217,7 @@ impl RakNetPeer {
                                 debug!("Got connection request from {:#?}", self.remote_address());
 
                                 self.state = State::Connected;
-                                self.send(Priority::System, Reliability::Reliable, Message::ConnectionRequestAccepted { 
+                                self.send_internal(Priority::System, Reliability::Reliable, Message::ConnectionRequestAccepted { 
                                     index: 0, 
                                     peer_addr: self.remote_address, 
                                     own_addr: self.local_address, 
@@ -220,7 +228,8 @@ impl RakNetPeer {
                             },
                             Message::DisconnectionNotification => {
                                 self.state = State::HalfClosed;
-                                self.send(Priority::System, Reliability::Reliable, Message::DisconnectionNotification).await?;
+                                self.resend_queue.clear();
+                                self.send_internal(Priority::System, Reliability::Reliable, Message::DisconnectionNotification).await?;
                             }
                             _ => {
                                 if self.state == State::Connected {
@@ -310,7 +319,7 @@ impl RakNetPeer {
             State::Unconnected => self.state = State::Disconnected,
             _ => {
                 self.state = State::HalfClosed;
-                self.send(Priority::System, Reliability::Unreliable, Message::DisconnectionNotification).await;
+                self.send_internal(Priority::System, Reliability::Unreliable, Message::DisconnectionNotification).await;
             }
         }
     }
@@ -319,49 +328,48 @@ impl RakNetPeer {
         self.state = State::Disconnected
     }
 
+    pub fn serialize_acks_to_bitwriter<E, W>(&mut self, writer: &mut BitWriter<E, W>) -> RakNetResult<()> 
+    where
+    E: std::io::Write,
+    W: bitstream_io::Endianness
+    {
+        self.pending_ack_queue.sort();
+
+        if self.pending_ack_queue.is_empty() {
+            let _ = writer.write_bit(false);
+        } else {
+            let mut ack_ranges = Vec::<(u32, u32)>::new();
+            let _ = writer.write_bit(true);
+            
+            let mut id_min = *self.pending_ack_queue.first().unwrap();
+            let mut id_max = id_min;
+            for &id in &self.pending_ack_queue[1..] {
+                if id - id_max > 1 {
+                    ack_ranges.push((id_min, id_max));
+                    id_min = id;
+                    id_max = id;
+                } else {
+                    id_max = id;
+                }
+            }
+            ack_ranges.push((id_min, id_max));
+
+            trace!("Acknowledge message range {}-{}", id_min, id_max);
+
+            let _ = MessageFragment::Ack(self.remote_time, ack_ranges).serialize_to_bitwriter(writer);
+        }
+
+        self.pending_ack_queue.clear();
+
+        Ok(())
+    }
+    
     pub async fn run_update(&mut self) -> RakNetResult<()> {
         let mut time_sent = false;
-
-        if self.state == State::HalfClosed {
-            if self.resend_queue.is_empty() {
-                self.state = State::Disconnected;
-                return Ok(());
-            }
-        }
+        let mut acks_sent = false;
 
         let mut buf = Vec::new();
         let mut writer = BitWriter::endian(&mut buf, BigEndian);
-
-        // send pending acks
-        {
-            self.pending_ack_queue.sort();
-
-            if self.pending_ack_queue.is_empty() {
-                let _ = writer.write_bit(false);
-            } else {
-                let mut ack_ranges = Vec::<(u32, u32)>::new();
-                let _ = writer.write_bit(true);
-                
-                let mut id_min = *self.pending_ack_queue.first().unwrap();
-                let mut id_max = id_min;
-                for &id in &self.pending_ack_queue[1..] {
-                    if id - id_max > 1 {
-                        ack_ranges.push((id_min, id_max));
-                        id_min = id;
-                        id_max = id;
-                    } else {
-                        id_max = id;
-                    }
-                }
-                ack_ranges.push((id_min, id_max));
-
-                trace!("Acknowledge message range {}-{}", id_min, id_max);
-    
-                let _ = MessageFragment::Ack(self.remote_time, ack_ranges).serialize_to_bitwriter(&mut writer);
-            }
-
-            self.pending_ack_queue.clear();
-        }
 
         // resend pending messages not yet acknowledged
         let mut pending_ids = self.resend_queue.keys().map(|v| v.to_owned()).collect::<Vec<_>>();
@@ -372,7 +380,10 @@ impl RakNetPeer {
             if Instant::now().duration_since(sent).as_millis() > 1000 {
                 let (id, (_, message)) = self.resend_queue.remove_entry(&id).unwrap();
 
-                trace!("Resending message id {}", id);
+                trace!("Resending message id {}:{}", self.guid.to_string(), id);
+
+                self.serialize_acks_to_bitwriter(&mut writer)?;
+                acks_sent = true;
 
                 message.serialize_to_bitwriter(&mut writer)?;
                 self.resend_queue.insert(id, (Instant::now(), message));
@@ -382,14 +393,17 @@ impl RakNetPeer {
         // dequeue pending messages,  from high priority to low
         for queue in self.send_queue_prioritized.clone().write().await.iter_mut() {              
             while let Some(message) = queue.pop_front() {
-                trace!("Sending message to client {:#?}: {:#?}", self.remote_address, message);
-
                 // Offline? Then just send the raw message
                 if self.state == State::Unconnected {
+                    trace!("Sending offline message to client {:#?}: {:#?}", self.guid.to_string(), message);
+
                     let data = message.data;
                     self.send_raw(&data).await?;
                     continue;
                 }
+
+                self.serialize_acks_to_bitwriter(&mut writer)?;
+                acks_sent = true;
 
                 if !time_sent {
                     let _ = writer.write_bit(true);
@@ -406,6 +420,8 @@ impl RakNetPeer {
                     split: message.split, 
                     data: message.data
                 };
+
+                trace!("Sending online message to client {:#?}: {:#?}", self.guid.to_string(), online_message);
 
                 match message.reliability {
                     Reliability::Reliable | Reliability::ReliableOrdered(_) => {
@@ -426,13 +442,22 @@ impl RakNetPeer {
             }
         }
 
-        // Write remainder to allow for ack-only messages, when no messages are sent
-        let _ = writer.byte_align();
-        let _ = writer.flush();
 
-        let remainder = writer.into_writer();
-        if !remainder.is_empty() {
+        // Write ack only message if no acks where sent yet
+        if !acks_sent && !self.pending_ack_queue.is_empty() {
+            self.serialize_acks_to_bitwriter(&mut writer)?;
+
+            let _ = writer.byte_align();
+            let _ = writer.flush();
+
+            let remainder = writer.into_writer();
             self.send_raw(&remainder.as_slice()).await?;
+        }
+
+        if self.state == State::HalfClosed {
+            if self.resend_queue.is_empty() {
+                self.state = State::Disconnected;
+            }
         }
 
         Ok(())

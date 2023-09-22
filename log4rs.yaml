@@ -3,6 +3,12 @@ appenders:
     kind: console
 
 root:
-  level: trace
+  level: warn
   appenders:
     - stdout
+
+loggers:
+  AnotherlandServer:
+    level: trace
+  AnotherlandServer::raknet:
+    level: info

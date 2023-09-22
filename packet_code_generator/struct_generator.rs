@@ -11,6 +11,7 @@ use super::yaml_reader::{StructDefinition, FieldDefinition, FieldTypeDefinition,
 #[derive(Debug)]
 pub struct GeneratedStruct {
     pub name: String,
+    pub derive_default: bool,
     pub fields: Vec<Rc<RefCell<GeneratedField>>>,
     pub fields_mapped: HashMap<String, Rc<RefCell<GeneratedField>>>,
     pub definition: GeneratedStructSource,
@@ -60,6 +61,7 @@ pub enum GeneratedFieldType {
     I32,
     I64,
     F32,
+    F64,
     String,
     NativeParam,
     Array(Box<GeneratedFieldType>),
@@ -120,6 +122,7 @@ impl GeneratedStruct {
         
         let mut generated: GeneratedStruct = Self {
             name: definition_ref.name.clone(),
+            derive_default: true,
             fields: Vec::new(),
             fields_mapped: HashMap::new(),
             definition: GeneratedStructSource::PacketDefintion(definition.clone())
@@ -145,6 +148,7 @@ impl GeneratedStruct {
         
         let mut generated: GeneratedStruct = Self {
             name: definition_ref.name.clone(),
+            derive_default: false,
             fields: Vec::new(),
             fields_mapped: HashMap::new(),
             definition: GeneratedStructSource::StructDefinition(definition.clone())
@@ -234,6 +238,7 @@ impl GeneratedFieldType {
                     "i32" => GeneratedFieldType::I32,
                     "i64" => GeneratedFieldType::I64,
                     "f32" => GeneratedFieldType::F32,
+                    "f64" => GeneratedFieldType::F64,
                     "nativeparam" => GeneratedFieldType::NativeParam,
                     _ => panic!()
                 }

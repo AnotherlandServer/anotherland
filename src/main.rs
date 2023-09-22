@@ -3,8 +3,8 @@ mod db;
 mod config;
 mod raknet;
 mod login_server;
-/*mod realm_server;
-mod world_server;*/
+mod realm_server;
+mod world_server;
 mod queue_server;
 mod atlas;
 
@@ -17,7 +17,7 @@ use glob::glob;
 
 use nom::error::ErrorKind;
 use once_cell::sync::Lazy;
-use surrealdb::{Surreal, engine::{local::{Db, Mem, SpeeDb}, remote::ws::Ws}};
+use surrealdb::{Surreal, engine::{remote::ws::{Ws, Client}}};
 // Use
 use tokio::{io, signal, sync::RwLock};
 use queue_server::QueueServer;
@@ -26,9 +26,9 @@ use util::AnotherlandResult;
 use realm_server::RealmServer;
 use world_server::WorldServer;*/
 
-use crate::{atlas::CParamClass_faction, raknet::RakNetListener, config::ConfMain, login_server::LoginServer, db::AccountRecord};
+use crate::{atlas::CParamClass_faction, raknet::RakNetListener, config::ConfMain, login_server::LoginServer, db::AccountRecord, realm_server::RealmServer, world_server::WorldServer};
 
-static DB: Lazy<Surreal<Db>> = Lazy::new(Surreal::init);
+static DB: Lazy<Surreal<Client>> = Lazy::new(Surreal::init);
 static CONF: Lazy<ConfMain> = Lazy::new(|| {
     type Config = ::config::Config;
     
@@ -59,9 +59,18 @@ async fn main() -> AnotherlandResult<()> {
     }
 
     // Database
-    info!("Opening database...");
-    DB.connect::<SpeeDb>(env::current_dir().unwrap().join("data/database")).await?;
-    DB.use_ns("anotherland").use_db("anotherland").await?;
+    /*info!("Opening database...");
+    DB.connect::<Ws>(&CONF.database.url).await?;
+    DB.use_ns(&CONF.database.namespace).use_db(&CONF.database.database).await?;
+
+    if let Some(username) = &CONF.database.username {
+        if let Some(password) = &CONF.database.password {
+            DB.signin(surrealdb::opt::auth::Root {
+                username,
+                password
+            }).await?;
+        }
+    }
 
     info!("Applying schema...");
     DB.query(include_str!(concat!(env!("OUT_DIR"), "/schema.surql"))).await?;
@@ -74,14 +83,12 @@ async fn main() -> AnotherlandResult<()> {
         info!("=========== ADMIN ACCOUNT PASSWORD ===========");
         info!("1234");
         info!("==============================================");
-    }
+    }*/
 
     let login_server = LoginServer::init().await?;
+    let realm_server = RealmServer::init().await?;
+    let world_server = WorldServer::init().await?;
     //let queue_server = QueueServer::bind_server("0.0.0.0:53292").await?;
-
-    //let login_server = LoginServer::bind_server("0.0.0.0:6112").await?;
-    //let realm_server = RealmServer::bind_server("0.0.0.0:6113").await?;
-    //let world_server = WorldServer::bind_server("0.0.0.0:6114").await?;
 
     match signal::ctrl_c().await {
         Ok(()) => {},

@@ -66,6 +66,7 @@ fn generate_field_type_code(r#type: &GeneratedFieldType) -> TokenStream {
         GeneratedFieldType::I32 => quote! {i32},
         GeneratedFieldType::I64 => quote! {i64},
         GeneratedFieldType::F32 => quote! {f32},
+        GeneratedFieldType::F64 => quote! {f64},
         GeneratedFieldType::NativeParam => quote! {NativeParam},
     }
 }
@@ -97,9 +98,15 @@ pub fn generate_struct_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>) -> Toke
             }
         }).collect();
 
+        let derive = if generated_struct.derive_default {
+            quote! { #[derive(Debug, Clone, Default)] }
+        } else {
+            quote! { #[derive(Debug, Clone)] }
+        };
+
         code.extend(quote! {
             #[allow(non_camel_case_types)]
-            #[derive(Debug, Clone, Default)]
+            #derive
             pub struct #struct_ident {
                 #(#field),*
             }
@@ -121,6 +128,7 @@ pub fn generate_nom_parser_for_primitive(primitive: &str) -> TokenStream {
         "i32" => quote! {le_i32},
         "i64" => quote! {le_i64},
         "f32" => quote! {le_f32},
+        "f64" => quote! {le_f64},
         "nativeparam" => quote! {NativeParam::parse_struct},
         _ => panic!("Unknown primitive")
     }
@@ -221,6 +229,9 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
                     };
 
                     let len_ident = match len {
+                        FieldLengthDefinition::Remainder => {
+                            quote!{rest_len(i)?.1}
+                        },
                         FieldLengthDefinition::ConstLen(len) => {
                             quote!(#len)
                         },
@@ -428,7 +439,8 @@ pub fn generate_primitive_writer_code(primitive: &str, generated_field: &Generat
         "i16" => quote! { writer.write(#field_getter as i16)?; },
         "i32" => quote! { writer.write(#field_getter as i32)?; },
         "i64" => quote! { writer.write(#field_getter as i64)?; },
-        "f32" => quote! { writer.write_bytes((#field_getter as f32).to_le_bytes().as_slive())?; },
+        "f32" => quote! { writer.write_bytes((#field_getter as f32).to_le_bytes().as_slice())?; },
+        "f64" => quote! { writer.write_bytes((#field_getter as f64).to_le_bytes().as_slice())?; },
         "nativeparam" => quote! { writer.write_bytes(#field_getter.to_struct_bytes().as_slice())?; },
         _ => panic!("Tried to serialize unkown primitive"),
     }
@@ -554,6 +566,7 @@ pub fn generate_field_writer_code(generated_struct: &GeneratedStruct, field_def:
                                 "i32" => quote! { writer.write(#enum_value as i32)? },
                                 "i64" => quote! { writer.write(#enum_value as i64)? },
                                 "f32" => quote! { writer.write_bytes((#enum_value as f32).to_le_bytes().as_slice())? },
+                                "f64" => quote! { writer.write_bytes((#enum_value as f64).to_le_bytes().as_slice())? },
                                 _ => panic!("Tried to serialize unkown primitive"),
                             };
 
@@ -583,6 +596,7 @@ pub fn generate_field_writer_code(generated_struct: &GeneratedStruct, field_def:
                                 "i32" => quote! { writer.write(*v as i32)?; },
                                 "i64" => quote! { writer.write(*v as i64)?; },
                                 "f32" => quote! { writer.write_bytes((*v as f32).to_le_bytes().as_slice())?; },
+                                "f64" => quote! { writer.write_bytes((*v as f64).to_le_bytes().as_slice())?; },
                                 _ => panic!("Tried to serialize unkown primitive"),
                             }
                         },

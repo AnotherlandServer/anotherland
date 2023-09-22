@@ -1,9 +1,10 @@
-use std::sync::{Arc};
+use std::{sync::{Arc}, time::Duration, net::SocketAddr};
 
 use log::{info, debug, trace, error};
-use tokio::{sync::RwLock, task::JoinHandle};
+use surrealdb::{Surreal, engine::remote::ws::{Ws, Client}};
+use tokio::{sync::RwLock, task::JoinHandle, time::{Interval, self}};
 
-use crate::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest, RakNetPeerHandle}, util::AnotherlandResult, CONF, atlas::{CPktLogin, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktS2XConnectionState, Uuid}, db::{AccountRecord, SessionRecord}};
+use crate::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest, RakNetPeerHandle}, util::AnotherlandResult, CONF, atlas::{CPktLogin, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktS2XConnectionState, Uuid, oaPktRealmStatusList}, db::{AccountRecord}, DB, login_server::Session};
 
 pub struct LoginServer {
     internal: Arc<RwLock<LoginServerInternal>>
@@ -32,44 +33,97 @@ enum LoginError {
 impl LoginServerInternal {
     async fn handle_request(&mut self, request: &RakNetRequest) -> AnotherlandResult<()> {
         use Message::*;
+
+        println!("Message: {:#?}", request.message());
         match request.message() {
             AtlasPkt(CPkt::CPktLogin(pkt)) => {
                 debug!("Login request for {}", pkt.username);
 
-                if let Some(account) = AccountRecord::get_by_username_or_mail(&pkt.username).await? {
+                let session = Session::create(&Uuid::new_v4()).await;
+
+                info!("Session {} created for user {}", session.read().await.id().to_string(), pkt.username);
+
+                let realm_ip: SocketAddr = CONF.realm.advertise_address.parse().unwrap();
+
+                // Send login result
+                let mut result = CPktLoginResult::default();
+
+                result.login_success = true;
+                result.ui_state = CpktLoginResultUiState::CharacterSelection;
+                result.user_id = Some(1234);
+                result.username = Some(pkt.username.clone());
+                result.magic_bytes = Some(pkt.magic_bytes.clone());
+                result.field_0x4 = Some(false);
+                result.field29_0x24 = Some(0);
+                result.realm_ip = Some(u32::from_be(match realm_ip.ip() {
+                    std::net::IpAddr::V4(ip) => ip,
+                    _ => panic!(),
+                }.into()));
+                result.realm_port = Some(realm_ip.port());
+                result.field38_0x34 = Some(0);
+                result.unknown_string = Some(String::new());
+                result.session_id = Some(Uuid::from_str(session.read().await.id().to_string().as_str())?);
+
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, result.as_message()).await?;
+
+                // Immediately follow-up with the realm list
+                let mut realm_status: oaPktRealmStatusList = oaPktRealmStatusList::default();
+        
+                realm_status.realm_count = 1;
+                realm_status.realm_id = 1;
+                realm_status.realm_name = CONF.realm.name.clone();
+                realm_status.channel_count = 2;
+                realm_status.field_5.push(1);
+                realm_status.field_5.push(2);
+                realm_status.channel_flag_count = 2;
+                realm_status.field_7.push(0);
+                realm_status.field_7.push(0);
+                
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, realm_status.as_message()).await?;
+
+                /*if let Some(account) = AccountRecord::get_by_username_or_mail(&pkt.username).await? {
                     if account.banned {
                         Self::report_login_error(request.peer(), LoginError::Banned).await?;   
                     } else {
                         // verify password
                         match bcrypt::verify(&pkt.password, &account.password) {
                             Ok(true) => {
-                                // generate a session
-                                match SessionRecord::create(&account).await {
-                                    Err(e) => {
-                                        error!("Failed to create session: {:#?}", e);
-                                        Self::report_login_error(request.peer(), LoginError::InternalError).await?;
-                                    },
-                                    Ok(session) => {
-                                        info!("Session {} created for user {}", session.id.id.to_string(), account.username);
+                                let session = Session::create(&Uuid::from_str(&account.id.id.to_string()).unwrap()).await;
 
-                                        let mut result = CPktLoginResult::default();
+                                info!("Session {} created for user {}", session.read().await.id().to_string(), account.username);
 
-                                        result.login_success = true;
-                                        result.ui_state = CpktLoginResultUiState::RealmSelection;
-                                        result.user_id = Some(0);
-                                        result.username = Some(account.username);
-                                        result.magic_bytes = Some(pkt.magic_bytes.clone());
-                                        result.field_0x4 = Some(false);
-                                        result.field29_0x24 = Some(0);
-                                        result.realm_ip = Some(0);
-                                        result.realm_port = Some(0);
-                                        result.field38_0x34 = Some(0);
-                                        result.unknown_string = Some(String::new());
-                                        result.session_id = Some(Uuid::from_str(session.id.id.to_string().as_str())?);
-                
-                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, result.as_message()).await?;
-                                    }
-                                }
+                                // Send login result
+                                let mut result = CPktLoginResult::default();
+
+                                result.login_success = true;
+                                result.ui_state = CpktLoginResultUiState::CharacterSelection;
+                                result.user_id = Some(account.numeric_id);
+                                result.username = Some(account.username);
+                                result.magic_bytes = Some(pkt.magic_bytes.clone());
+                                result.field_0x4 = Some(false);
+                                result.field29_0x24 = Some(0);
+                                result.realm_ip = Some(0);
+                                result.realm_port = Some(0);
+                                result.field38_0x34 = Some(0);
+                                result.unknown_string = Some(String::new());
+                                result.session_id = Some(Uuid::from_str(session.read().await.id().to_string().as_str())?);
+        
+                                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, result.as_message()).await?;
+
+                                // Immediately follow-up with the realm list
+                                let mut realm_status: oaPktRealmStatusList = oaPktRealmStatusList::default();
+                        
+                                realm_status.realm_count = 1;
+                                realm_status.realm_id = 1;
+                                realm_status.realm_name = CONF.realm.name.clone();
+                                realm_status.channel_count = 2;
+                                realm_status.field_5.push(1);
+                                realm_status.field_5.push(2);
+                                realm_status.channel_flag_count = 2;
+                                realm_status.field_7.push(0);
+                                realm_status.field_7.push(0);
+                                
+                                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, realm_status.as_message()).await?;
                             },
                             Ok(false) => {
                                 Self::report_login_error(request.peer(), LoginError::WrongPassword).await?;
@@ -82,7 +136,7 @@ impl LoginServerInternal {
                     }
                 } else {
                     Self::report_login_error(request.peer(), LoginError::UsernameNotFound).await?;
-                }
+                }*/
             },
             _ => debug!("Unhandled request: {:#?}", request.message()),
         }

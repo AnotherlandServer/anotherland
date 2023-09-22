@@ -46,6 +46,7 @@ pub enum FieldDefinition {
 pub enum FieldLengthDefinition {
     ConstLen(usize),
     DynamicLen(String),
+    Remainder,
 }
 
 #[derive(Debug, Clone)]
@@ -357,6 +358,7 @@ impl FieldTypeDefinition {
                 "i32" | 
                 "i64" |
                 "f32" |
+                "f64" |
                 "nativeparam" => Ok(Self::Primitive(type_name.to_owned())),
                 "cstring" => {
                     let maxlen = yaml["maxlen"].as_i64().map(|v| v as usize);
@@ -369,6 +371,8 @@ impl FieldTypeDefinition {
                 "array" => {
                     let len = if let Some(len) = yaml["len"].as_i64() {
                         FieldLengthDefinition::ConstLen(len as usize)
+                    } else if yaml["len"].as_str().ok_or(io::Error::new(io::ErrorKind::Other, "len required"))? == "_remainder" {
+                        FieldLengthDefinition::Remainder
                     } else {
                         FieldLengthDefinition::DynamicLen(yaml["len"].as_str()
                             .ok_or(io::Error::new(io::ErrorKind::Other, "len required"))?
