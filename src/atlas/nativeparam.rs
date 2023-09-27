@@ -192,7 +192,7 @@ impl NativeParam {
             },
             Self::IntArray(val) => {
                 let _ = writer.write(12u8);
-                let _ = writer.write(val.len() as u16);
+                let _ = writer.write(val.len() as u32);
                 for val in val {
                     let _ = writer.write(*val);
                 }

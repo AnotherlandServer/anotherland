@@ -7,7 +7,7 @@ use nom::{multi::length_count, number::complete::le_u8};
 use surrealdb::{Surreal, engine::remote::ws::{Ws, Client}};
 use tokio::{sync::RwLock, task::JoinHandle, time::{Interval, self, Instant}};
 
-use crate::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest, RakNetPeerHandle, State}, util::AnotherlandResult, CONF, atlas::{CPktLogin, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktS2XConnectionState, Uuid, oaPktRealmStatusList, CPktResourceNotify, CpktResourceNotifyResourceType, oaPktFactionResponse, CParamClass_player, CParam, CPktBlob, CPktServerNotify, CPktStream_167_0, CPktAvatarUpdate, oaPktUIConfigUpdate, CParamClass_npcOtherland, oaPktServerAction, CPktStackedAvatarUpdate, oaPktClusterNodeToClient, NativeParam, FactionRelationList, oaPktMoveManagerPosUpdate}, db::{AccountRecord}, DB, login_server::Session};
+use crate::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest, RakNetPeerHandle, State}, util::AnotherlandResult, CONF, atlas::{CPktLogin, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktS2XConnectionState, Uuid, oaPktRealmStatusList, CPktResourceNotify, CpktResourceNotifyResourceType, oaPktFactionResponse, CParamClass_player, CParam, CPktBlob, CPktServerNotify, CPktStream_167_0, CPktAvatarUpdate, oaPktUIConfigUpdate, CParamClass_npcOtherland, oaPktServerAction, CPktStackedAvatarUpdate, oaPktClusterNodeToClient, NativeParam, FactionRelationList, oaPktMoveManagerPosUpdate, oaPktCommunityToClusterClient, oaPktCommunicationToClusterClient}, db::{AccountRecord}, DB, login_server::Session};
 use crate::atlas::FactionRelation;
 
 pub struct WorldServer {
@@ -29,6 +29,9 @@ pub struct WorldServerInternal {
     client_loadstate: u32,
     last_loadstate: u32,
     last_update: Instant,
+
+    hp_test: i32,
+    move_mgr: Option<Vec<u8>>,
 
     clients: HashMap<Uuid, RakNetPeerHandle>,
 }
@@ -56,16 +59,11 @@ impl WorldServerInternal {
                 character.tutorial_mode = Some(CParam::Bool(false));
                 character.world_map_guid = Some(CParam::CGuid(Uuid::from_str("58340efa-9495-47e2-b4e4-723a2978a6f1").unwrap()));
                 character.zone_guid = Some(CParam::CGuid(Uuid::from_str("b1bbd5c5-0990-454b-bcfa-5dfe176c6756").unwrap()));
-                //character.party_guid = Some(CParam::CGuid(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap()));
                 character.client_ready = Some(CParam::Bool(true));
                 character.collision_extent = Some(CParam::Vector3(Vec3::new(21.0, 21.0, 44.0)));
-                //character.death_info = Some(CParam::Any(0, Vec::new()));
                 character.generate_interest_list = Some(CParam::Bool(true));
                 character.host_ip = Some(CParam::String(request.peer().read().await.remote_address().ip.to_string()));
                 character.in_game_session = Some(CParam::Bool(false));
-                //character.instance_zone_key = Some(CParam::String("".to_owned()));
-                //character.pos = Some(CParam::Vector3(Vec3::new(0.0, 0.0, 0.0)));
-                //character.rot = Some(CParam::Vector3(Vec3::new(0.0, 0.0, 0.0)));
                 character.self_radius = Some(CParam::Float(20.0));
                 character.team_id = Some(CParam::Int32(0));
                 character.zone = Some(CParam::String("MeetingRoom".to_owned()));
@@ -74,12 +72,7 @@ impl WorldServerInternal {
                 character.client_ready = Some(CParam::Bool(true));
                 character.ue3class_id = Some(CParam::String("Engine.AtlasAvatar".to_owned()));
                 character.player_node_state = Some(CParam::Int32(2));
-                //character.content_class = Some(CParam::String("CharCustInfoPlayer.CharCustPlayer.Meshes.Player".to_string()));
-                //character.current_skin = Some(CParam::String("CharCustInfoPlayer.CharCustPlayerCharSkinHuman0001.Units.PlayerCharSkinHuman0005".to_string()));
                 character.visible_item_info = Some(CParam::IntArray(vec![1527, 1531, 1649]));
-                //character.content_class = Some(CParam::String("CharCustInfoPlayer.CharCustPlayerCharSkinHuman0001.Units.PlayerCharSkinHuman0005".to_owned()));
-                //character.current_skin = Some(CParam::String("CharCustInfoPlayer.CharCustPlayerCharSkinHuman0001.Units.PlayerCharSkinHuman0005".to_owned()));
-
 
                 let character_data = character.to_bytes();
 
@@ -128,22 +121,13 @@ impl WorldServerInternal {
             },
             AtlasPkt(CPkt::oaPktClientServerPing(pkt)) => {
                 let mut response = pkt.clone();
-                response.field_1 += 1;
                 let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
-
-                println!("Ping! {:#?}", pkt);
-                //let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, pkt.clone().as_message()).await?;
             },
             AtlasPkt(CPkt::oaPktServerAction(pkt)) => {
                 let mut action = pkt.clone();
                 action.version = 2;
                 let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await?;
             },
-            /*CPkt::oaPktClienToClusterNode(pkt) => {
-                let mut node_to_client = oaPktClusterNodeToClient::default();
-                node_to_client.field_3 = pkt.field_3.clone();
-                response.add_message(Reliability::Reliable, node_to_client.to_message());
-            }*/
             AtlasPkt(CPkt::oaPktC2SConnectionState(pkt)) => {
                 self.client_loadstate = pkt.field_1;
 
@@ -152,30 +136,55 @@ impl WorldServerInternal {
                 response.field_2 += 1;
 
                 let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
-                /*let mut state = oaPktS2XConnectionState::default();
-                state.field_1 = 6;
-                state.field_2 = 0;
-
-                self.client_loadstate = 6;
-
-                response.add_message(Reliability::Reliable, state.as_message());*/
-
-
-                // oaPktClusterNodeToClient 0 = quest template?
-
-
-
-                /*let mut aggregated = CPktAggregated::default();
-                response.add_message(Reliability::Reliable, aggregated.to_message());*/
-
             },
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
-                let mut update = pkt.clone();
-                update.avatar_id = Some(1);
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, update.as_message()).await?;
+                if pkt.avatar_id.is_none() {
+                    if self.hp_test < 1000 {
+                        self.hp_test += 1;
+                    }
+
+                    let mut response = CPktAvatarUpdate::default();
+                    response.avatar_id = Some(1);
+                    response.full_update = false;
+                    response.data_len2 = pkt.data_len2;
+                    response.field_16 = pkt.field_16.clone();
+                    response.field_14 = 1;
+
+                    let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
+                }
+            },
+            AtlasPkt(CPkt::oaPktClusterClientToCommunity(pkt)) => {
+                let mut response = oaPktCommunityToClusterClient::default();
+                response.field_1 = pkt.field_1.clone();
+                response.field_2 = "Hi!".to_owned();
+                response.field_3 = pkt.field_3.clone();
+                response.field_4 = pkt.field_4;
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
+            },
+            AtlasPkt(CPkt::oaPktClusterClientToCommunication(pkt)) => {
+                let mut response = oaPktCommunicationToClusterClient::default();
+                response.field_1 = pkt.field_1.clone();
+                response.field_2 = "Hi!".to_owned();
+                response.field_3 = NativeParam::Struct(vec![
+                    NativeParam::Int(0),
+                    NativeParam::String("Hi!".to_owned()),
+                ]);
+                response.field_4 = pkt.field_4;
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
             },
             AtlasPkt(CPkt::oaPktClienToClusterNode(pkt)) => {
-                
+                match pkt.field_2 {
+                    5 => {
+                        let mut response = oaPktClusterNodeToClient::default();
+                        response.field_1 = Uuid::new_v4();
+                        response.field_3 = NativeParam::Struct(vec![
+                            NativeParam::Int(0xa8)
+                        ]);
+                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
+                    },
+                    _ => (),
+                }
+
             },
             AtlasPkt(CPkt::oaPktFactionRequest(pkt)) => {
                 let factions = vec![FactionRelation {
@@ -219,9 +228,10 @@ impl WorldServerInternal {
         for client in self.clients.iter() {
             if client.1.read().await.state() != State::Connected {
                 remove_clients.push(client.0.to_owned());
+                continue;
             }
 
-            if Instant::now().duration_since(self.last_update).as_millis() > 200 {
+            if Instant::now().duration_since(self.last_update).as_millis() > 10 && self.client_loadstate < 8 {
                 self.last_update = Instant::now();
     
                 if self.client_loadstate != self.last_loadstate {
@@ -229,25 +239,7 @@ impl WorldServerInternal {
     
                     match self.client_loadstate {
                         5 => {
-                            {
-                                /*let mut character = CParamClass_npcOtherland::default();
-    
-                                character.alive = Some(CParam::Bool(true));
-                                character.lvl = Some(CParam::Int32(1));
-                                //character.zone_guid = Some(CParam::CGuid(Uuid::from_str("3abb7eb1-662a-48ff-bdec-c1eac42c42d1").unwrap()));
-                                //character.party_guid = Some(CParam::CGuid(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap()));
-                                character.collision_extent = Some(CParam::Vector3(Vec3::new(21.0, 21.0, 44.0)));
-                                //character.death_info = Some(CParam::Any(0, Vec::new()));
-                                character.generate_interest_list = Some(CParam::Bool(false));
-                                //character.instance_zone_key = Some(CParam::String("".to_owned()));
-                                //character.pos = Some(CParam::Vector3(Vec3::new(0.0, 0.0, 0.0)));
-                                //character.rot = Some(CParam::Vector3(Vec3::new(0.0, 0.0, 0.0)));
-                                character.self_radius = Some(CParam::Float(20.0));
-                                character.team_id = Some(CParam::Int32(0));
-                                character.zone = Some(CParam::String("MeetingRoom".to_owned()));
-                                character.ue3class_id = Some(CParam::String("Otherland.OLAvatarNPC".to_owned()));
-    
-                                let character_data = character.to_bytes();*/
+                            /*{
                                 let character_data = fs::read("npc_lambda_bartender_lovenurseclinic.bin").unwrap();
     
                                 let mut buf = Vec::new();
@@ -276,7 +268,7 @@ impl WorldServerInternal {
     
                                 let mut avatar_update = CPktAvatarUpdate::default();
                                 avatar_update.full_update = true;
-                                avatar_update.avatar_id = Some(2);
+                                avatar_update.avatar_id = Some(0xf00);
                                 avatar_update.field_2 = Some(true);
                                 avatar_update.field_4 = Some("Test1".to_owned());
                                 avatar_update.field_5 = Some(47);
@@ -291,7 +283,7 @@ impl WorldServerInternal {
                                 avatar_update.field_16 = buf;
 
                                 let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
-                            }
+                            }*/
 
                             {
                                 let mut state = oaPktS2XConnectionState::default();
@@ -409,25 +401,22 @@ impl WorldServerInternal {
                                 let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, state.as_message()).await?;
                             }
 
-                        },
-                        8 => {
+                            // Tell the client the player has arrived
                             {
                                 let mut action = oaPktServerAction::default();
-                                //action.action = "LMPlatform_P".to_owned();
                                 action.action = "TRAVEL:DirectTravel|DirectTravelDefault".to_owned();
-                                //action.field_5 = "DirectTravelDefault".to_owned();
                                 action.version = 4;
                                 action.override_teleport = false;
                                 action.field_7 = vec![f32::INFINITY, f32::INFINITY, f32::INFINITY];
                                 action.field_8 = vec![1.0f32, 0.0f32, 0.0f32, 0.0f32];
                                 let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await?;
                             }
+
                         },
                         _ => println!("Undefined load state: {}", self.client_loadstate),
                     }
                 }
-            }
-    
+            }    
         }
 
         for r in &remove_clients {
@@ -446,7 +435,9 @@ impl WorldServerInternal {
             client_loadstate: 0,
             last_loadstate: 0,
             last_update: Instant::now(),
+            hp_test: 0,
             clients: HashMap::new(),
+            move_mgr: None,
         }));
 
         inst.write().await.listener.listen(&CONF.world.listen_address).await?;
