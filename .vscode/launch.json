@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'AnotherlandServer'",
+            "name": "Debug data-import",
             "cargo": {
                 "args": [
                     "build",
@@ -19,7 +19,7 @@
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": ["data-import", "D:\\Otherland Next\\Client_Unmodified"],
             "cwd": "${workspaceFolder}"
         },
         {

@@ -1,146 +1,287 @@
-use std::{sync::{Arc}, time::Duration, net::{SocketAddrV4, SocketAddr}};
+use std::{net::{SocketAddrV4, SocketAddr, Ipv4Addr}, collections::HashMap};
 
-use log::{info, debug, trace, error};
-use surrealdb::{Surreal, engine::remote::ws::{Ws, Client}};
-use tokio::{sync::RwLock, task::JoinHandle, time::{Interval, self}};
+use async_trait::async_trait;
+use bson::doc;
+use log::{info, debug, warn, error};
+use mongodb::{options::UpdateOptions, Database};
+use std::error::Error;
 
-use crate::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest, RakNetPeerHandle}, util::AnotherlandResult, CONF, atlas::{CPktLogin, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktS2XConnectionState, Uuid, oaPktRealmStatusList, CParamClass_player, CParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess}, db::{AccountRecord}, DB, login_server::Session};
+use crate::{util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind::{ApplicationError, self}}, CONF, ARGS, cluster::{ServerInstance, ClusterMessage}, db::{WorldDef, WorldServerEntry}};
+use crate::db::{Account, Realm, cluster_database, Session, DatabaseRecord, realm_database, Character};
+use atlas::{CPkt, Uuid, CParamClass_player, CParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess};
+use atlas::raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest};
+use atlas::oaPktCharacterFailure;
+
+#[derive(Clone)]
+struct ClientState {
+    account: Account,
+    session: Session,
+    character: Option<Uuid>,
+    world: Option<WorldDef>,
+}
 
 pub struct RealmServer {
-    internal: Arc<RwLock<RealmServerInternal>>
+    listener: RakNetListener,
+    realm: Realm,
+    cluster_db: Database,
+    realm_db: Database,
+
+    client_state: HashMap<Uuid, ClientState>,
 }
 
 impl RealmServer {
-    pub async fn init() -> AnotherlandResult<Self> {
-        Ok(RealmServer {
-            internal: RealmServerInternal::init().await?
-        })
+    async fn authenticate_request(&mut self, request: &RakNetRequest) -> AnotherlandResult<(Uuid, ClientState)> {
+        let peer_id = request.peer().read().await.guid().to_owned();
+
+        // Do we have a client state?
+        if self.client_state.contains_key(&peer_id) {
+            return Ok((peer_id.clone(), self.client_state.get(&peer_id).unwrap().clone()));
+        }
+
+        // Does the message contain a session id?
+        use Message::*;
+        let session_id = match request.message() {
+            AtlasPkt(CPkt::oaPktRequestCharacterList(pkt)) => {
+                Ok(pkt.session_id.clone())
+            },
+            _ => {
+                Err(AnotherlandError::new(ApplicationError, "message without session id"))
+            }
+        }?;
+
+        // Lookup session
+        match Session::get(self.cluster_db.clone(), &session_id).await? {
+            Some(session) => {
+                self.client_state.insert(peer_id.clone(), ClientState { 
+                    account: Account::get_by_id(self.cluster_db.clone(), &session.account).await?.unwrap(), 
+                    session,
+                    character: None,
+                    world: None,
+                });
+
+                Ok((peer_id.clone(), self.client_state.get(&peer_id).unwrap().clone()))
+            },
+            None => {
+                Err(AnotherlandError::new(ApplicationError, "unknown session"))
+            }
+        }
     }
 }
 
-pub struct RealmServerInternal {
-    listener: RakNetListener,
-    task: Option<JoinHandle<()>>,
-}
+#[async_trait]
+impl ServerInstance for RealmServer {
+    async fn init() -> AnotherlandResult<Box<Self>> {
+        info!("Starting realm server [{}]...", CONF.realm.name);
 
-impl RealmServerInternal {
-    async fn handle_request(&mut self, request: &RakNetRequest) -> AnotherlandResult<()> {
+        let mut listener = RakNetListener::new();
+        listener.listen(&CONF.realm.listen_address).await?;
+
+        let realm = Realm {
+            id: CONF.realm.id.into(),
+            name: CONF.realm.name.clone(),
+            population: 1.0,
+            external_ip: ARGS.external_ip.to_string(),
+            external_port: listener.local_addr().await.unwrap().port(),
+        };
+
+        info!("Registering realm server [{}]...", realm.name);
+
+        let collection = cluster_database().await.collection::<Realm>("realms");
+        collection.update_one(
+            doc!{"id": {"$eq": realm.id} }, 
+            doc!{"$set": &bson::to_bson(&realm).unwrap().as_document()}, 
+            UpdateOptions::builder().upsert(true).build()
+        ).await?;
+
+        Ok(Box::new(Self {
+            listener,
+            realm,
+            cluster_db: cluster_database().await,
+            realm_db: realm_database().await,
+            client_state: HashMap::new(),
+        }))
+    }
+
+    async fn close(&mut self) {
+
+    }
+
+    async fn next_request(&mut self) -> AnotherlandResult<Option<RakNetRequest>> {
+        Ok(self.listener.next_request().await)
+    }
+
+    async fn handle_request(&mut self, request: RakNetRequest) -> AnotherlandResult<()> {
         use Message::*;
+
+        let (peer_id, mut state) = match self.authenticate_request(&request).await {
+            Ok(state) => state,
+            Err(e) => {
+                warn!("Failed to authenticate client: {}", e);
+
+                // Close client connection when we can't authenticate them
+                request.peer().write().await.disconnect().await;
+
+                return Ok(())
+            }
+        };
 
         println!("Message: {:#?}", request.message());
         match request.message() {
-            AtlasPkt(CPkt::oaPktRequestCharacterList(pkt)) => {
-
-                // Create params
-                let mut character = CParamClass_player::default();
-                character.alive = Some(CParam::Bool(true));
-                character.lvl = Some(CParam::Int32(1));
-                character.tutorial_mode = Some(CParam::Bool(true));
-
-                let character_data = character.to_bytes();
-
-                println!("{:#?}", character_data);
-
-                let character = oaCharacter {
-                    field_0: 0,
-                    name: "Test".to_owned(),
-                    world_id: 128,
-                    length: character_data.len() as u32,
-                    params: character_data,
-                    field_5: 0,
-                };
+            AtlasPkt(CPkt::oaPktRequestCharacterList(_)) => {
+                let characters: Vec<oaCharacter> = Character::list(self.realm_db.clone(), &state.account.id).await?.into_iter().map(|c| {
+                    let serialized = c.data.to_bytes();
+                    
+                    oaCharacter {
+                        id: c.id,
+                        name: c.name,
+                        world_id: c.world_id,
+                        length: serialized.len() as u32,
+                        params: serialized,
+                        field_5: 0
+                    }
+                }).collect();
 
                 let mut character_list = CPktStream_126_1::default();
                 character_list.list = oaCharacterList {
-                    count: 1,
-                    characters: vec![character],
+                    count: characters.len() as u32,
+                    characters,
                 };
 
                 let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, character_list.as_message()).await?;
             },
             AtlasPkt(CPkt::oaPktCharacterCreate(pkt)) => {
-                println!("Character create: {}", pkt.character_name);
+                debug!("Character create: {}", pkt.character_name);
 
-                // Create params
-                let mut player = CParamClass_player::default();
-                player.alive = Some(CParam::Bool(true));
-                player.lvl = Some(CParam::Int32(1));
-                player.world_map_guid = Some(CParam::CGuid(Uuid::from_str("58340efa-9495-47e2-b4e4-723a2978a6f1").unwrap()));
-                player.zone_guid = Some(CParam::CGuid(Uuid::from_str("b1bbd5c5-0990-454b-bcfa-5dfe176c6756").unwrap()));
-                player.tutorial_mode = Some(CParam::Bool(true));
-
-                let player_data = player.to_bytes();
-
-                println!("{:#?}", player_data);
-
-                let mut character_create_successful = CPktStream_126_5::default();
-                character_create_successful.character = oaCharacter {
-                    field_0: 0,
-                    name: pkt.character_name.clone(),
-                    world_id: 65,
-                    length: player_data.len() as u32,
-                    params: player_data,
-                    field_5: 0,
-                };
-
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, character_create_successful.as_message()).await?;
+                match Character::create(self.realm_db.clone(), &state.account.id, &pkt.character_name).await {
+                    Ok(character) => {
+                        let serialized = character.data.to_bytes();
+                        let mut character_create_successful = CPktStream_126_5::default();
+                        character_create_successful.character = oaCharacter {
+                            id: character.id,
+                            name: character.name.to_owned(),
+                            world_id: character.world_id,
+                            length: serialized.len() as u32,
+                            params: serialized,
+                            field_5: 0,
+                        };
+                        
+                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, character_create_successful.as_message()).await?;
+                    },
+                    Err(e) => match e.kind() {
+                        AnotherlandErrorKind::DBError => {
+                            // Todo: Check for duplicated key errors
+                            let mut failure = oaPktCharacterFailure::default();
+                            failure.field_1 = 1;
+                            let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, failure.as_message()).await?;
+                        },
+                        _ => {
+                            let mut failure = oaPktCharacterFailure::default();
+                            failure.field_1 = 0; // not sure what 0 means
+                            let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, failure.as_message()).await?;
+                        }
+                    }
+                }
             },
             AtlasPkt(CPkt::oaPktRequestSelectWorld(pkt)) => {
-                let mut response_select_world = oaPktResponseSelectWorld::default();
-                response_select_world.field_1 = true;
-                response_select_world.field_2 = 0;
-                response_select_world.field_3 = pkt.field_3.clone();
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response_select_world.as_message()).await?;
+                // Load selected world
+                match WorldDef::get(self.realm_db.clone(), &pkt.world_id).await? {
+                    Some(world) => {
+                        // update session
+                        state.session.select_world(self.cluster_db.clone(), pkt.world_id).await?;
+
+                        // send response
+                        let mut response_select_world = oaPktResponseSelectWorld::default();
+                        response_select_world.field_1 = true;
+                        response_select_world.field_2 = 0;
+                        response_select_world.field_3 = pkt.field_3.clone();
+                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response_select_world.as_message()).await?;
+
+                        state.world = Some(world);
+                    },
+                    None => {
+                        // World not found. 
+                        let mut response_select_world = oaPktResponseSelectWorld::default();
+                        response_select_world.field_1 = false;
+                        response_select_world.field_2 = 0;
+                        response_select_world.field_3 = pkt.field_3.clone();
+                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response_select_world.as_message()).await?;
+                    }
+                }
             },
             AtlasPkt(CPkt::oaPktCharacterSelect(pkt)) => {
-                let mut character_select_success = oaPktCharacterSelectSuccess::default();
+                if state.world.is_none() {
+                    error!("Client tried to select character before selecting a world!");
+                    let _ = request.peer().write().await.disconnect().await;
+                } else {
+                    // Load selected character
+                    match Character::get(self.realm_db.clone(), &pkt.field_1).await? {
+                        Some(character) => {
+                            // validate, that this account owns the character
+                            if character.account == state.account.id {
+                                // determine world server
+                                match WorldServerEntry::get(self.realm_db.clone(), &state.world.as_ref().unwrap().id).await? {
+                                    Some(worldserver) => {
+                                        info!("Character {} selected! Joining routing to world {}...", character.id, state.world.as_ref().unwrap().id);
 
-                let world_ip: SocketAddr = CONF.world.advertise_address.parse().unwrap();
+                                        // select character
+                                        state.session.select_character(self.cluster_db.clone(), character.id).await?;
 
-                character_select_success.world_ip = u32::from_be(match world_ip.ip() {
-                    std::net::IpAddr::V4(ip) => ip,
-                    _ => panic!(),
-                }.into());
-                character_select_success.world_port = world_ip.port();
-                character_select_success.magic_bytes = Vec::new();
-                character_select_success.magic_bytes.resize(16, 0);
-
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, character_select_success.as_message()).await?;
+                                        // send response
+                                        let mut character_select_success = oaPktCharacterSelectSuccess::default();
+                                        character_select_success.world_ip = u32::from_be(worldserver.external_ip.parse::<Ipv4Addr>().unwrap().into());
+                                        character_select_success.world_port = worldserver.external_port;
+                                        character_select_success.session_id = state.session.id.clone();
+                        
+                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, character_select_success.as_message()).await?;
+                                    },
+                                    None => {
+                                        error!("Client tried to load into unavailable world {}", state.world.as_ref().unwrap().id);
+                                        let _ = request.peer().write().await.disconnect().await;
+                                    }
+                                }
+                            } else {
+                                error!("Account {} tried to select character {} that is owned by {}!", state.account.id, pkt.field_1, character.account);
+                                let _ = request.peer().write().await.disconnect().await;
+                            }
+                        },
+                        None => {
+                            error!("Tried to load unknown character: {}", pkt.field_1);
+                            let _ = request.peer().write().await.disconnect().await;
+                        }
+                    }
+                }
             },
             _ => debug!("Unhandled request: {:#?}", request.message()),
         }
 
+        self.client_state.insert(peer_id, state);
+
         Ok(())
     }
 
-    pub async fn init() -> AnotherlandResult<Arc<RwLock<Self>>> {
-        info!("Starting realm server...");
+    async fn handle_cluster_message(&mut self, message: ClusterMessage) -> AnotherlandResult<()> {
+        match message {
+            ClusterMessage::InvalidateSession(id) => {
+                // Is the session id registered with us?
+                match self.client_state.iter().find(|v| v.1.session.id == id).map(|v| v.0.clone()) {
+                    Some(peer_id) => {
+                        // Remove state and close connection
+                        if let Some(peer) = self.listener.peer(&peer_id) {
+                            peer.write().await.disconnect().await;
+                        }
 
-        let mut inst = Arc::new(RwLock::new(Self {
-            listener: RakNetListener::new(),
-            task: None,
-        }));
+                        self.client_state.remove(&peer_id);
 
-        inst.write().await.listener.listen(&CONF.realm.listen_address).await?;
-
-        let task_handle = {
-            let inst = inst.clone();
-
-            Some(tokio::spawn(async move {
-                let listener = inst.read().await.listener.clone();
-
-                while let Some(request) = listener.next_request().await {
-                    if let Err(e) = inst.write().await.handle_request(&request).await {
-                        error!("Error handling request from peer {}: {:#?}", request.peer().read().await.guid(), e);
-                    }
+                        Ok(())
+                    },
+                    None => Ok(()),
                 }
+            }
+            _ => Ok(())
+        }
+    }
 
-                trace!("Stopping realm server loop...");
-            }))
-        };
-
-        inst.write().await.task = task_handle;
-
-        Ok(inst)
+    async fn tick(&mut self) -> Result<(), AnotherlandError> {
+        Ok(())
     }
 }

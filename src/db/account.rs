@@ -1,42 +1,47 @@
-use std::time::{Instant, SystemTime};
-
+use async_trait::async_trait;
+use bson::{doc, Document};
 use chrono::{Utc, DateTime};
-use log::Record;
+use mongodb::{Database, options::IndexOptions, IndexModel, Collection};
 use serde::{Serialize, Deserialize};
 use sha1::{Sha1, Digest};
-use surrealdb::sql::{Thing, self, Datetime};
 
-use crate::{atlas::Uuid, util::AnotherlandResult, DB};
+use crate::util::AnotherlandResult;
+use atlas::Uuid;
+
+use super::DatabaseRecord;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AccountRecord {
-    pub id: Thing,
+pub struct Account {
+    pub id: Uuid,
     pub numeric_id: u32,
     pub username: String,
     pub email: String,
     pub password: String,
-    pub created: Datetime,
-    pub last_login: Option<Datetime>,
+    pub created: DateTime<Utc>,
+    pub last_login: Option<DateTime<Utc>>,
     pub banned: bool,
-    pub ban_reason: Option<String>
+    pub ban_reason: Option<String>,
+    pub is_gm: bool,
 }
 
-impl AccountRecord {
-    pub async fn get_by_id(guid: Uuid) -> AnotherlandResult<Option<AccountRecord>> {
-        Ok(DB.select(("account", guid)).await?)
+impl Account {
+    pub async fn get_by_id(db: Database, guid: &Uuid) -> AnotherlandResult<Option<Account>> {
+        let collection = db.collection::<Account>("accounts");
+        Ok(collection.find_one(doc! {"id": {"$eq": guid.to_string()}}, None).await?)
     }
 
-    pub async fn get_by_username_or_mail(username_or_email: &str) -> AnotherlandResult<Option<AccountRecord>> {
-        Ok(
-            DB
-            .query("SELECT * FROM account WHERE username = $username_or_email OR email = $username_or_email LIMIT 1")
-            .bind(("username_or_email", username_or_email))
-            .await?
-            .take(0)?
-        )
+    pub async fn get_by_username_or_mail(db: Database, username_or_email: &str) -> AnotherlandResult<Option<Account>> {
+        let collection = db.collection::<Account>("accounts");
+        Ok(collection.find_one(doc! {
+            "$or": [ 
+                {"username": {"$eq": username_or_email}}, 
+                {"email": {"$eq": username_or_email}}
+            ]},
+         None).await?)
     }
 
-    pub async fn create(username: String, email: String, password: String) -> AnotherlandResult<AccountRecord> {
+    pub async fn create(db: Database, username: String, email: String, password: String) -> AnotherlandResult<Account> {
+        let collection = db.collection::<Account>("accounts");
         let id = Uuid::new_v4();
 
         // Compute numeric account id by hashing the uuid and trimming it to 32bits.
@@ -46,12 +51,8 @@ impl AccountRecord {
         let result = hasher.finalize();
         
         let numeric_id = u32::from_le_bytes(result[0..4].try_into().unwrap());
-
-        let mut created: Vec<AccountRecord> = DB.create("account").content(AccountRecord {
-            id: Thing {
-                tb: "account".to_owned(),
-                id: surrealdb::sql::Id::String(id.to_string())
-            },
+        let account = Account {
+            id,
             numeric_id,
             username,
             email,
@@ -60,12 +61,60 @@ impl AccountRecord {
             last_login: None,
             banned: false,
             ban_reason: None,
-        }).await?;
+            is_gm: false,
+        };
 
-        Ok(created.remove(0))
+        collection.insert_one(&account, None).await?;
+        Ok(account)
     }
 
-    pub async fn update_last_login(&mut self) -> AnotherlandResult<()> {
+    pub async fn update_last_login(&mut self, _db: Database) -> AnotherlandResult<()> {
         todo!()
+    }
+
+    pub async fn init_collection(db: Database) -> AnotherlandResult<()> {
+        let collection = db.collection::<Account>("accounts");
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc!("id": 1))
+            .options(IndexOptions::builder().unique(true).build())
+            .build(), 
+            None).await?;
+
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc!("numeric_id": 1))
+            .options(IndexOptions::builder().unique(true).build())
+            .build(), 
+            None).await?;
+        
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc!("username": 1))
+            .options(IndexOptions::builder().unique(true).build())
+            .build(), 
+            None).await?;
+
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc!("email": 1))            
+            .options(IndexOptions::builder().unique(true).build())
+            .build(), 
+            None).await?;
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DatabaseRecord<'_> for Account {
+    type Key = Uuid;
+
+    fn collection(db: Database) -> Collection<Self> {
+        db.collection::<Self>("accounts")
+    }
+
+    fn key(&self) -> &Self::Key {
+        &self.id
     }
 }

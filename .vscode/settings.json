@@ -1,12 +1,10 @@
 {
     "rust-analyzer.linkedProjects": [
         ".\\Cargo.toml",
-        ".\\Cargo.toml",
-        ".\\Cargo.toml",
-        ".\\Cargo.toml",
-        ".\\Cargo.toml"
+        ".\\crates\\atlas\\Cargo.toml"
     ],
     "yaml.schemas": {
         "otherland-proto": "${workspaceFolder}/packet_definitions/otherproto.schema.yaml",
+        "file:///d%3A/Otherland%20Next/Server/packet_definitions/otherland.packet.schema.yaml": "file:///d%3A/Otherland%20Next/Server/packet_definitions/packets/oaPktClientServerPing.yaml"
     }
 }

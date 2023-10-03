@@ -1,34 +1,119 @@
 mod util;
 mod db;
 mod config;
-mod raknet;
 mod login_server;
 mod realm_server;
 mod world_server;
-mod queue_server;
-mod atlas;
+mod cluster;
+mod world;
+mod data_import;
 
 // Import modules
-use std::{fs, path::Path, env};
+use std::{net::Ipv4Addr, collections::VecDeque};
+use clap::{Parser, Subcommand};
 use ::config::File;
-use log::{LevelFilter, info, debug};
-use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, Root, Logger}};
+use log::{LevelFilter, info};
+use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, Root}};
 use glob::glob;
-
-use nom::error::ErrorKind;
 use once_cell::sync::Lazy;
-use surrealdb::{Surreal, engine::{remote::ws::{Ws, Client}}};
-// Use
-use tokio::{io, signal, sync::RwLock};
-use queue_server::QueueServer;
+use mongodb::bson::doc;
+use tokio::{signal, sync::RwLock};
+
 use util::AnotherlandResult;
-/*use login_server::LoginServer;
-use realm_server::RealmServer;
-use world_server::WorldServer;*/
 
-use crate::{atlas::CParamClass_faction, raknet::RakNetListener, config::ConfMain, login_server::LoginServer, db::AccountRecord, realm_server::RealmServer, world_server::WorldServer};
 
-static DB: Lazy<Surreal<Client>> = Lazy::new(Surreal::init);
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+pub struct Args {
+    #[arg(long, env = "EXTERNAL_IP")]
+    external_ip: Ipv4Addr,
+
+    #[arg(long, env = "MONGO_URI")]
+    mongo_uri: String,
+
+    #[arg(long, env = "MONGO_CLUSTER_DB", default_value = "anotherland")]
+    mongo_cluster_db: String,
+
+    #[command(subcommand)]
+    start_command: StartCommand,
+}
+
+#[derive(Subcommand)]
+enum StartCommand {
+    InitDb,
+    DataImport {
+        path_to_client: String,
+
+        #[arg(long, env = "MONGO_REALM_DB")]
+        mongo_realm_db: String,
+    },
+    LoginServer {
+        #[arg(long, env = "MAX_ACTIVE_SESSIONS")]
+        max_active_sessions: usize
+    },
+    RealmServer {
+        #[arg(long, env = "MONGO_REALM_DB")]
+        mongo_realm_db: String,
+    },
+    WorldServer {
+        #[arg(long)]
+        world_id: u16,
+
+        #[arg(long, env = "MONGO_REALM_DB")]
+        mongo_realm_db: String,
+    },
+    InstancePoolServer {
+        #[arg(long, env = "MAX_INSTANCES")]
+        max_instances: usize,
+
+        #[arg(long, env = "MONGO_REALM_DB")]
+        mongo_realm_db: String,
+    },
+    StandaloneServer {
+        #[arg(long, env = "MAX_INSTANCES")]
+        max_instances: usize,
+
+        #[arg(long, env = "MAX_ACTIVE_SESSIONS")]
+        max_active_sessions: usize,
+
+        #[arg(long, env = "MONGO_REALM_DB")]
+        mongo_realm_db: String,
+    }
+}
+
+impl Args {
+    pub fn max_instances(&self) -> Option<usize> {
+        match self.start_command {
+            StartCommand::InstancePoolServer { max_instances, .. } => Some(max_instances),
+            StartCommand::StandaloneServer { max_instances, .. } => Some(max_instances),
+            _ => None,
+        }
+    }
+
+    pub fn max_active_sessions(&self) -> Option<usize> {
+        match self.start_command {
+            StartCommand::LoginServer { max_active_sessions } => Some(max_active_sessions),
+            StartCommand::StandaloneServer { max_active_sessions, .. } => Some(max_active_sessions),
+            _ => None,
+        }
+    }
+
+    pub fn mongo_realm_db(&self) -> Option<String> {
+        match &self.start_command {
+            StartCommand::WorldServer { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
+            StartCommand::InstancePoolServer { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
+            StartCommand::StandaloneServer { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
+            StartCommand::DataImport { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
+            StartCommand::RealmServer { mongo_realm_db } => Some(mongo_realm_db.clone()),
+            _ => None
+        }
+    }
+}
+
+use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, WorldDef}, world_server::WorldServer};
+
+static ARGS: Lazy<Args> = Lazy::new(Args::parse);
+
 static CONF: Lazy<ConfMain> = Lazy::new(|| {
     type Config = ::config::Config;
     
@@ -45,8 +130,20 @@ static CONF: Lazy<ConfMain> = Lazy::new(|| {
         .expect("Failed to parse config")
 });
 
+// Todo: This is a hack, but I don't want to refactor the server runner / server instance impl
+// to accept parameters on creation.
+static WORLD_SERVER_IDS: Lazy<RwLock<VecDeque<u16>>> = Lazy::new(||RwLock::new(VecDeque::new()));
+
+async fn init_database() -> AnotherlandResult<()> {
+    
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> AnotherlandResult<()> {
+    let _ = dotenvy::dotenv();
+
     // Setup logging
     if let Err(_) = log4rs::init_file("log4rs.yaml", Default::default()) {
         let stdout = ConsoleAppender::builder().build();
@@ -58,44 +155,74 @@ async fn main() -> AnotherlandResult<()> {
         log4rs::init_config(config).unwrap();
     }
 
-    // Database
-    /*info!("Opening database...");
-    DB.connect::<Ws>(&CONF.database.url).await?;
-    DB.use_ns(&CONF.database.namespace).use_db(&CONF.database.database).await?;
+    // Load config
+    Lazy::force(&CONF);
 
-    if let Some(username) = &CONF.database.username {
-        if let Some(password) = &CONF.database.password {
-            DB.signin(surrealdb::opt::auth::Root {
-                username,
-                password
-            }).await?;
+    info!("Testing database connection...");
+    database("admin")
+        .await
+        .run_command(doc! {"ping": 1}, None)
+        .await?;
+
+    info!("Setting up database...");
+    initalize_db().await?;
+
+    // Start tokio runtime
+    let mut servers = Vec::new();
+
+    match &ARGS.start_command {
+        StartCommand::InitDb => {
+            init_database().await?;
+        },
+        StartCommand::DataImport { path_to_client, .. } => {
+            // Init database anyway
+            init_database().await?;
+            import_client_data(path_to_client.into()).await?;
+        }
+        StartCommand::LoginServer { .. } => {
+            servers.push(ServerRunner::new::<LoginServer>());
+        },
+        StartCommand::RealmServer { .. } => {
+            servers.push(ServerRunner::new::<RealmServer>());
+        },
+        StartCommand::WorldServer { world_id, .. } => {
+            WORLD_SERVER_IDS.write().await.push_front(*world_id);
+
+            servers.push(ServerRunner::new::<WorldServer>());
+        },
+        StartCommand::InstancePoolServer { .. } => {
+
+        },
+        StartCommand::StandaloneServer { .. } => {
+            init_database().await?;
+
+            // load all worlds
+            let worlds = WorldDef::list(realm_database().await).await?;
+            let world_count = worlds.len();
+
+            WORLD_SERVER_IDS.write().await.append(&mut worlds.into_iter().map(|m| m.id).collect::<VecDeque<u16>>());
+
+            servers.push(ServerRunner::new::<LoginServer>());
+            servers.push(ServerRunner::new::<RealmServer>());
+
+            for _ in 1..=world_count {
+                servers.push(ServerRunner::new::<WorldServer>());
+            }
         }
     }
 
-    info!("Applying schema...");
-    DB.query(include_str!(concat!(env!("OUT_DIR"), "/schema.surql"))).await?;
-
-    // Create Admin account if it doesn't exist yet
-    debug!("Admin account: {:#?}", AccountRecord::get_by_username_or_mail("admin").await?);
-    if AccountRecord::get_by_username_or_mail("admin").await?.is_none() {
-        AccountRecord::create("admin".to_owned(), "admin@localhost".to_owned(), "1234".to_owned()).await?;
-
-        info!("=========== ADMIN ACCOUNT PASSWORD ===========");
-        info!("1234");
-        info!("==============================================");
-    }*/
-
-    let login_server = LoginServer::init().await?;
-    let realm_server = RealmServer::init().await?;
-    let world_server = WorldServer::init().await?;
-    //let queue_server = QueueServer::bind_server("0.0.0.0:53292").await?;
-
-    match signal::ctrl_c().await {
-        Ok(()) => {},
-        Err(err) => {
-            eprintln!("Unable to listen for shutdown signal: {}", err);
-            // we also shut down in case of error
-        },
+    if !servers.is_empty() {
+        match signal::ctrl_c().await {
+            Ok(()) => {
+                for server in servers.drain(..) {
+                    server.stop().await;
+                }
+            },
+            Err(err) => {
+                eprintln!("Unable to listen for shutdown signal: {}", err);
+                // we also shut down in case of error
+            },
+        }
     }
 
     Ok(())
