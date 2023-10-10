@@ -1,3 +1,5 @@
+use crate::{NetworkVec3, NetworkVec4, PositionUpdate};
+
 use super::{oaCharacterList, oaCharacter, oaFriendList, oaFriendInfo, Uuid};
 
 impl Default for oaCharacterList {
@@ -43,6 +45,37 @@ impl Default for oaFriendInfo {
             field_6: 0,
             field_7: false,
             field_8: Uuid::default(),
+        }
+    }
+}
+
+impl Default for NetworkVec3 {
+    fn default() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        }
+    }
+}
+
+impl Default for NetworkVec4 {
+    fn default() -> Self {
+        Self {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 0.0,
+        }
+    }
+}
+
+impl Default for PositionUpdate {
+    fn default() -> Self {
+        Self {
+            pos: NetworkVec3::default(),
+            rot: NetworkVec4::default(),
+            vel: NetworkVec3::default(),
         }
     }
 }

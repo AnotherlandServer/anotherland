@@ -3,8 +3,9 @@ use crate::{Uuid, raknet::MAX_MTU_SIZE};
 use super::{RakNetErrorKind, PeerAddress, MessageFragment, MessageNumber, Reliability, PacketSplit, Message, OnlineMessage, RakNetError, RakNetResult};
 use std::{time::{Instant, SystemTime}, time::{Duration, UNIX_EPOCH}, net::SocketAddr, collections::{VecDeque, HashMap}, sync::Arc};
 use bitstream_io::{BitWriter, BigEndian, BitWrite};
-use log::{debug, trace};
+use log::{debug, trace, info};
 use tokio::{net::UdpSocket, io, sync::RwLock};
+use async_recursion::async_recursion;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum State {
@@ -42,11 +43,6 @@ struct SendQueueItem {
 }
 
 #[allow(unused)]
-struct OrderChannel {
-
-}
-
-#[allow(unused)]
 pub struct RakNetPeer {
     guid: Uuid,
     remote_address: PeerAddress,
@@ -59,6 +55,8 @@ pub struct RakNetPeer {
     send_queue_prioritized: Arc<RwLock<Vec<VecDeque<SendQueueItem>>>>,
     remote_time: Duration,
     created: Instant,
+
+    split_packet_channel: HashMap<u16, Vec<Option<OnlineMessage>>>,
 
     next_send_message_id: u32,
     next_recv_message_id: u32,
@@ -98,6 +96,8 @@ impl RakNetPeer {
                     remote_time: Duration::default(),
                     created: Instant::now(),
 
+                    split_packet_channel: HashMap::new(),
+
                     next_send_message_id: 0,
                     next_recv_message_id: 0,
                     split_packet_id: 0,
@@ -134,6 +134,8 @@ impl RakNetPeer {
                     let chunks = message_data.chunks(MAX_MTU_SIZE).collect::<Vec<&[u8]>>();
                     let chunk_count = chunks.len() as u32;
 
+                    self.split_packet_id = self.split_packet_id.wrapping_add(1);
+
                     for (idx, chunk) in chunks.iter().enumerate() {
                         self.send_queue_prioritized.write().await[priority.get_index()].push_back(SendQueueItem { 
                             reliability,
@@ -144,8 +146,6 @@ impl RakNetPeer {
                             },
                             data: chunk.to_vec()
                         });
-
-                        self.split_packet_id = self.split_packet_id.wrapping_add(1);
                     }
 
                     Ok(())
@@ -163,6 +163,7 @@ impl RakNetPeer {
         }
     }
 
+    #[async_recursion]
     pub async fn digest_message_fragments(&mut self, fragments: Vec<MessageFragment>) -> RakNetResult<Vec<Message>> {
         let mut messages = Vec::new();
         
@@ -195,47 +196,83 @@ impl RakNetPeer {
                     }
                 },
                 MessageFragment::OnlineMessage(message) => {
-                    if let Some(message) = self.digest_online_message(&message).await? {
-                        match message {
-                            Message::InternalPing { time } => {
-                                self.remote_time = time;
-                                self.send_internal(Priority::System, Reliability::Unreliable, Message::ConnectedPong { 
-                                    remote_time: self.remote_time, 
-                                    local_time: Instant::now().duration_since(self.created), 
-                                }).await?;
-                            },
-                            Message::NewIncomingConnection { .. } => {
-                                self.send_internal(Priority::System, Reliability::Unreliable, Message::InternalPing { 
-                                    time: Instant::now().duration_since(self.created), 
-                                }).await?;
-                            },
-                            Message::ConnectionRequest { .. } => {
-                                debug!("Got connection request from {:#?}", self.remote_address());
+                    match message.split {
+                        PacketSplit::Split { id, index, count } => {
+                            info!("Received split message {} - {}/{}", id, index, count);
+                            let reliability = message.reliability.clone();
 
-                                self.state = State::Connected;
-                                self.send_internal(Priority::System, Reliability::Reliable, Message::ConnectionRequestAccepted { 
-                                    index: 0, 
-                                    peer_addr: self.remote_address, 
-                                    own_addr: self.local_address, 
-                                    guid: self.guid.clone() 
-                                }).await?;
-                            },
-                            Message::ConnectedPong { .. } => {
-                            },
-                            Message::DisconnectionNotification => {
-                                self.state = State::HalfClosed;
-                                self.resend_queue.clear();
-                                self.send_internal(Priority::System, Reliability::Reliable, Message::DisconnectionNotification).await?;
+                            if let Some(split_messages) = self.split_packet_channel.get_mut(&id) {
+                                // Insert new message
+                                split_messages[index as usize] = Some(message);
+                            } else {
+                                let mut split_messages = Vec::new();
+                                split_messages.resize(count as usize, None);
+                                split_messages[index as usize] = Some(message);
+
+                                self.split_packet_channel.insert(id, split_messages);
                             }
-                            _ => {
-                                if self.state == State::Connected {
-                                    messages.push(message);
-                                } else {
-                                    debug!("Dropping message from {:#?}. Peer is not connected", self.remote_address());
-                                    self.disconnect_immediate();
+
+                            // Check if were complete
+                            if self.split_packet_channel.get(&id).unwrap().iter().all(|m| m.is_some()) {
+                                let mut combined_message = OnlineMessage {
+                                    number: 0,
+                                    split: PacketSplit::NotSplit,
+                                    reliability,
+                                    data: Vec::new(),
+                                };
+
+                                let mut split_messages = self.split_packet_channel.remove(&id).unwrap();
+                                for m in split_messages {
+                                    combined_message.data.append(&mut m.unwrap().data);
                                 }
-                            },
-                        }
+
+                                messages.append(&mut self.digest_message_fragments(vec![MessageFragment::OnlineMessage(combined_message)]).await?);
+                            }
+                        },
+                        PacketSplit::NotSplit => {
+                            if let Some(message) = self.digest_online_message(&message).await? {
+                                match message {
+                                    Message::InternalPing { time } => {
+                                        self.remote_time = time;
+                                        self.send_internal(Priority::System, Reliability::Unreliable, Message::ConnectedPong { 
+                                            remote_time: self.remote_time, 
+                                            local_time: Instant::now().duration_since(self.created), 
+                                        }).await?;
+                                    },
+                                    Message::NewIncomingConnection { .. } => {
+                                        self.send_internal(Priority::System, Reliability::Unreliable, Message::InternalPing { 
+                                            time: Instant::now().duration_since(self.created), 
+                                        }).await?;
+                                    },
+                                    Message::ConnectionRequest { .. } => {
+                                        debug!("Got connection request from {:#?}", self.remote_address());
+        
+                                        self.state = State::Connected;
+                                        self.send_internal(Priority::System, Reliability::Reliable, Message::ConnectionRequestAccepted { 
+                                            index: 0, 
+                                            peer_addr: self.remote_address, 
+                                            own_addr: self.local_address, 
+                                            guid: self.guid.clone() 
+                                        }).await?;
+                                    },
+                                    Message::ConnectedPong { .. } => {
+                                    },
+                                    Message::DisconnectionNotification => {
+                                        self.state = State::HalfClosed;
+                                        self.resend_queue.clear();
+                                        self.send_internal(Priority::System, Reliability::Reliable, Message::DisconnectionNotification).await?;
+                                    }
+                                    _ => {
+                                        if self.state == State::Connected {
+                                            messages.push(message);
+                                        } else {
+                                            debug!("Dropping message from {:#?}. Peer is not connected", self.remote_address());
+                                            self.disconnect_immediate();
+                                        }
+                                    },
+                                }
+                            }
+                        },
                     }
                 },
                 _ => unreachable!(),

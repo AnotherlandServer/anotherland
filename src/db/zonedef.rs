@@ -2,13 +2,16 @@ use async_trait::async_trait;
 use bson::{Document, doc};
 use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
+use tokio_stream::StreamExt;
 
 use atlas::Uuid;
 
+use crate::util::AnotherlandResult;
+
 use super::DatabaseRecord;
 
-#[derive(Serialize, Deserialize)]
-pub struct Zone {
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ZoneDef {
     pub id: i64,
     pub guid: Uuid,
     pub worlddef_guid: Uuid,
@@ -24,7 +27,7 @@ pub struct Zone {
 }
 
 #[async_trait]
-impl DatabaseRecord<'_> for Zone {
+impl DatabaseRecord<'_> for ZoneDef {
     type Key = Uuid;
 
     fn collection(db: Database) -> Collection<Self> {
@@ -37,5 +40,18 @@ impl DatabaseRecord<'_> for Zone {
 
     fn key(&self) -> &Self::Key {
         &self.guid
+    }
+}
+
+impl ZoneDef {
+    pub async fn load_for_world(db: Database, world_guid: &Uuid) -> AnotherlandResult<Vec<ZoneDef>> {
+        let mut rows = Vec::new();
+
+        let mut result = Self::collection(db).find(doc!{"worlddef_guid": {"$eq": world_guid.to_string()}}, None).await?;
+        while let Some(row) = result.try_next().await? {
+            rows.push(row);
+        }
+
+        Ok(rows)
     }
 }

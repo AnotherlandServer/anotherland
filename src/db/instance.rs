@@ -2,8 +2,11 @@ use async_trait::async_trait;
 use bson::{Document, doc};
 use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
+use tokio_stream::StreamExt;
 
-use atlas::{Uuid, CParamClass};
+use atlas::{Uuid, ParamClassContainer};
+
+use crate::util::AnotherlandResult;
 
 use super::DatabaseRecord;
 
@@ -15,7 +18,7 @@ pub struct Instance {
     pub class: i64,
     pub content_guid: Uuid,
     pub editor_name: String,
-    pub data: Option<CParamClass>,
+    pub data: Option<ParamClassContainer>,
     pub phase_tag: String,
 }
 
@@ -33,5 +36,18 @@ impl DatabaseRecord<'_> for Instance {
 
     fn key(&self) -> &Self::Key {
         &self.guid
+    }
+}
+
+impl Instance {
+    pub async fn load_for_zone(db: Database, zone: &Uuid) -> AnotherlandResult<Vec<Instance>> {
+        let mut rows = Vec::new();
+
+        let mut result = Self::collection(db).find(doc!{"zone_guid": {"$eq": zone.to_string()}}, None).await?;
+        while let Some(row) = result.try_next().await? {
+            rows.push(row);
+        }
+
+        Ok(rows)
     }
 }

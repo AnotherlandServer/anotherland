@@ -1,16 +1,23 @@
 pub mod parsers;
 mod uuid;
-mod cparam;
+mod param;
 mod nativeparam;
 mod generated;
 mod defaults;
+mod network_vec3;
+mod network_vec4;
+mod serialize;
+mod avatarid;
 pub mod raknet;
 
-pub use cparam::*;
+pub use param::*;
 pub use self::uuid::*;
 pub use nativeparam::*;
 pub use generated::*;
 pub use defaults::*;
+pub use network_vec3::*;
+pub use network_vec4::*;
+pub use avatarid::*;
 
 #[cfg(test)]
 mod tests {

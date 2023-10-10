@@ -3,7 +3,7 @@ use std::{io, error::Error, fmt::Display};
 use bcrypt::BcryptError;
 use nom::error::VerboseError;
 
-use atlas::raknet::RakNetError;
+use atlas::{raknet::RakNetError, ParamError};
 
 #[derive(Debug, Clone, Copy)]
 pub enum AnotherlandErrorKind {
@@ -15,6 +15,7 @@ pub enum AnotherlandErrorKind {
     ParseError,
     ThreadError,
     MessageQueueError,
+    ParamError,
 
     // Application errors
     ApplicationError,
@@ -31,6 +32,7 @@ impl AnotherlandErrorKind {
             ParseError => "parse error",
             ThreadError => "thread error",
             MessageQueueError => "message queue error",
+            ParamError => "param error",
             ApplicationError => "application error",
         }
     }
@@ -182,6 +184,12 @@ impl From<tokio::sync::broadcast::error::RecvError> for AnotherlandError {
 impl From<serde_json::Error> for AnotherlandError {
     fn from(value: serde_json::Error) -> Self {
         Self::new(AnotherlandErrorKind::ParseError, value)
+    }
+}
+
+impl From<ParamError> for AnotherlandError {
+    fn from(value: ParamError) -> Self {
+        Self::new(AnotherlandErrorKind::ParamError, value)
     }
 }
 

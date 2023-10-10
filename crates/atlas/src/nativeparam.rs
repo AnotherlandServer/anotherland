@@ -3,6 +3,8 @@ use nom::{IResult, error::VerboseError, number::complete::{le_u8, le_f32, le_f64
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 
+use crate::ParamError;
+
 use super::{Uuid, parsers::parse_pkt_cstring};
 
 #[derive(Debug, Clone, Default)]
@@ -229,6 +231,33 @@ impl NativeParam {
 
         buf
     }
-}
 
+    pub fn to_f32(&self) -> Result<f32, ParamError> {
+        match self {
+            NativeParam::Float(val) => Ok(val.to_owned()),
+            _ => Err(ParamError(())),
+        }
+    }
+
+    pub fn to_i32(&self) -> Result<i32, ParamError> {
+        match self {
+            NativeParam::Int(val) => Ok(val.to_owned()),
+            _ => Err(ParamError(())),
+        }
+    }
+
+    pub fn to_string(&self) -> Result<String, ParamError> {
+        match self {
+            NativeParam::String(val) => Ok(val.to_owned()),
+            _ => Err(ParamError(())),
+        }
+    }
+
+    pub fn to_uuid(&self) -> Result<Uuid, ParamError> {
+        match self {
+            NativeParam::Guid(val) => Ok(val.to_owned()),
+            _ => Err(ParamError(())),
+        }
+    }
+}
 

@@ -1,6 +1,7 @@
 use std::{net::{SocketAddrV4, SocketAddr, Ipv4Addr}, collections::HashMap};
 
 use async_trait::async_trait;
+use bitstream_io::{ByteWriter, LittleEndian};
 use bson::doc;
 use log::{info, debug, warn, error};
 use mongodb::{options::UpdateOptions, Database};
@@ -8,7 +9,7 @@ use std::error::Error;
 
 use crate::{util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind::{ApplicationError, self}}, CONF, ARGS, cluster::{ServerInstance, ClusterMessage}, db::{WorldDef, WorldServerEntry}};
 use crate::db::{Account, Realm, cluster_database, Session, DatabaseRecord, realm_database, Character};
-use atlas::{CPkt, Uuid, CParamClass_player, CParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess};
+use atlas::{CPkt, Uuid, PlayerParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess, ParamClass};
 use atlas::raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest};
 use atlas::oaPktCharacterFailure;
 
@@ -129,7 +130,9 @@ impl ServerInstance for RealmServer {
         match request.message() {
             AtlasPkt(CPkt::oaPktRequestCharacterList(_)) => {
                 let characters: Vec<oaCharacter> = Character::list(self.realm_db.clone(), &state.account.id).await?.into_iter().map(|c| {
-                    let serialized = c.data.to_bytes();
+                    let mut serialized = Vec::new();
+                    let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
+                    c.data.write(&mut writer).expect("Serialization failed");
                     
                     oaCharacter {
                         id: c.id,
@@ -154,7 +157,10 @@ impl ServerInstance for RealmServer {
 
                 match Character::create(self.realm_db.clone(), &state.account.id, &pkt.character_name).await {
                     Ok(character) => {
-                        let serialized = character.data.to_bytes();
+                        let mut serialized = Vec::new();
+                        let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
+                        character.data.write(&mut writer).expect("Serialization failed");
+
                         let mut character_create_successful = CPktStream_126_5::default();
                         character_create_successful.character = oaCharacter {
                             id: character.id,
@@ -221,7 +227,7 @@ impl ServerInstance for RealmServer {
                                 // determine world server
                                 match WorldServerEntry::get(self.realm_db.clone(), &state.world.as_ref().unwrap().id).await? {
                                     Some(worldserver) => {
-                                        info!("Character {} selected! Joining routing to world {}...", character.id, state.world.as_ref().unwrap().id);
+                                        info!("Character {} selected! Routing to world {}...", character.id, state.world.as_ref().unwrap().id);
 
                                         // select character
                                         state.session.select_character(self.cluster_db.clone(), character.id).await?;
@@ -266,7 +272,7 @@ impl ServerInstance for RealmServer {
                 match self.client_state.iter().find(|v| v.1.session.id == id).map(|v| v.0.clone()) {
                     Some(peer_id) => {
                         // Remove state and close connection
-                        if let Some(peer) = self.listener.peer(&peer_id) {
+                        if let Some(peer) = self.listener.peer(&peer_id).await {
                             peer.write().await.disconnect().await;
                         }
 

@@ -132,7 +132,7 @@ impl RakNetListener {
                                                 }
                                             },
                                             Err(e) => {
-                                                error!("Error while digesting message fragments: {}", e.to_string())
+                                                error!("Error while digesting message fragments: {:#?}", e);
                                             }
                                         }
                                     }
@@ -189,9 +189,9 @@ impl RakNetListener {
         request
     }
 
-    pub fn peer(&self, guid: &Uuid) -> Option<RakNetPeerHandle> {
-        let listener = self.internal.blocking_read();
-        let peer = listener.peer_guid_map.blocking_read().get(guid).map(|v| v.to_owned());
+    pub async fn peer(&self, guid: &Uuid) -> Option<RakNetPeerHandle> {
+        let listener = self.internal.read().await;
+        let peer = listener.peer_guid_map.read().await.get(guid).map(|v| v.to_owned());
         peer
     }
 

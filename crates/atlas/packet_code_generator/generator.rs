@@ -182,7 +182,10 @@ pub fn generate_packet_code() -> io::Result<()> {
                     |v| {
                         match v {
                             #(#packet_struct_parser)*
-                            _ => Self::pkt_fail,
+                            _ => {
+                                error!("Unknown packet id {:#?}", v);
+                                Self::pkt_fail
+                            },
                         }
                     }
                 ))(i)

@@ -115,12 +115,12 @@ impl MessageFragment {
             let (i, (id, index, count)) = 
                 map(
                     tuple((
-                        Self::parse_compressed_bytes(2usize, true),
+                        bit_parser::take(16usize),
                         Self::parse_compressed_bytes(4usize, true), 
                         Self::parse_compressed_bytes(4usize, true)
                     )),
                     |r| (
-                        u16::from_le_bytes(r.0[0..2].try_into().unwrap()),
+                        r.0,
                         u32::from_le_bytes(r.1[0..4].try_into().unwrap()), 
                         u32::from_le_bytes(r.2[0..4].try_into().unwrap())
                     )

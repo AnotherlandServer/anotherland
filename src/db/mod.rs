@@ -5,9 +5,13 @@ mod content;
 mod db;
 mod instance;
 mod worlddef;
-mod zone;
+mod zonedef;
 mod character;
 mod worldserverentry;
+mod content_placement;
+mod cash_shop_bundle;
+mod cash_shop_item;
+mod cash_shop_vendor;
 
 pub use account::*;
 pub use session::*;
@@ -16,11 +20,16 @@ pub use content::*;
 pub use db::*;
 pub use instance::*;
 pub use worlddef::*;
-pub use zone::*;
+pub use zonedef::*;
 pub use character::*;
 pub use worldserverentry::*;
+pub use cash_shop_bundle::*;
+pub use cash_shop_item::*;
+pub use cash_shop_vendor::*;
 
 use crate::{util::AnotherlandResult, ARGS};
+
+use self::content_placement::ContentPlacement;
 
 pub async fn initalize_db() -> AnotherlandResult<()> {
     {
@@ -34,6 +43,7 @@ pub async fn initalize_db() -> AnotherlandResult<()> {
         let db = realm_database().await;
 
         Character::init_collection(db.clone()).await?;
+        ContentPlacement::init_collection(db.clone()).await?;
 
     }
 

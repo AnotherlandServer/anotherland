@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use bson::{Document, doc};
 use mongodb::{Client, Database, Collection, options::UpdateOptions};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use tokio_stream::StreamExt;
 
 use crate::{ARGS, util::AnotherlandResult};
 
@@ -60,6 +61,17 @@ pub trait DatabaseRecord<'de>: DeserializeOwned + Serialize + Send + Sync + Unpi
         ).await?;
 
         Ok(())
+    }
+
+    async fn list(db: Database) -> AnotherlandResult<Vec<Self>> {
+        let mut rows = Vec::new();
+
+        let mut result = Self::collection(db).find(None, None).await?;
+        while let Some(row) = result.try_next().await? {
+            rows.push(row);
+        }
+
+        Ok(rows)
     }
 }
 

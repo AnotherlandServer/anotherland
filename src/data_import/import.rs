@@ -1,11 +1,12 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
+use chrono::{DateTime, Utc};
 use log::info;
-use mongodb::{IndexModel, options::IndexOptions, bson::doc};
+use mongodb::{IndexModel, options::{IndexOptions, InsertManyOptions}, bson::doc};
 use tokio::runtime::Handle;
 
-use crate::{util::AnotherlandResult, db::{Content, Instance, WorldDef, Zone, realm_database}};
-use atlas::{CParamClass, Uuid};
+use crate::{util::AnotherlandResult, db::{Content, Instance, WorldDef, ZoneDef, realm_database, cluster_database, CashShopVendor, CashShopItem, CashShopBundle}};
+use atlas::{ParamClass, Uuid, ParamClassContainer};
 
 async fn import_content_table(game_client_path: &PathBuf, src_table: &str, target_table: &str) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
@@ -32,8 +33,9 @@ async fn import_content_table(game_client_path: &PathBuf, src_table: &str, targe
         for row in result {
             let bin_data = row.read::<&[u8], _>("data");
             let data = if !bin_data.is_empty() {
-                Some(CParamClass::parse_class(row.read::<i64,_>("ixClass") as u16, 
-                    bin_data).unwrap().1)
+                let mut class = ParamClassContainer::read(row.read::<i64,_>("ixClass") as u16, bin_data).unwrap().1;
+                class.strip_original_data();
+                Some(class)
             } else {
                 None
             };
@@ -85,8 +87,9 @@ async fn import_instance(game_client_path: &PathBuf) -> AnotherlandResult<()> {
         for row in result {
             let bin_data = row.read::<&[u8], _>("data");
             let data = if !bin_data.is_empty() {
-                Some(CParamClass::parse_class(row.read::<i64,_>("ixClass") as u16, 
-                    bin_data).unwrap().1)
+                let mut class = ParamClassContainer::read(row.read::<i64,_>("ixClass") as u16, bin_data).unwrap().1;
+                class.strip_original_data();
+                Some(class)
             } else {
                 None
             };
@@ -110,12 +113,12 @@ async fn import_instance(game_client_path: &PathBuf) -> AnotherlandResult<()> {
 
             collection.create_index(
                 IndexModel::builder()
-                .keys(doc!("instance_id": 1))
+                .keys(doc!("id": 1))
                 .options(IndexOptions::builder().unique(true).build())
                 .build(), None).await?;
             collection.create_index(
                 IndexModel::builder()
-                .keys(doc!("instance_guid": 1))
+                .keys(doc!("guid": 1))
                 .options(IndexOptions::builder().unique(true).build())
                 .build(), None).await?;
             Ok(())
@@ -183,7 +186,7 @@ async fn import_zone(game_client_path: &PathBuf) -> AnotherlandResult<()> {
         ).unwrap();
 
         let collection = Handle::current().block_on(async move {
-            realm_database().await.collection::<Zone>("zones")
+            realm_database().await.collection::<ZoneDef>("zones")
         });
 
         info!("Importing Zone -> zones...");
@@ -198,7 +201,7 @@ async fn import_zone(game_client_path: &PathBuf) -> AnotherlandResult<()> {
     
         // dump data
         for row in result {   
-            documents.push(Zone {
+            documents.push(ZoneDef {
                 id: row.read::<i64,_>("ixZoneID"),
                 guid: Uuid::from_str(row.read::<&str,_>("uxZoneGuid")).unwrap(),
                 worlddef_guid: Uuid::from_str(row.read::<&str,_>("uxWorldDefGuid")).unwrap(),
@@ -234,6 +237,203 @@ async fn import_zone(game_client_path: &PathBuf) -> AnotherlandResult<()> {
     })
 }
 
+async fn import_vendor_data(game_client_path: &PathBuf) -> AnotherlandResult<()> {
+    tokio::task::block_in_place(move || {
+        let db = sqlite::open(
+            game_client_path
+            .join("Atlas\\data\\otherlandgame\\system\\SKUExport\\SKUItems.db")
+        ).unwrap();
+
+        let collection = Handle::current().block_on(async move {
+            cluster_database().await.collection::<CashShopVendor>("cash_shop_vendors")
+        });
+
+        info!("Importing VendorData -> cash_shop_vendors...");
+    
+        let result = db
+            .prepare(format!("SELECT * FROM VendorData"))
+            .unwrap()
+            .into_iter()
+            .map(|row| row.unwrap());
+
+            let mut documents = Vec::new();
+    
+        // dump data
+        for row in result {   
+            documents.push(CashShopVendor {
+                id: Uuid::from_str(row.read::<&str,_>("VendorID")).unwrap(),
+                name: row.read::<&str,_>("VendorName").to_owned(),
+                sku_list: row.read::<&str,_>("SKUList")
+                    .split(",")
+                    .map(|s| s.trim())
+                    .filter(|s| s.len() == 36)
+                    .map(|s| Uuid::from_str(s)
+                    .unwrap())
+                    .collect(),
+                bundle_list: row.try_read::<&str,_>("BundleList")
+                    .unwrap_or("")
+                    .split(",")
+                    .map(|s| s.trim())
+                    .filter(|s| s.len() == 36)
+                    .map(|s| Uuid::from_str(s)
+                    .unwrap()).collect(),
+                version: row.read::<i64,_>("Version") as u32
+            });
+        }
+    
+        Handle::current().block_on(async {
+            if !documents.is_empty() {
+                collection.insert_many(documents, None).await?;
+            }
+
+            collection.create_index(
+                IndexModel::builder()
+                .keys(doc!("id": 1))
+                .options(IndexOptions::builder().unique(true).build())
+                .build(), None).await?;
+
+            Ok(())
+        })
+    })
+}
+
+async fn import_shop_items(game_client_path: &PathBuf) -> AnotherlandResult<()> {
+    tokio::task::block_in_place(move || {
+        let db = sqlite::open(
+            game_client_path
+            .join("Atlas\\data\\otherlandgame\\system\\SKUExport\\SKUItems.db")
+        ).unwrap();
+
+        let collection = Handle::current().block_on(async move {
+            cluster_database().await.collection::<CashShopItem>("cash_shop_items")
+        });
+
+        info!("Importing SKUItems -> cash_shop_items...");
+    
+        let result = db
+            .prepare(format!("SELECT * FROM SKUItems"))
+            .unwrap()
+            .into_iter()
+            .map(|row| row.unwrap());
+
+            let mut documents = Vec::new();
+    
+        // dump data
+        for row in result {   
+            documents.push(CashShopItem {
+                id: Uuid::from_str(row.read::<&str,_>("SKUID")).unwrap(),
+                display_name: row.read::<&str,_>("DisplayName").to_owned(),
+                description: row.read::<&str,_>("Description").to_owned(),
+                reference_item_name: row.read::<&str,_>("ReferenceItemName").to_owned(),
+                reference_item_guid: Uuid::from_str(row.read::<&str,_>("ReferenceItemGUID")).unwrap(),
+                cash_price: row.read::<&str,_>("CashPrice").parse::<u32>().unwrap(),
+                sku_code: row.read::<&str,_>("SKUCode").to_owned(),
+                rental_duration: row.read::<&str,_>("RentalDuration").parse::<u32>().unwrap(),
+                is_in_stock: row.read::<&str,_>("IsInStock").parse::<u32>().unwrap() != 0,
+                is_hot: row.read::<&str,_>("IsHot").parse::<u32>().unwrap() != 0,
+                is_new: row.read::<&str,_>("IsNew").parse::<u32>().unwrap() != 0,
+                version: row.read::<&str,_>("Version").parse::<u32>().unwrap(),
+                is_visible: row.read::<&str,_>("IsVisible").parse::<u32>().unwrap() != 0,
+                is_tradable: row.read::<&str,_>("IsTradable").parse::<u32>().unwrap() != 0,
+                is_featured: row.read::<&str,_>("IsFeatured").parse::<u32>().unwrap() != 0,
+                quantity: row.read::<&str,_>("Quantity").parse::<u32>().unwrap(),
+                discount: row.read::<&str,_>("Discount").parse::<u32>().unwrap(),
+                date_start: DateTime::parse_from_rfc3339(row.read::<&str,_>("DateStart"))
+                    .map(|e| Some(e.with_timezone(&Utc))).unwrap_or(None),
+                date_end: DateTime::parse_from_rfc3339(row.read::<&str,_>("DateEnd"))
+                    .map(|e| Some(e.with_timezone(&Utc))).unwrap_or(None)
+            });
+        }
+    
+        Handle::current().block_on(async {
+            if !documents.is_empty() {
+                collection.insert_many(documents, None).await?;
+            }
+
+            collection.create_index(
+                IndexModel::builder()
+                .keys(doc!("id": 1))
+                .options(IndexOptions::builder().unique(true).build())
+                .build(), None).await?;
+
+            collection.create_index(
+                IndexModel::builder()
+                .keys(doc!("sku_code": 1))
+                .options(IndexOptions::builder().unique(true).build())
+                .build(), None).await?;
+            Ok(())
+        })
+    })
+}
+
+
+async fn import_shop_bundles(game_client_path: &PathBuf) -> AnotherlandResult<()> {
+    tokio::task::block_in_place(move || {
+        let db = sqlite::open(
+            game_client_path
+            .join("Atlas\\data\\otherlandgame\\system\\SKUExport\\SKUItems.db")
+        ).unwrap();
+
+        let collection = Handle::current().block_on(async move {
+            cluster_database().await.collection::<CashShopBundle>("cash_shop_bundles")
+        });
+
+        info!("Importing BundleItems -> cash_shop_bundles...");
+    
+        let result = db
+            .prepare(format!("SELECT * FROM BundleItems"))
+            .unwrap()
+            .into_iter()
+            .map(|row| row.unwrap());
+
+            let mut documents = Vec::new();
+    
+        // dump data
+        for row in result {   
+            documents.push(CashShopBundle {
+                id: Uuid::from_str(row.read::<&str,_>("BundleID")).unwrap(),
+                display_name: row.read::<&str,_>("DisplayName").to_owned(),
+                description: row.read::<&str,_>("Description").to_owned(),
+                cash_price: row.read::<i64,_>("CashPrice") as u32,
+                icon: row.read::<&str,_>("Icon").to_owned(),
+                item_list_andcount: row.read::<&str,_>("ItemListAndCount").to_owned().split(",").filter(|s| s.len() != 0).map(|s| {
+                    let item_count: Vec<_> = s.split("=").collect();
+                    (item_count[0].to_owned(), item_count[1].parse().unwrap())
+                }).collect(),
+                is_in_stock: row.read::<i64,_>("IsInStock") != 0,
+                is_hot: row.read::<i64,_>("IsHot") != 0,
+                is_new: row.read::<i64,_>("IsNew") != 0,
+                version: row.read::<i64,_>("Version") as u32,
+                is_visible: row.read::<i64,_>("IsVisible") != 0,
+                is_tradable: row.read::<i64,_>("IsTradable") != 0,
+                is_featured: row.read::<i64,_>("IsFeatured") != 0,
+                quantity: row.read::<i64,_>("Quantity") as u32,
+                discount: row.read::<i64,_>("Discount") as u32,
+                date_start: DateTime::parse_from_rfc3339(row.read::<&str,_>("DateStart"))
+                    .map(|e| Some(e.with_timezone(&Utc))).unwrap_or(None),
+                date_end: DateTime::parse_from_rfc3339(row.read::<&str,_>("DateEnd"))
+                    .map(|e| Some(e.with_timezone(&Utc))).unwrap_or(None)
+            });
+        }
+    
+        Handle::current().block_on(async {
+            if !documents.is_empty() {
+                collection.insert_many(documents, None).await?;
+            }
+
+            collection.create_index(
+                IndexModel::builder()
+                .keys(doc!("id": 1))
+                .options(IndexOptions::builder().unique(true).build())
+                .build(), None).await?;
+
+            Ok(())
+        })
+    })
+}
+
+
+
 pub async fn import_client_data(game_client_path: PathBuf) -> AnotherlandResult<()> {
     tokio::task::spawn(async move {
         import_content_table(&game_client_path, "NoBinding", "no_binding").await?;
@@ -256,6 +456,10 @@ pub async fn import_client_data(game_client_path: PathBuf) -> AnotherlandResult<
         import_instance(&game_client_path).await?;
         import_worlddef(&game_client_path).await?;
         import_zone(&game_client_path).await?;
+
+        import_vendor_data(&game_client_path).await?;
+        import_shop_items(&game_client_path).await?;
+        import_shop_bundles(&game_client_path).await?;
 
         Ok(())
     }).await?

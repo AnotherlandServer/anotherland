@@ -1,29 +1,54 @@
-use std::{time::{Duration, SystemTime, UNIX_EPOCH}, collections::HashMap, fs, sync::Arc};
+use std::{time::{Duration, SystemTime, UNIX_EPOCH}, collections::HashMap, fs, sync::Arc, io};
 
 use async_trait::async_trait;
-use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
-use glam::Vec3;
+use bitstream_io::{ByteWriter, LittleEndian, ByteWrite, ToByteStream};
+use bson::doc;
+use glam::{Vec3, Vec4, Quat};
 use log::{info, debug, trace, error, warn};
 use mongodb::Database;
 use nom::{multi::length_count, number::complete::le_u8};
 use once_cell::sync::Lazy;
 use tokio::{sync::RwLock, task::JoinHandle, time::{Interval, self, Instant}};
 
-use crate::{CONF, cluster::{ServerInstance, ClusterMessage}, WORLD_SERVER_IDS, db::{WorldDef, DatabaseRecord, realm_database, WorldServerEntry, Account, Session, cluster_database, Character}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}};
+use crate::{CONF, cluster::{ServerInstance, ClusterMessage}, WORLD_SERVER_IDS, db::{WorldDef, DatabaseRecord, realm_database, WorldServerEntry, Account, Session, cluster_database, Character, Content, CashShopVendor, CashShopBundle, CashShopItem, ItemContent}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}, world::{World, AvatarId, PlayerAvatar, Avatar, NpcAvatar, AvatarBehaviour}};
 use raknet::*;
 use atlas::*;
 use crate::util::AnotherlandResult;
+
+#[derive(Clone, PartialEq, Eq)]
+enum ClientLoadState {
+    EarlyLoadSequence,
+    RequestAvatarStream,
+    StreamedAvatars,
+    RequestSpawn,
+    Spawned
+}
+
+impl Into<u32> for ClientLoadState {
+    fn into(self) -> u32 {
+        match self {
+            ClientLoadState::EarlyLoadSequence => 0,
+            ClientLoadState::RequestAvatarStream => 5,
+            ClientLoadState::StreamedAvatars => 6,
+            ClientLoadState::RequestSpawn => 7,
+            ClientLoadState::Spawned => 8,
+        }
+    }
+}
 
 #[derive(Clone)]
 struct ClientState {
     account: Account,
     session: Session,
-    character: Character,
+    avatar_id: Option<AvatarId>,
+    load_state: ClientLoadState,
+    zone_guid: Option<Uuid>,
 }
 
 pub struct WorldServer {
     listener: RakNetListener,
     worlddef: WorldDef,
+    world: World,
 
     cluster_db: Database,
     realm_db: Database,
@@ -73,21 +98,15 @@ impl WorldServer {
                     return Err(AnotherlandError::new(ApplicationError, "no character selected"));
                 }
 
-                // Lookup character
-                match Character::get(self.realm_db.clone(), &session.character_id.unwrap()).await? {
-                    Some(character) => {
-                        self.client_state.insert(peer_id.clone(), ClientState { 
-                            account: Account::get_by_id(self.cluster_db.clone(), &session.account).await?.unwrap(), 
-                            session,
-                            character,
-                        });
-        
-                        Ok((peer_id.clone(), self.client_state.get(&peer_id).unwrap().clone()))
-                    },
-                    None => {
-                        Err(AnotherlandError::new(ApplicationError, "selected character not found"))
-                    }
-                }
+                self.client_state.insert(peer_id.clone(), ClientState { 
+                    account: Account::get_by_id(self.cluster_db.clone(), &session.account).await?.unwrap(), 
+                    session,
+                    avatar_id: None,
+                    load_state: ClientLoadState::EarlyLoadSequence,
+                    zone_guid: None,
+                });
+
+                Ok((peer_id.clone(), self.client_state.get(&peer_id).unwrap().clone()))
             },
             None => {
                 Err(AnotherlandError::new(ApplicationError, "unknown session"))
@@ -110,6 +129,10 @@ impl ServerInstance for WorldServer {
 
         info!("Starting world server [{}]...", worlddef.name);
 
+        // Load world
+        let mut world = World::load_from_id(worlddef.id).await?;
+
+        // Determine worldserver port
         let mut base_addr = CONF.world.base_listen_address;
         base_addr.set_port(base_addr.port() + id - 1);
 
@@ -127,6 +150,7 @@ impl ServerInstance for WorldServer {
         Ok(Box::new(Self {
             listener,
             worlddef,
+            world,
             cluster_db: cluster_database().await,
             realm_db: realm_database().await,
             client_state: HashMap::new(),
@@ -163,107 +187,100 @@ impl ServerInstance for WorldServer {
             }
         };
 
-        println!("Message: {:#?}", request.message());
+        //println!("Message: {:#?}", request.message());
         match request.message() {
             AtlasPkt(CPkt::oaPktRequestEnterGame(_)) => {
-                // Transfer character to client
-                let mut avatar_blob = CPktBlob::default();
-                //avatar_blob.avatar_id = state.character.id;
+                debug!("Player joining world {}", self.worlddef.id);
 
-
-                /*self.clients.insert(request.peer().read().await.guid().to_owned(), request.peer());
-
+                // Send resource notification 
                 let mut worlddef = CPktResourceNotify::default();
                 worlddef.resource_type = CpktResourceNotifyResourceType::WorldDef;
-                worlddef.field_2 = Uuid::from_str("58340efa-9495-47e2-b4e4-723a2978a6f1").unwrap();
-                worlddef.field_3 = "Hello!".to_owned();
+                worlddef.field_2 = self.worlddef.guid.clone();
+                worlddef.field_3 = "".to_owned();
 
                 let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, worlddef.as_message()).await?;
 
-                let mut character = CParamClass_player::default();
+                // Lookup character
+                let mut character = match Character::get(self.realm_db.clone(), &state.session.character_id.unwrap()).await? {
+                    Some(character) => Ok(character),
+                    None => Err(AnotherlandError::new(ApplicationError, "selected character not found"))
+                }?;
 
-                character.alive = Some(CParam::Bool(true));
-                character.lvl = Some(CParam::Int32(1));
-                character.tutorial_mode = Some(CParam::Bool(false));
-                character.world_map_guid = Some(CParam::CGuid(Uuid::from_str("58340efa-9495-47e2-b4e4-723a2978a6f1").unwrap()));
-                character.zone_guid = Some(CParam::CGuid(Uuid::from_str("b1bbd5c5-0990-454b-bcfa-5dfe176c6756").unwrap()));
-                character.client_ready = Some(CParam::Bool(true));
-                character.collision_extent = Some(CParam::Vector3(Vec3::new(21.0, 21.0, 44.0)));
-                character.generate_interest_list = Some(CParam::Bool(true));
-                character.host_ip = Some(CParam::String(request.peer().read().await.remote_address().ip.to_string()));
-                character.in_game_session = Some(CParam::Bool(false));
-                character.self_radius = Some(CParam::Float(20.0));
-                character.team_id = Some(CParam::Int32(0));
-                character.zone = Some(CParam::String("MeetingRoom".to_owned()));
-                character.spawn_mode = Some(CParam::Int32(2));
-                character.player_loading = Some(CParam::Bool(false));
-                character.client_ready = Some(CParam::Bool(true));
-                character.ue3class_id = Some(CParam::String("Engine.AtlasAvatar".to_owned()));
-                character.player_node_state = Some(CParam::Int32(2));
-                character.visible_item_info = Some(CParam::IntArray(vec![1527, 1531, 1649]));
+                // Set spawn mode to Login_Normal
+                character.data.set_spawn_mode(2);
+                character.data.set_client_ready(true);
+                character.data.set_player_loading(true);
+                character.data.set_player_node_state(2);
+                character.data.set_world_map_guid(self.worlddef.guid.clone());
 
-                let character_data = character.to_bytes();
+                state.zone_guid = character.data.zone_guid().map(|v| v.to_owned());
 
-                let mut buf = Vec::new();
-                let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
-        
-                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                writer.write_bytes(0f32.to_le_bytes().as_slice());
+                // Spawn avatar
+                let zone = self.world.get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap();
+                let avatar_id = zone.spawn_avatar(PlayerAvatar::new(character.clone()).into());
+                let avatar = zone.get_avatar(avatar_id).unwrap();
 
-                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                writer.write_bytes(0f32.to_le_bytes().as_slice());
+                state.avatar_id = Some(avatar_id);
 
-                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                writer.write_bytes(0f32.to_le_bytes().as_slice());
+                // serialize data
+                let mut params = Vec::new();
+                let mut writer = ByteWriter::endian(&mut params, LittleEndian);
+                character.data.write(&mut writer)?;
+                let pos = PositionUpdate {
+                    pos: avatar.position().into(),
+                    rot: avatar.rotation().into(),
+                    vel: avatar.velocity().into(),
+                }.to_bytes();
 
-                writer.write(0u64);
-                writer.write(0u8);
-                writer.write(0u8);
-                writer.write(0u8);
-                writer.write(0u16);
-                writer.write(1u16);
-                writer.write(0u64);
-
+                // Transfer character to client
                 let mut avatar_blob = CPktBlob::default();
-                avatar_blob.avatar_name = "Test".to_owned();
-                avatar_blob.avatar_id = 1;
+                avatar_blob.avatar_id = avatar_id; // local client always uses 1 for their avatar id
+                avatar_blob.avatar_name = character.name.clone();
                 avatar_blob.class_id = 77;
-                avatar_blob.data_len1 = character_data.len() as u32;
-                avatar_blob.data1 = character_data;
-                avatar_blob.data_len2 = buf.len() as u32;
-                avatar_blob.data2 = buf;
+                avatar_blob.param_bytes = params.len() as u32;
+                avatar_blob.params = params;
+                avatar_blob.movement_bytes = pos.len() as u32;
+                avatar_blob.movement = pos;
                 avatar_blob.has_guid = true;
-                avatar_blob.field_9 = Some(pkt.field_1.clone());
+                avatar_blob.field_9 = Some(state.session.id.clone());
 
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_blob.as_message()).await?;*/
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_blob.as_message()).await?;
             },
             AtlasPkt(CPkt::oaPktFriendRequest(pkt)) => {
-                /*let mut friend_list = CPktStream_167_0::default();
+                let mut friend_list = CPktStream_167_0::default();
                 friend_list.friend_list.count = 0;
 
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, friend_list.as_message()).await?;*/
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, friend_list.as_message()).await?;
             },
             AtlasPkt(CPkt::oaPktClientServerPing(pkt)) => {
-                /*let response = pkt.clone();
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;*/
+                let response = pkt.clone();
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
             },
             AtlasPkt(CPkt::oaPktServerAction(pkt)) => {
-                /*let mut action = pkt.clone();
+                let mut action = pkt.clone();
                 action.version = 2;
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await?;*/
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await?;
             },
             AtlasPkt(CPkt::oaPktC2SConnectionState(pkt)) => {
-                /*self.client_loadstate = pkt.field_1;
+                //self.client_loadstate = pkt.field_1;
+                state.load_state = match pkt.field_1 {
+                    5 => ClientLoadState::RequestAvatarStream,
+                    6 => ClientLoadState::StreamedAvatars,
+                    7 => ClientLoadState::RequestSpawn,
+                    8 => ClientLoadState::Spawned,
+                    _ => {
+                        warn!("Invalid client loadstate: {}", pkt.field_1);
+                        ClientLoadState::EarlyLoadSequence
+                    }
+                };
 
-
+                // Confirm loading state
                 let mut response = pkt.clone();
-                response.field_2 += 1;
+                response.field_1 = state.load_state.clone().into();
+                response.field_2 = pkt.field_2 + 1;
 
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;*/
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
+                
             },
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
                 /*if pkt.avatar_id.is_none() {
@@ -282,15 +299,15 @@ impl ServerInstance for WorldServer {
                 }*/
             },
             AtlasPkt(CPkt::oaPktClusterClientToCommunity(pkt)) => {
-                /*let mut response = oaPktCommunityToClusterClient::default();
+                let mut response = oaPktCommunityToClusterClient::default();
                 response.field_1 = pkt.field_1.clone();
                 response.field_2 = "Hi!".to_owned();
                 response.field_3 = pkt.field_3.clone();
                 response.field_4 = pkt.field_4;
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;*/
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
             },
             AtlasPkt(CPkt::oaPktClusterClientToCommunication(pkt)) => {
-                /*let mut response = oaPktCommunicationToClusterClient::default();
+                let mut response = oaPktCommunicationToClusterClient::default();
                 response.field_1 = pkt.field_1.clone();
                 response.field_2 = "Hi!".to_owned();
                 response.field_3 = NativeParam::Struct(vec![
@@ -298,10 +315,11 @@ impl ServerInstance for WorldServer {
                     NativeParam::String("Hi!".to_owned()),
                 ]);
                 response.field_4 = pkt.field_4;
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;*/
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
             },
             AtlasPkt(CPkt::oaPktClienToClusterNode(pkt)) => {
-                /*match pkt.field_2 {
+                match pkt.field_2 {
+                    // Some kind of ping
                     5 => {
                         let mut response = oaPktClusterNodeToClient::default();
                         response.field_1 = Uuid::new_v4();
@@ -311,11 +329,11 @@ impl ServerInstance for WorldServer {
                         let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
                     },
                     _ => (),
-                }*/
+                }
 
             },
             AtlasPkt(CPkt::oaPktFactionRequest(pkt)) => {
-                /*let factions = vec![FactionRelation {
+                let factions = vec![FactionRelation {
                     field_0: Uuid::from_str("be55863a-03a0-4f2a-807c-b794e84f537c").unwrap(),
                     field_1: "Player".to_owned(),
                     field_2: 6000.0,
@@ -333,18 +351,196 @@ impl ServerInstance for WorldServer {
                     NativeParam::Buffer(faction_list.to_bytes())
                 ]);
 
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, faction_response.as_message()).await?;*/
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, faction_response.as_message()).await?;
             },
             AtlasPkt(CPkt::CPktRouted(pkt)) => {
-                //println!("Routed pkt {:#?}", Message::from_bytes(&pkt.field_4).unwrap())
-                /*match Message::from_bytes(&pkt.field_4).unwrap().1 {
+                //println!("Routed pkt {:#?}", Message::from_bytes(&pkt.field_4).unwrap());
+                match Message::from_bytes(&pkt.field_4).unwrap().1 {
                     AtlasPkt(CPkt::oaPktMoveManagerPosUpdate(pkt)) => {
-                        println!("Pos update x: {} y: {} z: {}", pkt.field_1[0], pkt.field_1[1], pkt.field_1[2]);
+                        // Update world state
+                    
+                        let avatar = self.world
+                            .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
+                            .get_avatar_mut(state.avatar_id.unwrap()).unwrap();
+                        avatar.set_position(pkt.pos.pos.into());
+                        avatar.set_rotation(pkt.pos.rot.into());
+                        avatar.set_velocity(pkt.pos.vel.into());
                     },
                     _ => (),
-                }*/
-            }
-            _ => (), //debug!("Unhandled request: {:#?}", request.message()),
+                }
+            },
+            AtlasPkt(CPkt::oaPktCashItemVendorSyncRequest(pkt)) => {
+                debug!("{:#?}", pkt);
+
+                let vendors = CashShopVendor::list(self.cluster_db.clone()).await?;
+
+                let mut response = oaPktCashItemVendorSyncAcknowledge::default();
+                response.field_1 = 8;
+                response.item_count = vendors.len() as u32;
+                response.items = vendors.into_iter().map(|v| 
+                    CashItemVendorEntry {
+                        vendor_id: v.id.to_string(),
+                        vendor_name: v.name,
+                        bundle_list: v.bundle_list.into_iter().map(|u| u.to_string()).collect::<Vec<String>>().join(","),
+                        sku_list: v.sku_list.into_iter().map(|u| u.to_string()).collect::<Vec<String>>().join(","),
+                        version: v.version,
+                    }).collect();
+                response.deleted_ids = Vec::new();
+
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
+            },
+            AtlasPkt(CPkt::oaPktSKUBundleSyncRequest(pkt)) => {
+                //debug!("{:#?}", pkt);
+
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, oaPktSKUBundleSyncAcknowledge {
+                    sku_items: Vec::new(),
+                    bundle_items: Vec::new(),
+                    deleted_item_ids: Vec::new(),
+                    deleted_bundle_ids: Vec::new(),
+                    ..Default::default()
+                }.as_message()).await?;
+
+                /*let bundle_items = CashShopBundle::list(self.cluster_db.clone()).await?;
+                let sku_items = CashShopItem::list(self.cluster_db.clone()).await?;
+
+                let mut response = oaPktSKUBundleSyncAcknowledge::default();
+
+                response.field_1 = 123;
+                response.sku_item_count = sku_items.len() as u32;
+                response.sku_items = sku_items.into_iter().map(|v|
+                    CashItemSKUItemEntry { 
+                        cash_price: v.cash_price, 
+                        rental_duration: v.rental_duration, 
+                        is_in_stock: v.is_in_stock, 
+                        is_hot: v.is_hot, 
+                        is_new: v.is_new, 
+                        version: v.version, 
+                        is_visible: v.is_visible, 
+                        is_tradable: v.is_tradable, 
+                        is_featured: v.is_featured, 
+                        quantity: v.quantity, 
+                        discount: v.discount, 
+                        sku_id: v.id.to_string(), 
+                        display_name: v.display_name, 
+                        description: v.description, 
+                        reference_item_name: v.reference_item_name, 
+                        reference_item_guid: v.reference_item_guid.to_string(), 
+                        sku_code: v.sku_code, 
+                        date_start: v.date_start.map(|d| d.to_rfc3339()).unwrap_or("invalid".to_owned()), 
+                        date_end: v.date_end.map(|d| d.to_rfc3339()).unwrap_or("invalid".to_owned()), 
+                    }).collect();
+
+                response.bundle_item_count = bundle_items.len() as u32;
+                response.bundle_items = bundle_items.into_iter().map(|v|
+                    CashItemSKUBundleEntry { 
+                        cash_price: v.cash_price, 
+                        is_in_stock: v.is_in_stock, 
+                        is_hot: v.is_hot, 
+                        is_new: v.is_new, 
+                        version: v.version, 
+                        is_visible: v.is_visible, 
+                        is_tradable: v.is_tradable, 
+                        is_featured: v.is_featured, 
+                        quantity: v.quantity, 
+                        discount: v.discount, 
+                        bundle_id: v.id.to_string(), 
+                        display_name: v.display_name, 
+                        description: v.description, 
+                        icon: v.icon, 
+                        item_list_and_count: v.item_list_andcount.into_iter().map(|v| format!("{}={}", v.0, v.1)).collect::<Vec<String>>().join(","), 
+                        date_start: v.date_start.map(|d| d.to_rfc3339()).unwrap_or("invalid".to_owned()),
+                        date_end: v.date_end.map(|d| d.to_rfc3339()).unwrap_or("invalid".to_owned()),
+                    }).collect();
+
+                response.deleted_item_ids = Vec::new();
+                response.deleted_bundle_ids = Vec::new();
+
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;*/
+            },
+            AtlasPkt(CPkt::oaPktAvatarTellBehaviorBinary(pkt)) => {
+                debug!("{:#?}", pkt);
+
+                match pkt.field_3.as_str() {
+                    "doVendorExecute" => {
+                        match &pkt.field_4 {
+                            NativeParam::Struct(attrib) => {
+                                match self.world
+                                    .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
+                                    .get_avatar_mut(state.avatar_id.unwrap()).unwrap() {
+
+                                    Avatar::Player(player) => {
+                                        // Update params
+                                        {
+                                            let params = player.player_param_mut();
+
+                                            params.set_customization_gender(attrib[0].to_f32()?);
+                                            params.set_customization_height(attrib[1].to_f32()?);
+                                            params.set_customization_fat(attrib[2].to_f32()?);
+                                            params.set_customization_skinny(attrib[3].to_f32()?);
+                                            params.set_customization_muscular(attrib[4].to_f32()?);
+                                            params.set_customization_bust_size(attrib[5].to_f32()?);
+                                            params.set_race(attrib[6].to_i32()?);
+                                            params.set_customization_brow_angle(attrib[7].to_f32()?);
+                                            params.set_customization_eye_brow_pos(attrib[8].to_f32()?);
+                                            params.set_customization_eye_pos_spacing(attrib[9].to_f32()?);
+                                            params.set_customization_eye_pos(attrib[10].to_f32()?);
+                                            params.set_customization_eye_size_length(attrib[11].to_f32()?);
+                                            params.set_customization_eye_size_width(attrib[12].to_f32()?);
+                                            params.set_customization_eyes_pretty(attrib[13].to_f32()?);
+                                            params.set_customization_mouth_pos(attrib[14].to_f32()?);
+                                            params.set_customization_mouth_width(attrib[15].to_f32()?);
+                                            params.set_customization_mouth_lower_lip_thic(attrib[16].to_f32()?);
+                                            params.set_customization_mouth_upper_lip_thic(attrib[17].to_f32()?);
+                                            params.set_customization_mouth_expression(attrib[18].to_f32()?);
+                                            params.set_customization_nose_pos_length(attrib[19].to_f32()?);
+                                            params.set_customization_nose_pos_width(attrib[20].to_f32()?);
+                                            params.set_customization_nose_portude(attrib[21].to_f32()?);
+                                            params.set_customization_ear_size(attrib[22].to_f32()?);
+                                            params.set_customization_ear_elf(attrib[23].to_f32()?);
+                                            params.set_customization_cheek_bone(attrib[24].to_f32()?);
+                                            params.set_customization_cheek(attrib[25].to_f32()?);
+                                            params.set_customization_chin_portude(attrib[26].to_f32()?);
+                                            params.set_customization_jaw_chubby(attrib[27].to_f32()?);
+                                            // voucher 28
+                                            // int items 29
+                                            let mut visible_items = Vec::new();
+                                            for a in attrib[30..].iter() {
+                                                let item_uuid = a.to_uuid()?;
+                                                debug!("Load item {}", item_uuid.to_string());
+                                                let item = ItemContent::get(self.realm_db.clone(), &item_uuid).await?;
+                                                visible_items.push(item.unwrap().id as i32);
+                                            }
+                                            params.set_visible_item_info(visible_items);
+                                        }
+
+                                        // Save changes
+                                        debug!("Save avatar change");
+                                        player.save(self.realm_db.clone()).await?;
+
+                                        // Update avatar
+                                        let mut data = Vec::new();
+                                        let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+                                        player.params().write(&mut writer)?;
+            
+                                        let mut avatar_update = CPktAvatarUpdate::default();
+                                        avatar_update.full_update = false;
+                                        avatar_update.avatar_id = Some(state.avatar_id.unwrap());
+                                        avatar_update.update_source = 0;
+                                        avatar_update.param_bytes = data.len() as u32;
+                                        avatar_update.params = data;
+                                        
+                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
+                                    },
+                                    _ => panic!(),
+                                }
+                            },
+                            _ => panic!(),
+                        }
+                    },
+                    _ => todo!(),
+                }
+            },
+            _ => debug!("Unhandled request: {:#?}", request.message()),
         }
 
         self.client_state.insert(peer_id, state);
@@ -353,212 +549,146 @@ impl ServerInstance for WorldServer {
     }
 
     async fn tick(&mut self) -> AnotherlandResult<()> {
+        let mut disconnected_peers = Vec::new();
+
+        for (peer_id, state) in self.client_state.iter_mut() {
+            let peer = match self.listener.peer(peer_id).await {
+                Some(peer) => peer,
+                None => {
+                    disconnected_peers.push(peer_id.clone());
+                    continue
+                },
+            };
+
+            match state.load_state {
+                ClientLoadState::RequestAvatarStream => {
+                    if let Some(zone) = self.world.get_zone(state.zone_guid.as_ref().unwrap()) {
+                        for (id, avatar) in zone.iter() {
+                            debug!("Send avatar: {}/{}", avatar.params().class_id().as_u16(), avatar.name());
+
+                            let rot = avatar.rotation();
+                            
+                            let pos = PositionUpdate {
+                                pos: avatar.position().into(),
+                                rot: Quat::from_euler(glam::EulerRot::XYZ, rot.x, rot.y, rot.z).into(),
+                                vel: avatar.velocity().into(),
+                            };
+
+                            let mut buf = Vec::new();
+                            let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
+                    
+                            let _ = writer.write_bytes(&pos.to_bytes());
+
+                            let _ = writer.write(0u8);
+                            let _ = writer.write(0u16);
+                            let _ = writer.write(0u64);
+                            let _ = writer.write(0u64);
+
+                            /*let _ = writer.write(0u64);
+                            let _ = writer.write(0u8);
+                            let _ = writer.write(0u8);
+                            let _ = writer.write(0u8);
+                            let _ = writer.write(0u16);
+                            let _ = writer.write(1u16);
+                            let _ = writer.write(0u64);*/
+
+                            let mut data = Vec::new();
+                            let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+                            avatar.params().write(&mut writer)?;
+
+                            let mut avatar_update = CPktAvatarUpdate::default();
+                            avatar_update.full_update = true;
+                            avatar_update.avatar_id = Some(*id);
+                            avatar_update.field_2 = Some(false);
+                            avatar_update.name = Some(avatar.name().clone());
+                            avatar_update.class_id = Some(avatar.params().class_id().as_u32());
+                            avatar_update.field_6 = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
+                            //avatar_update.flags = Some(2);
+                            //avatar_update.flag_2_uuid = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
+                            avatar_update.param_bytes = data.len() as u32;
+                            avatar_update.params = data;
+                            
+                            avatar_update.update_source = 0;
+                            avatar_update.move_mgr_bytes = Some(buf.len() as u32);
+                            avatar_update.move_mgr_data = Some(buf);
+
+                            let _ = peer.write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
+                        }
+                    }
+
+                    {
+                        state.load_state = ClientLoadState::StreamedAvatars;
+                        
+                        let mut connectionstate = oaPktS2XConnectionState::default();
+                        connectionstate.field_1 = ClientLoadState::StreamedAvatars.into();
+                        connectionstate.field_2 = 0;
+
+                        let _ = peer.write().await.send(Priority::High, Reliability::Reliable, connectionstate.as_message()).await;
+                    }
+                },
+                ClientLoadState::RequestSpawn => {
+                    // Synchronize time
+                    {
+                        let mut game_time_sync = CPktServerNotify::default();
+                        game_time_sync.notify_type = 0;
+                        game_time_sync.field_2 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+        
+        
+                        let _ = peer.write().await.send(Priority::High, Reliability::Reliable, game_time_sync.as_message()).await;
+                    }
+    
+                    {
+                        let mut realm_time_sync = CPktServerNotify::default();
+                        realm_time_sync.notify_type = 19;
+                        realm_time_sync.field_4 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+                        let _ = peer.write().await.send(Priority::High, Reliability::Reliable, realm_time_sync.as_message()).await;
+                    }
+
+                    // Update loadstate
+                    {
+                        state.load_state = ClientLoadState::Spawned;
+                        
+                        let mut connectionstate = oaPktS2XConnectionState::default();
+                        connectionstate.field_1 = ClientLoadState::Spawned.into();
+                        connectionstate.field_2 = 0;
+
+                        let _ = peer.write().await.send(Priority::High, Reliability::Reliable, connectionstate.as_message()).await;
+                    }             
+
+                    // Tell the client the avatar is ready to spawn
+                    {
+                        let zone = self.world.get_zone(state.zone_guid.as_ref().unwrap()).unwrap();
+                        let avatar = zone.get_avatar(state.avatar_id.unwrap()).unwrap();
+
+                        let mut action = oaPktServerAction::default();
+                        action.action = "TRAVEL:DirectTravel|DirectTravelDefault".to_owned();
+                        action.version = 4;
+                        action.override_teleport = false;
+                        action.pos = avatar.position().into();
+                        action.rot = avatar.rotation().into();
+                        let _ = peer.write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await;
+                    }
+                },
+                ClientLoadState::Spawned => {
+
+                },
+                _ => (),
+            }
+        }
+
+        for peer_id in disconnected_peers.iter() {
+            if let Some(state) = self.client_state.get_mut(peer_id) {
+                if let Some(avatar_id) = state.avatar_id {
+                    if let Some(zone) = self.world.get_zone_mut(state.zone_guid.as_ref().unwrap()) {
+                        zone.despawn_avatar(avatar_id);
+                    }
+                } 
+            }
+            self.client_state.remove(&peer_id);
+        }
+
         Ok(())
     }
-
-    /*async fn update_peers(&mut self) -> AnotherlandResult<()> {
-        let mut remove_clients = Vec::new();
-
-        for client in self.clients.iter() {
-            if client.1.read().await.state() != State::Connected {
-                remove_clients.push(client.0.to_owned());
-                continue;
-            }
-
-            if Instant::now().duration_since(self.last_update).as_millis() > 10 && self.client_loadstate < 8 {
-                self.last_update = Instant::now();
-    
-                if self.client_loadstate != self.last_loadstate {
-                    self.last_loadstate = self.client_loadstate;
-    
-                    match self.client_loadstate {
-                        5 => {
-                            /*{
-                                let character_data = fs::read("npc_lambda_bartender_lovenurseclinic.bin").unwrap();
-    
-                                let mut buf = Vec::new();
-                                let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
-                        
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-    
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-    
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-    
-                                writer.write(0u64);
-                                writer.write(0u8);
-                                writer.write(0u8);
-                                writer.write(0u8);
-                                writer.write(0u16);
-                                writer.write(1u16);
-                                writer.write(0u64);
-    
-                                let mut avatar_update = CPktAvatarUpdate::default();
-                                avatar_update.full_update = true;
-                                avatar_update.avatar_id = Some(0xf00);
-                                avatar_update.field_2 = Some(true);
-                                avatar_update.field_4 = Some("Test1".to_owned());
-                                avatar_update.field_5 = Some(47);
-                                avatar_update.field_6 = Some(Uuid::new_v4());
-                                avatar_update.flags = Some(3);
-                                avatar_update.field_10 = Some(Uuid::from_str("7a6aa750-5cab-42e3-899c-9b3d7ed0dc7a").unwrap());
-                                avatar_update.data_len = Some(character_data.len() as u32);
-                                avatar_update.field_12 = Some(character_data);
-                                
-                                avatar_update.field_14 = 0;
-                                avatar_update.data_len2 = buf.len() as u32;
-                                avatar_update.field_16 = buf;
-
-                                let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
-                            }*/
-
-                            {
-                                let mut state = oaPktS2XConnectionState::default();
-                                state.field_1 = 6;
-                                state.field_2 = 0;
-    
-                                self.client_loadstate = 6;
-    
-                                let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, state.as_message()).await?;
-                            }
-                        },
-                        6 => {
-                            /*{
-                                let mut character = CParamClass_npcOtherland::default();
-    
-                                character.alive = Some(CParam::Bool(true));
-                                character.lvl = Some(CParam::Int32(3));
-                                //character.zone_guid = Some(CParam::CGuid(Uuid::from_str("3abb7eb1-662a-48ff-bdec-c1eac42c42d1").unwrap()));
-                                //character.party_guid = Some(CParam::CGuid(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap()));
-                                character.collision_extent = Some(CParam::Vector3(Vec3::new(21.0, 21.0, 44.0)));
-                                //character.death_info = Some(CParam::Any(0, Vec::new()));
-                                character.generate_interest_list = Some(CParam::Bool(false));
-                                //character.instance_zone_key = Some(CParam::String("".to_owned()));
-                                //character.pos = Some(CParam::Vector3(Vec3::new(0.0, 0.0, 0.0)));
-                                //character.rot = Some(CParam::Vector3(Vec3::new(0.0, 0.0, 0.0)));
-                                character.self_radius = Some(CParam::Float(20.0));
-                                character.team_id = Some(CParam::Int32(0));
-                                character.zone = Some(CParam::String("MeetingRoom".to_owned()));
-                                character.ue3class_id = Some(CParam::String("Otherland.OLAvatarNPC".to_owned()));
-    
-                                let character_data = character.to_bytes();
-    
-                                let mut buf = Vec::new();
-                                let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
-                        
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-    
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-    
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-                                writer.write_bytes(0f32.to_le_bytes().as_slice());
-    
-                                writer.write(0u64);
-                                writer.write(0u8);
-                                writer.write(0u8);
-                                writer.write(0u8);
-                                writer.write(0u16);
-                                writer.write(1u16);
-                                writer.write(0u64);
-    
-                                let mut avatar_update = CPktAvatarUpdate::default();
-                                avatar_update.full_update = true;
-                                avatar_update.avatar_id = Some(3);
-                                avatar_update.field_2 = Some(false);
-                                avatar_update.field_4 = Some("Test2".to_owned());
-                                avatar_update.field_5 = Some(47);
-                                avatar_update.field_6 = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
-                                avatar_update.flags = Some(4);
-                                avatar_update.field_9 = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
-                                avatar_update.data_len = Some(character_data.len() as u32);
-                                avatar_update.field_12 = Some(character_data);
-                                
-                                avatar_update.field_14 = 0;
-                                avatar_update.data_len2 = buf.len() as u32;
-                                avatar_update.field_16 = buf;
-    
-                                let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
-                            }*/
-    
-                            /*{
-                                let mut state = oaPktS2XConnectionState::default();
-                                state.field_1 = 7;
-                                state.field_2 = 0;
-    
-                                self.client_loadstate = 7;
-    
-                                let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, state.as_message()).await?;   
-                            }*/
-                        },
-                        7 => {
-                            {
-                                let mut game_time_sync = CPktServerNotify::default();
-                                game_time_sync.notify_type = 0;
-                                game_time_sync.field_2 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
-                
-                
-                                let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, game_time_sync.as_message()).await?;
-                            }
-            
-                            {
-                                let mut realm_time_sync = CPktServerNotify::default();
-                                realm_time_sync.notify_type = 19;
-                                realm_time_sync.field_4 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
-                                let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, realm_time_sync.as_message()).await?;
-                            }
-
-                            {
-                                let ui_config = oaPktUIConfigUpdate::default();
-                                let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, ui_config.as_message()).await?;
-                            }
-
-                            {
-                                let mut state = oaPktS2XConnectionState::default();
-                                state.field_1 = 8;
-                                state.field_2 = 0;
-    
-                                self.client_loadstate = 8;
-    
-                                let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, state.as_message()).await?;
-                            }
-
-                            // Tell the client the player has arrived
-                            {
-                                let mut action = oaPktServerAction::default();
-                                action.action = "TRAVEL:DirectTravel|DirectTravelDefault".to_owned();
-                                action.version = 4;
-                                action.override_teleport = false;
-                                action.field_7 = vec![f32::INFINITY, f32::INFINITY, f32::INFINITY];
-                                action.field_8 = vec![1.0f32, 0.0f32, 0.0f32, 0.0f32];
-                                let _ = client.1.write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await?;
-                            }
-
-                        },
-                        _ => println!("Undefined load state: {}", self.client_loadstate),
-                    }
-                }
-            }    
-        }
-
-        for r in &remove_clients {
-            self.clients.remove(r);
-        }
-
-        Ok(())
-    }*/
 
     async fn handle_cluster_message(&mut self, message: ClusterMessage) -> AnotherlandResult<()> {
         match message {
@@ -567,7 +697,7 @@ impl ServerInstance for WorldServer {
                 match self.client_state.iter().find(|v| v.1.session.id == id).map(|v| v.0.clone()) {
                     Some(peer_id) => {
                         // Remove state and close connection
-                        if let Some(peer) = self.listener.peer(&peer_id) {
+                        if let Some(peer) = self.listener.peer(&peer_id).await {
                             peer.write().await.disconnect().await;
                         }
 

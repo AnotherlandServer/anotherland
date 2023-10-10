@@ -140,7 +140,7 @@ async fn init_database() -> AnotherlandResult<()> {
     Ok(())
 }
 
-#[tokio::main]
+#[tokio::main] // (flavor = "current_thread")
 async fn main() -> AnotherlandResult<()> {
     let _ = dotenvy::dotenv();
 

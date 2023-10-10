@@ -1,5 +1,8 @@
+use std::time::UNIX_EPOCH;
+
 use async_trait::async_trait;
 use bson::{doc, Document};
+use chrono::{DateTime, Utc};
 use glam::Vec3;
 use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use once_cell::sync::Lazy;
@@ -9,11 +12,11 @@ use sha1::{Sha1, Digest};
 use tokio_stream::StreamExt;
 
 use crate::{util::AnotherlandResult};
-use atlas::{Uuid, CParamClass_player, CParam};
+use atlas::{Uuid, PlayerParam};
 
 use super::{Account, DatabaseRecord};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Character {
     pub id: u32,
     pub guid: Uuid,
@@ -21,43 +24,55 @@ pub struct Character {
     pub name: String,
     pub world_id: u32,
     
-    pub data: CParamClass_player,
+    pub data: PlayerParam,
 }
 
-static NEW_CHARACTER_TEMPLATE: Lazy<CParamClass_player> = Lazy::new(|| CParamClass_player {
-    alive: Some(CParam::Bool(true)),
-    attribute_constitution: Some(CParam::Float(32.0)),
-    attribute_crafting: Some(CParam::Float(32.0)),
-    attribute_dexterity: Some(CParam::Float(32.0)),
-    attribute_disguise: Some(CParam::Float(32.0)),
-    attribute_energy: Some(CParam::Float(32.0)),
-    attribute_focus: Some(CParam::Float(32.0)),
-    attribute_energy_max: Some(CParam::Float(1.0)),
-    attribute_intuition: Some(CParam::Float(32.0)),
-    attribute_movement: Some(CParam::Float(32.0)),
-    attribute_strength: Some(CParam::Float(32.0)),
-    attribute_wisdom: Some(CParam::Float(32.0)),
-    auto_loot_radius: Some(CParam::Float(60.0)),
-    aware_dist: Some(CParam::Float(3900.0)),
-    aware_range: Some(CParam::Float(3900.0)),
-    bling: Some(CParam::Int32(-1)),
-    collision_extent: Some(CParam::Vector3(Vec3 { x: 21.0, y: 21.0, z: 21.0 })),
-    combat_style: Some(CParam::Int32(6)),
-    game_cash: Some(CParam::Int32(-1)),
-    hp_cur: Some(CParam::Int32(1000)),
-    hp_max: Some(CParam::Int32(1000)),
-    hp_min: Some(CParam::Int32(0)),
-    jump_velocity: Some(CParam::Float(310.0)),
-    move_speed: Some(CParam::Float(192.0)),
-    lvl: Some(CParam::Int32(1)), 
-    size: Some(CParam::Float(1.0)),
-    spawn_mode: Some(CParam::Int32(0)),
-    ue3class_id: Some(CParam::String("Engine.AtlasAvatar".to_owned())),
-    zone: Some(CParam::String("ClassSelection_P".to_owned())),
-    zone_guid: Some(CParam::CGuid(Uuid::from_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap())),
+static NEW_CHARACTER_TEMPLATE: Lazy<PlayerParam> = Lazy::new(|| {
+    let mut player = PlayerParam::default();
+    player.set_alive(true);
+    player.set_attribute_constitution(32.0);
+    player.set_attribute_crafting(32.0);
+    player.set_attribute_dexterity(32.0);
+    player.set_attribute_disguise(32.0);
+    player.set_attribute_energy(32.0);
+    player.set_attribute_focus(32.0);
+    player.set_attribute_intuition(32.0);
+    player.set_attribute_movement(32.0);
+    player.set_attribute_strength(32.0);
+    player.set_attribute_wisdom(32.0);
+    player.set_auto_loot_radius(60.0);
+    player.set_aware_dist(3900.0);
+    player.set_aware_range(3900.0);
+    player.set_bling(-1);
+    player.set_collision_extent(Vec3::new(21.0, 21.0, 21.0));
+    player.set_combat_style(6);
+    player.set_game_cash(-1);
+    player.set_hp_cur(1000);
+    player.set_hp_max(1000);
+    player.set_hp_min(0);
+    player.set_jump_velocity(310.0);
+    player.set_move_speed(192.0);
+    player.set_lvl(1);
+    player.set_size(1.0);
+    player.set_spawn_mode(0);
+    player.set_zone("ClassSelection_P");
+    player.set_zone_guid(Uuid::from_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
+    player.set_default_items_content_guid(vec![40711, 40712, 40713]);
+    player.set_last_skusync_time(UNIX_EPOCH.elapsed().unwrap().as_secs() as i64);
+    player.set_last_vendor_sync_time(UNIX_EPOCH.elapsed().unwrap().as_secs() as i64);
+    player.set_tutorial_mode(true);
 
-    ..CParamClass_player::default()
-});
+    // visible stuff
+    player.set_visible_item_info(vec![3840]);
+    player.set_customization_gender(1.0);
+    player.set_customization_height(0.5);
+    player.set_customization_bust_size(0.5);
+    player.set_customization_fat(0.0);
+    player.set_customization_skinny(0.7);
+    player.set_customization_muscular(0.3);
+
+    player
+}); 
 
 impl Character {
     pub async fn create(db: Database, account_id: &Uuid, name: &str) -> AnotherlandResult<Character> {
@@ -126,6 +141,13 @@ impl Character {
             .options(IndexOptions::builder().build())
             .build(), 
             None).await?;
+
+        Ok(())
+    }
+
+    pub async fn save(&mut self, db: Database) -> AnotherlandResult<()> {
+        let collection = db.collection::<Character>("characters");
+        collection.update_one(doc!{"id": {"$eq": self.id}}, doc!{"$set": &bson::to_bson(self).unwrap().as_document()}, None).await?;
 
         Ok(())
     }

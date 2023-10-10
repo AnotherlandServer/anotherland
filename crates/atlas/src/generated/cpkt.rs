@@ -2,6 +2,7 @@ use nom::{IResult, error::{VerboseError, context}, combinator::*, sequence::*, n
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use crate::parsers::*;
 use std::io;
+use log::error;
 use crate::raknet::Message;
 use crate::NativeParam;
 
