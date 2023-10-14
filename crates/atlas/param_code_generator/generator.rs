@@ -698,7 +698,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             quote!{ #id => #literal, }
         }).collect();
 
-        let attrib_is_persistent: Vec<_> = params.iter().map(|(name, id, options)| {
+        /*let attrib_is_persistent: Vec<_> = params.iter().map(|(name, id, options)| {
             let literal = format!("{}", name);
             let id = *id;
 
@@ -712,13 +712,47 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 }
                 None => quote!{ #id => true, }
             }
-        }).collect();
+        }).collect();*/
 
         let attrib_lookup: Vec<_> = params.iter().map(|(name, id, options)| {
             let literal = format!("{}", name);
             let id = *id;
 
             quote!{ #literal => Some(#id), }
+        }).collect();
+
+        let attrib_flags: Vec<_> = params.iter().map(|(name, id, options)| {
+            let literal = format!("{}", name);
+            let id = *id;
+
+            let flags = match options {
+                Some(options) => {
+                    let flag_idents: Vec<_> = options.flags.iter().map(|f| {
+                        match f {
+                            ParamFlag::NodeOwn => quote!(ParamFlag::NodeOwn),
+                            ParamFlag::ServerOwn => quote!(ParamFlag::ServerOwn),
+                            ParamFlag::ClientOwn => quote!(ParamFlag::ClientOwn),
+                            ParamFlag::ClientUnknown => quote!(ParamFlag::ClientUnknown),
+                            ParamFlag::ClientPrivileged =>quote!(ParamFlag::ClientPrivileged),
+                            ParamFlag::ClientInit => quote!(ParamFlag::ClientInit),
+                            ParamFlag::Persistent => quote!(ParamFlag::Persistent),
+                            ParamFlag::ExcludeFromClient => quote!(ParamFlag::ExcludeFromClient),
+                            ParamFlag::Content => quote!(ParamFlag::Content),
+                            ParamFlag::PerInstanceSetting => quote!(ParamFlag::PerInstanceSetting),
+                            ParamFlag::DupeSetOk => quote!(ParamFlag::DupeSetOk),
+                            ParamFlag::Deprecated => quote!(ParamFlag::Deprecated),
+                            ParamFlag::Metric => quote!(ParamFlag::Metric),
+                            ParamFlag::EquipSlot => quote!(ParamFlag::EquipSlot),
+                            ParamFlag::Uts => quote!(ParamFlag::Uts),
+                        }
+                    }).collect();
+
+                    quote!{&[#(#flag_idents),*]}
+                },
+                None => quote!{&[]},
+            };
+
+            quote!{ #id => #flags, }
         }).collect();
 
         quote! {
@@ -745,12 +779,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     }
                 }
 
-                fn attribute_is_persistent(id: u16) -> bool {
+                /*fn attribute_is_persistent(id: u16) -> bool {
                     match id {
                         #(#attrib_is_persistent)*
                         _ => panic!(),
                     }
-                }
+                }*/
 
                 fn lookup_field(name: &str) -> Option<u16> {
                     match name {
@@ -766,6 +800,13 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 fn to_anyclass(self) -> AnyClass { self.0 }
                 fn from_anyclass(anyclass: AnyClass) -> Self { 
                     Self(anyclass)
+                }
+
+                fn attribute_flags(&self, id: u16) -> &'static [ParamFlag] {
+                    match id {
+                        #(#attrib_flags)*
+                        _ => panic!(),
+                    }
                 }
             }
 

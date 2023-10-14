@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use serde::{Serializer, de::{Visitor, self, SeqAccess}, Deserializer, Serialize, Deserialize, ser::SerializeSeq};
 use serde_json::Value;
 
@@ -29,13 +31,20 @@ impl<'de> Visitor<'de> for StringVisitor {
     {
         Ok((v.to_owned(), None))
     }
+
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: Error, {
+
+        Ok((v, None))
+    }
 }
 
 pub fn deserialize_string<'de, D>(deserializer: D) -> Result<(String, Option<u8>), D::Error>
 where
     D: Deserializer<'de>,
 {
-    deserializer.deserialize_str(StringVisitor)
+    deserializer.deserialize_string(StringVisitor)
 }
 
 pub fn serialize_json<S>(
@@ -87,8 +96,8 @@ impl<'de> Visitor<'de> for UuidVecVisitor {
         
         let mut values = Vec::new();
 
-        while let Some(value) = seq.next_element::<&str>()? {
-            values.push(Uuid::from_str(value).unwrap());
+        while let Some(value) = seq.next_element::<String>()? {
+            values.push(Uuid::from_str(value.as_str()).unwrap());
         }
 
         Ok((values, None))
@@ -99,5 +108,52 @@ pub fn deserialize_vec_uuid<'de, D>(deserializer: D) -> Result<(Vec<Uuid>, Optio
 where
     D: Deserializer<'de>,
 {
-    deserializer.deserialize_str(UuidVecVisitor)
+    deserializer.deserialize_seq(UuidVecVisitor)
+}
+
+pub fn serialize_i32<S>(
+    value: &i32, 
+    _option: &Option<u8>, 
+    serializer: S
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_i32(*value)
+}
+
+struct I32Visitor;
+
+impl<'de> Visitor<'de> for I32Visitor {
+    type Value = (i32, Option<u8>);
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a number")
+    }
+
+    fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
+        where
+            E: Error, {
+        
+        Ok((v, None))
+    }
+
+    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error, {
+        Ok((v as i32, None))
+    }
+
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error, {
+        Ok((v as i32, None))
+    }
+}
+
+pub fn deserialize_i32<'de, D>(deserializer: D) -> Result<(i32, Option<u8>), D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserializer.deserialize_i32(I32Visitor)
 }

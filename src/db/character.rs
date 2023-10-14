@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use bson::{doc, Document};
 use chrono::{DateTime, Utc};
 use glam::Vec3;
+use log::debug;
 use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use once_cell::sync::Lazy;
 use serde::Serialize;
@@ -14,7 +15,7 @@ use tokio_stream::StreamExt;
 use crate::{util::AnotherlandResult};
 use atlas::{Uuid, PlayerParam};
 
-use super::{Account, DatabaseRecord};
+use super::{Account, DatabaseRecord, ItemContent};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Character {
@@ -45,7 +46,7 @@ static NEW_CHARACTER_TEMPLATE: Lazy<PlayerParam> = Lazy::new(|| {
     player.set_aware_range(3900.0);
     player.set_bling(-1);
     player.set_collision_extent(Vec3::new(21.0, 21.0, 21.0));
-    player.set_combat_style(6);
+    player.set_combat_style(0);
     player.set_game_cash(-1);
     player.set_hp_cur(1000);
     player.set_hp_max(1000);
@@ -57,10 +58,11 @@ static NEW_CHARACTER_TEMPLATE: Lazy<PlayerParam> = Lazy::new(|| {
     player.set_spawn_mode(0);
     player.set_zone("ClassSelection_P");
     player.set_zone_guid(Uuid::from_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
-    player.set_default_items_content_guid(vec![40711, 40712, 40713]);
+    player.set_first_time_spawn(true);
+    player.set_default_items_content_guid(vec![40711, 40712, 40713, 41206]);
     player.set_last_skusync_time(UNIX_EPOCH.elapsed().unwrap().as_secs() as i64);
     player.set_last_vendor_sync_time(UNIX_EPOCH.elapsed().unwrap().as_secs() as i64);
-    player.set_tutorial_mode(true);
+    player.set_tutorial_mode(false);
 
     // visible stuff
     player.set_visible_item_info(vec![3840]);
@@ -85,23 +87,32 @@ impl Character {
         
         let numeric_id = u32::from_le_bytes(result[0..4].try_into().unwrap());
 
+        let mut avatar_data = NEW_CHARACTER_TEMPLATE.clone();
+        let default_items = ItemContent::list_by_categories(db.clone(), vec![
+            Uuid::from_str("6B74CF2D-79A3-48B8-B752-995179A064BD").unwrap()
+        ].as_slice()).await?;
+
+        debug!("Default item count: {}", default_items.len());
+
+        avatar_data.set_default_items_content_guid(default_items.into_iter().map(|v| v.id as i32).collect());
+
         let character = Character {
             id: numeric_id,
             guid,
             account: account_id.clone(),
             name: name.to_owned(),
             world_id: 130,
-            data: NEW_CHARACTER_TEMPLATE.clone(),
+            data: avatar_data,
         };
 
-        let collection = db.collection::<Character>("characters");
+        let collection = Character::collection(db.clone());
         collection.insert_one(&character, None).await?;
 
         Ok(character)
     }
 
     pub async fn list(db: Database, account_id: &Uuid) -> AnotherlandResult<Vec<Character>> {
-        let collection = db.collection::<Character>("characters");
+        let collection = Character::collection(db.clone());
         let mut chracters = Vec::new();
 
         let mut result = collection.find(doc!{"account": {"$eq":account_id.to_string()}}, None).await?;
@@ -113,7 +124,7 @@ impl Character {
     }
 
     pub async fn init_collection(db: Database) -> AnotherlandResult<()> {
-        let collection = db.collection::<Character>("characters");
+        let collection = Character::collection(db.clone());
         collection.create_index(
             IndexModel::builder()
             .keys(doc!("id": 1))

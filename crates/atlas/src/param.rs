@@ -42,8 +42,27 @@ use crate::avatarid::AvatarId;
 use super::generated::*;
 use super::serialize::*;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParamFlag {
+    NodeOwn,
+    ServerOwn,
+    ClientOwn,
+    ClientUnknown,
+    ClientPrivileged,
+    ClientInit,
+    Persistent,
+    ExcludeFromClient,
+    Content,
+    PerInstanceSetting,
+    DupeSetOk,
+    Deprecated,
+    Metric,
+    EquipSlot,
+    Uts,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct ParamError(pub(crate) ());
+pub struct ParamError(pub ());
 
 impl fmt::Display for ParamError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -62,14 +81,13 @@ pub trait BoundParamClass: ParamClass + Default {
 
     fn class_id() -> ParamClassId { Self::CLASS_ID }
     fn attribute_name(id: u16) -> &'static str;
-    fn attribute_is_persistent(id: u16) -> bool;
     fn lookup_field(name: &str) -> Option<u16>;
 
     fn into_persistent_json(&self) -> Value {
         let mut attribute_map = HashMap::<&'static str, Value>::new();
 
         for a in &self.as_anyclass().0 {
-            if Self::attribute_is_persistent(a.0) {
+            if self.attribute_has_flag(a.0, &ParamFlag::Persistent) {
                 let name = Self::attribute_name(a.0);
                 let attrib = serde_json::to_value(&a.1).unwrap();
                 attribute_map.insert(name, attrib);
@@ -121,11 +139,24 @@ pub trait ParamClass: Sized {
         })(i)
     }
 
+    fn attribute_flags(&self, id: u16) -> &'static [ParamFlag];
+
+    fn attribute_has_flag(&self, id: u16, flag: &ParamFlag) -> bool {
+        self.attribute_flags(id).contains(flag)
+    }
+
     fn write<T>(&self, writer: &mut T) -> Result<(), io::Error> 
         where T: ByteWrite
     {
         let anyclass = self.as_anyclass();
         anyclass.raw_write(writer)
+    }
+
+    fn write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> 
+        where T: ByteWrite
+    {
+        let anyclass = self.as_anyclass();
+        anyclass.raw_write_to_client(writer)
     }
 }
 
@@ -150,7 +181,7 @@ pub enum Param {
     Vector3(Vec3), // 13
     Vector4(Vec4), // 14
     FloatPair((f32, f32)), // 12
-    IntArray4(Vec<u32>), // 9
+    IntArray4((i32, i32, i32, i32)), // 9
 
     #[serde(
         serialize_with = "serialize_json", 
@@ -182,6 +213,11 @@ pub enum Param {
     StringMap(HashMap<String, String>), // 40
     IntMap(HashMap<String, u32>), // 39
     Float(f32), // 11
+
+    #[serde(
+        serialize_with = "serialize_i32", 
+        deserialize_with = "deserialize_i32"
+    )]
     Int32(i32, Option<u8>), // 8, 17
     GuidPair((Uuid, Uuid)), // 6
     StringPair((String, String)), // 2
@@ -456,6 +492,17 @@ impl Param {
         }
 
         Ok(())
+    }
+
+    fn should_skip(&self) -> bool {
+        match self {
+            Self::Int64Array(val) => val.is_empty(),
+            Self::AvatarIdArray(val) => val.is_empty(),
+            Self::StringArray(val) => val.is_empty(),
+            Self::FloatArray(val) => val.is_empty(),
+            Self::IntArray(val) => val.is_empty(),
+            _ => false,
+        }
     }
 
     /// Original data is usefol to test serializing/deserializing of params. 
@@ -890,9 +937,26 @@ impl AnyClass {
 
     fn raw_write<T>(&self, writer: &mut T) -> Result<(), io::Error> where T: ByteWrite {
         writer.write(1u8)?;
-        writer.write(self.0.len() as u16)?;
 
-        for a in &self.0 {
+        let filtered_params: Vec<_> = self.0.iter().filter(|a| !a.1.should_skip()).collect();
+        writer.write(filtered_params.len() as u16)?;
+
+        for a in filtered_params {
+            if !a.1.should_skip() {
+                a.write(writer)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn raw_write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> where T: ByteWrite {
+        writer.write(1u8)?;
+
+        let filtered_params: Vec<_> = self.0.iter().filter(|a| !a.1.should_skip() && !self.attribute_has_flag(a.0, &ParamFlag::ExcludeFromClient)).collect();
+        writer.write(filtered_params.len() as u16)?;
+
+        for a in filtered_params {
             a.write(writer)?;
         }
 
@@ -944,6 +1008,10 @@ impl ParamClass for AnyClass {
 
     fn from_anyclass(anyclass: AnyClass) -> Self {
         anyclass
+    }
+
+    fn attribute_flags(&self, id: u16) -> &'static [ParamFlag] {
+        &[]
     }
 }
 

@@ -9,7 +9,10 @@ mod world;
 mod data_import;
 
 // Import modules
-use std::{net::Ipv4Addr, collections::VecDeque};
+use std::{net::Ipv4Addr, collections::VecDeque, fs};
+use atlas::{Uuid, ParamClass, PlayerParam};
+use bitstream_io::{ByteWriter, LittleEndian};
+use bson::{bson, DeserializerOptions};
 use clap::{Parser, Subcommand};
 use ::config::File;
 use log::{LevelFilter, info};
@@ -110,7 +113,7 @@ impl Args {
     }
 }
 
-use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, WorldDef}, world_server::WorldServer};
+use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, WorldDef, ItemContent, DatabaseRecord, Character}, world_server::WorldServer};
 
 static ARGS: Lazy<Args> = Lazy::new(Args::parse);
 
@@ -195,6 +198,16 @@ async fn main() -> AnotherlandResult<()> {
         },
         StartCommand::StandaloneServer { .. } => {
             init_database().await?;
+
+            /*let char = Character::get(realm_database().await, &2781041876).await?.unwrap();
+            
+            let mut data = Vec::new();
+            let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+            char.data.write(&mut writer)?;
+
+            let (_, deserialized) = PlayerParam::read(&data).unwrap();
+
+            fs::write("chardata.bin", data);*/
 
             // load all worlds
             let worlds = WorldDef::list(realm_database().await).await?;

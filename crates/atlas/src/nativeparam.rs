@@ -1,9 +1,11 @@
+use std::vec::IntoIter;
+
 use glam::f32::Vec3;
 use nom::{IResult, error::VerboseError, number::complete::{le_u8, le_f32, le_f64, le_i32, le_u64, le_u32, le_i64}, multi::count};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 
-use crate::ParamError;
+use crate::{ParamError, AvatarId};
 
 use super::{Uuid, parsers::parse_pkt_cstring};
 
@@ -259,5 +261,27 @@ impl NativeParam {
             _ => Err(ParamError(())),
         }
     }
+
+    pub fn to_struct_iter(self) -> Result<IntoIter<NativeParam>, ParamError> {
+        match self {
+            NativeParam::Struct(var) => Ok(var.into_iter()),
+            _ => Err(ParamError(())),
+        }
+    }
+
+    pub fn to_avatar_id(self) -> Result<AvatarId, ParamError> {
+        match self {
+            NativeParam::AvatarId(val) => Ok(AvatarId::new(val)),
+            _ => Err(ParamError(())),
+        }
+    }
+
+    pub fn to_bool(self) -> Result<bool, ParamError> {
+        match self {
+            NativeParam::Bool(val) => Ok(val),
+            _ => Err(ParamError(())),
+        }
+    }
 }
+
 

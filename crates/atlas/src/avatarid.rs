@@ -6,6 +6,7 @@ use serde::de::{Deserializer, Visitor, SeqAccess};
 pub struct AvatarId(u64);
 
 impl AvatarId {
+    pub fn new(val: u64) -> Self { Self(val) }
     pub fn as_u64(&self) -> u64 { self.0 }
 }
 

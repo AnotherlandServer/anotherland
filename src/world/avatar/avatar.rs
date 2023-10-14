@@ -7,8 +7,6 @@ use crate::db::Character;
 
 use super::*;
 
-pub type AvatarId = u64;
-
 pub trait AvatarBehaviour {
     fn name(&self) -> &String;
 

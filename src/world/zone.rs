@@ -1,6 +1,7 @@
 use std::{collections::HashMap, io, ops::{Deref, DerefMut}, convert::{Into, TryFrom}};
 
 use atlas::{Uuid, NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, SpawnNodeParam, BoundParamClass, ParamClassContainer, ParamError};
+use atlas::AvatarId;
 use log::{info, error, warn, debug};
 use mongodb::Database;
 use rand::{thread_rng, Rng};
@@ -8,7 +9,7 @@ use rand::{thread_rng, Rng};
 use crate::{util::AnotherlandResult, db::{realm_database, Instance, WorldDef, NpcContent, StructureContent, Content}, world::{NpcAvatar, StructureAvatar, PortalAvatar, StartingPointAvatar, TriggerAvatar, SpawnNodeAvatar}};
 use crate::db::{ZoneDef, DatabaseRecord};
 
-use super::{Avatar, AvatarId};
+use super::{Avatar};
 
 async fn load_instanced_content<'a, T1, T2>(db: Database, instance: &'a Instance) -> AnotherlandResult<T1> 
     where 
@@ -119,36 +120,36 @@ impl Zone {
 
         // generate avatar id
         let mut rng = thread_rng();
-        let mut id: AvatarId = loop {
-            let id: AvatarId = (rng.gen_range(0..1<<56) << 0xF) | avatar_flag;
+        let id: AvatarId = loop {
+            let id = AvatarId::new((rng.gen_range(0..1<<56) << 0xF) | avatar_flag);
             if !self.avatars.contains_key(&id) {
                 break id;
             }
         };
 
         // add to internal map
-        self.avatars.insert(id, avatar);
+        self.avatars.insert(id.clone(), avatar);
 
         id
     }
 
-    pub fn despawn_avatar(&mut self, avatar_id: AvatarId) {
-        self.avatars.remove(&avatar_id);
+    pub fn despawn_avatar(&mut self, avatar_id: &AvatarId) {
+        self.avatars.remove(avatar_id);
     }
 
-    pub fn get_avatar(&self, avatar_id: AvatarId) -> Option<&Avatar> {
-        self.avatars.get(&avatar_id)
+    pub fn get_avatar(&self, avatar_id: &AvatarId) -> Option<&Avatar> {
+        self.avatars.get(avatar_id)
     }
 
-    pub fn get_avatar_mut(&mut self, avatar_id: AvatarId) -> Option<&mut Avatar> {
-        self.avatars.get_mut(&avatar_id)
+    pub fn get_avatar_mut(&mut self, avatar_id: &AvatarId) -> Option<&mut Avatar> {
+        self.avatars.get_mut(avatar_id)
     }
 
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, u64, Avatar> {
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, AvatarId, Avatar> {
         self.avatars.iter()
     }
 
-    pub fn iter_mut(&mut self) -> std::collections::hash_map::IterMut<'_, u64, Avatar> {
+    pub fn iter_mut(&mut self) -> std::collections::hash_map::IterMut<'_, AvatarId, Avatar> {
         self.avatars.iter_mut()
     }
 

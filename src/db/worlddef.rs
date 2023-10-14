@@ -6,7 +6,7 @@ use tokio_stream::StreamExt;
 
 use atlas::Uuid;
 
-use crate::util::AnotherlandResult;
+use crate::{util::AnotherlandResult, world::World};
 
 use super::DatabaseRecord;
 
@@ -36,8 +36,13 @@ impl DatabaseRecord<'_> for WorldDef {
 }
 
 impl WorldDef {
+    pub async fn get_by_name(db: Database, name: &str) -> AnotherlandResult<Option<WorldDef>> {
+        let collection = Self::collection(db);
+        Ok(collection.find_one(doc!{"name": {"$eq": name}}, None).await?)
+    }
+
     pub async fn list(db: Database) -> AnotherlandResult<Vec<WorldDef>> {
-        let collection = db.collection::<WorldDef>("worlddefs");
+        let collection = Self::collection(db);
         let mut worlddefs = Vec::new();
 
         let mut result = collection.find(None, None).await?;

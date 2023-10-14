@@ -7,24 +7,6 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug data-import",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=AnotherlandServer",
-                    "--package=AnotherlandServer"
-                ],
-                "filter": {
-                    "name": "AnotherlandServer",
-                    "kind": "bin"
-                }
-            },
-            "args": ["data-import", "D:\\Otherland Next\\Client_Unmodified"],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
             "name": "Debug unit tests in executable 'AnotherlandServer'",
             "cargo": {
                 "args": [

@@ -10,10 +10,12 @@ use nom::{multi::length_count, number::complete::le_u8};
 use once_cell::sync::Lazy;
 use tokio::{sync::RwLock, task::JoinHandle, time::{Interval, self, Instant}};
 
-use crate::{CONF, cluster::{ServerInstance, ClusterMessage}, WORLD_SERVER_IDS, db::{WorldDef, DatabaseRecord, realm_database, WorldServerEntry, Account, Session, cluster_database, Character, Content, CashShopVendor, CashShopBundle, CashShopItem, ItemContent}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}, world::{World, AvatarId, PlayerAvatar, Avatar, NpcAvatar, AvatarBehaviour}};
+use crate::{CONF, cluster::{ServerInstance, ClusterMessage}, WORLD_SERVER_IDS, db::{WorldDef, DatabaseRecord, realm_database, WorldServerEntry, Account, Session, cluster_database, Character, Content, CashShopVendor, CashShopBundle, CashShopItem, ItemContent}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}, world::{World, PlayerAvatar, Avatar, NpcAvatar, AvatarBehaviour}};
 use raknet::*;
 use atlas::*;
 use crate::util::AnotherlandResult;
+
+use super::community_messages::CommunityMessage;
 
 #[derive(Clone, PartialEq, Eq)]
 enum ClientLoadState {
@@ -218,9 +220,9 @@ impl ServerInstance for WorldServer {
                 // Spawn avatar
                 let zone = self.world.get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap();
                 let avatar_id = zone.spawn_avatar(PlayerAvatar::new(character.clone()).into());
-                let avatar = zone.get_avatar(avatar_id).unwrap();
+                let avatar = zone.get_avatar(&avatar_id).unwrap();
 
-                state.avatar_id = Some(avatar_id);
+                state.avatar_id = Some(avatar_id.clone());
 
                 // serialize data
                 let mut params = Vec::new();
@@ -234,7 +236,7 @@ impl ServerInstance for WorldServer {
 
                 // Transfer character to client
                 let mut avatar_blob = CPktBlob::default();
-                avatar_blob.avatar_id = avatar_id; // local client always uses 1 for their avatar id
+                avatar_blob.avatar_id = avatar_id.as_u64(); // local client always uses 1 for their avatar id
                 avatar_blob.avatar_name = character.name.clone();
                 avatar_blob.class_id = 77;
                 avatar_blob.param_bytes = params.len() as u32;
@@ -299,15 +301,74 @@ impl ServerInstance for WorldServer {
                 }*/
             },
             AtlasPkt(CPkt::oaPktClusterClientToCommunity(pkt)) => {
-                let mut response = oaPktCommunityToClusterClient::default();
-                response.field_1 = pkt.field_1.clone();
-                response.field_2 = "Hi!".to_owned();
-                response.field_3 = pkt.field_3.clone();
-                response.field_4 = pkt.field_4;
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
+                debug!("{:#?}", pkt);
+
+                match CommunityMessage::from_native(pkt.field_3.clone())? {
+                    CommunityMessage::SocialTravel { avatar, map, travel } => {
+                        if &avatar != state.avatar_id.as_ref().unwrap() {
+                            // what are you doing??
+                            warn!("Client tried to 'send' an avatar it doesn't has onership of: {:#?}", avatar);
+                        } else {
+                            if travel {
+                                match self.world
+                                .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
+                                .get_avatar_mut(&avatar).unwrap() {
+
+                                    Avatar::Player(player) => {
+                                        // get world
+                                        let world = WorldDef::get_by_name(self.realm_db.clone(), &map).await?.unwrap();
+
+                                        // Send resource notification 
+                                        /*let mut worlddef = CPktResourceNotify::default();
+                                        worlddef.resource_type = CpktResourceNotifyResourceType::WorldDef;
+                                        worlddef.field_2 = world.unwrap().guid.clone();
+                                        worlddef.field_3 = "".to_owned();
+                        
+                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, worlddef.as_message()).await?;*/
+
+                                        let params = player.player_param_mut();
+                                        params.set_world_map_guid(world.guid.clone());
+                                        params.set_zone_guid(Uuid::from_str("b1bbd5c5-0990-454b-bcfa-5dfe176c6756").unwrap());
+
+                                        // Update avatar
+                                        let mut data = Vec::new();
+                                        let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+                                        player.params().write(&mut writer)?;
+            
+                                        let mut avatar_update = CPktAvatarUpdate::default();
+                                        avatar_update.full_update = false;
+                                        avatar_update.avatar_id = Some(state.avatar_id.as_ref().unwrap().as_u64());
+                                        avatar_update.update_source = 0;
+                                        avatar_update.param_bytes = data.len() as u32;
+                                        avatar_update.params = data;
+                                        
+                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
+                                        /*let mut action = oaPktServerAction::default();
+                                        action.action = format!{"TELEPORT:TeleportTravel:TeleportTravelDefault",};
+                                        action.version = 4;
+                                        action.override_teleport = true;
+                                        action.pos = NetworkVec3 { x: 0.0, y: 0.0, z: 0.0};
+                                        action.rot = NetworkVec4 { x: 0.0, y: 0.0, z: 0.0, w: 0.0};
+                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await;*/
+                                    },
+                                    _ => {}
+                                }
+                            }
+                        }
+                    },
+                    CommunityMessage::Unknown_A1 { avatar, boolean } => {
+                        warn!("Unabled community message: 0xa1: {}", boolean);
+                    }
+                }
             },
             AtlasPkt(CPkt::oaPktClusterClientToCommunication(pkt)) => {
-                let mut response = oaPktCommunicationToClusterClient::default();
+                match pkt.field_2 {
+                    _ => {
+                        info!("Unknown communication packet: {:#?}", pkt);
+                        //todo!();
+                    }
+                }
+                /*let mut response = oaPktCommunicationToClusterClient::default();
                 response.field_1 = pkt.field_1.clone();
                 response.field_2 = "Hi!".to_owned();
                 response.field_3 = NativeParam::Struct(vec![
@@ -315,12 +376,12 @@ impl ServerInstance for WorldServer {
                     NativeParam::String("Hi!".to_owned()),
                 ]);
                 response.field_4 = pkt.field_4;
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;*/
             },
             AtlasPkt(CPkt::oaPktClienToClusterNode(pkt)) => {
                 match pkt.field_2 {
                     // Some kind of ping
-                    5 => {
+                    0x5 => {
                         let mut response = oaPktClusterNodeToClient::default();
                         response.field_1 = Uuid::new_v4();
                         response.field_3 = NativeParam::Struct(vec![
@@ -328,7 +389,10 @@ impl ServerInstance for WorldServer {
                         ]);
                         let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
                     },
-                    _ => (),
+                    _ => {
+                        info!("Unknown cluster node packet: {:#?}", pkt);
+                        //todo!();
+                    }
                 }
 
             },
@@ -361,12 +425,14 @@ impl ServerInstance for WorldServer {
                     
                         let avatar = self.world
                             .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
-                            .get_avatar_mut(state.avatar_id.unwrap()).unwrap();
+                            .get_avatar_mut(state.avatar_id.as_ref().unwrap()).unwrap();
                         avatar.set_position(pkt.pos.pos.into());
                         avatar.set_rotation(pkt.pos.rot.into());
                         avatar.set_velocity(pkt.pos.vel.into());
                     },
-                    _ => (),
+                    _ => {
+                        warn!("Unhandled routed packet: {:#?}", Message::from_bytes(&pkt.field_4).unwrap());
+                    },
                 }
             },
             AtlasPkt(CPkt::oaPktCashItemVendorSyncRequest(pkt)) => {
@@ -458,15 +524,13 @@ impl ServerInstance for WorldServer {
                 let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;*/
             },
             AtlasPkt(CPkt::oaPktAvatarTellBehaviorBinary(pkt)) => {
-                debug!("{:#?}", pkt);
-
                 match pkt.field_3.as_str() {
                     "doVendorExecute" => {
                         match &pkt.field_4 {
                             NativeParam::Struct(attrib) => {
                                 match self.world
                                     .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
-                                    .get_avatar_mut(state.avatar_id.unwrap()).unwrap() {
+                                    .get_avatar_mut(&state.avatar_id.as_ref().unwrap()).unwrap() {
 
                                     Avatar::Player(player) => {
                                         // Update params
@@ -501,6 +565,8 @@ impl ServerInstance for WorldServer {
                                             params.set_customization_cheek(attrib[25].to_f32()?);
                                             params.set_customization_chin_portude(attrib[26].to_f32()?);
                                             params.set_customization_jaw_chubby(attrib[27].to_f32()?);
+                                            debug!("Attrib 28: {}", attrib[28].to_string()?);
+                                            debug!("Attrib 29: {:#?}", attrib[29]);
                                             // voucher 28
                                             // int items 29
                                             let mut visible_items = Vec::new();
@@ -510,7 +576,13 @@ impl ServerInstance for WorldServer {
                                                 let item = ItemContent::get(self.realm_db.clone(), &item_uuid).await?;
                                                 visible_items.push(item.unwrap().id as i32);
                                             }
-                                            params.set_visible_item_info(visible_items);
+
+                                            if !visible_items.is_empty() {
+                                                debug!("set visible item info");
+                                                params.set_visible_item_info(visible_items);
+                                            } else {
+                                                debug!("received empty visible item info after metamorph");
+                                            }
                                         }
 
                                         // Save changes
@@ -524,7 +596,7 @@ impl ServerInstance for WorldServer {
             
                                         let mut avatar_update = CPktAvatarUpdate::default();
                                         avatar_update.full_update = false;
-                                        avatar_update.avatar_id = Some(state.avatar_id.unwrap());
+                                        avatar_update.avatar_id = Some(state.avatar_id.as_ref().unwrap().as_u64());
                                         avatar_update.update_source = 0;
                                         avatar_update.param_bytes = data.len() as u32;
                                         avatar_update.params = data;
@@ -537,7 +609,24 @@ impl ServerInstance for WorldServer {
                             _ => panic!(),
                         }
                     },
-                    _ => todo!(),
+                    _ => {
+                        info!("Unknown avatar behavior: {:#?}", pkt);
+                        todo!();
+                    }
+                }
+            },
+            AtlasPkt(CPkt::CPktRequestAvatarBehaviors(pkt)) => {
+                match pkt.field_3.as_str() {
+                    "Travel" => {
+                        // todo: validate avatar id and travel location
+                        let mut response = oaPktConfirmTravel::default();
+                        response.field_2 = 1;
+                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
+                    },
+                    _ => {
+                        warn!("Unimplemented behavior request: {:#?}", pkt);
+                        todo!();
+                    }
                 }
             },
             _ => debug!("Unhandled request: {:#?}", request.message()),
@@ -598,7 +687,7 @@ impl ServerInstance for WorldServer {
 
                             let mut avatar_update = CPktAvatarUpdate::default();
                             avatar_update.full_update = true;
-                            avatar_update.avatar_id = Some(*id);
+                            avatar_update.avatar_id = Some(id.as_u64());
                             avatar_update.field_2 = Some(false);
                             avatar_update.name = Some(avatar.name().clone());
                             avatar_update.class_id = Some(avatar.params().class_id().as_u32());
@@ -658,7 +747,7 @@ impl ServerInstance for WorldServer {
                     // Tell the client the avatar is ready to spawn
                     {
                         let zone = self.world.get_zone(state.zone_guid.as_ref().unwrap()).unwrap();
-                        let avatar = zone.get_avatar(state.avatar_id.unwrap()).unwrap();
+                        let avatar = zone.get_avatar(state.avatar_id.as_ref().unwrap()).unwrap();
 
                         let mut action = oaPktServerAction::default();
                         action.action = "TRAVEL:DirectTravel|DirectTravelDefault".to_owned();
@@ -678,7 +767,7 @@ impl ServerInstance for WorldServer {
 
         for peer_id in disconnected_peers.iter() {
             if let Some(state) = self.client_state.get_mut(peer_id) {
-                if let Some(avatar_id) = state.avatar_id {
+                if let Some(avatar_id) = state.avatar_id.as_ref() {
                     if let Some(zone) = self.world.get_zone_mut(state.zone_guid.as_ref().unwrap()) {
                         zone.despawn_avatar(avatar_id);
                     }

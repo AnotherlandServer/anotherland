@@ -156,6 +156,22 @@ impl DatabaseRecord<'_> for ItemContent {
     }
 }
 
+impl ItemContent {
+    pub async fn list_by_categories(db: Database, categories: &[Uuid]) -> AnotherlandResult<Vec<Self>> {
+        let collection = Self::collection(db);
+        let mut items = Vec::new();
+
+        let string_categories: Vec<_> = categories.iter().map(|v| v.to_string()).collect();
+
+        let mut result = collection.find(doc!{"data.ednaModule.Category.v": {"$in":string_categories}}, None).await?;
+        while let Some(item) = result.try_next().await? {
+            items.push(item);
+        }
+
+        Ok(items)
+    }
+}
+
 // items
 #[derive(Serialize, Deserialize)]
 pub struct NpcContent(Content);
