@@ -1,4 +1,4 @@
-use std::{net::{SocketAddrV4, SocketAddr, Ipv4Addr}, collections::HashMap};
+use std::{net::{SocketAddrV4, SocketAddr, Ipv4Addr}, collections::HashMap, time::{Instant, Duration}};
 
 use async_trait::async_trait;
 use bitstream_io::{ByteWriter, LittleEndian};
@@ -7,8 +7,8 @@ use log::{info, debug, warn, error};
 use mongodb::{options::UpdateOptions, Database};
 use std::error::Error;
 
-use crate::{util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind::{ApplicationError, self}}, CONF, ARGS, cluster::{ServerInstance, ClusterMessage}, db::{WorldDef, WorldServerEntry}};
-use crate::db::{Account, Realm, cluster_database, Session, DatabaseRecord, realm_database, Character};
+use crate::{util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind::{ApplicationError, self}}, CONF, ARGS, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, db::{WorldDef}};
+use crate::db::{Account, cluster_database, Session, DatabaseRecord, realm_database, Character};
 use atlas::{CPkt, Uuid, PlayerParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess, ParamClass};
 use atlas::raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest};
 use atlas::oaPktCharacterFailure;
@@ -22,12 +22,19 @@ struct ClientState {
 }
 
 pub struct RealmServer {
+    realm_id: u32,
+    realm_name: String,
+    external_ip: Ipv4Addr,
+    external_port: u16,
+
     listener: RakNetListener,
-    realm: Realm,
     cluster_db: Database,
-    realm_db: Database,
+    realm_db: Database, 
+
+    frontend_servers: Vec<(Instant, SocketAddrV4)>,
 
     client_state: HashMap<Uuid, ClientState>,
+    cluster: MessageQueueProducer,
 }
 
 impl RealmServer {
@@ -71,35 +78,27 @@ impl RealmServer {
 
 #[async_trait]
 impl ServerInstance for RealmServer {
-    async fn init() -> AnotherlandResult<Box<Self>> {
+    type ServerProperties = ();
+
+    async fn init(properties: &Self::ServerProperties) -> AnotherlandResult<Box<Self>> {
         info!("Starting realm server [{}]...", CONF.realm.name);
 
         let mut listener = RakNetListener::new();
         listener.listen(&CONF.realm.listen_address).await?;
 
-        let realm = Realm {
-            id: CONF.realm.id.into(),
-            name: CONF.realm.name.clone(),
-            population: 1.0,
-            external_ip: ARGS.external_ip.to_string(),
-            external_port: listener.local_addr().await.unwrap().port(),
-        };
-
-        info!("Registering realm server [{}]...", realm.name);
-
-        let collection = cluster_database().await.collection::<Realm>("realms");
-        collection.update_one(
-            doc!{"id": {"$eq": realm.id} }, 
-            doc!{"$set": &bson::to_bson(&realm).unwrap().as_document()}, 
-            UpdateOptions::builder().upsert(true).build()
-        ).await?;
+        let (cluster, _) = connect_queue(MessageChannel::ClusterChannel).await?;
 
         Ok(Box::new(Self {
+            realm_id: CONF.realm.id.into(),
+            realm_name: CONF.realm.name.clone(),
+            external_ip: ARGS.external_ip.to_string().parse().unwrap(),
+            external_port: listener.local_addr().await.unwrap().port(),
             listener,
-            realm,
             cluster_db: cluster_database().await,
             realm_db: realm_database().await,
+            frontend_servers: Vec::new(),
             client_state: HashMap::new(),
+            cluster
         }))
     }
 
@@ -107,8 +106,8 @@ impl ServerInstance for RealmServer {
 
     }
 
-    async fn next_request(&mut self) -> AnotherlandResult<Option<RakNetRequest>> {
-        Ok(self.listener.next_request().await)
+    fn raknet_listener(&self) -> Option<&RakNetListener> {
+        Some(&self.listener)
     }
 
     async fn handle_request(&mut self, request: RakNetRequest) -> AnotherlandResult<()> {
@@ -224,8 +223,29 @@ impl ServerInstance for RealmServer {
                         Some(character) => {
                             // validate, that this account owns the character
                             if character.account == state.account.id {
+
+                                if self.frontend_servers.is_empty() {
+                                    warn!("No frontend server available. Closing conneciton");
+                                    request.peer().write().await.disconnect().await;
+                                } else {
+                                    let frontend_server = self.frontend_servers[0].1;
+
+                                    info!("Character {} selected! Routing frontend server {}...", character.id, frontend_server);
+
+                                    // select character
+                                    state.session.select_character(self.cluster_db.clone(), character.id).await?;
+
+                                    // send response
+                                    let mut character_select_success = oaPktCharacterSelectSuccess::default();
+                                    character_select_success.world_ip = u32::from_be(frontend_server.ip().clone().into());
+                                    character_select_success.world_port = frontend_server.port();
+                                    character_select_success.session_id = state.session.id.clone();
+                    
+                                    let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, character_select_success.as_message()).await?;
+                                }
+
                                 // determine world server
-                                match WorldServerEntry::get(self.realm_db.clone(), &state.world.as_ref().unwrap().id).await? {
+                                /*match WorldServerEntry::get(self.realm_db.clone(), &state.world.as_ref().unwrap().id).await? {
                                     Some(worldserver) => {
                                         info!("Character {} selected! Routing to world {}...", character.id, state.world.as_ref().unwrap().id);
 
@@ -244,7 +264,7 @@ impl ServerInstance for RealmServer {
                                         error!("Client tried to load into unavailable world {}", state.world.as_ref().unwrap().id);
                                         let _ = request.peer().write().await.disconnect().await;
                                     }
-                                }
+                                }*/
                             } else {
                                 error!("Account {} tried to select character {} that is owned by {}!", state.account.id, pkt.field_1, character.account);
                                 let _ = request.peer().write().await.disconnect().await;
@@ -267,9 +287,9 @@ impl ServerInstance for RealmServer {
 
     async fn handle_cluster_message(&mut self, message: ClusterMessage) -> AnotherlandResult<()> {
         match message {
-            ClusterMessage::InvalidateSession(id) => {
+            ClusterMessage::InvalidateSession{session_id} => {
                 // Is the session id registered with us?
-                match self.client_state.iter().find(|v| v.1.session.id == id).map(|v| v.0.clone()) {
+                match self.client_state.iter().find(|v| v.1.session.id == session_id).map(|v| v.0.clone()) {
                     Some(peer_id) => {
                         // Remove state and close connection
                         if let Some(peer) = self.listener.peer(&peer_id).await {
@@ -282,12 +302,49 @@ impl ServerInstance for RealmServer {
                     },
                     None => Ok(()),
                 }
-            }
+            },
+            ClusterMessage::FrontendServerHearthbeat { realm_id, address } => {
+                // Only look for frontend servers set to our realm
+                if realm_id == self.realm_id {
+                    match self.frontend_servers.iter_mut().find(|i| i.1 == address) {
+                        Some(frontend_server) => {
+                            frontend_server.0 = Instant::now();
+                            Ok(())
+                        },
+                        None => {
+                            self.frontend_servers.push((Instant::now(), address));
+                            Ok(())
+                        }
+                    }
+                } else {
+                    Ok(())
+                }
+            },
             _ => Ok(())
         }
     }
 
-    async fn tick(&mut self) -> Result<(), AnotherlandError> {
+    fn get_subscribed_channels(&self) -> Vec<MessageChannel> {
+        vec![
+            MessageChannel::ClusterChannel, 
+            MessageChannel::RealmChannel { 
+                realm_id: self.realm_id, 
+                channel: RealmChannel::GlobalChannel,
+            }
+        ]
+    }
+
+    async fn tick(&mut self) -> AnotherlandResult<()> {
+        // announce our presence
+        self.cluster.send(ClusterMessage::RealmServerHearthbeat { 
+            realm_id: self.realm_id, 
+            name: self.realm_name.clone(), 
+            population: self.client_state.len(),
+            address: SocketAddrV4::new(self.external_ip, self.external_port), 
+        }).await?;
+
+        self.frontend_servers.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
         Ok(())
     }
 }

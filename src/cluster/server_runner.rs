@@ -1,9 +1,12 @@
-use std::{time::Duration, any::type_name};
+use std::{time::Duration, any::type_name, pin::Pin, task::{Context, Poll}};
 
-use log::error;
-use tokio::{task::JoinHandle, sync::mpsc, sync::mpsc::Sender, spawn, select, time};
+use log::{error, debug};
+use tokio::{task::{JoinHandle, JoinSet}, sync::mpsc, sync::mpsc::{Sender, Receiver}, spawn, select, time};
+use futures::{future::join_all, Future, stream::FuturesUnordered, Stream, StreamExt};
 
-use super::{server_instance::ServerInstance, MessageQueue};
+use crate::util::{AnotherlandResult, AnotherlandErrorKind, AnotherlandError};
+
+use super::{server_instance::ServerInstance, connect_queue, MessageQueueConsumer, ClusterMessage};
 
 #[allow(unused)]
 enum ServerCommand {
@@ -17,10 +20,45 @@ pub struct ServerRunner
     cmd_channel: Sender<ServerCommand>,
 }
 
+struct CombinedMessageQueues {
+    queues: Vec<MessageQueueConsumer>
+}
+
+impl CombinedMessageQueues {
+    pub fn new(queues: Vec<MessageQueueConsumer>) -> Self {
+        /*let (producer, consumer) = mpsc::channel::<ClusterMessage>(16);
+
+        for mut q in queues {
+            let producer = producer.clone();
+
+            tokio::task::spawn_local(async move {
+                loop {
+                    debug!("CombinedMessageQueue iteration");
+                    producer.send(q.recv().await.unwrap()).await.unwrap();
+                }
+            });
+        }*/
+
+        Self { queues }
+    }
+
+    pub async fn recv(&mut self) -> AnotherlandResult<ClusterMessage> {
+        let mut futures = FuturesUnordered::new();
+        for q in self.queues.iter_mut() {
+            futures.push(q.recv());
+        }
+
+        futures.next().await.unwrap()
+
+
+        //Ok(self.consumer.recv().await.ok_or(AnotherlandError::from_kind(AnotherlandErrorKind::MessageQueueError))?)
+    }
+}
+
 impl ServerRunner
     
 {
-    pub fn new<T>() -> Self
+    pub fn new<T>(properties: T::ServerProperties) -> Self
         where T: 'static + ServerInstance + Send
     {
         let (cmd_sender, mut cmd_receiver) = mpsc::channel(10usize);
@@ -33,68 +71,106 @@ impl ServerRunner
                     let cluster;
 
                     loop {
-                        // Connect cluster message queue
-                        let cluster_inst = match MessageQueue::connect().await {
+
+                        /*let cluster_inst = match MessageQueue::connect().await {
                             Ok(queue) => queue,
                             Err(e) => {
                                 error!("[{}] Cluster connection failed: {:#?}", type_name::<T>(), e);
                                 startup_retry.tick().await;
                                 continue;
                             }
-                        };
+                        };*/
 
-                        match T::init().await {
+                        match T::init(&properties).await {
                             Err(e) => {
                                 error!("[{}] Failed to start: {:#?}", type_name::<T>(), e);
                                 startup_retry.tick().await;
                             },
                             Ok(instance) => {
+                                // Connect cluster message queues
+                                let futures: Vec<_> = instance.get_subscribed_channels().into_iter().map(|v| connect_queue(v)).collect();
+                                let channels: Result<Vec<_>, _> = join_all(futures).await.into_iter().collect();
+
+                                let channels: Vec<_> = match channels {
+                                    Ok(queue) => queue.into_iter().map(|q| q.1).collect(),
+                                    Err(e) => {
+                                        error!("[{}] Cluster connection failed: {:#?}", type_name::<T>(), e);
+                                        startup_retry.tick().await;
+                                        continue;
+                                    }
+                                };
+
                                 server = instance;
-                                cluster = cluster_inst;
+                                cluster = channels;
                                 break;
                             },
                         }
                     }
 
-                    (server, cluster)
+                    (server, CombinedMessageQueues::new(cluster))
                 };
 
-                let mut tick = time::interval(Duration::from_millis((1000.0 / 30.0) as u64));
-                loop {
-                    select! {
-                        request = server.next_request() => {
-                            match request {
-                                Ok(request) => {
-                                    if let Some(request) = request {
+                let mut tick = time::interval(T::tickrate()); // Duration::from_millis((1000.0 / 30.0) as u64)
+                let has_listener = server.raknet_listener().is_some();
+
+                if has_listener {
+                    loop {
+                        select! {
+                            request = server.raknet_listener().unwrap().next_request() => {
+                                match request {
+                                    Some(request) => {
                                         if let Err(e) = server.handle_request(request).await {
                                             error!("[{}] Request handler failed: {:#?}", type_name::<T>(), e);
                                         }
-                                    }
-                                },
-                                Err(e) => {
-                                    error!("[{}] Request recv failed: {:#?}", type_name::<T>(), e);
+                                    },
+                                    None => (),/*{
+                                        error!("[{}] Request recv failed: {:#?}", type_name::<T>(), e);
+                                    }*/
+                                }
+                            },
+                            _ = tick.tick() => {
+                                if let Err(e) = server.tick().await {
+                                    error!("[{}] Sever tick failed: {:#?}", type_name::<T>(), e);
+                                }
+                            },
+                            Ok(message) = cluster.recv() => {
+                                if let Err(e) = server.handle_cluster_message(message).await {
+                                    error!("[{}] Cluster message handler failed: {:#?}", type_name::<T>(), e);
                                 }
                             }
-                        },
-                        _ = tick.tick() => {
-                            if let Err(e) = server.tick().await {
-                                error!("[{}] Sever tick failed: {:#?}", type_name::<T>(), e);
-                            }
-                        },
-                        Ok(message) = cluster.recv() => {
-                            if let Err(e) = server.handle_cluster_message(message).await {
-                                error!("[{}] Cluster message handler failed: {:#?}", type_name::<T>(), e);
+                            cmd = cmd_receiver.recv() => {
+                                match cmd {
+                                    None |Some(ServerCommand::Stop) => {
+                                        break;
+                                    }
+                                }
                             }
                         }
-                        cmd = cmd_receiver.recv() => {
-                            match cmd {
-                                None |Some(ServerCommand::Stop) => {
-                                    break;
+                    }
+                } else {
+                    loop {
+                        select! {
+                            _ = tick.tick() => {
+                                if let Err(e) = server.tick().await {
+                                    error!("[{}] Sever tick failed: {:#?}", type_name::<T>(), e);
+                                }
+                            },
+                            Ok(message) = cluster.recv() => {
+                                if let Err(e) = server.handle_cluster_message(message).await {
+                                    error!("[{}] Cluster message handler failed: {:#?}", type_name::<T>(), e);
+                                }
+                            }
+                            cmd = cmd_receiver.recv() => {
+                                match cmd {
+                                    None |Some(ServerCommand::Stop) => {
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
 
                 server.close().await;
             }),

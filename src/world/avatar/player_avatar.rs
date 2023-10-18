@@ -1,10 +1,14 @@
+use std::{collections::VecDeque, rc::Weak};
+
 use atlas::{PlayerParam, Uuid, ParamClassContainer};
 use glam::{Vec3, Vec4};
 use mongodb::Database;
 
-use crate::{db::Character, util::AnotherlandResult};
+use crate::{db::Character, util::AnotherlandResult, world::Zone};
 
 use super::{AvatarBehaviour, Avatar};
+
+pub enum PlayerAvatarClientEvent {}
 
 pub struct PlayerAvatar {
     character: Character,
@@ -46,6 +50,10 @@ impl AvatarBehaviour for PlayerAvatar {
     fn set_position(&mut self, pos: Vec3) { self.character.data.set_pos(pos); }
     fn set_rotation(&mut self, rot: Vec3) { self.character.data.set_rot(rot); }
     fn set_velocity(&mut self, velocity: Vec3) { self.velocity = velocity; }
+
+    fn tick(&mut self, delta: f32) {
+
+    }
 }
 
 impl Into<Avatar> for PlayerAvatar {

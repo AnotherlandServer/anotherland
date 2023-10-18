@@ -1,13 +1,11 @@
 mod account;
 mod session;
-mod realm;
 mod content;
 mod db;
 mod instance;
 mod worlddef;
 mod zonedef;
 mod character;
-mod worldserverentry;
 mod content_placement;
 mod cash_shop_bundle;
 mod cash_shop_item;
@@ -15,14 +13,12 @@ mod cash_shop_vendor;
 
 pub use account::*;
 pub use session::*;
-pub use realm::*;
 pub use content::*;
 pub use db::*;
 pub use instance::*;
 pub use worlddef::*;
 pub use zonedef::*;
 pub use character::*;
-pub use worldserverentry::*;
 pub use cash_shop_bundle::*;
 pub use cash_shop_item::*;
 pub use cash_shop_vendor::*;

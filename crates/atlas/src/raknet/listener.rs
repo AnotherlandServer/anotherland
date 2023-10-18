@@ -84,19 +84,24 @@ impl RakNetListener {
         debug!("Listening on {}", internal.socket.as_ref().unwrap().local_addr().unwrap().to_string());
         
         {
-            let listener = self.internal.clone();
+            let weak_listener = Arc::downgrade(&self.internal);
             self.update_task = Some(Arc::new(task::spawn(async move {
                 let mut buf = vec![0u8; RECV_BUFFER_SIZE];
                 let mut interval = time::interval(time::Duration::from_millis(1));
-                
-                let socket = {
-                    let listener = listener.read().await;
-                    listener.socket.as_ref().expect("Running update task without open socket").to_owned()
-                };
 
                 loop {
                     interval.tick().await;
                     
+                    let listener = match weak_listener.upgrade() {
+                        Some(listener) => listener,
+                        None => break,
+                    };
+
+                    let socket = {
+                        let listener = listener.read().await;
+                        listener.socket.as_ref().expect("Running update task without open socket").to_owned()
+                    };
+
                     // Parse all received messages
                     while let Ok((size, addr)) = socket.try_recv_from(buf.as_mut()) {
                         match Self::parse_datagram(&buf[..size]) {
@@ -171,6 +176,8 @@ impl RakNetListener {
                         listener.peer_address_map.write().await.remove(disconnected_peer.remote_address());
                     }
                 }
+
+                debug!("Listen thread stopped...");
             })));
         }
 

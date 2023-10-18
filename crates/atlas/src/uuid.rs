@@ -5,6 +5,7 @@ use super::generated::Uuid;
 use serde::de::Visitor;
 use serde::{Serialize, Deserialize};
 use uuid::Uuid as external_uuid;
+use log::kv::{ToValue, Value};
 
 impl Uuid {
     pub fn from_str(val: &str) -> Result<Self, io::Error> {
@@ -119,5 +120,11 @@ impl <'de>Deserialize<'de> for Uuid {
 impl Default for Uuid {
     fn default() -> Self {
         Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap()
+    }
+}
+
+impl ToValue for Uuid {
+    fn to_value(&self) -> Value<'_> {
+        Value::from_serde(self)
     }
 }

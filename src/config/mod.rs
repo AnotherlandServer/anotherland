@@ -19,8 +19,8 @@ pub struct ConfRealmServer {
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
-pub struct ConfWorldServer {
-    pub base_listen_address: SocketAddrV4,
+pub struct ConfFrontendServer {
+    pub listen_address: SocketAddrV4,
 }
 
 #[derive(Debug, Deserialize)]
@@ -28,6 +28,6 @@ pub struct ConfWorldServer {
 pub struct ConfMain {
     pub login_server: ConfLoginServer,
     pub realm: ConfRealmServer,
-    pub world: ConfWorldServer,
+    pub frontend: ConfFrontendServer,
 }
 

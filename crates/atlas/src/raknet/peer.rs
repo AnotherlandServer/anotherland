@@ -4,6 +4,9 @@ use super::{RakNetErrorKind, PeerAddress, MessageFragment, MessageNumber, Reliab
 use std::{time::{Instant, SystemTime}, time::{Duration, UNIX_EPOCH}, net::SocketAddr, collections::{VecDeque, HashMap}, sync::Arc};
 use bitstream_io::{BitWriter, BigEndian, BitWrite};
 use log::{debug, trace, info};
+use log::kv::{ToValue, Value};
+use serde::Serialize;
+use serde::ser::SerializeStruct;
 use tokio::{net::UdpSocket, io, sync::RwLock};
 use async_recursion::async_recursion;
 
@@ -498,5 +501,24 @@ impl RakNetPeer {
     async fn send_raw(&self, data: &[u8]) -> RakNetResult<()> {
         self.socket.send_to(data, self.remote_address.as_socket_addr()).await?;
         Ok(())
+    }
+}
+
+impl Serialize for RakNetPeer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        
+        let mut state = serializer.serialize_struct("RakNetPeer", 3)?;
+        state.serialize_field("guid", &self.guid);
+        state.serialize_field("remote_address", &self.remote_address);
+        state.serialize_field("local_address", &self.local_address);
+        state.end()
+    }
+}
+
+impl ToValue for RakNetPeer {
+    fn to_value(&self) -> Value<'_> {
+        Value::from_serde(self)
     }
 }

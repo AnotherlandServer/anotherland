@@ -1,6 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
+use serde::Serialize;
 
 use super::RakNetErrorKind;
 
@@ -40,5 +41,14 @@ impl TryFrom<SocketAddr> for PeerAddress {
             },
             _ => Err(Self::Error::from_kind(RakNetErrorKind::InvalidAddressFormat)),
         }
+    }
+}
+
+impl Serialize for PeerAddress {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        
+        serializer.serialize_str(format!("{}:{}", self.ip.to_string(), self.port).as_str())
     }
 }

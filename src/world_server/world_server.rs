@@ -1,21 +1,12 @@
-use std::{time::{Duration, SystemTime, UNIX_EPOCH}, collections::HashMap, fs, sync::Arc, io};
+use std::{collections::{HashMap, HashSet, VecDeque}, cell::RefCell, sync::Arc, ops::{DerefMut, Deref}};
 
+use tokio::sync::{RwLock, Mutex};
 use async_trait::async_trait;
-use bitstream_io::{ByteWriter, LittleEndian, ByteWrite, ToByteStream};
-use bson::doc;
-use glam::{Vec3, Vec4, Quat};
-use log::{info, debug, trace, error, warn};
-use mongodb::Database;
-use nom::{multi::length_count, number::complete::le_u8};
-use once_cell::sync::Lazy;
-use tokio::{sync::RwLock, task::JoinHandle, time::{Interval, self, Instant}};
+use atlas::{raknet::{RakNetListener, RakNetRequest, Message}, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, Uuid, AvatarId};
+use log::{debug, info, kv::{ToValue, Value}, error, trace};
+use serde::{Serialize, Serializer, ser::SerializeStruct};
 
-use crate::{CONF, cluster::{ServerInstance, ClusterMessage}, WORLD_SERVER_IDS, db::{WorldDef, DatabaseRecord, realm_database, WorldServerEntry, Account, Session, cluster_database, Character, Content, CashShopVendor, CashShopBundle, CashShopItem, ItemContent}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}, world::{World, PlayerAvatar, Avatar, NpcAvatar, AvatarBehaviour}};
-use raknet::*;
-use atlas::*;
-use crate::util::AnotherlandResult;
-
-use super::community_messages::CommunityMessage;
+use crate::{db::{WorldDef, DatabaseRecord, realm_database, Account, Session, cluster_database, Character}, world::{World, AvatarEvent, PlayerAvatar}, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}};
 
 #[derive(Clone, PartialEq, Eq)]
 enum ClientLoadState {
@@ -42,168 +33,89 @@ impl Into<u32> for ClientLoadState {
 struct ClientState {
     account: Account,
     session: Session,
-    avatar_id: Option<AvatarId>,
-    load_state: ClientLoadState,
-    zone_guid: Option<Uuid>,
+    peer_id: Uuid,
+    avatar_id: AvatarId,
+    interest_list: HashSet<AvatarId>,
 }
 
-pub struct WorldServer {
-    listener: RakNetListener,
+impl Serialize for ClientState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer {
+        let mut state = serializer.serialize_struct("Client", 3)?;
+        state.serialize_field("account", &self.account.username)?;
+        state.serialize_field("session", &self.session.id)?;
+        state.serialize_field("peer_id", &self.peer_id)?;
+        state.serialize_field("avatar_id", &self.avatar_id)?;
+        state.end()
+    }
+}
+
+impl ToValue for ClientState {
+    fn to_value(&self) -> Value<'_> {
+        Value::from_serde(self)
+    }
+}
+
+impl ToValue for &mut ClientState {
+    fn to_value(&self) -> Value<'_> {
+        Value::from_serde(self)
+    }
+}
+
+pub struct WorldServerOptions {
+    pub world_id: u16,
+    pub realm_id: u32,
+}
+
+pub struct WorldServerData {
+    realm_id: u32,
     worlddef: WorldDef,
     world: World,
+    frontend: MessageQueueProducer,
+    client_state: HashMap<Uuid, Arc<RwLock<ClientState>>>,
+    player_avatar_events: VecDeque<AvatarEvent>,
+}
 
-    cluster_db: Database,
-    realm_db: Database,
+#[derive(Clone)]
+pub struct WorldServer(Arc<RwLock<WorldServerData>>, u32, u16);
 
-    client_state: HashMap<Uuid, ClientState>,
+impl Deref for WorldServer {
+    type Target = Arc<RwLock<WorldServerData>>;
 
-    /*client_loadstate: u32,
-    last_loadstate: u32,
-    last_update: Instant,
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 
-    hp_test: i32,
-    move_mgr: Option<Vec<u8>>,
-
-    clients: HashMap<Uuid, RakNetPeerHandle>,*/
 }
 
 impl WorldServer {
-    async fn authenticate_request(&mut self, request: &RakNetRequest) -> AnotherlandResult<(Uuid, ClientState)> {
-        let peer_id = request.peer().read().await.guid().to_owned();
-
-        // Do we have a client state?
-        if self.client_state.contains_key(&peer_id) {
-            return Ok((peer_id.clone(), self.client_state.get(&peer_id).unwrap().clone()));
-        }
-
-        // Does the message contain a session id?
-        use Message::*;
-        let session_id = match request.message() {
-            AtlasPkt(CPkt::oaPktRequestEnterGame(pkt)) => Ok(pkt.session_id.clone()),
-            _ => Err(AnotherlandError::new(ApplicationError, "message without session id"))
-        }?;
-
-        // Lookup session
-        match Session::get(self.cluster_db.clone(), &session_id).await? {
-            Some(session) => {
-                // validate world id
-                if session.world_id.is_none() {
-                    return Err(AnotherlandError::new(ApplicationError, "no world selected"));
-                }
-
-                if session.world_id.unwrap() != self.worlddef.id {
-                    return Err(AnotherlandError::new(ApplicationError, "client connected to wrong world server"));
-                }
-
-                // validate a character is selected
-                if session.character_id.is_none() {
-                    return Err(AnotherlandError::new(ApplicationError, "no character selected"));
-                }
-
-                self.client_state.insert(peer_id.clone(), ClientState { 
-                    account: Account::get_by_id(self.cluster_db.clone(), &session.account).await?.unwrap(), 
-                    session,
-                    avatar_id: None,
-                    load_state: ClientLoadState::EarlyLoadSequence,
-                    zone_guid: None,
-                });
-
-                Ok((peer_id.clone(), self.client_state.get(&peer_id).unwrap().clone()))
-            },
-            None => {
-                Err(AnotherlandError::new(ApplicationError, "unknown session"))
-            }
-        }
-    }
-}
-
-#[async_trait]
-impl ServerInstance for WorldServer {
-    async fn init() -> AnotherlandResult<Box<Self>> {
-        let id = WORLD_SERVER_IDS.write().await
-                .pop_front()
-                .expect("Tried to spawn more world servers than available worlds");
-
-        let db = realm_database().await;
-
-        let worlddef = WorldDef::get(db.clone(), &id).await?
-            .expect("Unable to find world definition");
-
-        info!("Starting world server [{}]...", worlddef.name);
-
-        // Load world
-        let mut world = World::load_from_id(worlddef.id).await?;
-
-        // Determine worldserver port
-        let mut base_addr = CONF.world.base_listen_address;
-        base_addr.set_port(base_addr.port() + id - 1);
-
-        // Register our worldserver
-        WorldServerEntry::create(db.clone(), WorldServerEntry {
-            world_id: id,
-            external_ip: ARGS.external_ip.to_string(),
-            external_port: base_addr.port(),
-        }).await?;
-
-        // Start server
-        let mut listener = RakNetListener::new();
-        listener.listen(base_addr).await?;
-
-        Ok(Box::new(Self {
-            listener,
-            worlddef,
-            world,
-            cluster_db: cluster_database().await,
-            realm_db: realm_database().await,
-            client_state: HashMap::new(),
-            /*task: None,
-            client_loadstate: 0,
-            last_loadstate: 0,
-            last_update: Instant::now(),
-            hp_test: 0,
-            clients: HashMap::new(),
-            move_mgr: None,*/
-        }))
+    async fn send(&self, peer_id: &Uuid, message: Message) -> AnotherlandResult<()> {
+        self.read().await.frontend.send(ClusterMessage::Response { 
+            peer_id: peer_id.to_owned(), 
+            data: message.to_bytes()
+        }).await
     }
 
-    async fn close(&mut self) {
-
-    }
-
-    async fn next_request(&mut self) -> AnotherlandResult<Option<RakNetRequest>> {
-        Ok(self.listener.next_request().await)
-    }
-
-    async fn handle_request(&mut self, request: RakNetRequest) -> AnotherlandResult<()> {
+    async fn handle_message(&self, state: &mut ClientState, request: Message) -> AnotherlandResult<()> {
         use Message::*;
 
-        let (peer_id, mut state) = match self.authenticate_request(&request).await {
-            Ok(state) => state,
-            Err(e) => {
-                warn!("Failed to authenticate client: {}", e);
-
-                // Close client connection when we can't authenticate them
-                request.peer().write().await.disconnect().await;
-
-                return Ok(())
-            }
-        };
-
-        //println!("Message: {:#?}", request.message());
-        match request.message() {
+        match request {
             AtlasPkt(CPkt::oaPktRequestEnterGame(_)) => {
-                debug!("Player joining world {}", self.worlddef.id);
+                info!(client = state; "Player joining world!");
 
                 // Send resource notification 
                 let mut worlddef = CPktResourceNotify::default();
                 worlddef.resource_type = CpktResourceNotifyResourceType::WorldDef;
-                worlddef.field_2 = self.worlddef.guid.clone();
+                worlddef.field_2 = self.read().await.worlddef.guid.clone();
                 worlddef.field_3 = "".to_owned();
 
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, worlddef.as_message()).await?;
+                self.send(&state.peer_id, worlddef.as_message()).await?;
+
+                Ok(())
 
                 // Lookup character
-                let mut character = match Character::get(self.realm_db.clone(), &state.session.character_id.unwrap()).await? {
+                /*let mut character = match Character::get(self.realm_db.clone(), &state.session.character_id.unwrap()).await? {
                     Some(character) => Ok(character),
                     None => Err(AnotherlandError::new(ApplicationError, "selected character not found"))
                 }?;
@@ -246,558 +158,152 @@ impl ServerInstance for WorldServer {
                 avatar_blob.has_guid = true;
                 avatar_blob.field_9 = Some(state.session.id.clone());
 
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_blob.as_message()).await?;
+                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_blob.as_message()).await?;*/
             },
-            AtlasPkt(CPkt::oaPktFriendRequest(pkt)) => {
-                let mut friend_list = CPktStream_167_0::default();
-                friend_list.friend_list.count = 0;
 
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, friend_list.as_message()).await?;
-            },
-            AtlasPkt(CPkt::oaPktClientServerPing(pkt)) => {
-                let response = pkt.clone();
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
-            },
-            AtlasPkt(CPkt::oaPktServerAction(pkt)) => {
-                let mut action = pkt.clone();
-                action.version = 2;
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await?;
-            },
-            AtlasPkt(CPkt::oaPktC2SConnectionState(pkt)) => {
-                //self.client_loadstate = pkt.field_1;
-                state.load_state = match pkt.field_1 {
-                    5 => ClientLoadState::RequestAvatarStream,
-                    6 => ClientLoadState::StreamedAvatars,
-                    7 => ClientLoadState::RequestSpawn,
-                    8 => ClientLoadState::Spawned,
-                    _ => {
-                        warn!("Invalid client loadstate: {}", pkt.field_1);
-                        ClientLoadState::EarlyLoadSequence
-                    }
-                };
-
-                // Confirm loading state
-                let mut response = pkt.clone();
-                response.field_1 = state.load_state.clone().into();
-                response.field_2 = pkt.field_2 + 1;
-
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
-                
-            },
-            AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
-                /*if pkt.avatar_id.is_none() {
-                    if self.hp_test < 1000 {
-                        self.hp_test += 1;
-                    }
-
-                    let mut response = CPktAvatarUpdate::default();
-                    response.avatar_id = Some(1);
-                    response.full_update = false;
-                    response.data_len2 = pkt.data_len2;
-                    response.field_16 = pkt.field_16.clone();
-                    response.field_14 = 1;
-
-                    let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
-                }*/
-            },
-            AtlasPkt(CPkt::oaPktClusterClientToCommunity(pkt)) => {
-                debug!("{:#?}", pkt);
-
-                match CommunityMessage::from_native(pkt.field_3.clone())? {
-                    CommunityMessage::SocialTravel { avatar, map, travel } => {
-                        if &avatar != state.avatar_id.as_ref().unwrap() {
-                            // what are you doing??
-                            warn!("Client tried to 'send' an avatar it doesn't has onership of: {:#?}", avatar);
-                        } else {
-                            if travel {
-                                match self.world
-                                .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
-                                .get_avatar_mut(&avatar).unwrap() {
-
-                                    Avatar::Player(player) => {
-                                        // get world
-                                        let world = WorldDef::get_by_name(self.realm_db.clone(), &map).await?.unwrap();
-
-                                        // Send resource notification 
-                                        /*let mut worlddef = CPktResourceNotify::default();
-                                        worlddef.resource_type = CpktResourceNotifyResourceType::WorldDef;
-                                        worlddef.field_2 = world.unwrap().guid.clone();
-                                        worlddef.field_3 = "".to_owned();
-                        
-                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, worlddef.as_message()).await?;*/
-
-                                        let params = player.player_param_mut();
-                                        params.set_world_map_guid(world.guid.clone());
-                                        params.set_zone_guid(Uuid::from_str("b1bbd5c5-0990-454b-bcfa-5dfe176c6756").unwrap());
-
-                                        // Update avatar
-                                        let mut data = Vec::new();
-                                        let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-                                        player.params().write(&mut writer)?;
-            
-                                        let mut avatar_update = CPktAvatarUpdate::default();
-                                        avatar_update.full_update = false;
-                                        avatar_update.avatar_id = Some(state.avatar_id.as_ref().unwrap().as_u64());
-                                        avatar_update.update_source = 0;
-                                        avatar_update.param_bytes = data.len() as u32;
-                                        avatar_update.params = data;
-                                        
-                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
-                                        /*let mut action = oaPktServerAction::default();
-                                        action.action = format!{"TELEPORT:TeleportTravel:TeleportTravelDefault",};
-                                        action.version = 4;
-                                        action.override_teleport = true;
-                                        action.pos = NetworkVec3 { x: 0.0, y: 0.0, z: 0.0};
-                                        action.rot = NetworkVec4 { x: 0.0, y: 0.0, z: 0.0, w: 0.0};
-                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await;*/
-                                    },
-                                    _ => {}
-                                }
-                            }
-                        }
-                    },
-                    CommunityMessage::Unknown_A1 { avatar, boolean } => {
-                        warn!("Unabled community message: 0xa1: {}", boolean);
-                    }
-                }
-            },
-            AtlasPkt(CPkt::oaPktClusterClientToCommunication(pkt)) => {
-                match pkt.field_2 {
-                    _ => {
-                        info!("Unknown communication packet: {:#?}", pkt);
-                        //todo!();
-                    }
-                }
-                /*let mut response = oaPktCommunicationToClusterClient::default();
-                response.field_1 = pkt.field_1.clone();
-                response.field_2 = "Hi!".to_owned();
-                response.field_3 = NativeParam::Struct(vec![
-                    NativeParam::Int(0),
-                    NativeParam::String("Hi!".to_owned()),
-                ]);
-                response.field_4 = pkt.field_4;
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;*/
-            },
-            AtlasPkt(CPkt::oaPktClienToClusterNode(pkt)) => {
-                match pkt.field_2 {
-                    // Some kind of ping
-                    0x5 => {
-                        let mut response = oaPktClusterNodeToClient::default();
-                        response.field_1 = Uuid::new_v4();
-                        response.field_3 = NativeParam::Struct(vec![
-                            NativeParam::Int(0xa8)
-                        ]);
-                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
-                    },
-                    _ => {
-                        info!("Unknown cluster node packet: {:#?}", pkt);
-                        //todo!();
-                    }
-                }
-
-            },
-            AtlasPkt(CPkt::oaPktFactionRequest(pkt)) => {
-                let factions = vec![FactionRelation {
-                    field_0: Uuid::from_str("be55863a-03a0-4f2a-807c-b794e84f537c").unwrap(),
-                    field_1: "Player".to_owned(),
-                    field_2: 6000.0,
-                }];
-
-                let faction_list = FactionRelationList {
-                    count: factions.len() as u32,
-                    factions,
-                };
-
-                let mut faction_response = oaPktFactionResponse::default();
-                faction_response.field_1 = pkt.field_1;
-                faction_response.field_2 = pkt.field_2;
-                faction_response.field_3 = NativeParam::Struct(vec![
-                    NativeParam::Buffer(faction_list.to_bytes())
-                ]);
-
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, faction_response.as_message()).await?;
-            },
-            AtlasPkt(CPkt::CPktRouted(pkt)) => {
-                //println!("Routed pkt {:#?}", Message::from_bytes(&pkt.field_4).unwrap());
-                match Message::from_bytes(&pkt.field_4).unwrap().1 {
-                    AtlasPkt(CPkt::oaPktMoveManagerPosUpdate(pkt)) => {
-                        // Update world state
-                    
-                        let avatar = self.world
-                            .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
-                            .get_avatar_mut(state.avatar_id.as_ref().unwrap()).unwrap();
-                        avatar.set_position(pkt.pos.pos.into());
-                        avatar.set_rotation(pkt.pos.rot.into());
-                        avatar.set_velocity(pkt.pos.vel.into());
-                    },
-                    _ => {
-                        warn!("Unhandled routed packet: {:#?}", Message::from_bytes(&pkt.field_4).unwrap());
-                    },
-                }
-            },
-            AtlasPkt(CPkt::oaPktCashItemVendorSyncRequest(pkt)) => {
-                debug!("{:#?}", pkt);
-
-                let vendors = CashShopVendor::list(self.cluster_db.clone()).await?;
-
-                let mut response = oaPktCashItemVendorSyncAcknowledge::default();
-                response.field_1 = 8;
-                response.item_count = vendors.len() as u32;
-                response.items = vendors.into_iter().map(|v| 
-                    CashItemVendorEntry {
-                        vendor_id: v.id.to_string(),
-                        vendor_name: v.name,
-                        bundle_list: v.bundle_list.into_iter().map(|u| u.to_string()).collect::<Vec<String>>().join(","),
-                        sku_list: v.sku_list.into_iter().map(|u| u.to_string()).collect::<Vec<String>>().join(","),
-                        version: v.version,
-                    }).collect();
-                response.deleted_ids = Vec::new();
-
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
-            },
-            AtlasPkt(CPkt::oaPktSKUBundleSyncRequest(pkt)) => {
-                //debug!("{:#?}", pkt);
-
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, oaPktSKUBundleSyncAcknowledge {
-                    sku_items: Vec::new(),
-                    bundle_items: Vec::new(),
-                    deleted_item_ids: Vec::new(),
-                    deleted_bundle_ids: Vec::new(),
-                    ..Default::default()
-                }.as_message()).await?;
-
-                /*let bundle_items = CashShopBundle::list(self.cluster_db.clone()).await?;
-                let sku_items = CashShopItem::list(self.cluster_db.clone()).await?;
-
-                let mut response = oaPktSKUBundleSyncAcknowledge::default();
-
-                response.field_1 = 123;
-                response.sku_item_count = sku_items.len() as u32;
-                response.sku_items = sku_items.into_iter().map(|v|
-                    CashItemSKUItemEntry { 
-                        cash_price: v.cash_price, 
-                        rental_duration: v.rental_duration, 
-                        is_in_stock: v.is_in_stock, 
-                        is_hot: v.is_hot, 
-                        is_new: v.is_new, 
-                        version: v.version, 
-                        is_visible: v.is_visible, 
-                        is_tradable: v.is_tradable, 
-                        is_featured: v.is_featured, 
-                        quantity: v.quantity, 
-                        discount: v.discount, 
-                        sku_id: v.id.to_string(), 
-                        display_name: v.display_name, 
-                        description: v.description, 
-                        reference_item_name: v.reference_item_name, 
-                        reference_item_guid: v.reference_item_guid.to_string(), 
-                        sku_code: v.sku_code, 
-                        date_start: v.date_start.map(|d| d.to_rfc3339()).unwrap_or("invalid".to_owned()), 
-                        date_end: v.date_end.map(|d| d.to_rfc3339()).unwrap_or("invalid".to_owned()), 
-                    }).collect();
-
-                response.bundle_item_count = bundle_items.len() as u32;
-                response.bundle_items = bundle_items.into_iter().map(|v|
-                    CashItemSKUBundleEntry { 
-                        cash_price: v.cash_price, 
-                        is_in_stock: v.is_in_stock, 
-                        is_hot: v.is_hot, 
-                        is_new: v.is_new, 
-                        version: v.version, 
-                        is_visible: v.is_visible, 
-                        is_tradable: v.is_tradable, 
-                        is_featured: v.is_featured, 
-                        quantity: v.quantity, 
-                        discount: v.discount, 
-                        bundle_id: v.id.to_string(), 
-                        display_name: v.display_name, 
-                        description: v.description, 
-                        icon: v.icon, 
-                        item_list_and_count: v.item_list_andcount.into_iter().map(|v| format!("{}={}", v.0, v.1)).collect::<Vec<String>>().join(","), 
-                        date_start: v.date_start.map(|d| d.to_rfc3339()).unwrap_or("invalid".to_owned()),
-                        date_end: v.date_end.map(|d| d.to_rfc3339()).unwrap_or("invalid".to_owned()),
-                    }).collect();
-
-                response.deleted_item_ids = Vec::new();
-                response.deleted_bundle_ids = Vec::new();
-
-                let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;*/
-            },
-            AtlasPkt(CPkt::oaPktAvatarTellBehaviorBinary(pkt)) => {
-                match pkt.field_3.as_str() {
-                    "doVendorExecute" => {
-                        match &pkt.field_4 {
-                            NativeParam::Struct(attrib) => {
-                                match self.world
-                                    .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
-                                    .get_avatar_mut(&state.avatar_id.as_ref().unwrap()).unwrap() {
-
-                                    Avatar::Player(player) => {
-                                        // Update params
-                                        {
-                                            let params = player.player_param_mut();
-
-                                            params.set_customization_gender(attrib[0].to_f32()?);
-                                            params.set_customization_height(attrib[1].to_f32()?);
-                                            params.set_customization_fat(attrib[2].to_f32()?);
-                                            params.set_customization_skinny(attrib[3].to_f32()?);
-                                            params.set_customization_muscular(attrib[4].to_f32()?);
-                                            params.set_customization_bust_size(attrib[5].to_f32()?);
-                                            params.set_race(attrib[6].to_i32()?);
-                                            params.set_customization_brow_angle(attrib[7].to_f32()?);
-                                            params.set_customization_eye_brow_pos(attrib[8].to_f32()?);
-                                            params.set_customization_eye_pos_spacing(attrib[9].to_f32()?);
-                                            params.set_customization_eye_pos(attrib[10].to_f32()?);
-                                            params.set_customization_eye_size_length(attrib[11].to_f32()?);
-                                            params.set_customization_eye_size_width(attrib[12].to_f32()?);
-                                            params.set_customization_eyes_pretty(attrib[13].to_f32()?);
-                                            params.set_customization_mouth_pos(attrib[14].to_f32()?);
-                                            params.set_customization_mouth_width(attrib[15].to_f32()?);
-                                            params.set_customization_mouth_lower_lip_thic(attrib[16].to_f32()?);
-                                            params.set_customization_mouth_upper_lip_thic(attrib[17].to_f32()?);
-                                            params.set_customization_mouth_expression(attrib[18].to_f32()?);
-                                            params.set_customization_nose_pos_length(attrib[19].to_f32()?);
-                                            params.set_customization_nose_pos_width(attrib[20].to_f32()?);
-                                            params.set_customization_nose_portude(attrib[21].to_f32()?);
-                                            params.set_customization_ear_size(attrib[22].to_f32()?);
-                                            params.set_customization_ear_elf(attrib[23].to_f32()?);
-                                            params.set_customization_cheek_bone(attrib[24].to_f32()?);
-                                            params.set_customization_cheek(attrib[25].to_f32()?);
-                                            params.set_customization_chin_portude(attrib[26].to_f32()?);
-                                            params.set_customization_jaw_chubby(attrib[27].to_f32()?);
-                                            debug!("Attrib 28: {}", attrib[28].to_string()?);
-                                            debug!("Attrib 29: {:#?}", attrib[29]);
-                                            // voucher 28
-                                            // int items 29
-                                            let mut visible_items = Vec::new();
-                                            for a in attrib[30..].iter() {
-                                                let item_uuid = a.to_uuid()?;
-                                                debug!("Load item {}", item_uuid.to_string());
-                                                let item = ItemContent::get(self.realm_db.clone(), &item_uuid).await?;
-                                                visible_items.push(item.unwrap().id as i32);
-                                            }
-
-                                            if !visible_items.is_empty() {
-                                                debug!("set visible item info");
-                                                params.set_visible_item_info(visible_items);
-                                            } else {
-                                                debug!("received empty visible item info after metamorph");
-                                            }
-                                        }
-
-                                        // Save changes
-                                        debug!("Save avatar change");
-                                        player.save(self.realm_db.clone()).await?;
-
-                                        // Update avatar
-                                        let mut data = Vec::new();
-                                        let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-                                        player.params().write(&mut writer)?;
-            
-                                        let mut avatar_update = CPktAvatarUpdate::default();
-                                        avatar_update.full_update = false;
-                                        avatar_update.avatar_id = Some(state.avatar_id.as_ref().unwrap().as_u64());
-                                        avatar_update.update_source = 0;
-                                        avatar_update.param_bytes = data.len() as u32;
-                                        avatar_update.params = data;
-                                        
-                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
-                                    },
-                                    _ => panic!(),
-                                }
-                            },
-                            _ => panic!(),
-                        }
-                    },
-                    _ => {
-                        info!("Unknown avatar behavior: {:#?}", pkt);
-                        todo!();
-                    }
-                }
-            },
-            AtlasPkt(CPkt::CPktRequestAvatarBehaviors(pkt)) => {
-                match pkt.field_3.as_str() {
-                    "Travel" => {
-                        // todo: validate avatar id and travel location
-                        let mut response = oaPktConfirmTravel::default();
-                        response.field_2 = 1;
-                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
-                    },
-                    _ => {
-                        warn!("Unimplemented behavior request: {:#?}", pkt);
-                        todo!();
-                    }
-                }
-            },
-            _ => debug!("Unhandled request: {:#?}", request.message()),
+            _ => {
+                debug!("Unhandled message: {:#?}", request);
+                Ok(())
+            }
         }
+    }
+}
 
-        self.client_state.insert(peer_id, state);
+#[async_trait]
+impl ServerInstance for WorldServer {
+    type ServerProperties = WorldServerOptions;
 
-        Ok(())
+    async fn init(properties: &Self::ServerProperties) -> AnotherlandResult<Box<Self>> {
+        let db = realm_database().await;
+
+        let worlddef = WorldDef::get(db, &properties.world_id).await?.unwrap();
+        let world = World::load_from_id(properties.world_id).await?;
+
+        let (frontend, _) = connect_queue(MessageChannel::RealmChannel { 
+            realm_id: properties.realm_id, 
+            channel: RealmChannel::FrontendChannel 
+        }).await?;
+
+        Ok(Box::new(Self(Arc::new(RwLock::new(WorldServerData {
+            realm_id: properties.realm_id,
+            worlddef,
+            world,
+            frontend,
+            client_state: HashMap::new(),
+            player_avatar_events: VecDeque::new(),
+        })), properties.realm_id, properties.world_id)))
     }
 
-    async fn tick(&mut self) -> AnotherlandResult<()> {
-        let mut disconnected_peers = Vec::new();
+    async fn close(&mut self) {
 
-        for (peer_id, state) in self.client_state.iter_mut() {
-            let peer = match self.listener.peer(peer_id).await {
-                Some(peer) => peer,
-                None => {
-                    disconnected_peers.push(peer_id.clone());
-                    continue
-                },
-            };
-
-            match state.load_state {
-                ClientLoadState::RequestAvatarStream => {
-                    if let Some(zone) = self.world.get_zone(state.zone_guid.as_ref().unwrap()) {
-                        for (id, avatar) in zone.iter() {
-                            debug!("Send avatar: {}/{}", avatar.params().class_id().as_u16(), avatar.name());
-
-                            let rot = avatar.rotation();
-                            
-                            let pos = PositionUpdate {
-                                pos: avatar.position().into(),
-                                rot: Quat::from_euler(glam::EulerRot::XYZ, rot.x, rot.y, rot.z).into(),
-                                vel: avatar.velocity().into(),
-                            };
-
-                            let mut buf = Vec::new();
-                            let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
-                    
-                            let _ = writer.write_bytes(&pos.to_bytes());
-
-                            let _ = writer.write(0u8);
-                            let _ = writer.write(0u16);
-                            let _ = writer.write(0u64);
-                            let _ = writer.write(0u64);
-
-                            /*let _ = writer.write(0u64);
-                            let _ = writer.write(0u8);
-                            let _ = writer.write(0u8);
-                            let _ = writer.write(0u8);
-                            let _ = writer.write(0u16);
-                            let _ = writer.write(1u16);
-                            let _ = writer.write(0u64);*/
-
-                            let mut data = Vec::new();
-                            let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-                            avatar.params().write(&mut writer)?;
-
-                            let mut avatar_update = CPktAvatarUpdate::default();
-                            avatar_update.full_update = true;
-                            avatar_update.avatar_id = Some(id.as_u64());
-                            avatar_update.field_2 = Some(false);
-                            avatar_update.name = Some(avatar.name().clone());
-                            avatar_update.class_id = Some(avatar.params().class_id().as_u32());
-                            avatar_update.field_6 = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
-                            //avatar_update.flags = Some(2);
-                            //avatar_update.flag_2_uuid = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
-                            avatar_update.param_bytes = data.len() as u32;
-                            avatar_update.params = data;
-                            
-                            avatar_update.update_source = 0;
-                            avatar_update.move_mgr_bytes = Some(buf.len() as u32);
-                            avatar_update.move_mgr_data = Some(buf);
-
-                            let _ = peer.write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
-                        }
-                    }
-
-                    {
-                        state.load_state = ClientLoadState::StreamedAvatars;
-                        
-                        let mut connectionstate = oaPktS2XConnectionState::default();
-                        connectionstate.field_1 = ClientLoadState::StreamedAvatars.into();
-                        connectionstate.field_2 = 0;
-
-                        let _ = peer.write().await.send(Priority::High, Reliability::Reliable, connectionstate.as_message()).await;
-                    }
-                },
-                ClientLoadState::RequestSpawn => {
-                    // Synchronize time
-                    {
-                        let mut game_time_sync = CPktServerNotify::default();
-                        game_time_sync.notify_type = 0;
-                        game_time_sync.field_2 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
-        
-        
-                        let _ = peer.write().await.send(Priority::High, Reliability::Reliable, game_time_sync.as_message()).await;
-                    }
-    
-                    {
-                        let mut realm_time_sync = CPktServerNotify::default();
-                        realm_time_sync.notify_type = 19;
-                        realm_time_sync.field_4 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
-                        let _ = peer.write().await.send(Priority::High, Reliability::Reliable, realm_time_sync.as_message()).await;
-                    }
-
-                    // Update loadstate
-                    {
-                        state.load_state = ClientLoadState::Spawned;
-                        
-                        let mut connectionstate = oaPktS2XConnectionState::default();
-                        connectionstate.field_1 = ClientLoadState::Spawned.into();
-                        connectionstate.field_2 = 0;
-
-                        let _ = peer.write().await.send(Priority::High, Reliability::Reliable, connectionstate.as_message()).await;
-                    }             
-
-                    // Tell the client the avatar is ready to spawn
-                    {
-                        let zone = self.world.get_zone(state.zone_guid.as_ref().unwrap()).unwrap();
-                        let avatar = zone.get_avatar(state.avatar_id.as_ref().unwrap()).unwrap();
-
-                        let mut action = oaPktServerAction::default();
-                        action.action = "TRAVEL:DirectTravel|DirectTravelDefault".to_owned();
-                        action.version = 4;
-                        action.override_teleport = false;
-                        action.pos = avatar.position().into();
-                        action.rot = avatar.rotation().into();
-                        let _ = peer.write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await;
-                    }
-                },
-                ClientLoadState::Spawned => {
-
-                },
-                _ => (),
-            }
-        }
-
-        for peer_id in disconnected_peers.iter() {
-            if let Some(state) = self.client_state.get_mut(peer_id) {
-                if let Some(avatar_id) = state.avatar_id.as_ref() {
-                    if let Some(zone) = self.world.get_zone_mut(state.zone_guid.as_ref().unwrap()) {
-                        zone.despawn_avatar(avatar_id);
-                    }
-                } 
-            }
-            self.client_state.remove(&peer_id);
-        }
-
-        Ok(())
     }
 
     async fn handle_cluster_message(&mut self, message: ClusterMessage) -> AnotherlandResult<()> {
         match message {
-            ClusterMessage::InvalidateSession(id) => {
-                // Is the session id registered with us?
-                match self.client_state.iter().find(|v| v.1.session.id == id).map(|v| v.0.clone()) {
-                    Some(peer_id) => {
-                        // Remove state and close connection
-                        if let Some(peer) = self.listener.peer(&peer_id).await {
-                            peer.write().await.disconnect().await;
+            ClusterMessage::InvalidateSession { session_id } => { Ok(()) },
+            ClusterMessage::Request { session_id, peer_id, data } => {
+                let world_state = self.clone();
+
+                // run requests in parallel
+                tokio::spawn(async move {
+                    // load or create client state
+                    let state: AnotherlandResult<Arc<RwLock<ClientState>>> = async {
+                        let state = world_state.read().await.client_state.get(&session_id)
+                            .map(|r| r.to_owned()); 
+                        
+                        match state {
+                            Some(state) => Ok(state),
+                            None => {
+                                trace!("Create new client-state");
+
+                                // Lookup session
+                                let session = Session::get(cluster_database().await, &session_id).await?
+                                    .ok_or(AnotherlandError::app_err( "unknown session"))?;
+
+                                // Lookup character
+                                let character = Character::get(realm_database().await,
+                                    &session.character_id.ok_or(AnotherlandError::app_err("no character selected"))?).await?
+                                    .ok_or(AnotherlandError::app_err("character not found"))?;
+                            
+                                trace!("Spawn character: {}", character.name);
+
+                                // Spawn character in world
+                                let avatar_id = {
+                                    let mut world_state = world_state.write().await;
+                                    let zone = world_state.world.get_zone_mut(
+                                        character.data.zone_guid().ok_or(AnotherlandError::app_err("character zone not found"))?
+                                        ).ok_or(AnotherlandError::app_err("zone not found"))?;
+
+                                    // Tho we spawn the avatar here, we'll only tell other clients once
+                                    // the player finished loading.
+                                    zone.spawn_avatar(PlayerAvatar::new(character).into())
+                                };
+
+                                // Create client state
+                                let state = Arc::new(RwLock::new(ClientState { 
+                                    account: Account::get_by_id(cluster_database().await, &session.account).await?
+                                        .ok_or(AnotherlandError::app_err("account gone"))?, 
+                                    session,
+                                    peer_id,
+                                    avatar_id,
+                                    interest_list: HashSet::new(),
+                                }));
+
+                                trace!("Store new client-state");
+
+                                world_state.write().await.client_state.insert(session_id.clone(), state.clone());
+
+                                Ok(state)
+                            }
                         }
+                    }.await;
 
-                        self.client_state.remove(&peer_id);
+                    trace!("Handling message");
 
-                        Ok(())
-                    },
-                    None => Ok(()),
-                }
-            }
-            _ => Ok(())
+                    match state {
+                        Ok(state) => {
+                            // Allow only one active message per client
+                            let mut state_lock = state.write().await;
+                            let message = Message::from_bytes(data.as_slice()).unwrap().1;
+                            match world_state.handle_message(state_lock.deref_mut(), message).await {
+                                Err(e) => {
+                                    let state = state.read().await;
+                                    error!(client = state.deref(); "Reqeuest failed: {}", e);
+                                },
+                                _ => (),
+                            }
+                        },
+                        Err(e) => {
+                            error!("Failed to intialize client-state for session: {}\n{:#?}", session_id, e);
+                        }
+                    }
+
+
+                });
+
+                Ok(())
+            },
+            _ => Ok(()),
         }
+    }
+
+    async fn tick(&mut self) -> AnotherlandResult<()> {
+        Ok(())
+    }
+
+    fn get_subscribed_channels(&self) -> Vec<MessageChannel> {
+        vec![
+            MessageChannel::ClusterChannel, 
+            MessageChannel::RealmChannel { 
+                realm_id: self.1, 
+                channel: RealmChannel::GlobalChannel 
+            },
+            MessageChannel::RealmChannel { 
+                realm_id: self.1, 
+                channel: RealmChannel::WorldChannel{
+                    world_id: self.2
+                },
+            }
+        ]
     }
 }

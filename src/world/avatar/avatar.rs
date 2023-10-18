@@ -1,7 +1,8 @@
-use std::ops::{Deref, DerefMut};
+use std::{ops::{Deref, DerefMut}, sync::Arc, cell::RefCell};
 
 use atlas::{ParamClassContainer, Uuid};
 use glam::{Vec3, Vec4};
+use tokio::sync::RwLock;
 
 use crate::db::Character;
 
@@ -21,6 +22,8 @@ pub trait AvatarBehaviour {
     fn set_position(&mut self, pos: Vec3);
     fn set_rotation(&mut self, rot: Vec3);
     fn set_velocity(&mut self, velocity: Vec3);
+
+    fn tick(&mut self, delta: f32) {}
 }
 
 pub enum Avatar {

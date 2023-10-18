@@ -1,4 +1,4 @@
-use std::{time::Duration, net::Ipv4Addr};
+use std::{time::Duration, net::SocketAddrV4};
 
 use async_trait::async_trait;
 use bson::doc;
@@ -7,10 +7,17 @@ use mongodb::Database;
 use tokio::{time::{Interval, self}, net::{TcpListener, TcpStream}};
 use tokio_stream::StreamExt;
 
-use crate::{util::{AnotherlandResult, AnotherlandError}, CONF, db::{Account, Session, Realm, cluster_database}, cluster::{ServerInstance, MessageQueue, ClusterMessage::{InvalidateSession, self}}};
+use crate::{util::AnotherlandResult, CONF, db::{Account, Session, cluster_database}, cluster::{ServerInstance, ClusterMessage::{InvalidateSession, self}, MessageChannel, MessageQueueProducer, connect_queue}};
 use atlas::raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest, RakNetPeerHandle};
 use atlas::{CPktLogin, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktRealmStatusList};
 use atlas::RealmStatus;
+
+struct RealmEntry {
+    id: u32,
+    name: String,
+    population: usize,
+    address: SocketAddrV4,
+}
 
 pub struct LoginServer {
     listener: RakNetListener,
@@ -20,7 +27,9 @@ pub struct LoginServer {
     queue_update: Interval,
     queued_clients: Vec<TcpStream>,
 
-    cluster: MessageQueue,
+    realms: Vec<RealmEntry>,
+
+    cluster: MessageQueueProducer,
 }
 
 enum LoginError {
@@ -32,7 +41,9 @@ enum LoginError {
 
 #[async_trait]
 impl ServerInstance for LoginServer {
-    async fn init() -> AnotherlandResult<Box<Self>> {
+    type ServerProperties = ();
+
+    async fn init(_: &Self::ServerProperties) -> AnotherlandResult<Box<Self>> {
         let db = cluster_database().await;
 
         // Create Admin account if it doesn't exist yet
@@ -53,13 +64,16 @@ impl ServerInstance for LoginServer {
 
         let queue_listener = TcpListener::bind(&CONF.login_server.queue_listen_address).await?;
 
+        let (producer, _) = connect_queue(MessageChannel::ClusterChannel).await?;
+
         Ok(Box::new(Self {
             listener,
             queue_listener,
             db,
             queue_update: time::interval(Duration::from_secs(1)),
             queued_clients: Vec::new(),
-            cluster: MessageQueue::connect().await?,
+            realms: Vec::new(),
+            cluster: producer,
         }))
     }
 
@@ -67,8 +81,8 @@ impl ServerInstance for LoginServer {
         
     }
 
-    async fn next_request(&mut self) -> AnotherlandResult<Option<RakNetRequest>> {
-        Ok(self.listener.next_request().await)
+    fn raknet_listener(&self) -> Option<&RakNetListener> {
+        Some(&self.listener)
     }
 
     async fn handle_request(&mut self, request: RakNetRequest) -> AnotherlandResult<()> {
@@ -88,11 +102,11 @@ impl ServerInstance for LoginServer {
                             Ok(Some(mut session)) => {
                                 info!("Session {} created for user {}", session.id, account.username);
 
-                                let realms = Realm::list(self.db.clone()).await?;
+                                //let realms = Realm::list(self.db.clone()).await?;
 
-                                if realms.len() == 1 {
+                                if self.realms.len() == 1 {
                                     // select realm
-                                    session.select_realm(self.db.clone(), realms[0].id).await?;
+                                    session.select_realm(self.db.clone(), self.realms[0].id).await?;
 
                                     // Send login result with change to realm
                                     let mut result = CPktLoginResult::default();
@@ -103,9 +117,9 @@ impl ServerInstance for LoginServer {
                                     result.username = Some(account.username);
                                     result.magic_bytes = Some(pkt.magic_bytes.clone());
                                     result.field_0x4 = Some(false);
-                                    result.field29_0x24 = Some(realms[0].id);
-                                    result.realm_ip = Some(u32::from_be(realms[0].external_ip.parse::<Ipv4Addr>().unwrap().into()));
-                                    result.realm_port = Some(realms[0].external_port);
+                                    result.field29_0x24 = Some(self.realms[0].id);
+                                    result.realm_ip = Some(u32::from_be(self.realms[0].address.ip().to_owned().into()));
+                                    result.realm_port = Some(self.realms[0].address.port());
                                     result.field38_0x34 = Some(0);
                                     result.unknown_string = Some(String::new());
                                     result.session_id = Some(session.id);
@@ -134,15 +148,15 @@ impl ServerInstance for LoginServer {
 
                                     // Immediately follow-up with the realm list
                                     let mut realm_status: oaPktRealmStatusList = oaPktRealmStatusList::default();
-                                    realm_status.realm_count = realms.len() as u32;
-                                    realm_status.realms = realms.into_iter().map(|realm| {
+                                    realm_status.realm_count = self.realms.len() as u32;
+                                    realm_status.realms = self.realms.iter().map(|realm| {
                                         RealmStatus {
                                             id: realm.id,
-                                            name: realm.name,
+                                            name: realm.name.clone(),
                                             channel_count: 1,
                                             channel_id: vec![1],
                                             channel_population_count: 1,
-                                            channel_population: vec![realm.population],
+                                            channel_population: vec![realm.population as f32],
                                         }
                                     }).collect();
                                     
@@ -172,6 +186,26 @@ impl ServerInstance for LoginServer {
 
     async fn handle_cluster_message(&mut self, message: ClusterMessage) -> AnotherlandResult<()> {
         match message {
+            ClusterMessage::RealmServerHearthbeat { realm_id, name, population, address } => {
+                // Update realm list
+                let realm = self.realms.iter_mut().find(|r| r.id == realm_id);
+                match realm {
+                    Some(realm) => {
+                        realm.population = population;
+                        realm.address = address;
+                    },
+                    None => {
+                        self.realms.push(RealmEntry { 
+                            id: realm_id, 
+                            name, 
+                            population, 
+                            address
+                        });
+                    }
+                }
+
+                Ok(())
+            },
             _ => Ok(())
         }
     }
@@ -191,6 +225,10 @@ impl ServerInstance for LoginServer {
 
         Ok(())
     }
+
+    fn get_subscribed_channels(&self) -> Vec<MessageChannel> {
+        vec![MessageChannel::ClusterChannel]
+    }
 }
 
 impl LoginServer {
@@ -202,7 +240,7 @@ impl LoginServer {
 
             // Notify cluster
             while let Some(session) = result.try_next().await? {
-                self.cluster.send(InvalidateSession(session.id)).await?;
+                self.cluster.send(InvalidateSession{session_id: session.id}).await?;
             }
 
             // Delete all sessions

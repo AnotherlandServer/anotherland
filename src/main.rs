@@ -3,6 +3,7 @@ mod db;
 mod config;
 mod login_server;
 mod realm_server;
+mod frontend_server;
 mod world_server;
 mod cluster;
 mod world;
@@ -55,6 +56,16 @@ enum StartCommand {
         max_active_sessions: usize
     },
     RealmServer {
+        #[arg(long, env = "REALM_ID")]
+        realm_id: i32,
+
+        #[arg(long, env = "MONGO_REALM_DB")]
+        mongo_realm_db: String,
+    },
+    FrontendServer {
+        #[arg(long, env = "REALM_ID")]
+        realm_id: i32,
+
         #[arg(long, env = "MONGO_REALM_DB")]
         mongo_realm_db: String,
     },
@@ -107,13 +118,13 @@ impl Args {
             StartCommand::InstancePoolServer { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
             StartCommand::StandaloneServer { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
             StartCommand::DataImport { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
-            StartCommand::RealmServer { mongo_realm_db } => Some(mongo_realm_db.clone()),
+            StartCommand::RealmServer { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
             _ => None
         }
     }
 }
 
-use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, WorldDef, ItemContent, DatabaseRecord, Character}, world_server::WorldServer};
+use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, WorldDef, ItemContent, DatabaseRecord, Character}, frontend_server::FrontendServer, world_server::{WorldServer, WorldServerOptions}};
 
 static ARGS: Lazy<Args> = Lazy::new(Args::parse);
 
@@ -143,7 +154,7 @@ async fn init_database() -> AnotherlandResult<()> {
     Ok(())
 }
 
-#[tokio::main] // (flavor = "current_thread")
+#[tokio::main] 
 async fn main() -> AnotherlandResult<()> {
     let _ = dotenvy::dotenv();
 
@@ -183,15 +194,18 @@ async fn main() -> AnotherlandResult<()> {
             import_client_data(path_to_client.into()).await?;
         }
         StartCommand::LoginServer { .. } => {
-            servers.push(ServerRunner::new::<LoginServer>());
+            servers.push(ServerRunner::new::<LoginServer>(()));
         },
         StartCommand::RealmServer { .. } => {
-            servers.push(ServerRunner::new::<RealmServer>());
+            servers.push(ServerRunner::new::<RealmServer>(()));
         },
+        StartCommand::FrontendServer { .. } => {
+            servers.push(ServerRunner::new::<FrontendServer>(()));
+        }
         StartCommand::WorldServer { world_id, .. } => {
-            WORLD_SERVER_IDS.write().await.push_front(*world_id);
+            //WORLD_SERVER_IDS.write().await.push_front(*world_id);
 
-            servers.push(ServerRunner::new::<WorldServer>());
+            //servers.push(ServerRunner::new::<WorldServer>());
         },
         StartCommand::InstancePoolServer { .. } => {
 
@@ -210,16 +224,17 @@ async fn main() -> AnotherlandResult<()> {
             fs::write("chardata.bin", data);*/
 
             // load all worlds
-            let worlds = WorldDef::list(realm_database().await).await?;
-            let world_count = worlds.len();
+            let worlds = WorldDef::list(realm_database().await).await?.into_iter().map(|w| w.id);
 
-            WORLD_SERVER_IDS.write().await.append(&mut worlds.into_iter().map(|m| m.id).collect::<VecDeque<u16>>());
+            servers.push(ServerRunner::new::<LoginServer>(()));
+            servers.push(ServerRunner::new::<RealmServer>(()));
+            servers.push(ServerRunner::new::<FrontendServer>(()));
 
-            servers.push(ServerRunner::new::<LoginServer>());
-            servers.push(ServerRunner::new::<RealmServer>());
-
-            for _ in 1..=world_count {
-                servers.push(ServerRunner::new::<WorldServer>());
+            for world_id in worlds {
+                servers.push(ServerRunner::new::<WorldServer>(WorldServerOptions {
+                    realm_id: CONF.realm.id,
+                    world_id
+                }));
             }
         }
     }

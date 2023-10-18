@@ -49,6 +49,13 @@ impl AnotherlandError {
         }
     }
 
+    pub fn app_err(msg: &str) -> Self {
+        Self {
+            kind: AnotherlandErrorKind::ApplicationError,
+            error: Some(msg.into())
+        }
+    }
+
     pub fn from_kind(k: AnotherlandErrorKind) -> Self {
         Self {
             kind: k,

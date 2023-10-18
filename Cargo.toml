@@ -17,7 +17,7 @@ num-traits = "0.2.15"
 async-trait = "0.1.72"
 uuid = { version = "1.4.1", features = ["v4"] }
 glam = { version = "0.24.1", features = ["serde"] }
-log = "0.4.20"
+log = { version = "0.4.20", features = ["kv_unstable", "kv_unstable_serde"] }
 log4rs = "1.2.0"
 config = "0.13.3"
 serde = { version = "1.0.183", features = ["derive"] }
@@ -36,6 +36,9 @@ serde-hex = "0.1.0"
 tokio-stream = "0.1.14"
 rabbitmq-stream-client = "0.4.0"
 atlas = { version = "0.1.0", path = "crates/atlas" }
+serde_path_to_error = "0.1.14"
+futures = "0.3.28"
+crossbeam = "0.8.2"
 
 
 [dev-dependencies]

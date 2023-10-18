@@ -1,10 +1,11 @@
-use std::{collections::HashMap, io, ops::{Deref, DerefMut}, convert::{Into, TryFrom}};
+use std::{collections::HashMap, io, ops::{Deref, DerefMut}, convert::{Into, TryFrom}, cell::{RefCell, Ref, RefMut}, sync::Arc};
 
 use atlas::{Uuid, NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, SpawnNodeParam, BoundParamClass, ParamClassContainer, ParamError};
 use atlas::AvatarId;
 use log::{info, error, warn, debug};
 use mongodb::Database;
 use rand::{thread_rng, Rng};
+use tokio::sync::{RwLock, Mutex};
 
 use crate::{util::AnotherlandResult, db::{realm_database, Instance, WorldDef, NpcContent, StructureContent, Content}, world::{NpcAvatar, StructureAvatar, PortalAvatar, StartingPointAvatar, TriggerAvatar, SpawnNodeAvatar}};
 use crate::db::{ZoneDef, DatabaseRecord};
@@ -37,7 +38,7 @@ async fn load_instanced_content<'a, T1, T2>(db: Database, instance: &'a Instance
 pub struct Zone {
     pub worlddef: WorldDef,
     pub zonedef: ZoneDef,
-    pub avatars: HashMap<AvatarId, Avatar>,
+    pub avatars: HashMap<AvatarId, Arc<RwLock<Avatar>>>,
 }
 
 impl Zone {
@@ -128,7 +129,7 @@ impl Zone {
         };
 
         // add to internal map
-        self.avatars.insert(id.clone(), avatar);
+        self.avatars.insert(id.clone(), Arc::new(RwLock::new(avatar)));
 
         id
     }
@@ -137,23 +138,17 @@ impl Zone {
         self.avatars.remove(avatar_id);
     }
 
-    pub fn get_avatar(&self, avatar_id: &AvatarId) -> Option<&Avatar> {
-        self.avatars.get(avatar_id)
+    pub fn get_avatar<'a>(&'a self, avatar_id: &AvatarId) -> Option<Arc<RwLock<Avatar>>> {
+        self.avatars.get(avatar_id).map(|r| r.clone())
     }
 
-    pub fn get_avatar_mut(&mut self, avatar_id: &AvatarId) -> Option<&mut Avatar> {
-        self.avatars.get_mut(avatar_id)
-    }
-
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, AvatarId, Avatar> {
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, AvatarId, Arc<RwLock<Avatar>>> {
         self.avatars.iter()
-    }
-
-    pub fn iter_mut(&mut self) -> std::collections::hash_map::IterMut<'_, AvatarId, Avatar> {
-        self.avatars.iter_mut()
     }
 
     pub fn tick(delta: f32) {
         todo!()
     }
+
+    //fn update_player_avatar_interests(&)
 }
