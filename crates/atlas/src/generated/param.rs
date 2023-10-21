@@ -6,7 +6,7 @@ use nom::number;
 use nom::combinator::fail;
 use nom::combinator::success;
 use nom::sequence::tuple;
-use crate::{Param, ParamError, AnyClass, BoundParamClass, ParamClass, AvatarId, ParamFlag, generated::cpkt::Uuid};
+use crate::{Param, ParamError, AnyClass, BoundParamClass, ParamClass, ParamEntity, AvatarId, ParamFlag, generated::cpkt::Uuid};
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use serde::{Serialize, Deserialize};
 use serde::ser::Serializer;
@@ -18,5 +18,6 @@ use std::collections::{HashSet, HashMap};
 use std::ops::Deref;
 use std::io;
 use log::error;
+use legion::{World, Entity};
 
 include!(concat!(env!("OUT_DIR"), "/generated_params.rs"));

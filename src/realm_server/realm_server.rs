@@ -12,6 +12,7 @@ use crate::db::{Account, cluster_database, Session, DatabaseRecord, realm_databa
 use atlas::{CPkt, Uuid, PlayerParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess, ParamClass};
 use atlas::raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest};
 use atlas::oaPktCharacterFailure;
+use atlas::BoundParamClass;
 
 #[derive(Clone)]
 struct ClientState {

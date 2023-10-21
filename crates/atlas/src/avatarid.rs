@@ -1,8 +1,11 @@
+use std::num::NonZeroU64;
+
 use serde::{Serialize, Deserialize, de};
 use serde::ser::Serializer;
 use serde::de::{Deserializer, Visitor, SeqAccess};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[repr(transparent)]
 pub struct AvatarId(u64);
 
 impl AvatarId {

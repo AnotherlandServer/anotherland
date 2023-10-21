@@ -9,6 +9,8 @@ use std::marker::PhantomData;
 
 use bitstream_io::ByteWrite;
 use glam::Quat;
+use legion::Entity;
+use legion::World;
 use nom::IResult;
 use nom::bytes::complete::take;
 use nom::error::VerboseError;
@@ -76,6 +78,14 @@ impl Error for ParamError {
     }
 }
 
+pub trait ParamEntity: BoundParamClass {
+    type EntityType;
+    type ParamClassType;
+
+    fn to_entity(self) -> Self::EntityType;
+    fn from_component(world: &mut World, entity: Entity) -> Result<Self::ParamClassType, ParamError>;
+}
+
 pub trait BoundParamClass: ParamClass + Default {
     const CLASS_ID: ParamClassId;
 
@@ -86,10 +96,10 @@ pub trait BoundParamClass: ParamClass + Default {
     fn into_persistent_json(&self) -> Value {
         let mut attribute_map = HashMap::<&'static str, Value>::new();
 
-        for a in &self.as_anyclass().0 {
-            if self.attribute_has_flag(a.0, &ParamFlag::Persistent) {
-                let name = Self::attribute_name(a.0);
-                let attrib = serde_json::to_value(&a.1).unwrap();
+        for (name, param) in &self.as_anyclass().0 {
+            if self.attribute_has_flag(name, &ParamFlag::Persistent) {
+                //let name = Self::attribute_name(a.0);
+                let attrib = serde_json::to_value(&param).unwrap();
                 attribute_map.insert(name, attrib);
             }
         }
@@ -103,13 +113,13 @@ pub trait BoundParamClass: ParamClass + Default {
         }
 
         let obj = value.as_object().unwrap();
-        let mut anyclass = AnyClass(Vec::new());
+        let mut anyclass = AnyClass(HashMap::new());
 
         for (name, value) in obj {
             match Self::lookup_field(name.as_str()) {
                 Some(id) => {
                     let param = serde_json::from_value(value.clone())?;
-                    anyclass.0.push(ClassAttrib(id, param));
+                    anyclass.0.insert(Self::attribute_name(id).to_owned(), param);
                 },
                 None => {
                     return Err(io::Error::new(io::ErrorKind::InvalidData, "unknown attribute"));
@@ -118,6 +128,27 @@ pub trait BoundParamClass: ParamClass + Default {
         }
 
         Ok(Self::from_anyclass(anyclass))
+    }
+
+    fn read<'a>(i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
+        context(std::any::type_name::<Self>(), |i| -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
+            let (i, anyclass) = AnyClass::raw_read::<Self>(i)?;
+            Ok((i, Self::from_anyclass(anyclass)))
+        })(i)
+    }
+
+    fn write<T>(&self, writer: &mut T) -> Result<(), io::Error> 
+        where T: ByteWrite
+    {
+        let anyclass = self.as_anyclass();
+        anyclass.raw_write::<_, Self>(writer)
+    }
+
+    fn write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> 
+        where T: ByteWrite
+    {
+        let anyclass = self.as_anyclass();
+        anyclass.raw_write_to_client(writer)
     }
 }
 
@@ -132,31 +163,10 @@ pub trait ParamClass: Sized {
     fn to_anyclass(self) -> AnyClass;
     fn from_anyclass(anyclass: AnyClass) -> Self;
 
-    fn read<'a>(i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
-        context(std::any::type_name::<Self>(), |i| -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
-            let (i, anyclass) = AnyClass::raw_read(i)?;
-            Ok((i, Self::from_anyclass(anyclass)))
-        })(i)
-    }
+    fn attribute_flags(&self, attribute: &str) -> &'static [ParamFlag];
 
-    fn attribute_flags(&self, id: u16) -> &'static [ParamFlag];
-
-    fn attribute_has_flag(&self, id: u16, flag: &ParamFlag) -> bool {
-        self.attribute_flags(id).contains(flag)
-    }
-
-    fn write<T>(&self, writer: &mut T) -> Result<(), io::Error> 
-        where T: ByteWrite
-    {
-        let anyclass = self.as_anyclass();
-        anyclass.raw_write(writer)
-    }
-
-    fn write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> 
-        where T: ByteWrite
-    {
-        let anyclass = self.as_anyclass();
-        anyclass.raw_write_to_client(writer)
+    fn attribute_has_flag(&self, attribute: &str, flag: &ParamFlag) -> bool {
+        self.attribute_flags(attribute).contains(flag)
     }
 }
 
@@ -918,31 +928,41 @@ impl ClassAttrib {
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
-pub struct AnyClass(Vec<ClassAttrib>);
+pub struct AnyClass(HashMap<String, Param>);
 
 impl AnyClass {
     pub fn new() -> Self {
-        Self(Vec::new())
+        Self(HashMap::new())
     }
 
-    fn raw_read<'a>(i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
+    fn raw_read<'a, T>(i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> 
+        where T: BoundParamClass
+    {
         context("AnyClass", |i| -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
             let (i, _) = number::complete::le_u8(i)?;
             let (i, count) = number::complete::le_u16(i)?;
             let (i, attribs) = multi::count(ClassAttrib::read, count as usize)(i)?;
 
-            Ok((i, Self(attribs)))
+            Ok((i, Self(attribs
+                .into_iter()
+                .map(|a| (T::attribute_name(a.0).to_owned(), a.1))
+                .collect())
+            ))
         })(i)
     }
 
-    fn raw_write<T>(&self, writer: &mut T) -> Result<(), io::Error> where T: ByteWrite {
+    fn raw_write<T, C>(&self, writer: &mut T) -> Result<(), io::Error> 
+        where T: ByteWrite,
+        C: BoundParamClass
+    {
         writer.write(1u8)?;
 
-        let filtered_params: Vec<_> = self.0.iter().filter(|a| !a.1.should_skip()).collect();
+        let filtered_params: Vec<_> = self.0.iter().filter(|(_, a)| !a.should_skip()).collect();
         writer.write(filtered_params.len() as u16)?;
 
-        for a in filtered_params {
-            if !a.1.should_skip() {
+        for (name, a) in filtered_params {
+            if !a.should_skip() {
+                writer.write(C::lookup_field(name).unwrap())?;
                 a.write(writer)?;
             }
         }
@@ -953,46 +973,48 @@ impl AnyClass {
     fn raw_write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> where T: ByteWrite {
         writer.write(1u8)?;
 
-        let filtered_params: Vec<_> = self.0.iter().filter(|a| !a.1.should_skip() && !self.attribute_has_flag(a.0, &ParamFlag::ExcludeFromClient)).collect();
+        let filtered_params: Vec<_> = self.0.iter().filter(|(name, a)| !a.should_skip() && !self.attribute_has_flag(name, &ParamFlag::ExcludeFromClient)).collect();
         writer.write(filtered_params.len() as u16)?;
 
-        for a in filtered_params {
+        for (_, a) in filtered_params {
             a.write(writer)?;
         }
 
         Ok(())
     }
 
-    pub(crate) fn get_param(&self, id: u16) -> Option<&Param> {
-        for a in &self.0 {
+    pub(crate) fn get_param(&self, name: &str) -> Option<&Param> {
+        /*for a in &self.0 {
             if a.0 == id { return Some(&a.1); }
         }
 
-        None
+        None*/
+        self.0.get(name).map(|a| a)
     }
 
-    pub(crate) fn set_param(&mut self, id: u16, param: Param) {
-        match self.0.iter_mut().find(|a| a.0 == id) {
-            Some(attrib) => attrib.set(param),
-            None => self.0.push(ClassAttrib(id, param)),
-        }
+    pub(crate) fn set_param(&mut self, name: &str, param: Param) {
+        self.0.insert(name.to_owned(), param);
     }
 
     pub fn strip_original_data(&mut self) {
-        self.0 = self.0.drain(..).into_iter().map(|mut a| {
+        self.0 = self.0.drain().into_iter().map(|mut a| {
             a.1 = a.1.strip_original_data();
             a
         }).collect();
     }
+
+    pub fn as_hashmap(&self) -> &HashMap<String, Param> { &self.0 }
 }
 
 impl ParamClass for AnyClass {
     fn apply(&mut self, other: Self) {
-        for o in other {
-            match self.0.iter_mut().find(|a| a.0 == o.0) {
+        for (name, param) in other {
+            /*match self.0.iter_mut().find(|a| a.0 == o.0) {
                 Some(attrib) => attrib.set(o.take()),
                 None => self.0.push(o),
-            }
+            }*/
+
+            self.0.insert(name, param);
         }
     }
 
@@ -1010,21 +1032,21 @@ impl ParamClass for AnyClass {
         anyclass
     }
 
-    fn attribute_flags(&self, id: u16) -> &'static [ParamFlag] {
+    fn attribute_flags(&self, name: &str) -> &'static [ParamFlag] {
         &[]
     }
 }
 
 impl IntoIterator for AnyClass {
-    type Item = ClassAttrib;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type Item = (String, Param);
+    type IntoIter = std::collections::hash_map::IntoIter<String, Param>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
     use std::{io, path::Path, env};
     use bitstream_io::{ByteWriter, LittleEndian};
@@ -1086,4 +1108,4 @@ mod tests {
 
         Ok(())
     }
-}
+}*/

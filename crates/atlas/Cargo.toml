@@ -11,6 +11,7 @@ bitflags = "2.4.0"
 bitstream-io = "1.7.0"
 digest = "0.10.7"
 glam = { version = "0.24.2", features = ["serde"] }
+legion = "0.4.0"
 log = { version = "0.4.20", features = ["kv_unstable", "kv_unstable_serde"] }
 multiset-hash = "0.2.0"
 net = "0.1.0"

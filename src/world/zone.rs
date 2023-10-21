@@ -1,21 +1,71 @@
-use std::{collections::HashMap, io, ops::{Deref, DerefMut}, convert::{Into, TryFrom}, cell::{RefCell, Ref, RefMut}, sync::Arc};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::{ops::DerefMut, io};
 
-use atlas::{Uuid, NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, SpawnNodeParam, BoundParamClass, ParamClassContainer, ParamError};
-use atlas::AvatarId;
-use log::{info, error, warn, debug};
+use atlas::{BoundParamClass, ParamError, Uuid, ParamEntity, AvatarId};
+use atlas::{NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, SpawnNodeParam};
+use legion::*;
+use legion::storage::IntoComponentSource;
+use log::{info, warn};
 use mongodb::Database;
+use atlas::ParamClassContainer;
 use rand::{thread_rng, Rng};
-use tokio::sync::{RwLock, Mutex};
+use tokio::sync::RwLock;
 
-use crate::{util::AnotherlandResult, db::{realm_database, Instance, WorldDef, NpcContent, StructureContent, Content}, world::{NpcAvatar, StructureAvatar, PortalAvatar, StartingPointAvatar, TriggerAvatar, SpawnNodeAvatar}};
-use crate::db::{ZoneDef, DatabaseRecord};
+use crate::db::ZoneDef;
+use crate::util::AnotherlandError;
+use crate::{util::AnotherlandResult, db::{Instance, DatabaseRecord, Content, NpcContent, StructureContent}};
 
-use super::{Avatar};
+use super::AvatarType;
+
+pub struct Zone {
+    zonedef: ZoneDef,
+    instance: Arc<RwLock<World>>,
+    avatar_entity_map: HashMap<AvatarId, Entity>,
+}
+
+impl Zone {
+    pub fn zonedef(&self) -> &ZoneDef { &self.zonedef }
+    pub fn instance(&self) -> &Arc<RwLock<World>> { &self.instance }
+
+    pub async fn spawn_avatar<T>(&mut self, avatar_type: AvatarType, components: T) -> (AvatarId, Entity) 
+        where Option<T>: IntoComponentSource
+    {
+        // Avatar IDs are prefixed with the avatar type
+        let avatar_flag = match avatar_type {
+            AvatarType::Player => 0x01,
+            AvatarType::Npc => 0x02,
+            AvatarType::Structure => 0x02,
+            AvatarType::Portal => 0x02,
+            AvatarType::StartingPoint => 0x02,
+            AvatarType::Trigger => 0x02,
+            AvatarType::SpawnNode => 0x02,
+        };
+
+        // generate avatar id
+        let id = {
+            let mut rng = thread_rng();
+            loop {
+                let id = AvatarId::new((rng.gen_range(0..1<<56) << 0xF) | avatar_flag);
+                if !self.avatar_entity_map.contains_key(&id) {
+                    break id;
+                }
+            }
+        };
+
+
+        let entity = self.instance.write().await.push(components);
+        self.instance.write().await.entry(entity).unwrap().add_component((id.clone(), avatar_type));
+
+        self.avatar_entity_map.insert(id.clone(), entity.clone());
+        (id, entity)
+    }
+}
 
 async fn load_instanced_content<'a, T1, T2>(db: Database, instance: &'a Instance) -> AnotherlandResult<T1> 
     where 
         T1: DatabaseRecord<'a, Key = Uuid> + DerefMut<Target = Content>,
-        T2: BoundParamClass,
+        T2: BoundParamClass + ParamEntity,
         T2: TryFrom<ParamClassContainer, Error = ParamError>
 {
     if let Some(mut content) = T1::get(db.clone(), &instance.content_guid).await? {
@@ -35,120 +85,81 @@ async fn load_instanced_content<'a, T1, T2>(db: Database, instance: &'a Instance
     }
 }
 
-pub struct Zone {
-    pub worlddef: WorldDef,
-    pub zonedef: ZoneDef,
-    pub avatars: HashMap<AvatarId, Arc<RwLock<Avatar>>>,
-}
+pub async fn load_zone_from_definition(db: Database, zonedef: ZoneDef) -> AnotherlandResult<Zone> {
+    let mut zone = Zone {
+        zonedef,
+        instance: Arc::new(RwLock::new(World::new(WorldOptions::default()))),
+        avatar_entity_map: HashMap::new(),
+    };
 
-impl Zone {
-    pub async fn initialize(worlddef: &WorldDef, zonedef: &ZoneDef) -> AnotherlandResult<Zone> {
-        let db = realm_database().await;
-
-        let mut zone = Zone {
-            avatars: HashMap::new(),
-            worlddef: worlddef.clone(),
-            zonedef: zonedef.clone(),
+    let instances = Instance::load_for_zone(db.clone(), &zone.zonedef.guid).await?;
+    for instance in &instances {
+        match instance.class {
+            47 => match load_instanced_content::<NpcContent, NpcOtherlandParam>(db.clone(), instance).await {
+                    Ok(content) => 
+                        zone.spawn_avatar(AvatarType::Npc, <ParamClassContainer as TryInto<NpcOtherlandParam>>::try_into(
+                            content.data.as_ref().unwrap().clone()
+                        )?.to_entity()).await,
+                    Err(e) => {
+                        warn!("{:#?}", e); 
+                        continue;
+                    },
+                },
+            55 => match load_instanced_content::<StructureContent, StructureParam>(db.clone(), instance).await {
+                Ok(content) =>
+                    zone.spawn_avatar(AvatarType::Npc, <ParamClassContainer as TryInto<StructureParam>>::try_into(
+                        content.data.as_ref().unwrap().clone()
+                    )?.to_entity()).await,
+                Err(e) => {
+                    warn!("{:#?}", e); 
+                    continue;
+                },
+            },
+            56 => match load_instanced_content::<StructureContent, PortalParam>(db.clone(), instance).await {
+                Ok(content) => 
+                    zone.spawn_avatar(AvatarType::Npc, <ParamClassContainer as TryInto<PortalParam>>::try_into(
+                        content.data.as_ref().unwrap().clone()
+                    )?.to_entity()).await,
+                Err(e) => {
+                    warn!("{:#?}", e); 
+                    continue;
+                },
+            },
+            57 => match load_instanced_content::<StructureContent, StartingPointParam>(db.clone(), instance).await {
+                Ok(content) => 
+                    zone.spawn_avatar(AvatarType::Npc, <ParamClassContainer as TryInto<StartingPointParam>>::try_into(
+                        content.data.as_ref().unwrap().clone()
+                    )?.to_entity()).await,
+                Err(e) => {
+                    warn!("{:#?}", e); 
+                    continue;
+                },
+            },
+            61 => match load_instanced_content::<StructureContent, TriggerParam>(db.clone(), instance).await {
+                Ok(content) => 
+                    zone.spawn_avatar(AvatarType::Npc, <ParamClassContainer as TryInto<TriggerParam>>::try_into(
+                        content.data.as_ref().unwrap().clone()
+                    )?.to_entity()).await,
+                Err(e) => {
+                    warn!("{:#?}", e); 
+                    continue;
+                },
+            },
+            71 => match load_instanced_content::<StructureContent, SpawnNodeParam>(db.clone(), instance).await {
+                Ok(content) => 
+                    zone.spawn_avatar(AvatarType::Npc, <ParamClassContainer as TryInto<SpawnNodeParam>>::try_into(
+                        content.data.as_ref().unwrap().clone()
+                    )?.to_entity()).await,
+                Err(e) => {
+                    warn!("{:#?}", e); 
+                    continue;
+                },
+            },
+            _ => continue, //todo!("loader for content class {}", instance.class),
         };
-
-        let instances = Instance::load_for_zone(db.clone(), &zone.zonedef.guid).await?;
-        for instance in &instances {
-            let avatar = match instance.class {
-                47 => match load_instanced_content::<NpcContent, NpcOtherlandParam>(db.clone(), instance).await {
-                        Ok(content) => NpcAvatar::new(content).into(),
-                        Err(e) => {
-                            warn!("{:#?}", e); 
-                            continue;
-                        },
-                    },
-                55 => match load_instanced_content::<StructureContent, StructureParam>(db.clone(), instance).await {
-                    Ok(content) => StructureAvatar::new(content).into(),
-                    Err(e) => {
-                        warn!("{:#?}", e); 
-                        continue;
-                    },
-                },
-                56 => match load_instanced_content::<StructureContent, PortalParam>(db.clone(), instance).await {
-                    Ok(content) => PortalAvatar::new(content).into(),
-                    Err(e) => {
-                        warn!("{:#?}", e); 
-                        continue;
-                    },
-                },
-                57 => match load_instanced_content::<StructureContent, StartingPointParam>(db.clone(), instance).await {
-                    Ok(content) => StartingPointAvatar::new(content).into(),
-                    Err(e) => {
-                        warn!("{:#?}", e); 
-                        continue;
-                    },
-                },
-                61 => match load_instanced_content::<StructureContent, TriggerParam>(db.clone(), instance).await {
-                    Ok(content) => TriggerAvatar::new(content).into(),
-                    Err(e) => {
-                        warn!("{:#?}", e); 
-                        continue;
-                    },
-                },
-                71 => match load_instanced_content::<StructureContent, SpawnNodeParam>(db.clone(), instance).await {
-                    Ok(content) => SpawnNodeAvatar::new(content).into(),
-                    Err(e) => {
-                        warn!("{:#?}", e); 
-                        continue;
-                    },
-                },
-                _ => continue, //todo!("loader for content class {}", instance.class),
-            };
-
-            zone.spawn_avatar(avatar);
-        }
-
-        info!("Loaded {} avatars for zone {}/{}", instances.len(), zone.worlddef.id, zone.zonedef.guid.to_string());       
-
-        Ok(zone)
     }
 
-    pub fn spawn_avatar(&mut self, avatar: Avatar) -> AvatarId {
-        // Avatar IDs are prefixed with the avatar type
-        let avatar_flag = match avatar {
-            Avatar::Player(_) => 0x01,
-            Avatar::Npc(_) => 0x02,
-            Avatar::Structure(_) => 0x02,
-            Avatar::Portal(_) => 0x02,
-            Avatar::StartingPoint(_) => 0x02,
-            Avatar::Trigger(_) => 0x02,
-            Avatar::SpawnNode(_) => 0x02,
-        };
+    info!("Loaded {} avatars for zone {}-{}", instances.len(), zone.zonedef.guid.to_string(), zone.zonedef.zone);       
 
-        // generate avatar id
-        let mut rng = thread_rng();
-        let id: AvatarId = loop {
-            let id = AvatarId::new((rng.gen_range(0..1<<56) << 0xF) | avatar_flag);
-            if !self.avatars.contains_key(&id) {
-                break id;
-            }
-        };
-
-        // add to internal map
-        self.avatars.insert(id.clone(), Arc::new(RwLock::new(avatar)));
-
-        id
-    }
-
-    pub fn despawn_avatar(&mut self, avatar_id: &AvatarId) {
-        self.avatars.remove(avatar_id);
-    }
-
-    pub fn get_avatar<'a>(&'a self, avatar_id: &AvatarId) -> Option<Arc<RwLock<Avatar>>> {
-        self.avatars.get(avatar_id).map(|r| r.clone())
-    }
-
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, AvatarId, Arc<RwLock<Avatar>>> {
-        self.avatars.iter()
-    }
-
-    pub fn tick(delta: f32) {
-        todo!()
-    }
-
-    //fn update_player_avatar_interests(&)
+    Ok(zone)
 }

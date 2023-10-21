@@ -13,7 +13,7 @@ use sha1::{Sha1, Digest};
 use tokio_stream::StreamExt;
 
 use crate::{util::AnotherlandResult};
-use atlas::{Uuid, PlayerParam};
+use atlas::{Uuid, PlayerParam, Player};
 
 use super::{Account, DatabaseRecord, ItemContent};
 

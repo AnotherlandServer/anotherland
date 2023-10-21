@@ -6,7 +6,7 @@ use tokio_stream::StreamExt;
 
 use atlas::Uuid;
 
-use crate::{util::AnotherlandResult, world::World};
+use crate::{util::AnotherlandResult};
 
 use super::DatabaseRecord;
 
