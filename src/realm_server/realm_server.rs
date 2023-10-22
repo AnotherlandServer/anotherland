@@ -5,11 +5,12 @@ use bitstream_io::{ByteWriter, LittleEndian};
 use bson::doc;
 use log::{info, debug, warn, error};
 use mongodb::{options::UpdateOptions, Database};
+use std::fs;
 use std::error::Error;
 
 use crate::{util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind::{ApplicationError, self}}, CONF, ARGS, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, db::{WorldDef}};
 use crate::db::{Account, cluster_database, Session, DatabaseRecord, realm_database, Character};
-use atlas::{CPkt, Uuid, PlayerParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess, ParamClass};
+use atlas::{CPkt, Uuid, PlayerParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess, ParamClass, Player};
 use atlas::raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest};
 use atlas::oaPktCharacterFailure;
 use atlas::BoundParamClass;
@@ -133,6 +134,8 @@ impl ServerInstance for RealmServer {
                     let mut serialized = Vec::new();
                     let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
                     c.data.write(&mut writer).expect("Serialization failed");
+
+                    fs::write("chardata2.bin", serialized.clone());
                     
                     oaCharacter {
                         id: c.id,
@@ -195,6 +198,8 @@ impl ServerInstance for RealmServer {
                         // update session
                         state.session.select_world(self.cluster_db.clone(), pkt.world_id).await?;
 
+                        debug!("Select world: {}", pkt.field_3.to_string());
+
                         // send response
                         let mut response_select_world = oaPktResponseSelectWorld::default();
                         response_select_world.field_1 = true;
@@ -235,6 +240,9 @@ impl ServerInstance for RealmServer {
 
                                     // select character
                                     state.session.select_character(self.cluster_db.clone(), character.id).await?;
+                                    
+                                    // select zone
+                                    state.session.select_zone(self.cluster_db.clone(), character.data.zone_guid().unwrap().to_owned()).await?;
 
                                     // send response
                                     let mut character_select_success = oaPktCharacterSelectSuccess::default();

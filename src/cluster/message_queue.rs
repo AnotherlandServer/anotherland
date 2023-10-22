@@ -85,7 +85,8 @@ pub enum MessageChannel {
 pub enum RealmChannel {
     FrontendChannel,
     GlobalChannel,
-    WorldChannel{world_id: u16},
+    //WorldChannel{world_id: u16},
+    ZoneChannel{zone_guid: Uuid},
     DungeonChannel{dungeon_id: Uuid},
 }
 

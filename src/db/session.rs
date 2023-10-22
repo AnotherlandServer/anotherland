@@ -17,6 +17,7 @@ pub struct Session {
     pub account: Uuid,
     pub realm_id: Option<u32>,
     pub world_id: Option<u16>,
+    pub zone_guid: Option<Uuid>,
     pub character_id: Option<u32>,
     pub created: DateTime<Utc>,
     pub last_seen: DateTime<Utc>,
@@ -31,6 +32,7 @@ impl Session {
             account: account.id.clone(),
             realm_id: None,
             world_id: None,
+            zone_guid: None,
             character_id: None,
             created: Utc::now(),
             last_seen: Utc::now(),
@@ -99,6 +101,20 @@ impl Session {
         collection.update_one(
             Self::query_one(self.key()), 
             doc!{"$set": {"character_id": character_id}},
+            None
+        ).await?;
+
+        Ok(())
+    }
+
+    pub async fn select_zone(&mut self, db: Database, zone_guid: Uuid) -> AnotherlandResult<()> {
+        self.zone_guid = Some(zone_guid.clone());
+
+        let collection = Self::collection(db);
+
+        collection.update_one(
+            Self::query_one(self.key()), 
+            doc!{"$set": {"zone_guid": zone_guid.to_string()}},
             None
         ).await?;
 

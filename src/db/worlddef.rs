@@ -41,6 +41,11 @@ impl WorldDef {
         Ok(collection.find_one(doc!{"name": {"$eq": name}}, None).await?)
     }
 
+    pub async fn get_by_guid(db: Database, guid: &Uuid) -> AnotherlandResult<Option<WorldDef>> {
+        let collection = Self::collection(db);
+        Ok(collection.find_one(doc!{"guid": {"$eq": guid.to_string()}}, None).await?)
+    }
+
     pub async fn list(db: Database) -> AnotherlandResult<Vec<WorldDef>> {
         let collection = Self::collection(db);
         let mut worlddefs = Vec::new();

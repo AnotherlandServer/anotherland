@@ -12,7 +12,7 @@ use serde::{Serialize, Serializer, ser::SerializeStruct};
 use tokio::{sync::RwLock, task::JoinHandle, time::{Interval, self, Instant}};
 use log::kv::{ToValue, Value};
 
-use crate::{CONF, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, WORLD_SERVER_IDS, db::{WorldDef, DatabaseRecord, realm_database, Account, Session, cluster_database, Character, Content, CashShopVendor, CashShopBundle, CashShopItem, ItemContent}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}};
+use crate::{CONF, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, WORLD_SERVER_IDS, db::{WorldDef, DatabaseRecord, realm_database, Account, Session, cluster_database, Character, Content, CashShopVendor, CashShopBundle, CashShopItem, ItemContent, ZoneDef}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}};
 use raknet::*;
 use atlas::*;
 use crate::util::AnotherlandResult;
@@ -55,7 +55,7 @@ pub struct FrontendServer {
     realm_id: u32,
 
     client_state: HashMap<Uuid, ClientState>,
-    world_channels: HashMap<u16, MessageQueueProducer>,
+    zone_channels: HashMap<Uuid, MessageQueueProducer>,
     cluster: MessageQueueProducer,
     //world_servers: HashMap<u16, Mess
 
@@ -122,14 +122,21 @@ impl ServerInstance for FrontendServer {
         info!("Starting frontend server...");
 
         // Connect to world channels, so we can communicate towards them
-        let mut world_channels = HashMap::<u16, MessageQueueProducer>::new();
-        let worlds = WorldDef::list(realm_database().await).await?.into_iter().map(|w| w.id);
+        let mut zone_channels = HashMap::<Uuid, MessageQueueProducer>::new();
+        let zones = ZoneDef::list(realm_database().await).await?.into_iter().map(|z| z.guid);
+        for zone_guid in zones {
+            zone_channels.insert(zone_guid.clone(), connect_queue(MessageChannel::RealmChannel { 
+                realm_id: CONF.realm.id, 
+                channel: RealmChannel::ZoneChannel { zone_guid }
+            }).await?.0);
+        }
+        /*let worlds = WorldDef::list(realm_database().await).await?.into_iter().map(|w| w.id);
         for world_id in worlds {
             world_channels.insert(world_id, connect_queue(MessageChannel::RealmChannel { 
                 realm_id: CONF.realm.id, 
                 channel: RealmChannel::WorldChannel { world_id } 
             }).await?.0);
-        }
+        }*/
 
         // Start server
         let mut listener = RakNetListener::new();
@@ -143,7 +150,7 @@ impl ServerInstance for FrontendServer {
             realm_db: realm_database().await,
             realm_id: CONF.realm.id.into(),
             client_state: HashMap::new(),
-            world_channels,
+            zone_channels,
             cluster
         }))
     }
@@ -616,9 +623,9 @@ impl ServerInstance for FrontendServer {
                 }
             },*/
             _ => {
-                // Serialize the message and send it to the responsible world server to deal with
-                self.world_channels
-                    .get(&state.session.world_id.unwrap()).unwrap()
+                // Serialize the message and send it to the responsible zone server to deal with
+                self.zone_channels
+                    .get(&state.session.zone_guid.as_ref().unwrap()).unwrap()
                     .send(ClusterMessage::Request { 
                         session_id: state.session.id.clone(), 
                         peer_id: peer_id.clone(),

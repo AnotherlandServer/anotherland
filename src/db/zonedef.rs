@@ -44,7 +44,7 @@ impl DatabaseRecord<'_> for ZoneDef {
 }
 
 impl ZoneDef {
-    pub async fn load_for_world(db: Database, world_guid: &Uuid) -> AnotherlandResult<Vec<ZoneDef>> {
+    pub async fn load_for_world(db: Database, world_guid: &Uuid) -> AnotherlandResult<Vec<Self>> {
         let mut rows = Vec::new();
 
         let mut result = Self::collection(db).find(doc!{"worlddef_guid": {"$eq": world_guid.to_string()}}, None).await?;
@@ -53,5 +53,17 @@ impl ZoneDef {
         }
 
         Ok(rows)
+    }
+
+    pub async fn list(db: Database) -> AnotherlandResult<Vec<Self>> {
+        let collection = Self::collection(db);
+        let mut zonedefs = Vec::new();
+
+        let mut result = collection.find(None, None).await?;
+        while let Some(zonedef) = result.try_next().await? {
+            zonedefs.push(zonedef);
+        }
+
+        Ok(zonedefs)
     }
 }

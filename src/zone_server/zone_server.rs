@@ -73,15 +73,16 @@ impl ToValue for &mut ClientState {
     }
 }
 
-pub struct WorldServerOptions {
-    pub world_id: u16,
+pub struct ZoneServerOptions {
+    pub zone_guid: Uuid,
     pub realm_id: u32,
 }
 
-pub struct WorldServerData {
+pub struct ZoneServerData {
     realm_id: u32,
     worlddef: WorldDef,
-    zones: Arc<RwLock<HashMap<Uuid, Zone>>>,
+    zone: Arc<RwLock<Zone>>,
+    //zones: Arc<RwLock<HashMap<Uuid, Zone>>>,
     //world: World,
     frontend: MessageQueueProducer,
     client_state: HashMap<Uuid, Arc<RwLock<ClientState>>>,
@@ -89,10 +90,10 @@ pub struct WorldServerData {
 }
 
 #[derive(Clone)]
-pub struct WorldServer(Arc<RwLock<WorldServerData>>, u32, u16);
+pub struct ZoneServer(Arc<RwLock<ZoneServerData>>, u32, Uuid);
 
-impl Deref for WorldServer {
-    type Target = Arc<RwLock<WorldServerData>>;
+impl Deref for ZoneServer {
+    type Target = Arc<RwLock<ZoneServerData>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -100,7 +101,7 @@ impl Deref for WorldServer {
 
 }
 
-impl WorldServer {
+impl ZoneServer {
     async fn send(&self, peer_id: &Uuid, message: Message) -> AnotherlandResult<()> {
         self.read().await.frontend.send(ClusterMessage::Response { 
             peer_id: peer_id.to_owned(), 
@@ -129,9 +130,10 @@ impl WorldServer {
                     let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
                     let world_state = self.read().await;
-                    let zones = world_state.zones.read().await;
-                    let zone = zones.get(&state.zone)
-                    .ok_or(AnotherlandError::app_err("zone not found"))?;
+                    let zone = world_state.zone.read().await;
+                    //let zones = world_state.zones.read().await;
+                    //let zone = zones.get(&state.zone)
+                    //.ok_or(AnotherlandError::app_err("zone not found"))?;
 
                     // update player state
                     let character_component = {
@@ -275,32 +277,37 @@ impl WorldServer {
 }
 
 #[async_trait]
-impl ServerInstance for WorldServer {
-    type ServerProperties = WorldServerOptions;
+impl ServerInstance for ZoneServer {
+    type ServerProperties = ZoneServerOptions;
 
     async fn init(properties: &Self::ServerProperties) -> AnotherlandResult<Box<Self>> {
         let db = realm_database().await;
 
-        let worlddef = WorldDef::get(db.clone(), &properties.world_id).await?.unwrap();
+        let zonedef = ZoneDef::get(db.clone(), &properties.zone_guid).await?.expect("zone not found");
+        let worlddef = WorldDef::get_by_guid(db.clone(), &zonedef.worlddef_guid).await?.expect("world not found"); 
+        //WorldDef::get(db.clone(), &properties.zone_guid).await?.unwrap();
 
-        let mut zones = HashMap::new();
+        //let mut zones = HashMap::new();
 
-        for zone in ZoneDef::load_for_world(db.clone(), &worlddef.guid).await?.into_iter() {
+        /*for zone in ZoneDef::load_for_world(db.clone(), &worlddef.guid).await?.into_iter() {
             zones.insert(zone.guid.clone(), load_zone_from_definition(db.clone(), zone).await?);
-        }
+        }*/
+
+        let zone_guid = zonedef.guid.clone();
+        let zone = load_zone_from_definition(db.clone(), zonedef).await?;
 
         let (frontend, _) = connect_queue(MessageChannel::RealmChannel { 
             realm_id: properties.realm_id, 
             channel: RealmChannel::FrontendChannel 
         }).await?;
 
-        Ok(Box::new(Self(Arc::new(RwLock::new(WorldServerData {
+        Ok(Box::new(Self(Arc::new(RwLock::new(ZoneServerData {
             realm_id: properties.realm_id,
-            worlddef,
-            zones: Arc::new(RwLock::new(zones)),
+            worlddef: worlddef,
+            zone: Arc::new(RwLock::new(zone)),
             frontend,
             client_state: HashMap::new(),
-        })), properties.realm_id, properties.world_id)))
+        })), properties.realm_id, zone_guid)))
     }
 
     async fn close(&mut self) {
@@ -342,10 +349,12 @@ impl ServerInstance for WorldServer {
                                     trace!("Character: {:#?}", character.data.as_anyclass().as_hashmap());
 
                                     let world_state = world_state.read().await;
-                                    let mut zones = world_state.zones.write().await;
+                                    /*let mut zones = world_state.zones.write().await;
                                     let zone = zones.get_mut(
                                         character.data.zone_guid().ok_or(AnotherlandError::app_err("character zone not found"))?
-                                        ).ok_or(AnotherlandError::app_err("zone not found"))?;
+                                        ).ok_or(AnotherlandError::app_err("zone not found"))?;*/
+
+                                    let mut zone = world_state.zone.write().await;
 
                                     // initial setup
                                     if *character.data.first_time_spawn().unwrap_or(&true) {
@@ -447,8 +456,9 @@ impl ServerInstance for WorldServer {
 
                         trace!(client = client_state_s.deref(); "Push entity {:#?}", entity);
 
-                        let zones = world_state.zones.read().await;
-                        let zone = zones.get(&client_state_s.zone).unwrap();
+                        //let zones = world_state.zones.read().await;
+                        //let zone = zones.get(&client_state_s.zone).unwrap();
+                        let zone = world_state.zone.read().await;
                         let instance = zone.instance().read().await;
 
                         let entry = if let Ok(entry) = instance.entry_ref(entity) {
@@ -525,7 +535,7 @@ impl ServerInstance for WorldServer {
                             avatar_update.move_mgr_bytes = Some(buf.len() as u32);
                             avatar_update.move_mgr_data = Some(buf);
 
-                            self.send(&session_id, avatar_update.as_message()).await?;
+                            self.send(&client_state_s.peer_id, avatar_update.as_message()).await?;
                         } else {
                             let avatar_component = entry.get_component::<AvatarComponent>().unwrap();
                             let nonclient_base = entry.get_component::<NonClientBaseComponent>().unwrap();
@@ -571,7 +581,7 @@ impl ServerInstance for WorldServer {
                             avatar_update.move_mgr_bytes = Some(buf.len() as u32);
                             avatar_update.move_mgr_data = Some(buf);
 
-                            self.send(&session_id, avatar_update.as_message()).await?;
+                            self.send(&client_state_s.peer_id, avatar_update.as_message()).await?;
                         }
                     } else {
                         if client_state_s.load_state == ClientLoadState::RequestAvatarStream {
@@ -581,7 +591,7 @@ impl ServerInstance for WorldServer {
                             connectionstate.field_1 = ClientLoadState::StreamedAvatars.into();
                             connectionstate.field_2 = 0;
 
-                            self.send(session_id, connectionstate.as_message()).await?;
+                            self.send(&client_state_s.peer_id, connectionstate.as_message()).await?;
                         }
 
                         break;
@@ -625,9 +635,7 @@ impl ServerInstance for WorldServer {
             },
             MessageChannel::RealmChannel { 
                 realm_id: self.1, 
-                channel: RealmChannel::WorldChannel{
-                    world_id: self.2
-                },
+                channel: RealmChannel::ZoneChannel { zone_guid: self.2.clone() }
             }
         ]
     }

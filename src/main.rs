@@ -4,7 +4,7 @@ mod config;
 mod login_server;
 mod realm_server;
 mod frontend_server;
-mod world_server;
+mod zone_server;
 mod cluster;
 mod world;
 mod data_import;
@@ -124,7 +124,7 @@ impl Args {
     }
 }
 
-use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, WorldDef, ItemContent, DatabaseRecord, Character}, frontend_server::FrontendServer, world_server::{WorldServer, WorldServerOptions}};
+use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, WorldDef, ItemContent, DatabaseRecord, Character, ZoneDef}, frontend_server::FrontendServer, zone_server::{ZoneServer, ZoneServerOptions}};
 
 static ARGS: Lazy<Args> = Lazy::new(Args::parse);
 
@@ -223,19 +223,26 @@ async fn main() -> AnotherlandResult<()> {
 
             fs::write("chardata.bin", data);*/
 
-            // load all worlds
-            let worlds = WorldDef::list(realm_database().await).await?.into_iter().map(|w| w.id);
+            // load all zones
+            let zones = ZoneDef::list(realm_database().await).await?.into_iter().map(|z| z.guid);
+            //let worlds = WorldDef::list(realm_database().await).await?.into_iter().map(|w| w.id);
 
             servers.push(ServerRunner::new::<LoginServer>(()));
             servers.push(ServerRunner::new::<RealmServer>(()));
             servers.push(ServerRunner::new::<FrontendServer>(()));
 
-            for world_id in worlds {
-                servers.push(ServerRunner::new::<WorldServer>(WorldServerOptions {
+            for zone_guid in zones {
+                servers.push(ServerRunner::new::<ZoneServer>(ZoneServerOptions {
                     realm_id: CONF.realm.id,
-                    world_id
+                    zone_guid
                 }));
             }
+            /*for world_id in worlds {
+                servers.push(ServerRunner::new::<ZoneServer>(ZoneServerOptions {
+                    realm_id: CONF.realm.id,
+                    zone_guid
+                }));
+            }*/
         }
     }
 
