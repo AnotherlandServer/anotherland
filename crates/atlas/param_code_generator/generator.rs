@@ -845,7 +845,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     fn as_anyclass(&self) -> &AnyClass { &self.0 }
                     fn as_anyclass_mut(&mut self) -> &mut AnyClass { &mut self.0 }
                     fn to_anyclass(self) -> AnyClass { self.0.clone() }
-                    fn from_anyclass(anyclass: AnyClass) -> Self { Self(anyclass) }
                 
                     fn attribute_flags(&self, _attribute: &str) -> &'static [ParamFlag] {
                         &[]
@@ -860,8 +859,8 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                         (#(#to_components_extract),*,)
                     }
 
-                    fn from_component(world: &mut World, entity: Entity) -> Result<Self::ParamClassType, ParamError> {
-                        let entry = world.entry(entity).ok_or(ParamError(()))?;
+                    fn from_component(world: &World, entity: Entity) -> Result<Self::ParamClassType, ParamError> {
+                        let entry = world.entry_ref(entity).map_err(|_| ParamError(()))?;
                         let mut param_class = #class_name::default();
 
                         #(#from_component_extract)*
@@ -918,15 +917,16 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                         _ => None,
                     }
                 }
+
+                fn from_anyclass(anyclass: AnyClass) -> Self { 
+                    Self(anyclass)
+                }
             }
 
             impl ParamClass for #class_name {
                 fn as_anyclass(&self) -> &AnyClass { &self.0 }
                 fn as_anyclass_mut(&mut self) -> &mut AnyClass { &mut self.0 }
                 fn to_anyclass(self) -> AnyClass { self.0 }
-                fn from_anyclass(anyclass: AnyClass) -> Self { 
-                    Self(anyclass)
-                }
 
                 fn attribute_flags(&self, name: &str) -> &'static [ParamFlag] {
                     match name {
@@ -975,6 +975,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                         ParamClassContainer::#unprefixed_class_name(val) => Ok(val),
                         _ => Err(ParamError(()))
                     }
+                }
+            }
+
+            impl Into<ParamClassContainer> for #class_name {
+                fn into(self) -> ParamClassContainer {
+                    ParamClassContainer::#unprefixed_class_name(self)
                 }
             }
         }
@@ -1050,12 +1056,29 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             Ok(ParamClassContainer::#unprefixed_class_name(#class_name::from_json(value)?)), }
     }).collect();
 
-    let class_container_strip_original_data: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-        let class_name_literal = v.borrow().name.to_owned();
 
-        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.as_anyclass_mut().strip_original_data() }
+    let class_container_as_anyclass: Vec<_> = paramlist.classes.iter().map(|v| {
+        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
+
+        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.as_anyclass() }
+    }).collect();
+
+    let class_container_as_anyclass_mut: Vec<_> = paramlist.classes.iter().map(|v| {
+        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
+
+        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.as_anyclass_mut() }
+    }).collect();
+
+    let class_container_to_anyclass: Vec<_> = paramlist.classes.iter().map(|v| {
+        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
+
+        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.to_anyclass() }
+    }).collect();
+
+    let class_container_attribute_flags: Vec<_> = paramlist.classes.iter().map(|v| {
+        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
+
+        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.attribute_flags(attribute) }
     }).collect();
 
     write_source("generated_params.rs", quote! {
@@ -1113,8 +1136,32 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             }
 
             pub fn strip_original_data(&mut self) {
+                self.as_anyclass_mut().strip_original_data();
+            }
+        }
+
+        impl ParamClass for ParamClassContainer {
+            fn as_anyclass(&self) -> &AnyClass {
                 match self {
-                    #(#class_container_strip_original_data),*
+                    #(#class_container_as_anyclass),*
+                }
+            }
+
+            fn as_anyclass_mut(&mut self) -> &mut AnyClass {
+                match self {
+                    #(#class_container_as_anyclass_mut),*
+                }
+            }
+
+            fn to_anyclass(self) -> AnyClass {
+                match self {
+                    #(#class_container_to_anyclass),*
+                }
+            }
+        
+            fn attribute_flags(&self, attribute: &str) -> &'static [ParamFlag] {
+                match self {
+                    #(#class_container_attribute_flags),*
                 }
             }
         }

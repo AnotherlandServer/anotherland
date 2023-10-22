@@ -616,8 +616,6 @@ impl ServerInstance for FrontendServer {
                 }
             },*/
             _ => {
-                debug!("Send message to world: {}", state.session.world_id.unwrap());
-
                 // Serialize the message and send it to the responsible world server to deal with
                 self.world_channels
                     .get(&state.session.world_id.unwrap()).unwrap()

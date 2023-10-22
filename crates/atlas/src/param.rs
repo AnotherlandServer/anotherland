@@ -83,7 +83,7 @@ pub trait ParamEntity: BoundParamClass {
     type ParamClassType;
 
     fn to_entity(self) -> Self::EntityType;
-    fn from_component(world: &mut World, entity: Entity) -> Result<Self::ParamClassType, ParamError>;
+    fn from_component(world: &World, entity: Entity) -> Result<Self::ParamClassType, ParamError>;
 }
 
 pub trait BoundParamClass: ParamClass + Default {
@@ -92,6 +92,8 @@ pub trait BoundParamClass: ParamClass + Default {
     fn class_id() -> ParamClassId { Self::CLASS_ID }
     fn attribute_name(id: u16) -> &'static str;
     fn lookup_field(name: &str) -> Option<u16>;
+
+    fn from_anyclass(anyclass: AnyClass) -> Self;
 
     fn into_persistent_json(&self) -> Value {
         let mut attribute_map = HashMap::<&'static str, Value>::new();
@@ -161,7 +163,6 @@ pub trait ParamClass: Sized {
     fn as_anyclass(&self) -> &AnyClass;
     fn as_anyclass_mut(&mut self) -> &mut AnyClass;
     fn to_anyclass(self) -> AnyClass;
-    fn from_anyclass(anyclass: AnyClass) -> Self;
 
     fn attribute_flags(&self, attribute: &str) -> &'static [ParamFlag];
 
@@ -927,7 +928,7 @@ impl ClassAttrib {
     pub fn is_set(&self) -> bool { self.1.is_set() }
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct AnyClass(HashMap<String, Param>);
 
 impl AnyClass {
@@ -1027,10 +1028,6 @@ impl ParamClass for AnyClass {
     }
 
     fn to_anyclass(self) -> AnyClass { self }
-
-    fn from_anyclass(anyclass: AnyClass) -> Self {
-        anyclass
-    }
 
     fn attribute_flags(&self, name: &str) -> &'static [ParamFlag] {
         &[]

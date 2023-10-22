@@ -19,5 +19,6 @@ use std::ops::Deref;
 use std::io;
 use log::error;
 use legion::{World, Entity};
+use legion::EntityStore;
 
 include!(concat!(env!("OUT_DIR"), "/generated_params.rs"));

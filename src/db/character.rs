@@ -46,7 +46,7 @@ static NEW_CHARACTER_TEMPLATE: Lazy<PlayerParam> = Lazy::new(|| {
     player.set_aware_range(3900.0);
     player.set_bling(-1);
     player.set_collision_extent(Vec3::new(21.0, 21.0, 21.0));
-    player.set_combat_style(0);
+    player.set_combat_style(6);
     player.set_game_cash(-1);
     player.set_hp_cur(1000);
     player.set_hp_max(1000);

@@ -39,6 +39,7 @@ atlas = { version = "0.1.0", path = "crates/atlas" }
 serde_path_to_error = "0.1.14"
 futures = "0.3.28"
 crossbeam = "0.8.2"
+legion = "0.4.0"
 
 
 [dev-dependencies]

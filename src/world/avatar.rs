@@ -1,6 +1,7 @@
+#[derive(Clone, PartialEq, Eq)]
 pub enum AvatarType {
     Player,
-    Npc,
+    NpcOtherland,
     Portal,
     SpawnNode,
     StartingPoint,
