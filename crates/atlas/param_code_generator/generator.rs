@@ -131,6 +131,7 @@ enum ParamFlag {
 struct ParamOptions {
     param_type: ParamType,
     default: Option<String>,
+    default_literal: Option<TokenStream>,
     flags: Vec<ParamFlag>,
 }
 
@@ -249,9 +250,67 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                         }
                     }
 
+                    let default_literal = if let Some(default_str) = default.as_ref() {
+                        match paramtype.as_ref().unwrap() {
+                            ParamType::Any => None,
+                            ParamType::AvatarID => {
+                                let val: u64 = default_str.strip_prefix("#").unwrap().parse().expect("failed to parse avatar id");
+                                Some(quote! { AvatarId::new(#val) })
+                            },
+                            ParamType::AvatarIDSet => None,
+                            ParamType::AvatarIDVector => None,
+                            ParamType::BitSetFilter => None,
+                            ParamType::Bool => if default_str == "true" { Some(quote!{ true }) } else { Some(quote!{ false }) },
+                            ParamType::ClassRefPowerRangeList => None,
+                            ParamType::ContentRef => None,
+                            ParamType::ContentRefAndInt => None,
+                            ParamType::ContentRefList => None,
+                            ParamType::Float => {
+                                let val: f32 = default_str.parse().expect("failed to parse float");
+                                Some(quote! { #val })
+                            },
+                            ParamType::FloatRange => None,
+                            ParamType::FloatVector => None,
+                            ParamType::Guid => Some(quote!{ Uuid::from_str(#default_str).unwrap() }),
+                            ParamType::GuidPair => None,
+                            ParamType::Int => {
+                                let val: i32 = default_str.parse().expect("failed to parse int");
+                                Some(quote! { #val })
+                            },
+                            ParamType::Int64 => {
+                                let val: i64 = default_str.parse().expect("failed to parse int64");
+                                Some(quote! { #val })
+                            },
+                            ParamType::Int64Vector => None,
+                            ParamType::IntVector => None,
+                            ParamType::JSON => Some(quote! { serde_json::from_str(#default_str).unwrap() }),
+                            ParamType::LocalizedString => Some(quote! { Uuid::from_str(#default_str).unwrap() }),
+                            ParamType::String => Some(quote! { #default_str }),
+                            ParamType::StringFloatPair => None,
+                            ParamType::StringStringHashmap => None,
+                            ParamType::StringIntHashmap => None,
+                            ParamType::StringVector => None,
+                            ParamType::Vector3 => {
+                                let parts: Vec<_> = default_str.split(" ").collect();
+                                let x: f32 = parts[0].parse().expect("failed to parse vector3");
+                                let y: f32 = parts[1].parse().expect("failed to parse vector3");
+                                let z: f32 = parts[2].parse().expect("failed to parse vector3");
+
+                                Some(quote! { Vec3::new(#x, #y, #z) })
+                            },
+                            ParamType::OAInstanceGroup => None,
+                            ParamType::OASetGuid => None,
+                            ParamType::OAVectorGuid => None,
+                            ParamType::OAVactorLocalizedString => None,
+                        }
+                    } else {
+                        None
+                    };
+
                     ParamIniLine::ParamOptions(tokens[0].to_owned(), ParamOptions { 
                         param_type: paramtype.unwrap(), 
                         default, 
+                        default_literal,
                         flags, 
                     })
                 },
@@ -549,163 +608,163 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                         })
                     }
 
-                    if options.flags.contains(&ParamFlag::NodeOwn) || options.flags.contains(&ParamFlag::ServerOwn) {
-                        if options.flags.contains(&ParamFlag::Deprecated) {
-                            tokens.push(quote!(#[deprecated]));
-                        }
-                        match options.param_type {
-                            ParamType::Any => tokens.push(quote! { 
-                                    fn #set_field_name<T>(&mut self, _val: T) {
-                                        todo!()
-                                    }
-                                }),
-                            ParamType::AvatarID => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: AvatarId) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::AvatarIDSet => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: HashSet<AvatarId>) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::AvatarIDVector => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Vec<AvatarId>) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::BitSetFilter => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: u32) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::Bool => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: bool) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::ClassRefPowerRangeList => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, _val: ()) {
-                                    todo!()
-                                }
-                            }),
-                            ParamType::ContentRef => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Uuid) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::ContentRefAndInt => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, _val: ()) {
-                                    todo!()
-                                }
-                            }),
-                            ParamType::ContentRefList => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, _val: ()) {
-                                    todo!()
-                                }
-                            }),
-                            ParamType::Float => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: f32) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::FloatRange => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: (f32, f32)) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::FloatVector => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Vec<f32>) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::Guid => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Uuid) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::GuidPair => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: (Uuid, Uuid)) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::Int64 => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: i64) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::Int64Vector => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Vec<i64>) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::IntVector => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Vec<i32>) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::JSON => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Value) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::LocalizedString => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Vec<Uuid>) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::OAInstanceGroup => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, _val: ()) {
-                                    todo!()
-                                }
-                            }),
-                            ParamType::OASetGuid => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, _val: ()) {
-                                    todo!()
-                                }
-                            }),
-                            ParamType::OAVactorLocalizedString => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, _val: ()) {
-                                    todo!()
-                                }
-                            }),
-                            ParamType::OAVectorGuid => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Vec<Uuid>) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::StringFloatPair => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: (String, f32)) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::StringIntHashmap => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: HashMap<String, i32>) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::StringStringHashmap => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: HashMap<String, String>) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::StringVector => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Vec<String>) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            ParamType::Vector3 => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Vec3) {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            }),
-                            _ => tokens.push(quote! { 
-                                fn #set_field_name<T>(&mut self, val: T) where T: Into<Param> {
-                                    self.as_anyclass_mut().set_param(#name, val.into())
-                                }
-                            })
-                        }
+                    //if options.flags.contains(&ParamFlag::NodeOwn) || options.flags.contains(&ParamFlag::ServerOwn) {
+                    if options.flags.contains(&ParamFlag::Deprecated) {
+                        tokens.push(quote!(#[deprecated]));
                     }
+                    match options.param_type {
+                        ParamType::Any => tokens.push(quote! { 
+                                fn #set_field_name<T>(&mut self, _val: T) {
+                                    todo!()
+                                }
+                            }),
+                        ParamType::AvatarID => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: AvatarId) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::AvatarIDSet => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: HashSet<AvatarId>) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::AvatarIDVector => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Vec<AvatarId>) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::BitSetFilter => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: u32) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::Bool => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: bool) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::ClassRefPowerRangeList => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, _val: ()) {
+                                todo!()
+                            }
+                        }),
+                        ParamType::ContentRef => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Uuid) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::ContentRefAndInt => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, _val: ()) {
+                                todo!()
+                            }
+                        }),
+                        ParamType::ContentRefList => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, _val: ()) {
+                                todo!()
+                            }
+                        }),
+                        ParamType::Float => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: f32) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::FloatRange => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: (f32, f32)) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::FloatVector => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Vec<f32>) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::Guid => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Uuid) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::GuidPair => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: (Uuid, Uuid)) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::Int64 => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: i64) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::Int64Vector => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Vec<i64>) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::IntVector => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Vec<i32>) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::JSON => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Value) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::LocalizedString => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Vec<Uuid>) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::OAInstanceGroup => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, _val: ()) {
+                                todo!()
+                            }
+                        }),
+                        ParamType::OASetGuid => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, _val: ()) {
+                                todo!()
+                            }
+                        }),
+                        ParamType::OAVactorLocalizedString => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, _val: ()) {
+                                todo!()
+                            }
+                        }),
+                        ParamType::OAVectorGuid => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Vec<Uuid>) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::StringFloatPair => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: (String, f32)) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::StringIntHashmap => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: HashMap<String, i32>) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::StringStringHashmap => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: HashMap<String, String>) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::StringVector => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Vec<String>) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        ParamType::Vector3 => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: Vec3) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
+                        _ => tokens.push(quote! { 
+                            fn #set_field_name<T>(&mut self, val: T) where T: Into<Param> {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        })
+                    }
+                    //}
 
                     quote! {
                         #(#tokens)*
