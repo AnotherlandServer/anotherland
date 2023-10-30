@@ -1,7 +1,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use chrono::{DateTime, Utc};
-use log::info;
+use log::{info, debug};
 use mongodb::{IndexModel, options::{IndexOptions, InsertManyOptions}, bson::doc};
 use tokio::runtime::Handle;
 
@@ -12,7 +12,7 @@ async fn import_content_table(game_client_path: &PathBuf, src_table: &str, targe
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
-            .join("Atlas\\data\\otherlandgame\\content\\dbbba21e-2342-4357-a777-302ed11b978b\\content.db")
+            .join("Atlas/data/otherlandgame/content/dbbba21e-2342-4357-a777-302ed11b978b/content.db")
         ).unwrap();
 
         let collection = Handle::current().block_on(async move {
@@ -35,11 +35,13 @@ async fn import_content_table(game_client_path: &PathBuf, src_table: &str, targe
             let data = if !bin_data.is_empty() {
                 let mut class = ParamClassContainer::read(row.read::<i64,_>("ixClass") as u16, bin_data).unwrap().1;
                 class.strip_original_data();
+
                 Some(class)
             } else {
                 None
             };
-    
+            
+            
             documents.push(Content {
                 id: row.read::<i64,_>("id"),
                 guid: Uuid::from_str(row.read::<&str,_>("guid")).unwrap(),
@@ -47,6 +49,7 @@ async fn import_content_table(game_client_path: &PathBuf, src_table: &str, targe
                 class: row.read::<i64,_>("ixClass") as u16,
                 data,
             });
+
         }
 
             
@@ -66,7 +69,7 @@ async fn import_instance(game_client_path: &PathBuf) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
-            .join("Atlas\\data\\otherlandgame\\content\\dbbba21e-2342-4357-a777-302ed11b978b\\instance.db")
+            .join("Atlas/data/otherlandgame/content/dbbba21e-2342-4357-a777-302ed11b978b/instance.db")
         ).unwrap();
 
         let collection = Handle::current().block_on(async move {
@@ -131,7 +134,7 @@ async fn import_worlddef(game_client_path: &PathBuf) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
-            .join("Atlas\\data\\otherlandgame\\content\\dbbba21e-2342-4357-a777-302ed11b978b\\instance.db")
+            .join("Atlas/data/otherlandgame/content/dbbba21e-2342-4357-a777-302ed11b978b/instance.db")
         ).unwrap();
 
         let collection = Handle::current().block_on(async move {
@@ -182,7 +185,7 @@ async fn import_zone(game_client_path: &PathBuf) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
-            .join("Atlas\\data\\otherlandgame\\content\\dbbba21e-2342-4357-a777-302ed11b978b\\instance.db")
+            .join("Atlas/data/otherlandgame/content/dbbba21e-2342-4357-a777-302ed11b978b/instance.db")
         ).unwrap();
 
         let collection = Handle::current().block_on(async move {
@@ -241,7 +244,7 @@ async fn import_vendor_data(game_client_path: &PathBuf) -> AnotherlandResult<()>
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
-            .join("Atlas\\data\\otherlandgame\\system\\SKUExport\\SKUItems.db")
+            .join("Atlas/data/otherlandgame/system/SKUExport/SKUItems.db")
         ).unwrap();
 
         let collection = Handle::current().block_on(async move {
@@ -301,7 +304,7 @@ async fn import_shop_items(game_client_path: &PathBuf) -> AnotherlandResult<()> 
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
-            .join("Atlas\\data\\otherlandgame\\system\\SKUExport\\SKUItems.db")
+            .join("Atlas/data/otherlandgame/system/SKUExport/SKUItems.db")
         ).unwrap();
 
         let collection = Handle::current().block_on(async move {
@@ -371,7 +374,7 @@ async fn import_shop_bundles(game_client_path: &PathBuf) -> AnotherlandResult<()
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
-            .join("Atlas\\data\\otherlandgame\\system\\SKUExport\\SKUItems.db")
+            .join("Atlas/data/otherlandgame/system/SKUExport/SKUItems.db")
         ).unwrap();
 
         let collection = Handle::current().block_on(async move {

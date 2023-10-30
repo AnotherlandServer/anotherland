@@ -1,6 +1,7 @@
 use core::fmt;
 use std::any;
 use std::any::Any;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
@@ -11,6 +12,8 @@ use bitstream_io::ByteWrite;
 use glam::Quat;
 use legion::Entity;
 use legion::World;
+use log::debug;
+use log::trace;
 use nom::IResult;
 use nom::bytes::complete::take;
 use nom::error::VerboseError;
@@ -150,7 +153,7 @@ pub trait BoundParamClass: ParamClass + Default {
         where T: ByteWrite
     {
         let anyclass = self.as_anyclass();
-        anyclass.raw_write_to_client(writer)
+        anyclass.raw_write_to_client(self, writer)
     }
 }
 
@@ -958,26 +961,66 @@ impl AnyClass {
     {
         writer.write(1u8)?;
 
-        let filtered_params: Vec<_> = self.0.iter().filter(|(_, a)| !a.should_skip()).collect();
+        let mut filtered_params: Vec<_> = self.0.iter().filter(|(_, a)| !a.should_skip())
+            .map(|(name, param)| {
+                (C::lookup_field(name).unwrap(), param)
+            })
+            .collect();
         writer.write(filtered_params.len() as u16)?;
 
-        for (name, a) in filtered_params {
-            if !a.should_skip() {
-                writer.write(C::lookup_field(name).unwrap())?;
-                a.write(writer)?;
+        filtered_params.sort_by(|(a, _), (b, _)| {
+            if a == b { 
+                Ordering::Equal 
+            } else if a < b {
+                Ordering::Less
+            } else {
+                Ordering::Greater
             }
+        });
+        
+        trace!("Write class: {}", std::any::type_name::<C>());
+
+
+        for (id, a) in filtered_params {
+            debug!("Write id: {}", id);
+
+            writer.write(id)?;
+            a.write(writer)?;
         }
 
         Ok(())
     }
 
-    fn raw_write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> where T: ByteWrite {
-        writer.write(1u8)?;
+    fn raw_write_to_client<T, C>(&self, outer: &C, writer: &mut T) -> Result<(), io::Error> 
+        where T: ByteWrite,
+        C: BoundParamClass
+    {
+        let mut filtered_params: Vec<_> = self.0.iter()
+        .filter(|(name, a)| !a.should_skip() && !outer.attribute_has_flag(name, &ParamFlag::ExcludeFromClient))
+        .map(|(name, param)| {
+            (C::lookup_field(name).unwrap(), param)
+        })
+        .collect();
+    
+        filtered_params.sort_by(|(a, _), (b, _)| {
+            if a == b { 
+                Ordering::Equal 
+            } else if a < b {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        });
+        
+        debug!("Write class: {}", std::any::type_name::<C>());
 
-        let filtered_params: Vec<_> = self.0.iter().filter(|(name, a)| !a.should_skip() && !self.attribute_has_flag(name, &ParamFlag::ExcludeFromClient)).collect();
+        writer.write(1u8)?;
         writer.write(filtered_params.len() as u16)?;
 
-        for (_, a) in filtered_params {
+        for (id, a) in filtered_params {
+            debug!("Write id: {}", id);
+
+            writer.write(id)?;
             a.write(writer)?;
         }
 
@@ -1043,18 +1086,18 @@ impl IntoIterator for AnyClass {
     }
 }
 
-/*#[cfg(test)]
+#[cfg(test)]
 mod tests {
     use std::{io, path::Path, env};
     use bitstream_io::{ByteWriter, LittleEndian};
     use test_case::test_case;
 
-    use crate::param::{AnyClass, ParamClass};
+    use crate::{param::{AnyClass, ParamClass}, ParamClassContainer};
 
     fn test_content(client_path: &Path, table: &str) -> io::Result<()> {
         let db = sqlite::open(
             client_path
-            .join("Atlas\\data\\otherlandgame\\content\\dbbba21e-2342-4357-a777-302ed11b978b\\content.db")
+            .join("Atlas/data/otherlandgame/content/dbbba21e-2342-4357-a777-302ed11b978b/content.db")
         ).unwrap();
     
         let result = db
@@ -1068,10 +1111,11 @@ mod tests {
             let original_data = row.read::<&[u8], _>("data");
             let guid = row.read::<&str,_>("guid");
             let name: String = row.read::<&str,_>("name").chars().into_iter().filter(|c| c.is_ascii_graphic()).collect();
+            let class_id = row.read::<i64,_>("ixClass") as u16;
 
             println!("Testing {} - {}", guid.to_string(), name);
 
-            let (_, class) = AnyClass::read(original_data).expect("Parse failed");
+            let (_, class) = ParamClassContainer::read(class_id, original_data).expect("Parse failed");
             let mut serialized_data = Vec::new();
             let mut writer = ByteWriter::endian(&mut serialized_data, LittleEndian);
             class.write(&mut writer)?;
@@ -1105,4 +1149,4 @@ mod tests {
 
         Ok(())
     }
-}*/
+}

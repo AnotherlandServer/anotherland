@@ -283,7 +283,10 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             },
                             ParamType::Int64Vector => None,
                             ParamType::IntVector => None,
-                            ParamType::JSON => Some(quote! { serde_json::from_str(#default_str).unwrap() }),
+                            ParamType::JSON => {
+                                let json = default_str.replace("\\\"", "\"");
+                                Some(quote! { serde_json::from_str(#json).unwrap() })
+                            },
                             ParamType::LocalizedString => Some(quote! { Uuid::from_str(#default_str).unwrap() }),
                             ParamType::String => Some(quote! { #default_str }),
                             ParamType::StringFloatPair => None,
@@ -425,6 +428,33 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             quote!{ 
                 if let Some(param) = self.as_anyclass().get_param(#name) {
                     new_class.set_param(#name, param.clone()); 
+                }
+            }
+        }).collect();
+
+        let default_setters: Vec<_> = params.iter()
+        .filter(|(name, _, _)| v.borrow().param_is_owned(name))
+        .map(|(name, id, options)| {
+            let mut field_name = Converter::new()
+            .set_boundaries(&[Boundary::Hyphen, Boundary::Underscore, Boundary::Space, Boundary::LowerUpper])
+            .set_pattern(Pattern::Lowercase)
+            .set_delim("_")
+            .convert(name);
+            let param_id = *id;
+
+            let field_name_ident = format_ident!("{}", match field_name.as_str() {
+                "static" => "r#static",
+                "type" => "r#type",
+                _ => field_name.as_str(),
+            });
+            let set_field_name = format_ident!("set_{}", field_name);
+
+            match options.clone().map(|v| v.default_literal).flatten() {
+                Some(literal) => {
+                    quote!{instance.#set_field_name(#literal);}
+                },
+                None => {
+                    quote!()
                 }
             }
         }).collect();
@@ -709,7 +739,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             }
                         }),
                         ParamType::LocalizedString => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Vec<Uuid>) {
+                            fn #set_field_name(&mut self, val: Uuid) {
                                 self.as_anyclass_mut().set_param(#name, val.into())
                             }
                         }),
@@ -956,7 +986,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
             impl Default for #class_name {
                 fn default() -> Self {
-                    Self(AnyClass::new())
+                    let mut instance = Self(AnyClass::new());
+                    
+                    #(#default_setters)*
+                    
+                    instance
                 }
             }
 
@@ -990,7 +1024,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 fn attribute_flags(&self, name: &str) -> &'static [ParamFlag] {
                     match name {
                         #(#attrib_flags)*
-                        _ => &[],
+                        _ => &[ParamFlag::Persistent],
                     }
                 }
             }
@@ -1098,6 +1132,13 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         quote! { ParamClassContainer::#unprefixed_class_name(class) => class.write(writer)? }
     }).collect();
 
+    let class_container_write_to_client: Vec<_> = paramlist.classes.iter().map(|v| {
+        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
+        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
+
+        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.write_to_client(writer)? }
+    }).collect();
+
     let class_container_to_persistent_json: Vec<_> = paramlist.classes.iter().map(|v| {
         let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
         let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
@@ -1169,6 +1210,16 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             {
                 match self {
                     #(#class_container_write),*
+                }
+
+                Ok(())
+            }
+
+            pub fn write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> 
+            where T: ByteWrite
+            {
+                match self {
+                    #(#class_container_write_to_client),*
                 }
 
                 Ok(())

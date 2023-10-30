@@ -33,6 +33,12 @@ impl Zone {
     pub fn zonedef(&self) -> &ZoneDef { &self.zonedef }
     pub fn instance(&self) -> &Arc<RwLock<World>> { &self.instance }
 
+    pub async fn remove_avatar(&mut self, avatar_id: &AvatarId) {
+        if let Some(entity) = self.avatar_entity_map.remove(avatar_id) {
+            self.instance.write().await.remove(entity);
+        }
+    }
+
     pub async fn spawn_avatar<T>(&mut self, avatar_type: AvatarType, name: &str, components: T) -> (AvatarId, Entity) 
         where Option<T>: IntoComponentSource
     {
@@ -58,6 +64,7 @@ impl Zone {
             }
         };
 
+        //debug!("Generate id {:016x}", id.as_u64());
 
         let entity = self.instance.write().await.push(components);
         self.instance.write().await.entry(entity).unwrap().add_component(avatar_type);

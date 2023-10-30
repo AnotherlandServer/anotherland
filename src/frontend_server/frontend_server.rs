@@ -624,13 +624,21 @@ impl ServerInstance for FrontendServer {
             },*/
             _ => {
                 // Serialize the message and send it to the responsible zone server to deal with
-                self.zone_channels
-                    .get(&state.session.zone_guid.as_ref().unwrap()).unwrap()
-                    .send(ClusterMessage::Request { 
-                        session_id: state.session.id.clone(), 
-                        peer_id: peer_id.clone(),
-                        data: request.message().to_bytes()
-                    }).await?;
+                match self.zone_channels
+                    .get(&state.session.zone_guid.as_ref().unwrap()) {
+
+                    Some(zone_channel) => {
+                        zone_channel.send(ClusterMessage::Request { 
+                            session_id: state.session.id.clone(), 
+                            peer_id: peer_id.clone(),
+                            data: request.message().to_bytes()
+                        }).await?;
+                    },
+                    None => {
+                        warn!("No zone channel for zone {}", state.session.zone_guid.as_ref().unwrap());
+                        request.peer().write().await.disconnect().await;
+                    }
+                }
             }
         }
 

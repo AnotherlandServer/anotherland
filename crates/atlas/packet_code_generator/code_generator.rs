@@ -316,7 +316,7 @@ pub fn generate_field_parser_code(generated_struct: &GeneratedStruct, field: &Fi
             }
 
             for field in is_false {
-                parser_code.extend(generate_field_parser_code(generated_struct, field, Some(sub_condition.clone())))
+                parser_code.extend(generate_field_parser_code(generated_struct, field, Some(quote!{!#sub_condition})))
             }
 
             parser_code
@@ -324,15 +324,16 @@ pub fn generate_field_parser_code(generated_struct: &GeneratedStruct, field: &Fi
         FieldDefinition::Field { name, .. } => {
             let generated_field = generated_struct.fields_mapped.get(name.as_ref().unwrap()).unwrap().borrow();
             let field_ident = format_ident!("{}", generated_field.name);
+            let field_name = generated_field.name.as_str();
             let parser = generate_nom_parser_for_field(generated_struct, field);
 
             if let Some(condition) = condition {
                 quote! {
-                    let (i, #field_ident) = cond(#condition, #parser)(i)?;
+                    let (i, #field_ident) = cond(#condition, context(#field_name, #parser))(i)?;
                 }
             } else {
                 quote! {
-                    let (i, #field_ident) = #parser(i)?;
+                    let (i, #field_ident) = context(#field_name, #parser)(i)?;
                 }
             }
         }

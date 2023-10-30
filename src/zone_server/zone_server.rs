@@ -103,9 +103,13 @@ impl Deref for ZoneServer {
 
 impl ZoneServer {
     async fn send(&self, peer_id: &Uuid, message: Message) -> AnotherlandResult<()> {
+        let serialized = message.to_bytes();
+
+        debug!("Sending message of size {}", serialized.len());
+
         self.read().await.frontend.send(ClusterMessage::Response { 
             peer_id: peer_id.to_owned(), 
-            data: message.to_bytes()
+            data: serialized
         }).await
     }
 
@@ -316,7 +320,23 @@ impl ServerInstance for ZoneServer {
 
     async fn handle_cluster_message(&mut self, message: ClusterMessage) -> AnotherlandResult<()> {
         match message {
-            ClusterMessage::InvalidateSession { session_id } => { Ok(()) },
+            ClusterMessage::InvalidateSession { session_id } => { 
+                if let Some(state) = self.write().await.client_state.remove(&session_id) {
+                    let state = state.read().await;
+                    self.read().await.zone.write().await.remove_avatar(&state.avatar_id).await;
+                    
+                    // update all other states and tell them to remove the avatar assigned to this session
+                    let self = self.read().await;
+                    for other_state in self.client_state.values() {
+                        let mut other_state = other_state.write().await;
+                        other_state.avatar_despawn_queue.push_back(state.avatar_id.clone());
+                        other_state.avatar_upload_queue.retain(|id| *id != state.entity);
+                        other_state.interest_list.retain(|id| *id != state.entity);
+                    }
+                }
+
+                Ok(()) 
+            },
             ClusterMessage::Request { session_id, peer_id, data } => {
                 let world_state = self.clone();
 
@@ -443,8 +463,6 @@ impl ServerInstance for ZoneServer {
 
             // upload avatars
             if client_state_s.load_state != ClientLoadState::EarlyLoadSequence {
-                //let slice = client_state_s.avatar_upload_queue.retain(f);
-
                 // limit to push up to 5 avatars per tick
                 for _ in 0..5 {
                     if let Some(entity) = client_state_s.avatar_upload_queue.pop_front() {
@@ -506,18 +524,22 @@ impl ServerInstance for ZoneServer {
                             };
     
                             let mut buf = Vec::new();
-                            let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
-                    
-                            let _ = writer.write_bytes(&pos.to_bytes());
-    
-                            let _ = writer.write(0u8);
-                            let _ = writer.write(0u16);
-                            let _ = writer.write(0u64);
-                            let _ = writer.write(0u64);
+                            {
+                                let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
+                        
+                                let _ = writer.write_bytes(&pos.to_bytes());
+        
+                                let _ = writer.write(0u8);
+                                let _ = writer.write(0u16);
+                                let _ = writer.write(0u64);
+                                let _ = writer.write(0u64);
+                            }
     
                             let mut data = Vec::new();
-                            let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-                            params.write(&mut writer)?;
+                            {
+                                let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+                                params.write_to_client(&mut writer)?;
+                            }
     
                             let mut avatar_update = CPktAvatarUpdate::default();
                             avatar_update.full_update = true;
@@ -526,7 +548,7 @@ impl ServerInstance for ZoneServer {
                             avatar_update.name = Some(avatar_component.name.clone());
                             avatar_update.class_id = Some(params.class_id().as_u32());
                             avatar_update.field_6 = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
-                            //avatar_update.flags = Some(2);
+                            avatar_update.flags = Some(0);
                             //avatar_update.flag_2_uuid = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
                             avatar_update.param_bytes = data.len() as u32;
                             avatar_update.params = data;
@@ -563,7 +585,7 @@ impl ServerInstance for ZoneServer {
     
                             let mut data = Vec::new();
                             let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-                            params.write(&mut writer)?;
+                            params.write_to_client(&mut writer)?;
     
                             let mut avatar_update = CPktAvatarUpdate::default();
                             avatar_update.full_update = true;
@@ -572,10 +594,12 @@ impl ServerInstance for ZoneServer {
                             avatar_update.name = Some(avatar_component.name.clone());
                             avatar_update.class_id = Some(params.class_id().as_u32());
                             avatar_update.field_6 = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
-                            //avatar_update.flags = Some(2);
+                            avatar_update.flags = Some(0);
                             //avatar_update.flag_2_uuid = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
                             avatar_update.param_bytes = data.len() as u32;
                             avatar_update.params = data;
+
+                            //debug!("Sending params of size {} - pkt field {}", data.len(), avatar_update.param_bytes);
                             
                             avatar_update.update_source = 0;
                             avatar_update.move_mgr_bytes = Some(buf.len() as u32);

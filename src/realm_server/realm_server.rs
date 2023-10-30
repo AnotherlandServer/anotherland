@@ -133,9 +133,9 @@ impl ServerInstance for RealmServer {
                 let characters: Vec<oaCharacter> = Character::list(self.realm_db.clone(), &state.account.id).await?.into_iter().map(|c| {
                     let mut serialized = Vec::new();
                     let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
-                    c.data.write(&mut writer).expect("Serialization failed");
+                    c.data.write_to_client(&mut writer).expect("Serialization failed");
 
-                    fs::write("chardata2.bin", serialized.clone());
+                    //fs::write("chardata2.bin", serialized.clone());
                     
                     oaCharacter {
                         id: c.id,

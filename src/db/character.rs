@@ -30,41 +30,12 @@ pub struct Character {
 
 static NEW_CHARACTER_TEMPLATE: Lazy<PlayerParam> = Lazy::new(|| {
     let mut player = PlayerParam::default();
-    player.set_alive(true);
-    player.set_attribute_constitution(32.0);
-    player.set_attribute_crafting(32.0);
-    player.set_attribute_dexterity(32.0);
-    player.set_attribute_disguise(32.0);
-    player.set_attribute_energy(32.0);
-    player.set_attribute_focus(32.0);
-    player.set_attribute_intuition(32.0);
-    player.set_attribute_movement(32.0);
-    player.set_attribute_strength(32.0);
-    player.set_attribute_wisdom(32.0);
-    player.set_auto_loot_radius(60.0);
-    player.set_aware_dist(3900.0);
-    player.set_aware_range(3900.0);
-    player.set_bling(-1);
-    player.set_collision_extent(Vec3::new(21.0, 21.0, 21.0));
-    player.set_combat_style(6);
-    player.set_game_cash(-1);
-    player.set_hp_cur(1000);
-    player.set_hp_max(1000);
-    player.set_hp_min(0);
-    player.set_jump_velocity(310.0);
-    player.set_move_speed(192.0);
-    player.set_lvl(1);
-    player.set_size(1.0);
-    player.set_spawn_mode(0);
-    player.set_zone("ClassSelection_P");
-    player.set_zone_guid(Uuid::from_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
-    player.set_first_time_spawn(true);
-    player.set_default_items_content_guid(vec![40711, 40712, 40713, 41206]);
-    player.set_last_skusync_time(UNIX_EPOCH.elapsed().unwrap().as_secs() as i64);
-    player.set_last_vendor_sync_time(UNIX_EPOCH.elapsed().unwrap().as_secs() as i64);
-    player.set_tutorial_mode(false);
 
-    // visible stuff
+    player.set_world_map_guid(Uuid::from_str("f6b8f8b7-a726-4d36-9634-f6d403943fff").unwrap());
+    player.set_zone_guid(Uuid::from_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
+    player.set_zone("ClassSelection_P");
+
+    // default customization
     player.set_visible_item_info(vec![3840]);
     player.set_customization_gender(1.0);
     player.set_customization_height(0.5);
