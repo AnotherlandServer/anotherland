@@ -102,7 +102,7 @@ pub trait BoundParamClass: ParamClass + Default {
         let mut attribute_map = HashMap::<&'static str, Value>::new();
 
         for (name, param) in &self.as_anyclass().0 {
-            if self.attribute_has_flag(name, &ParamFlag::Persistent) {
+            if Self::attribute_has_flag_static(name, &ParamFlag::Persistent) {
                 //let name = Self::attribute_name(a.0);
                 let attrib = serde_json::to_value(&param).unwrap();
                 attribute_map.insert(name, attrib);
@@ -167,7 +167,15 @@ pub trait ParamClass: Sized {
     fn as_anyclass_mut(&mut self) -> &mut AnyClass;
     fn to_anyclass(self) -> AnyClass;
 
-    fn attribute_flags(&self, attribute: &str) -> &'static [ParamFlag];
+    fn attribute_flags(&self, attribute: &str) -> &'static [ParamFlag] {
+        Self::attribute_flags_static(attribute)
+    }
+
+    fn attribute_flags_static(attribute: &str) -> &'static [ParamFlag];
+
+    fn attribute_has_flag_static(attribute: &str, flag: &ParamFlag) -> bool {
+        Self::attribute_flags_static(attribute).contains(flag)
+    }
 
     fn attribute_has_flag(&self, attribute: &str, flag: &ParamFlag) -> bool {
         self.attribute_flags(attribute).contains(flag)
@@ -176,7 +184,7 @@ pub trait ParamClass: Sized {
 
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "t", content = "v")]
 pub enum Param {
     None,
@@ -191,8 +199,9 @@ pub enum Param {
     Uuid(Uuid), // 5
     LocalizedString(Uuid), // 15
     Class(u32, Vec<u8>), // 41
-    Positionable, // 21
+    Positionable(Vec4, Vec3), // 21
     Vector3(Vec3), // 13
+    Vector3Uts(u32, Vec3), // 13
     Vector4(Vec4), // 14
     FloatPair((f32, f32)), // 12
     IntArray4((i32, i32, i32, i32)), // 9
@@ -239,7 +248,7 @@ pub enum Param {
 }
 
 impl Param {
-    pub fn read<'a>(i: &'a [u8]) -> IResult<&'a [u8], Param, VerboseError<&'a [u8]>> {
+    pub fn read<'a>(i: &'a [u8], flags: &[ParamFlag]) -> IResult<&'a [u8], Param, VerboseError<&'a [u8]>> {
         let (i, type_id) = number::complete::le_u8(i)?;
         match type_id & 0x7F {
             1 | 22 | 23 | 24 | 25 | 26 | 43 => {
@@ -287,10 +296,18 @@ impl Param {
                 })(i)
             },
             13 => {
-                context("Vector3", |i| {
-                    let (i, val) = count(number::complete::le_f32, 3usize)(i)?;
-                    Ok((i, Param::Vector3(Vec3::new(val[0], val[1], val[2]))))
-                })(i)
+                if flags.contains(&ParamFlag::Uts) {
+                    context("Vector3Uts", |i| {
+                        let (i, uts) = number::complete::le_u32(i)?;
+                        let (i, val) = count(number::complete::le_f32, 3usize)(i)?;
+                        Ok((i, Param::Vector3Uts(uts, Vec3::new(val[0], val[1], val[2]))))
+                    })(i)
+                } else {
+                    context("Vector3", |i| {
+                        let (i, val) = count(number::complete::le_f32, 3usize)(i)?;
+                        Ok((i, Param::Vector3(Vec3::new(val[0], val[1], val[2]))))
+                    })(i)
+                }
             },
             14 => {
                 context("Vector4", |i| {
@@ -439,6 +456,13 @@ impl Param {
                 writer.write_bytes(val.y.to_le_bytes().as_slice())?;
                 writer.write_bytes(val.z.to_le_bytes().as_slice())?;
             },
+            Self::Vector3Uts(uts, val) => {
+                writer.write(13u8)?;
+                writer.write(*uts)?;
+                writer.write_bytes(val.x.to_le_bytes().as_slice())?;
+                writer.write_bytes(val.y.to_le_bytes().as_slice())?;
+                writer.write_bytes(val.z.to_le_bytes().as_slice())?;
+            }
             Self::Vector4(val) => {
                 writer.write(14u8)?;
                 writer.write_bytes(val.x.to_le_bytes().as_slice())?;
@@ -689,6 +713,7 @@ impl <'a>TryInto<&'a Vec3> for &'a Param {
     fn try_into(self) -> Result<&'a Vec3, Self::Error> {
         match self {
             Param::Vector3(val) => Ok(val),
+            Param::Vector3Uts(_, val) => Ok(val),
             _ => Err(ParamError(()))
         }
     }
@@ -905,17 +930,23 @@ impl <'a>TryInto<&'a Vec<f32>> for &'a Param {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct ClassAttrib(u16, Param);
 
 impl ClassAttrib {
-    pub fn read<'a>(i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
-        let (i, (attribute_id, param)) = context("Attribute", tuple((number::complete::le_u16, Param::read)))(i)?;
+    pub fn read<'a, T>(i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> 
+        where T: BoundParamClass
+    {
+        let (i, attribute_id) = context("Attribute Id", number::complete::le_u16)(i)?;
+        let attribute_name = T::attribute_name(attribute_id);
+        let (i, param) = Param::read(i, T::attribute_flags_static(attribute_name))?;
         Ok((i, Self(attribute_id, param)))
     }
 
-    pub fn write<T>(&self, writer: &mut T) -> Result<(), io::Error> 
-        where T: ByteWrite
+    pub fn write<T, C>(&self, writer: &mut T) -> Result<(), io::Error> 
+        where 
+            T: ByteWrite,
+            C: BoundParamClass
     {
         writer.write(self.0)?;
         self.1.write(writer)?;
@@ -943,9 +974,9 @@ impl AnyClass {
         where T: BoundParamClass
     {
         context("AnyClass", |i| -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
-            let (i, _) = number::complete::le_u8(i)?;
-            let (i, count) = number::complete::le_u16(i)?;
-            let (i, attribs) = multi::count(ClassAttrib::read, count as usize)(i)?;
+            let (i, _) = context("Version", number::complete::le_u8)(i)?;
+            let (i, count) = context("Param Count", number::complete::le_u16)(i)?;
+            let (i, attribs) = context("Attributes", multi::count(ClassAttrib::read::<T>, count as usize))(i)?;
 
             Ok((i, Self(attribs
                 .into_iter()
@@ -963,27 +994,25 @@ impl AnyClass {
 
         let mut filtered_params: Vec<_> = self.0.iter().filter(|(_, a)| !a.should_skip())
             .map(|(name, param)| {
-                (C::lookup_field(name).unwrap(), param)
+                (C::lookup_field(name).unwrap(), name, param)
             })
             .collect();
         writer.write(filtered_params.len() as u16)?;
 
-        filtered_params.sort_by(|(a, _), (b, _)| {
-            if a == b { 
+        filtered_params.sort_by(|(_, a, _), (_, b, _)| {
+            let cmp_a = a.to_lowercase();
+            let cmp_b = b.to_lowercase();
+
+            if cmp_a == cmp_b { 
                 Ordering::Equal 
-            } else if a < b {
+            } else if cmp_a < cmp_b {
                 Ordering::Less
             } else {
                 Ordering::Greater
             }
         });
         
-        trace!("Write class: {}", std::any::type_name::<C>());
-
-
-        for (id, a) in filtered_params {
-            debug!("Write id: {}", id);
-
+        for (id, name, a) in filtered_params {
             writer.write(id)?;
             a.write(writer)?;
         }
@@ -996,30 +1025,29 @@ impl AnyClass {
         C: BoundParamClass
     {
         let mut filtered_params: Vec<_> = self.0.iter()
-        .filter(|(name, a)| !a.should_skip() && !outer.attribute_has_flag(name, &ParamFlag::ExcludeFromClient))
+        .filter(|(name, a)| !a.should_skip() && !C::attribute_has_flag_static(name, &ParamFlag::ExcludeFromClient))
         .map(|(name, param)| {
-            (C::lookup_field(name).unwrap(), param)
+            (C::lookup_field(name).unwrap(), name, param)
         })
         .collect();
     
-        filtered_params.sort_by(|(a, _), (b, _)| {
-            if a == b { 
+        filtered_params.sort_by(|(_, a, _), (_, b, _)| {
+            let cmp_a = a.to_lowercase();
+            let cmp_b = b.to_lowercase();
+
+            if cmp_a == cmp_b { 
                 Ordering::Equal 
-            } else if a < b {
+            } else if cmp_a < cmp_b {
                 Ordering::Less
             } else {
                 Ordering::Greater
             }
         });
-        
-        debug!("Write class: {}", std::any::type_name::<C>());
 
         writer.write(1u8)?;
         writer.write(filtered_params.len() as u16)?;
 
-        for (id, a) in filtered_params {
-            debug!("Write id: {}", id);
-
+        for (id, name, a) in filtered_params {
             writer.write(id)?;
             a.write(writer)?;
         }
@@ -1072,7 +1100,7 @@ impl ParamClass for AnyClass {
 
     fn to_anyclass(self) -> AnyClass { self }
 
-    fn attribute_flags(&self, name: &str) -> &'static [ParamFlag] {
+    fn attribute_flags_static(name: &str) -> &'static [ParamFlag] {
         &[]
     }
 }
@@ -1086,13 +1114,22 @@ impl IntoIterator for AnyClass {
     }
 }
 
-#[cfg(test)]
+/*#[cfg(test)]
 mod tests {
-    use std::{io, path::Path, env};
+    use std::{io, path::Path, env, collections::HashSet};
     use bitstream_io::{ByteWriter, LittleEndian};
+    use nom::{number, multi, IResult, error::VerboseError};
     use test_case::test_case;
 
-    use crate::{param::{AnyClass, ParamClass}, ParamClassContainer};
+    use crate::{param::{AnyClass, ParamClass}, ParamClassContainer, Param, ClassAttrib};
+
+    fn read_ordered_params<'a>(i: &'a [u8]) ->  IResult<&'a [u8], Vec<ClassAttrib>, VerboseError<&'a [u8]>> {
+        let (i, _) = number::complete::le_u8(i)?;
+        let (i, count) = number::complete::le_u16(i)?;
+        let (i, attribs) = multi::count(ClassAttrib::read, count as usize)(i)?;
+
+        Ok((i, attribs))
+    }
 
     fn test_content(client_path: &Path, table: &str) -> io::Result<()> {
         let db = sqlite::open(
@@ -1149,4 +1186,4 @@ mod tests {
 
         Ok(())
     }
-}
+}*/

@@ -18,6 +18,7 @@ use std::collections::{HashSet, HashMap};
 use std::ops::Deref;
 use std::io;
 use log::error;
+use log::debug;
 use legion::{World, Entity};
 use legion::EntityStore;
 

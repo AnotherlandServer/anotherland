@@ -1,16 +1,24 @@
+use std::fmt::Debug;
 use std::num::NonZeroU64;
 
 use serde::{Serialize, Deserialize, de};
 use serde::ser::Serializer;
 use serde::de::{Deserializer, Visitor, SeqAccess};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct AvatarId(u64);
 
 impl AvatarId {
     pub fn new(val: u64) -> Self { Self(val) }
     pub fn as_u64(&self) -> u64 { self.0 }
+}
+
+impl Debug for AvatarId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{:016x}", self.0)
+        //f.debug_tuple("AvatarId").field(&format!("#{:016x}", self.0)).finish()
+    }
 }
 
 impl Serialize for AvatarId {

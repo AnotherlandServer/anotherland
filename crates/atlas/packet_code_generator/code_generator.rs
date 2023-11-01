@@ -239,11 +239,11 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
                             let array_len_field = generated_struct.fields_mapped.get(field).unwrap().borrow();
                             let array_len_field_ident = format_ident!("{}", array_len_field.name);
 
-                            if array_len_field.optional {
-                                quote!(#array_len_field_ident.unwrap_or(0) as usize)
-                            } else {
+                            //if array_len_field.optional {
+                            //    quote!(#array_len_field_ident.unwrap_or(0) as usize)
+                            //} else {
                                 quote!(#array_len_field_ident as usize)
-                            }
+                            //}
                         }
                     };
                     
@@ -274,52 +274,116 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
 
 pub fn generate_field_parser_code(generated_struct: &GeneratedStruct, field: &FieldDefinition, condition: Option<TokenStream>) -> TokenStream {
     match field {
-        FieldDefinition::Branch { field, test, is_true, is_false } => {
-            let generated_cond_field = generated_struct.fields_mapped.get(field).unwrap().borrow();
+        FieldDefinition::Branch { field: field_name, test, is_true, is_false } => {
+            let generated_cond_field = generated_struct.fields_mapped.get(field_name).unwrap().borrow();
             let cond_field_ident = format_ident!("{}", generated_cond_field.name);
             let mut sub_condition = match &test {
                 BranchTestDefinition::BoolValue => {
-                    if generated_cond_field.optional {
-                        quote!{#cond_field_ident.unwrap()}
-                    } else {
+                    //if generated_cond_field.optional {
+                    //    quote!{#cond_field_ident.unwrap()}
+                    //} else {
                         quote!{#cond_field_ident}
-                    }
+                    //}
                 },
                 BranchTestDefinition::TestFlag(flag) => {
                     let val = TokenStream::from_str(&format!("{}", flag)).unwrap();
 
-                    if generated_cond_field.optional {
-                        quote!{(#cond_field_ident.unwrap() & #val) != 0}
-                    } else {
+                    //if generated_cond_field.optional {
+                    //    quote!{(#cond_field_ident.unwrap() & #val) != 0}
+                    //} else {
                         quote!{(#cond_field_ident & #val) != 0}
-                    }
+                    //}
                 },
                 BranchTestDefinition::TestEqual(val) => {
                     let val = TokenStream::from_str(&format!("{}", val)).unwrap();
 
-                    if generated_cond_field.optional {
-                        quote!{#cond_field_ident.unwrap() == #val}
-                    } else {
+                    //if generated_cond_field.optional {
+                    //    quote!{#cond_field_ident.unwrap() == #val}
+                    //} else {
                         quote!{#cond_field_ident == #val}
-                    }
+                    //}
                 },
             };
 
-            if let Some(parent_condition) = condition {
+            /*if let Some(parent_condition) = condition {
                 sub_condition = quote! { #parent_condition && #sub_condition };
-            };
+            };*/
 
-            let mut parser_code = quote!();
+            let mut true_code = quote!();
+            let mut false_code = quote!();
 
             for field in is_true {
-                parser_code.extend(generate_field_parser_code(generated_struct, field, Some(sub_condition.clone())))
+                true_code.extend(generate_field_parser_code(generated_struct, field, Some(sub_condition.clone())))
             }
 
             for field in is_false {
-                parser_code.extend(generate_field_parser_code(generated_struct, field, Some(quote!{!#sub_condition})))
+                false_code.extend(generate_field_parser_code(generated_struct, field, Some(quote!{!#sub_condition})))
             }
 
-            parser_code
+            let field_names = field.contained_field_names();
+            let field_name_idents: Vec<_> = field_names.iter().map(|f| format_ident!("{}", generated_struct.fields_mapped.get(f).unwrap().borrow().name)).collect();
+
+            let true_field_results: Vec<_> = field_names.iter().map(|f| {
+                let mut contained = false;
+                let mut owned = false;
+
+                for sf in is_true {
+                    if sf.has_subfield(f) {
+                        contained = true;
+                        owned = field.owns_field(f);
+                        break;
+                    }
+                }
+
+                if contained {
+                    let ident = format_ident!("{}", generated_struct.fields_mapped.get(f).unwrap().borrow().name);
+
+                    if owned {
+                        quote!{ Some(#ident) }
+                    } else {
+                        quote!{ #ident }
+                    }
+                } else {
+                    quote!{ None }
+                }
+            }).collect();
+
+            let false_field_results: Vec<_> = field_names.iter().map(|f| {
+                let mut contained = false;
+                let mut owned = false;
+
+                for sf in is_false {
+                    if sf.has_subfield(f) {
+                        contained = true;
+                        owned = field.owns_field(f);
+                        break;
+                    }
+                }
+
+                if contained {
+                    let ident = format_ident!("{}", generated_struct.fields_mapped.get(f).unwrap().borrow().name);
+                    
+                    if owned {
+                        quote!{ Some(#ident) }
+                    } else {
+                        quote!{ #ident }
+                    }
+                } else {
+                    quote!{ None }
+                }
+            }).collect();
+
+            quote! {
+                let (i, #(#field_name_idents),*) = if #sub_condition {
+                    #true_code
+
+                    (i, #(#true_field_results),*)
+                } else {
+                    #false_code
+
+                    (i, #(#false_field_results),*)
+                };
+            }
         },
         FieldDefinition::Field { name, .. } => {
             let generated_field = generated_struct.fields_mapped.get(name.as_ref().unwrap()).unwrap().borrow();
@@ -327,15 +391,15 @@ pub fn generate_field_parser_code(generated_struct: &GeneratedStruct, field: &Fi
             let field_name = generated_field.name.as_str();
             let parser = generate_nom_parser_for_field(generated_struct, field);
 
-            if let Some(condition) = condition {
+            /*if let Some(condition) = condition {
                 quote! {
                     let (i, #field_ident) = cond(#condition, context(#field_name, #parser))(i)?;
                 }
-            } else {
-                quote! {
-                    let (i, #field_ident) = context(#field_name, #parser)(i)?;
-                }
+            } else {*/
+            quote! {
+                let (i, #field_ident) = context(#field_name, #parser)(i)?;
             }
+            //}
         }
     }
 }

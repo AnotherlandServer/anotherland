@@ -1,5 +1,6 @@
 use std::{fs, io, path::Path, collections::HashMap, rc::Rc, cell::RefCell};
 use yaml_rust::{YamlLoader, Yaml};
+use itertools::Itertools;
 
 #[derive(Debug)]
 pub struct PacketDefintion {
@@ -286,7 +287,7 @@ impl FieldDefinition {
     fn count_fields(&self) -> usize {
         match self {
             FieldDefinition::Branch { is_true, is_false, .. } => {
-                let mut count = 0usize;
+                let mut count: usize = 0usize;
                 
                 for field in is_true {
                     count += field.count_fields();
@@ -314,6 +315,78 @@ impl FieldDefinition {
             FieldDefinition::Branch { is_true, is_false, .. } => {
                 for field in is_true { field.normalize(field_count); }
                 for field in is_false { field.normalize(field_count); }
+            }
+        }
+    }
+
+    pub fn contained_field_names(&self) -> Vec<String> {
+        match self {
+            FieldDefinition::Field { name, .. } => {
+                if let Some(name) = name {
+                    vec![name.to_owned()]
+                } else {
+                    vec![]
+                }
+            },
+            FieldDefinition::Branch { is_true, is_false, .. } => {
+                let mut res = Vec::new();
+
+                for field in is_true {
+                    res.append(&mut field.contained_field_names());
+                }
+
+                for field in is_false { 
+                    res.append(&mut field.contained_field_names());
+                }
+
+                res.into_iter().unique().collect()
+            }
+        }
+    }
+
+    pub fn has_subfield(&self, name: &String) -> bool {
+        self.contained_field_names().contains(name)
+    }
+
+    pub fn owns_field(&self, name: &String) -> bool {
+        let lookup_name = name;
+
+        match self {
+            FieldDefinition::Field { name, .. } => {
+                if let Some(name) = name {
+                    return name == lookup_name;
+                } else {
+                    return false;
+                }
+            },
+            FieldDefinition::Branch { is_true, is_false, .. } => {
+                for field in is_true {
+                    match field {
+                        FieldDefinition::Field { name, .. } => {
+                            if let Some(name) = name {
+                                if name == lookup_name {
+                                    return true;
+                                }
+                            }
+                        },
+                        _ => (),
+                    }
+                }
+
+                for field in is_false { 
+                    match field {
+                        FieldDefinition::Field { name, .. } => {
+                            if let Some(name) = name {
+                                if name == lookup_name {
+                                    return true;
+                                }
+                            }
+                        },
+                        _ => (),
+                    }
+                }
+
+                return false;
             }
         }
     }

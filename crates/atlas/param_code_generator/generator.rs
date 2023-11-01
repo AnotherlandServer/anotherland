@@ -783,11 +783,21 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 self.as_anyclass_mut().set_param(#name, val.into())
                             }
                         }),
-                        ParamType::Vector3 => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Vec3) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
+                        ParamType::Vector3 => {
+                            if options.flags.contains(&ParamFlag::Uts) {
+                                tokens.push(quote! {
+                                    fn #set_field_name(&mut self, val: Vec3) {
+                                        self.as_anyclass_mut().set_param(#name, Param::Vector3Uts(0, val))
+                                    }
+                                })
+                            } else {
+                                tokens.push(quote! {
+                                    fn #set_field_name(&mut self, val: Vec3) {
+                                        self.as_anyclass_mut().set_param(#name, val.into())
+                                    }
+                                })
                             }
-                        }),
+                        },
                         _ => tokens.push(quote! { 
                             fn #set_field_name<T>(&mut self, val: T) where T: Into<Param> {
                                 self.as_anyclass_mut().set_param(#name, val.into())
@@ -935,7 +945,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     fn as_anyclass_mut(&mut self) -> &mut AnyClass { &mut self.0 }
                     fn to_anyclass(self) -> AnyClass { self.0.clone() }
                 
-                    fn attribute_flags(&self, _attribute: &str) -> &'static [ParamFlag] {
+                    fn attribute_flags_static(_attribute: &str) -> &'static [ParamFlag] {
                         &[]
                     }
                 }
@@ -1021,7 +1031,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 fn as_anyclass_mut(&mut self) -> &mut AnyClass { &mut self.0 }
                 fn to_anyclass(self) -> AnyClass { self.0 }
 
-                fn attribute_flags(&self, name: &str) -> &'static [ParamFlag] {
+                fn attribute_flags_static(name: &str) -> &'static [ParamFlag] {
                     match name {
                         #(#attrib_flags)*
                         _ => &[ParamFlag::Persistent],
@@ -1177,8 +1187,9 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
     let class_container_attribute_flags: Vec<_> = paramlist.classes.iter().map(|v| {
         let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
+        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
 
-        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.attribute_flags(attribute) }
+        quote! { ParamClassContainer::#unprefixed_class_name(class) => #class_name::attribute_flags_static(attribute) }
     }).collect();
 
     write_source("generated_params.rs", quote! {
@@ -1273,6 +1284,10 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 match self {
                     #(#class_container_attribute_flags),*
                 }
+            }
+
+            fn attribute_flags_static(attribute: &str) -> &'static [ParamFlag] {
+                panic!("Can't call attribute_flags_static on ParamClassContainer")
             }
         }
 
