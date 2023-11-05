@@ -17,8 +17,6 @@ use raknet::*;
 use atlas::*;
 use crate::util::AnotherlandResult;
 
-use super::community_messages::CommunityMessage;
-
 #[derive(Clone)]
 struct ClientState {
     account: Account,
@@ -820,6 +818,38 @@ impl ServerInstance for FrontendServer {
                 match self.client_state.get(&peer_id) {
                     Some(state) => {
                         state.peer.write().await.send(Priority::High, Reliability::Reliable, Message::from_bytes(&data).unwrap().1).await?;
+                        Ok(())
+                    },
+                    None => Ok(()),
+                }
+            },
+            ClusterMessage::ZoneTravelFinished { session_id, avatar_id, world_id, zone_id } => {
+                // Lookup the client state by session id
+                match self.client_state.iter_mut().find(|v| v.1.session.id == session_id) {
+                    Some((_, state)) => {
+                        debug!("Notify client about travel finish");
+
+                        // redirect session to new zone id
+                        state.session.world_id = Some(world_id);
+                        state.session.zone_guid = Some(zone_id);
+                        state.session.save(self.realm_db.clone()).await?;
+
+                        // update client avatar 
+                        let player = Character::get(self.realm_db.clone(), &state.session.character_id.unwrap()).await?.unwrap();
+
+                        let mut data = Vec::new();
+                        let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+                        player.data.write(&mut writer)?;
+    
+                        let mut avatar_update = CPktAvatarUpdate::default();
+                        avatar_update.full_update = false;
+                        avatar_update.avatar_id = Some(avatar_id.as_u64());
+                        avatar_update.update_source = 0;
+                        avatar_update.param_bytes = data.len() as u32;
+                        avatar_update.params = data;
+                        
+                        let _ = state.peer.write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
+
                         Ok(())
                     },
                     None => Ok(()),

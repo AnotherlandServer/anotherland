@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use glam::{Vec4, Quat, Vec3};
 
 use crate::NetworkVec4;
@@ -28,14 +30,36 @@ impl From<Quat> for NetworkVec4 {
 
 impl Into<Vec3> for NetworkVec4 {
     fn into(self) -> Vec3 {
-        let euler = Quat::from_vec4(self.into()).to_euler(glam::EulerRot::XYZ);
-        Vec3 { x: euler.0, y: euler.1, z: euler.2 }
+        //let euler = Quat::from_xyzw(self.x, self.y, self.z, self.w).to_euler(glam::EulerRot::XYZ);
+        Vec3 { x: self.x, y: self.y, z: self.z }
+    }
+}
+
+impl From<&Vec3> for NetworkVec4 {
+    fn from(value: &Vec3) -> Self {
+        value.to_owned().into()
     }
 }
 
 impl From<Vec3> for NetworkVec4 {
     fn from(value: Vec3) -> Self {
-        let quat = Quat::from_euler(glam::EulerRot::XYZ, value.x, value.y, value.z);
-        Self { x: quat.x, y: quat.y, z: quat.z, w: quat.w }
+        //let quat = Quat::from_euler(glam::EulerRot::XYZ, value.x, value.y, value.z);
+        Self { x: value.x, y: value.y, z: value.z, w: 0.0 }
     }
 }
+
+/*#[cfg(test)]
+mod tests {
+    use glam::Vec3;
+
+    use crate::NetworkVec4;
+
+    #[test]
+    fn vec3_to_quat() {
+        let vec = Vec3::new(1.0, 0.0, 0.0);
+        let networkv3: NetworkVec4 = vec.into();
+        let converted_vec = networkv3.into();
+
+        assert_eq!(vec, converted_vec);
+    }
+}*/

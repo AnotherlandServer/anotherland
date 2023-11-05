@@ -118,7 +118,7 @@ pub trait BoundParamClass: ParamClass + Default {
         }
 
         let obj = value.as_object().unwrap();
-        let mut anyclass = AnyClass(HashMap::new());
+        let mut anyclass = Self::default().to_anyclass();
 
         for (name, value) in obj {
             match Self::lookup_field(name.as_str()) {

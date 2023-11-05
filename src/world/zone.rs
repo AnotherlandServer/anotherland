@@ -39,30 +39,30 @@ impl Zone {
         }
     }
 
-    pub async fn spawn_avatar<T>(&mut self, avatar_type: AvatarType, name: &str, components: T) -> (AvatarId, Entity) 
+    pub async fn spawn_avatar<T>(&mut self, avatar_type: AvatarType, id: Option<AvatarId>, name: &str, components: T) -> (AvatarId, Entity) 
         where Option<T>: IntoComponentSource
     {
         // Avatar IDs are prefixed with the avatar type
         let avatar_flag = match avatar_type {
             AvatarType::Player => 0x01,
             AvatarType::NpcOtherland => 0x02,
-            AvatarType::Structure => 0x02,
-            AvatarType::Portal => 0x02,
-            AvatarType::StartingPoint => 0x02,
-            AvatarType::Trigger => 0x02,
-            AvatarType::SpawnNode => 0x02,
+            AvatarType::Structure => 0x03,
+            AvatarType::Portal => 0x03,
+            AvatarType::StartingPoint => 0x03,
+            AvatarType::Trigger => 0x03,
+            AvatarType::SpawnNode => 0x03,
         };
 
         // generate avatar id
-        let id = {
+        let id = id.unwrap_or({
             let mut rng = thread_rng();
             loop {
-                let id = AvatarId::new((rng.gen_range(0..1<<56) << 0xF) | avatar_flag);
+                let id = AvatarId::new((rng.gen_range(1..1<<56) << 0xF) | avatar_flag);
                 if !self.avatar_entity_map.contains_key(&id) {
                     break id;
                 }
             }
-        };
+        });
 
         //debug!("Generate id {:016x}", id.as_u64());
 
@@ -123,7 +123,7 @@ pub async fn load_zone_from_definition(db: Database, zonedef: ZoneDef) -> Anothe
         match instance.class {
             47 => match load_instanced_content::<NpcContent, NpcOtherlandParam>(db.clone(), instance).await {
                     Ok(content) => 
-                        zone.spawn_avatar(AvatarType::NpcOtherland, &content.name,  <ParamClassContainer as TryInto<NpcOtherlandParam>>::try_into(
+                        zone.spawn_avatar(AvatarType::NpcOtherland, None, &content.name,  <ParamClassContainer as TryInto<NpcOtherlandParam>>::try_into(
                             content.data.as_ref().unwrap().clone()
                         )?.to_entity()).await,
                     Err(e) => {
@@ -133,7 +133,7 @@ pub async fn load_zone_from_definition(db: Database, zonedef: ZoneDef) -> Anothe
                 },
             55 => match load_instanced_content::<StructureContent, StructureParam>(db.clone(), instance).await {
                 Ok(content) =>
-                    zone.spawn_avatar(AvatarType::Structure, &content.name, <ParamClassContainer as TryInto<StructureParam>>::try_into(
+                    zone.spawn_avatar(AvatarType::Structure, None, &content.name, <ParamClassContainer as TryInto<StructureParam>>::try_into(
                         content.data.as_ref().unwrap().clone()
                     )?.to_entity()).await,
                 Err(e) => {
@@ -143,7 +143,7 @@ pub async fn load_zone_from_definition(db: Database, zonedef: ZoneDef) -> Anothe
             },
             56 => match load_instanced_content::<StructureContent, PortalParam>(db.clone(), instance).await {
                 Ok(content) => 
-                    zone.spawn_avatar(AvatarType::Portal, &content.name, <ParamClassContainer as TryInto<PortalParam>>::try_into(
+                    zone.spawn_avatar(AvatarType::Portal, None, &content.name, <ParamClassContainer as TryInto<PortalParam>>::try_into(
                         content.data.as_ref().unwrap().clone()
                     )?.to_entity()).await,
                 Err(e) => {
@@ -153,7 +153,7 @@ pub async fn load_zone_from_definition(db: Database, zonedef: ZoneDef) -> Anothe
             },
             57 => match load_instanced_content::<StructureContent, StartingPointParam>(db.clone(), instance).await {
                 Ok(content) => 
-                    zone.spawn_avatar(AvatarType::StartingPoint, &content.name, <ParamClassContainer as TryInto<StartingPointParam>>::try_into(
+                    zone.spawn_avatar(AvatarType::StartingPoint, None, &content.name, <ParamClassContainer as TryInto<StartingPointParam>>::try_into(
                         content.data.as_ref().unwrap().clone()
                     )?.to_entity()).await,
                 Err(e) => {
@@ -163,7 +163,7 @@ pub async fn load_zone_from_definition(db: Database, zonedef: ZoneDef) -> Anothe
             },
             61 => match load_instanced_content::<StructureContent, TriggerParam>(db.clone(), instance).await {
                 Ok(content) => 
-                    zone.spawn_avatar(AvatarType::Trigger, &content.name, <ParamClassContainer as TryInto<TriggerParam>>::try_into(
+                    zone.spawn_avatar(AvatarType::Trigger, None, &content.name, <ParamClassContainer as TryInto<TriggerParam>>::try_into(
                         content.data.as_ref().unwrap().clone()
                     )?.to_entity()).await,
                 Err(e) => {
@@ -173,7 +173,7 @@ pub async fn load_zone_from_definition(db: Database, zonedef: ZoneDef) -> Anothe
             },
             71 => match load_instanced_content::<StructureContent, SpawnNodeParam>(db.clone(), instance).await {
                 Ok(content) => 
-                    zone.spawn_avatar(AvatarType::SpawnNode, &content.name, <ParamClassContainer as TryInto<SpawnNodeParam>>::try_into(
+                    zone.spawn_avatar(AvatarType::SpawnNode, None, &content.name, <ParamClassContainer as TryInto<SpawnNodeParam>>::try_into(
                         content.data.as_ref().unwrap().clone()
                     )?.to_entity()).await,
                 Err(e) => {

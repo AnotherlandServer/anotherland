@@ -1,5 +1,6 @@
 use std::{collections::HashMap, net::SocketAddrV4};
 
+use glam::Vec3;
 use once_cell::sync::Lazy;
 use serde_derive::{Serialize, Deserialize};
 use tokio::sync::{broadcast::{Sender, self, Receiver}, RwLock};
@@ -7,12 +8,19 @@ use rabbitmq_stream_client::{Environment, Producer, Consumer, NoDedup, types::Me
 use tokio_stream::StreamExt;
 
 use crate::{ARGS, util::AnotherlandResult};
-use atlas::Uuid;
+use atlas::{Uuid, AvatarId};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ShutdownSubject {
     All,
     Realm(u32),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum TravelType {
+    DirectTravel,
+    PortalTravel,
+    NonPortalTravel,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -23,6 +31,9 @@ pub enum ClusterMessage {
     FrontendServerHearthbeat{realm_id: u32, address: SocketAddrV4},
     Request{session_id: Uuid, peer_id: Uuid, data: Vec<u8>},
     Response{peer_id: Uuid, data: Vec<u8>},
+    ZoneTravelRequest{session_id: Uuid, peer_id: Uuid, avatar_id: AvatarId, current_zone: Uuid, destination_zone: Uuid, travel_type: TravelType},
+    ZoneTravelResponse{session_id: Uuid, avatar_id: AvatarId, destination_zone: Uuid, pos: Vec3, rot: Vec3},
+    ZoneTravelFinished{session_id: Uuid, avatar_id: AvatarId, world_id: u16, zone_id: Uuid},
 }
 
 pub enum MessageQueueProducer {

@@ -135,8 +135,6 @@ impl ServerInstance for RealmServer {
                     let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
                     c.data.write_to_client(&mut writer).expect("Serialization failed");
 
-                    //fs::write("chardata2.bin", serialized.clone());
-                    
                     oaCharacter {
                         id: c.id,
                         name: c.name,

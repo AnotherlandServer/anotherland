@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet, VecDeque}, cell::RefCell, sync::Arc, ops::{DerefMut, Deref}, time::Instant, fs};
+use std::{collections::{HashMap, HashSet, VecDeque}, cell::RefCell, sync::Arc, ops::{DerefMut, Deref}, time::{Instant, SystemTime, UNIX_EPOCH, Duration}, fs, f32::consts::PI};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use glam::{Vec3, Quat};
@@ -6,12 +6,12 @@ use legion::{Entity, IntoQuery, World, component, EntityStore};
 use mongodb::Client;
 use tokio::sync::{RwLock, Mutex};
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, RakNetRequest, Message}, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, Uuid, AvatarId, PositionUpdate, ParamClass, CPktBlob, Player, PlayerComponent, PlayerParam, BoundParamClass, NonClientBase, NonClientBaseComponent, TriggerComponent, StartingPointComponent, SpawnNodeComponent, oaPktS2XConnectionState, NpcOtherlandParam, PortalParam, SpawnNodeParam, StartingPointParam, StructureParam, TriggerParam, ParamClassContainer, CPktAvatarUpdate};
+use atlas::{raknet::{RakNetListener, RakNetRequest, Message}, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, Uuid, AvatarId, PositionUpdate, ParamClass, CPktBlob, Player, PlayerComponent, PlayerParam, BoundParamClass, NonClientBase, NonClientBaseComponent, TriggerComponent, StartingPointComponent, SpawnNodeComponent, oaPktS2XConnectionState, NpcOtherlandParam, PortalParam, SpawnNodeParam, StartingPointParam, StructureParam, TriggerParam, ParamClassContainer, CPktAvatarUpdate, CPktServerNotify, oaPktServerAction, NativeParam};
 use log::{debug, info, kv::{ToValue, Value}, error, trace, warn};
 use serde::{Serialize, Serializer, ser::SerializeStruct};
 use atlas::ParamEntity;
 
-use crate::{world::{Zone, self, load_zone_from_definition, AvatarComponent, InterestList, AvatarType}, db::ZoneDef};
+use crate::{world::{Zone, self, load_zone_from_definition, AvatarComponent, InterestList, AvatarType}, db::{ZoneDef, ItemContent}, cluster::{CommunityMessage, TravelType::{DirectTravel, PortalTravel, NonPortalTravel}}};
 use crate::{db::{WorldDef, DatabaseRecord, realm_database, Account, Session, cluster_database, Character}, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -84,6 +84,7 @@ pub struct ZoneServerData {
     zone: Arc<RwLock<Zone>>,
     //zones: Arc<RwLock<HashMap<Uuid, Zone>>>,
     //world: World,
+    realm: MessageQueueProducer,
     frontend: MessageQueueProducer,
     client_state: HashMap<Uuid, Arc<RwLock<ClientState>>>,
     //player_avatar_events: VecDeque<(AvatarId, AvatarEvent)>,
@@ -173,6 +174,8 @@ impl ZoneServer {
                     )
                 };
 
+                debug!("Player avatar id: {:#?}", state.avatar_id);
+
                 // Transfer character to client
                 let mut avatar_blob = CPktBlob::default();
                 avatar_blob.avatar_id = state.avatar_id.as_u64();
@@ -222,7 +225,56 @@ impl ZoneServer {
                 match Message::from_bytes(&pkt.field_4).unwrap().1 {
                     AtlasPkt(CPkt::oaPktMoveManagerPosUpdate(pkt)) => {
                         // Update world state
-                    
+                        let instance =  self.read().await.zone.read().await.instance().clone();
+
+                        // update world
+                        {
+                            let mut instance_s = instance.write().await;
+
+                            if let Ok(mut entry) = instance_s.entry_mut(state.entity) {
+                                let player_component = entry.get_component_mut::<PlayerComponent>().unwrap();
+
+                                player_component.set_pos(pkt.pos.pos.into());
+                                player_component.set_rot(pkt.pos.rot.clone().into());
+                            }
+                        }
+
+                        // check interests
+                        let instance_s = instance.read().await;
+
+                        if let Ok(entry) = instance_s.entry_ref(state.entity) {
+                            let player_component = entry.get_component::<PlayerComponent>().unwrap();
+
+                            let interests = Self::query_interests(
+                                player_component.pos().unwrap().clone(), 
+                                *player_component.aware_range().unwrap(), 
+                                instance_s.deref());
+
+                            // stream avatars which newly came into range
+                            for interest in interests.iter() {
+                                if !state.interest_list.contains(&interest) {
+                                    state.avatar_upload_queue.push_back(interest.clone());
+                                    state.interest_list.insert(interest.clone());
+                                }
+                            }
+
+                            // remove the ones out of our awarenes range
+                            for interest in state.interest_list.clone() {
+                                if !interests.contains(&interest) {
+                                    if let Ok(entry) = instance_s.entry_ref(interest) {
+                                        let avatar_component = entry.get_component::<AvatarComponent>().unwrap();
+                                        state.avatar_despawn_queue.push_back(avatar_component.id.clone());
+                                        state.interest_list.remove(&interest);
+                                    }
+                                }
+                            }
+                        }
+
+                        let vec_rot: Vec3 = pkt.pos.rot.clone().into();
+
+                        debug!("Rot Quat: {:#?}", pkt.pos.rot);
+                        debug!("Rot: {:#?}", vec_rot);
+                                   
                         /*let avatar = self.world
                             .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
                             .get_avatar_mut(state.avatar_id.as_ref().unwrap()).unwrap();
@@ -233,6 +285,201 @@ impl ZoneServer {
                     _ => {
                         warn!("Unhandled routed packet: {:#?}", Message::from_bytes(&pkt.field_4).unwrap());
                     },
+                }
+
+                Ok(())
+            },
+            AtlasPkt(CPkt::oaPktAvatarTellBehaviorBinary(pkt)) => {
+                match pkt.field_3.as_str() {
+                    "doVendorExecute" => {
+                        match &pkt.field_4 {
+                            NativeParam::Struct(attrib) => {
+                                let instance =  self.read().await.zone.read().await.instance().clone();
+                                let mut instance_s = instance.write().await;
+
+                                let db: mongodb::Database = realm_database().await;
+        
+                                if let Ok(mut entry) = instance_s.entry_mut(state.entity) {
+                                    let player_component = entry.get_component_mut::<PlayerComponent>().unwrap();
+
+                                    player_component.set_customization_gender(attrib[0].to_f32()?);
+                                    player_component.set_customization_height(attrib[1].to_f32()?);
+                                    player_component.set_customization_fat(attrib[2].to_f32()?);
+                                    player_component.set_customization_skinny(attrib[3].to_f32()?);
+                                    player_component.set_customization_muscular(attrib[4].to_f32()?);
+                                    player_component.set_customization_bust_size(attrib[5].to_f32()?);
+                                    player_component.set_race(attrib[6].to_i32()?);
+                                    player_component.set_customization_brow_angle(attrib[7].to_f32()?);
+                                    player_component.set_customization_eye_brow_pos(attrib[8].to_f32()?);
+                                    player_component.set_customization_eye_pos_spacing(attrib[9].to_f32()?);
+                                    player_component.set_customization_eye_pos(attrib[10].to_f32()?);
+                                    player_component.set_customization_eye_size_length(attrib[11].to_f32()?);
+                                    player_component.set_customization_eye_size_width(attrib[12].to_f32()?);
+                                    player_component.set_customization_eyes_pretty(attrib[13].to_f32()?);
+                                    player_component.set_customization_mouth_pos(attrib[14].to_f32()?);
+                                    player_component.set_customization_mouth_width(attrib[15].to_f32()?);
+                                    player_component.set_customization_mouth_lower_lip_thic(attrib[16].to_f32()?);
+                                    player_component.set_customization_mouth_upper_lip_thic(attrib[17].to_f32()?);
+                                    player_component.set_customization_mouth_expression(attrib[18].to_f32()?);
+                                    player_component.set_customization_nose_pos_length(attrib[19].to_f32()?);
+                                    player_component.set_customization_nose_pos_width(attrib[20].to_f32()?);
+                                    player_component.set_customization_nose_portude(attrib[21].to_f32()?);
+                                    player_component.set_customization_ear_size(attrib[22].to_f32()?);
+                                    player_component.set_customization_ear_elf(attrib[23].to_f32()?);
+                                    player_component.set_customization_cheek_bone(attrib[24].to_f32()?);
+                                    player_component.set_customization_cheek(attrib[25].to_f32()?);
+                                    player_component.set_customization_chin_portude(attrib[26].to_f32()?);
+                                    player_component.set_customization_jaw_chubby(attrib[27].to_f32()?);
+                                    debug!("Attrib 28: {}", attrib[28].to_string()?);
+                                    debug!("Attrib 29: {:#?}", attrib[29]);
+                                    // voucher 28
+                                    // int items 29
+
+                                    let mut visible_items = Vec::new();
+                                    for a in attrib[30..].iter() {
+                                        let item_uuid = a.to_uuid()?;
+                                        debug!("Load item {}", item_uuid.to_string());
+                                    let db: mongodb::Database = realm_database().await;
+                                    let item = ItemContent::get(db.clone(), &item_uuid).await?;
+                                        visible_items.push(item.unwrap().id as i32);
+                                    }
+
+                                    if !visible_items.is_empty() {
+                                        debug!("set visible item info");
+                                        player_component.set_visible_item_info(visible_items);
+                                    } else {
+                                        debug!("received empty visible item info after metamorph");
+                                    }
+                                }
+
+                                // Save changes
+                                debug!("Save avatar change");
+
+                                let params = PlayerParam::from_component(&instance_s, state.entity).unwrap();
+                                
+                                let mut character = Character::get(db.clone(), &state.session.character_id.unwrap()).await.unwrap().unwrap();
+                                character.data = params.clone();
+                                character.save(db.clone()).await?;
+
+                                // Update avatar
+                                let mut data = Vec::new();
+                                let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+                                params.write(&mut writer)?;
+    
+                                let mut avatar_update = CPktAvatarUpdate::default();
+                                avatar_update.full_update = false;
+                                avatar_update.avatar_id = Some(state.avatar_id.as_u64());
+                                avatar_update.update_source = 0;
+                                avatar_update.param_bytes = data.len() as u32;
+                                avatar_update.params = data;
+                                
+                                self.send(&state.peer_id, avatar_update.as_message()).await?;
+                                //let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
+                            },
+                            _ => panic!(),
+                        }
+                    },
+                    _ => {
+                        info!("Unknown avatar behavior: {:#?}", pkt);
+                        todo!();
+                    }
+                }
+
+                Ok(())
+            },
+            AtlasPkt(CPkt::oaPktClusterClientToCommunity(pkt)) => {
+                debug!("{:#?}", pkt);
+
+                match CommunityMessage::from_native(pkt.field_3.clone())? {
+                    CommunityMessage::SocialTravel { avatar, map, travel } => {
+                        if avatar != state.avatar_id {
+                            // what are you doing??
+                            warn!("Client tried to 'send' an avatar it doesn't has onership of: {:#?}", avatar);
+                        } else {
+                            if travel {
+                                if let Some(target_zone) = ZoneDef::get_by_name(realm_database().await, &map).await? {
+                                    // we initiate the travel handshake. First, we inform the target zone server, that
+                                    // we'd like to initiate travel. After it has confirmed, we notify the frontend server 
+                                    // about the change and remove the client from this zone server.
+                                    let (dest_server, _) = connect_queue(MessageChannel::RealmChannel { 
+                                        realm_id: self.read().await.realm_id, 
+                                        channel: RealmChannel::ZoneChannel { zone_guid: target_zone.guid.clone() } 
+                                    }).await?;
+
+                                    dest_server.send(ClusterMessage::ZoneTravelRequest { 
+                                        session_id: state.session.id.clone(), 
+                                        peer_id: state.peer_id.clone(),
+                                        avatar_id: state.avatar_id.clone(),
+                                        current_zone: self.read().await.zone.read().await.zonedef().guid.clone(),
+                                        destination_zone: target_zone.guid, 
+                                        travel_type: DirectTravel
+                                    }).await?;
+                                } else {
+                                    // todo: inform the player, that the travel destination was invalid
+                                }
+
+                              
+
+                                /*match self.world
+                                .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
+                                .get_avatar_mut(&avatar).unwrap() {
+
+                                    Avatar::Player(player) => {
+                                        // get world
+                                        let world = WorldDef::get_by_name(self.realm_db.clone(), &map).await?.unwrap();
+
+                                        // Send resource notification 
+                                        /*let mut worlddef = CPktResourceNotify::default();
+                                        worlddef.resource_type = CpktResourceNotifyResourceType::WorldDef;
+                                        worlddef.field_2 = world.unwrap().guid.clone();
+                                        worlddef.field_3 = "".to_owned();
+                        
+                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, worlddef.as_message()).await?;*/
+
+                                        let params = player.player_param_mut();
+                                        params.set_world_map_guid(world.guid.clone());
+                                        params.set_zone_guid(Uuid::from_str("b1bbd5c5-0990-454b-bcfa-5dfe176c6756").unwrap());
+
+                                        // Update avatar
+                                        let mut data = Vec::new();
+                                        let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+                                        player.params().write(&mut writer)?;
+            
+                                        let mut avatar_update = CPktAvatarUpdate::default();
+                                        avatar_update.full_update = false;
+                                        avatar_update.avatar_id = Some(state.avatar_id.as_ref().unwrap().as_u64());
+                                        avatar_update.update_source = 0;
+                                        avatar_update.param_bytes = data.len() as u32;
+                                        avatar_update.params = data;
+                                        
+                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
+                                        /*let mut action = oaPktServerAction::default();
+                                        action.action = format!{"TELEPORT:TeleportTravel:TeleportTravelDefault",};
+                                        action.version = 4;
+                                        action.override_teleport = true;
+                                        action.pos = NetworkVec3 { x: 0.0, y: 0.0, z: 0.0};
+                                        action.rot = NetworkVec4 { x: 0.0, y: 0.0, z: 0.0, w: 0.0};
+                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await;*/
+                                    },
+                                    _ => {}
+                                }*/
+                            }
+                        }
+
+                        Ok(())
+                    },
+                    CommunityMessage::Unknown_A1 { avatar, boolean } => {
+                        warn!("Unabled community message: 0xa1: {}", boolean);
+
+                        Ok(())
+                    },
+                }
+            },
+            AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
+                if pkt.avatar_id.unwrap() == state.avatar_id.as_u64() {
+                    if let Ok(param) = PlayerParam::read(&pkt.params) {
+                        debug!("{:#?}", param.1.as_anyclass());
+                    }
                 }
 
                 Ok(())
@@ -284,6 +531,8 @@ impl ZoneServer {
 impl ServerInstance for ZoneServer {
     type ServerProperties = ZoneServerOptions;
 
+    fn tickrate() -> Duration { Duration::from_millis(20) }
+
     async fn init(properties: &Self::ServerProperties) -> AnotherlandResult<Box<Self>> {
         let db = realm_database().await;
 
@@ -305,10 +554,16 @@ impl ServerInstance for ZoneServer {
             channel: RealmChannel::FrontendChannel 
         }).await?;
 
+        let (realm, _) = connect_queue(MessageChannel::RealmChannel { 
+            realm_id: properties.realm_id, 
+            channel: RealmChannel::GlobalChannel 
+        }).await?;
+
         Ok(Box::new(Self(Arc::new(RwLock::new(ZoneServerData {
             realm_id: properties.realm_id,
             worlddef: worlddef,
             zone: Arc::new(RwLock::new(zone)),
+            realm,
             frontend,
             client_state: HashMap::new(),
         })), properties.realm_id, zone_guid)))
@@ -321,7 +576,9 @@ impl ServerInstance for ZoneServer {
     async fn handle_cluster_message(&mut self, message: ClusterMessage) -> AnotherlandResult<()> {
         match message {
             ClusterMessage::InvalidateSession { session_id } => { 
-                if let Some(state) = self.write().await.client_state.remove(&session_id) {
+                let state = self.write().await.client_state.remove(&session_id);
+
+                if let Some(state) = state {
                     let state = state.read().await;
                     self.read().await.zone.write().await.remove_avatar(&state.avatar_id).await;
                     
@@ -366,14 +623,7 @@ impl ServerInstance for ZoneServer {
                                 trace!("Spawn character: {}", character.name);
 
                                 let (avatar_id, entity, zone_id, interests) = {
-                                    trace!("Character: {:#?}", character.data.as_anyclass().as_hashmap());
-
                                     let world_state = world_state.read().await;
-                                    /*let mut zones = world_state.zones.write().await;
-                                    let zone = zones.get_mut(
-                                        character.data.zone_guid().ok_or(AnotherlandError::app_err("character zone not found"))?
-                                        ).ok_or(AnotherlandError::app_err("zone not found"))?;*/
-
                                     let mut zone = world_state.zone.write().await;
 
                                     // initial setup
@@ -389,13 +639,7 @@ impl ServerInstance for ZoneServer {
 
                                     // Tho we spawn the avatar here, we'll only tell other clients once
                                     // the player finished loading.
-                                    let (avatar_id, entity) = zone.spawn_avatar(world::AvatarType::Player, &character.name, character.data.to_entity()).await;
-                                    //zone.instance().write().await.entry(entity).unwrap().add_component(interest_list);
-                                    /*zone.instance().write().await.entry(entity).unwrap().add_component(AvatarComponent {
-                                        avatar_id
-                                        name: character.name.clone(),
-                                        vel: Vec3::default(),
-                                    });*/
+                                    let (avatar_id, entity) = zone.spawn_avatar(world::AvatarType::Player, None, &character.name, character.data.to_entity()).await;
 
                                     // collect initial interest list
                                     let interests = Self::query_interests(pos, radius, zone.instance().read().await.deref());
@@ -452,6 +696,144 @@ impl ServerInstance for ZoneServer {
 
                 Ok(())
             },
+            ClusterMessage::ZoneTravelRequest { session_id, peer_id, avatar_id, current_zone, destination_zone, travel_type } => {
+                // only react to travel requests if we are the destination
+                if destination_zone == self.read().await.zone.read().await.zonedef().guid {
+                    trace!("Create new client-state via travel");
+
+                    let db = realm_database().await;
+    
+                    // Lookup session
+                    let session = Session::get(cluster_database().await, &session_id).await?
+                        .ok_or(AnotherlandError::app_err( "unknown session"))?;
+    
+                    // Lookup character
+                    let mut character = Character::get(db.clone(),
+                        &session.character_id.ok_or(AnotherlandError::app_err("no character selected"))?).await?
+                        .ok_or(AnotherlandError::app_err("character not found"))?;
+                
+                    trace!("Spawn character: {}", character.name);
+    
+                    let (entity, zone_id, interests, pos, rot) = {
+                        let world_state = self.read().await;
+                        let mut zone = world_state.zone.write().await;
+    
+                        match travel_type {
+                            DirectTravel => {
+                                character.data.set_pos(zone.start_pos());
+                                character.data.set_rot(zone.start_rot());
+                            },
+                            PortalTravel => todo!(),
+                            NonPortalTravel => todo!(),
+                        }
+    
+                        let pos = character.data.pos().unwrap_or(&zone.start_pos()).to_owned();
+                        let rot = character.data.pos().unwrap_or(&zone.start_rot()).to_owned();
+                        let radius = character.data.aware_range().unwrap_or(&3900.0).to_owned();
+    
+                        // Tho we spawn the avatar here, we'll only tell other clients once
+                        // the player finished loading.
+                        let (_, entity) = zone.spawn_avatar(world::AvatarType::Player, Some(avatar_id.clone()), &character.name, character.data.to_entity()).await;
+    
+                        // collect initial interest list
+                        let interests = Self::query_interests(pos, radius, zone.instance().read().await.deref());
+                       
+                        (entity, zone.zonedef().guid.clone(), interests, pos, rot)
+                    };
+    
+                    // Create client state
+                    let state = Arc::new(RwLock::new(ClientState { 
+                        account: Account::get_by_id(cluster_database().await, &session.account).await?
+                            .ok_or(AnotherlandError::app_err("account gone"))?, 
+                        session,
+                        peer_id,
+                        avatar_id: avatar_id.clone(),
+                        entity,
+                        zone: zone_id,
+                        load_state: ClientLoadState::EarlyLoadSequence,
+                        interest_list: HashSet::from_iter(interests.clone().into_iter()),
+                        avatar_upload_queue: VecDeque::from_iter(interests.into_iter()),
+                        avatar_despawn_queue: VecDeque::new(),
+                    }));
+    
+                    trace!("Store new client-state");
+    
+                    self.write().await.client_state.insert(session_id.clone(), state.clone());
+
+                    // notify the original zone server
+                    let (src_server, _) = connect_queue(MessageChannel::RealmChannel { 
+                        realm_id: self.read().await.realm_id, 
+                        channel: RealmChannel::ZoneChannel { zone_guid: current_zone } 
+                    }).await?;
+
+                    src_server.send(ClusterMessage::ZoneTravelResponse { 
+                        session_id, 
+                        avatar_id,
+                        destination_zone, 
+                        pos, 
+                        rot
+                    }).await?;
+                }
+
+                Ok(())
+            },
+            ClusterMessage::ZoneTravelResponse { session_id, avatar_id, destination_zone, pos, rot } => {
+                // load and remove session from client state map.
+                let state = self.write().await.client_state.remove(&session_id);
+
+                if let Some(state) = state {
+                    trace!("Zone travel response");
+
+                    let state = state.read().await;
+                    let db: mongodb::Database = realm_database().await;
+
+                    let target_zone = ZoneDef::get(db.clone(), &destination_zone).await?.unwrap();
+                    let target_world = WorldDef::get_by_guid(db.clone(), &target_zone.worlddef_guid).await?.unwrap();
+
+                    let params = {
+                        let instance =  self.read().await.zone.read().await.instance().clone();
+                        let mut instance_s = instance.write().await;
+
+                        if let Ok(mut entry) = instance_s.entry_mut(state.entity) {
+                            let player_component = entry.get_component_mut::<PlayerComponent>().unwrap();
+
+                            // move avatar to new zone and position
+                            player_component.set_world_map_guid(target_zone.worlddef_guid);
+                            player_component.set_zone_guid(target_zone.guid);
+                            player_component.set_pos(pos);
+                            player_component.set_rot(rot);
+                        }
+
+                        PlayerParam::from_component(&instance_s, state.entity).unwrap()
+                    };
+
+                    // remove the avatar and store changes in the database
+                    self.read().await.zone.write().await.remove_avatar(&state.avatar_id).await;
+
+                    trace!("5");
+
+                    //instance_s.remove(state.entity);
+
+                    let mut character = Character::get(db.clone(), &state.session.character_id.unwrap()).await.unwrap().unwrap();
+                    character.data = params.clone();
+                    character.world_id = target_world.id as u32;
+                    character.save(db.clone()).await?;
+
+                    trace!("6");
+
+                    // todo: Notify other clients, that this avatar despawned
+
+                    // notify the frontend server, that we've let the client go
+                    self.read().await.frontend.send(ClusterMessage::ZoneTravelFinished { 
+                        session_id, 
+                        avatar_id,
+                        world_id: target_world.id, 
+                        zone_id: destination_zone 
+                    }).await?;
+                }
+
+                Ok(())
+            },
             _ => Ok(()),
         }
     }
@@ -460,6 +842,17 @@ impl ServerInstance for ZoneServer {
         let world_state = self.0.read().await;
         for (session_id, client_state) in &world_state.client_state {
             let mut client_state_s = client_state.write().await;
+
+            // remove avatars
+            while let Some(avatar_id) = client_state_s.avatar_despawn_queue.pop_front() {
+                let mut avatar_update = CPktAvatarUpdate::default();
+                avatar_update.full_update = false;
+                avatar_update.avatar_id = Some(avatar_id.as_u64());
+                avatar_update.param_bytes = 0;
+                avatar_update.params = vec![];
+
+                self.send(&client_state_s.peer_id, avatar_update.as_message()).await?;
+            }
 
             // upload avatars
             if client_state_s.load_state != ClientLoadState::EarlyLoadSequence {
@@ -519,7 +912,7 @@ impl ServerInstance for ZoneServer {
                         
                             let pos = PositionUpdate {
                                 pos: pos.into(),
-                                rot: Quat::from_euler(glam::EulerRot::XYZ, rot.x, rot.y, rot.z).into(),
+                                rot: rot.into(),
                                 vel: avatar_component.vel.clone().into(),
                             };
     
@@ -548,7 +941,7 @@ impl ServerInstance for ZoneServer {
                             avatar_update.name = Some(avatar_component.name.clone());
                             avatar_update.class_id = Some(params.class_id().as_u32());
                             avatar_update.field_6 = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
-                            avatar_update.flags = Some(0);
+                            //avatar_update.flags = Some(2);
                             //avatar_update.flag_2_uuid = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
                             avatar_update.param_bytes = data.len() as u32;
                             avatar_update.params = data;
@@ -566,10 +959,13 @@ impl ServerInstance for ZoneServer {
 
                             let pos = nonclient_base.pos().unwrap().clone();
                             let rot = nonclient_base.rot().unwrap();
+
+                            // yaw (y-axis), pitch (x-axis), roll (z-axis)
+                            let quat: Quat = Quat::from_euler(glam::EulerRot::YXZ, rot.y.atan2(rot.x), rot.z.atan2((rot.x * rot.x + rot.y * rot.y).sqrt()), 0.0);
                         
                             let pos = PositionUpdate {
                                 pos: pos.into(),
-                                rot: Quat::from_euler(glam::EulerRot::XYZ, rot.x, rot.y, rot.z).into(),
+                                rot: quat.into(),
                                 vel: avatar_component.vel.clone().into(),
                             };
     
@@ -594,7 +990,7 @@ impl ServerInstance for ZoneServer {
                             avatar_update.name = Some(avatar_component.name.clone());
                             avatar_update.class_id = Some(params.class_id().as_u32());
                             avatar_update.field_6 = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
-                            avatar_update.flags = Some(0);
+                            //avatar_update.flags = Some(2);
                             //avatar_update.flag_2_uuid = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
                             avatar_update.param_bytes = data.len() as u32;
                             avatar_update.params = data;
@@ -619,6 +1015,53 @@ impl ServerInstance for ZoneServer {
                         }
 
                         break;
+                    }
+                }
+            }
+
+            if client_state_s.load_state == ClientLoadState::RequestSpawn {
+                 // Synchronize time
+                 {
+                    let mut game_time_sync = CPktServerNotify::default();
+                    game_time_sync.notify_type = 0;
+                    game_time_sync.field_2 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+    
+                    self.send(&client_state_s.peer_id, game_time_sync.as_message()).await?;
+                }
+
+                {
+                    let mut realm_time_sync = CPktServerNotify::default();
+                    realm_time_sync.notify_type = 19;
+                    realm_time_sync.field_4 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+                    self.send(&client_state_s.peer_id, realm_time_sync.as_message()).await?;
+                }
+
+                // Update loadstate
+                {
+                    client_state_s.load_state = ClientLoadState::Spawned;
+                    
+                    let mut connectionstate = oaPktS2XConnectionState::default();
+                    connectionstate.field_1 = ClientLoadState::Spawned.into();
+                    connectionstate.field_2 = 0;
+
+                    self.send(&client_state_s.peer_id, connectionstate.as_message()).await?;
+                }             
+
+                // Tell the client the avatar is ready to spawn
+                {
+                    let zone = world_state.zone.read().await;
+                    let instance = zone.instance().read().await;
+
+                    if let Some(player) = instance.entry_ref(client_state_s.entity).ok() {
+                        let player_component = player.get_component::<PlayerComponent>().unwrap();
+
+                        let mut action = oaPktServerAction::default();
+                        action.action = "TRAVEL:DirectTravel|DirectTravelDefault".to_owned();
+                        action.version = 4;
+                        action.override_teleport = false;
+                        action.pos = player_component.pos().unwrap().to_owned().into();
+                        action.rot = player_component.rot().unwrap().to_owned().into();
+                        self.send(&client_state_s.peer_id, action.as_message()).await?;
                     }
                 }
             }

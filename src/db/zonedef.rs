@@ -66,4 +66,13 @@ impl ZoneDef {
 
         Ok(zonedefs)
     }
+
+    pub async fn get_by_name(db: Database, name: &str) -> AnotherlandResult<Option<ZoneDef>> {
+        let collection = Self::collection(db);
+
+        Ok(collection.find_one(
+            doc! {"zone": name}, 
+            None
+        ).await?)  
+    }
 }
