@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{path::{Path, PathBuf}, io, fs, collections::HashMap, env, rc::Rc, cell::RefCell};
+use std::{path::Path, io, fs, collections::HashMap, rc::Rc, cell::RefCell};
 
 use nom::{IResult, character::complete, error::Error};
 use proc_macro2::TokenStream;
@@ -143,6 +143,7 @@ enum ParamFlag {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct ParamOptions {
     param_type: ParamType,
     default: Option<String>,
@@ -439,7 +440,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         let param_copy_section: Vec<_> = params.iter()
         .filter(|(name, _, _)| v.borrow().param_is_owned(name))
-        .map(|(name, id, options)| {
+        .map(|(name, _id, _options)| {
             quote!{ 
                 if let Some(param) = self.as_anyclass().get_param(#name) {
                     new_class.set_param(#name, param.clone()); 
@@ -449,24 +450,31 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         let default_setters: Vec<_> = params.iter()
         .filter(|(name, _, _)| v.borrow().param_is_owned(name))
-        .map(|(name, id, options)| {
-            let mut field_name = Converter::new()
+        .map(|(name, _, options)| {
+            let field_name = Converter::new()
             .set_boundaries(&[Boundary::Hyphen, Boundary::Underscore, Boundary::Space, Boundary::LowerUpper])
             .set_pattern(Pattern::Lowercase)
             .set_delim("_")
             .convert(name);
-            let param_id = *id;
 
-            let field_name_ident = format_ident!("{}", match field_name.as_str() {
-                "static" => "r#static",
-                "type" => "r#type",
-                _ => field_name.as_str(),
-            });
             let set_field_name = format_ident!("set_{}", field_name);
 
             match options.clone().map(|v| v.default_literal).flatten() {
                 Some(literal) => {
-                    quote!{instance.#set_field_name(#literal);}
+                    let allow_deprecated = if let Some(options) = options {
+                        if options.flags.contains(&ParamFlag::Deprecated) {
+                            quote!{#[allow(deprecated)]}
+                        } else {
+                            quote!()
+                        }
+                    } else {
+                        quote!()
+                    };
+
+                    quote!{
+                        #allow_deprecated
+                        instance.#set_field_name(#literal);
+                    }
                 },
                 None => {
                     quote!()
@@ -476,13 +484,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         let getter_setter: Vec<_> = params.iter()
         .filter(|(name, _, _)| v.borrow().param_is_owned(name))
-        .map(|(name, id, options)| {
-            let mut field_name = Converter::new()
+        .map(|(name, _, options)| {
+            let field_name = Converter::new()
             .set_boundaries(&[Boundary::Hyphen, Boundary::Underscore, Boundary::Space, Boundary::LowerUpper])
             .set_pattern(Pattern::Lowercase)
             .set_delim("_")
             .convert(name);
-            let param_id = *id;
 
             let field_name_ident = format_ident!("{}", match field_name.as_str() {
                 "static" => "r#static",
@@ -841,7 +848,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             }
         }).collect();
 
-        let attrib_names: Vec<_> = params.iter().map(|(name, id, options)| {
+        let attrib_names: Vec<_> = params.iter().map(|(name, id, _)| {
             let literal = format!("{}", name);
             let id = *id;
 
@@ -864,7 +871,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             }
         }).collect();*/
 
-        let attrib_lookup: Vec<_> = params.iter().map(|(name, id, options)| {
+        let attrib_lookup: Vec<_> = params.iter().map(|(name, id, _)| {
             let literal = format!("{}", name);
             let id = *id;
 
@@ -873,9 +880,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         let attrib_flags: Vec<_> = params.iter()
             .filter(|(_, _, options)| options.is_some() && !options.as_ref().unwrap().flags.is_empty())
-            .map(|(name, id, options)| {
-            let literal = format!("{}", name);
-            let id = *id;
+            .map(|(name, _, options)| {
 
             let flags = match options {
                 Some(options) => {
@@ -944,7 +949,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 .iter()
                 .map(|c| {
                     let component_ident = format_ident!("{}Component", formatted_class_name(&c.borrow().name));
-                    let trait_ident = format_ident!("{}", formatted_class_name(&c.borrow().name));
                     quote!{ param_class.as_anyclass_mut().apply(entry.get_component::<#component_ident>().map_err(|_|ParamError(()))?.clone().to_anyclass()); }
                     //quote!{ #component_ident(<#class_name as #trait_ident>::extract_param_section(&self)) }
                 })
@@ -1001,6 +1005,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 #(#getter_setter)*
 
                 fn extract_param_section(&self) -> AnyClass {
+                    #[allow(unused_mut)]
                     let mut new_class = AnyClass::new();
 
                     #(#param_copy_section)*
@@ -1011,6 +1016,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
             impl Default for #class_name {
                 fn default() -> Self {
+                    #[allow(unused_mut)]
                     let mut instance = Self(AnyClass::new());
                     
                     #(#default_setters)*
@@ -1151,21 +1157,18 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
     }).collect();
 
     let class_container_write: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
         let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
 
         quote! { ParamClassContainer::#unprefixed_class_name(class) => class.write(writer)? }
     }).collect();
 
     let class_container_write_to_client: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
         let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
 
         quote! { ParamClassContainer::#unprefixed_class_name(class) => class.write_to_client(writer)? }
     }).collect();
 
     let class_container_to_persistent_json: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
         let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
         let class_name_literal = v.borrow().name.to_owned();
 
@@ -1204,7 +1207,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
         let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
 
-        quote! { ParamClassContainer::#unprefixed_class_name(class) => #class_name::attribute_flags_static(attribute) }
+        quote! { ParamClassContainer::#unprefixed_class_name(_) => #class_name::attribute_flags_static(attribute) }
     }).collect();
 
     write_source("generated_params.rs", quote! {
@@ -1301,7 +1304,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 }
             }
 
-            fn attribute_flags_static(attribute: &str) -> &'static [ParamFlag] {
+            fn attribute_flags_static(_attribute: &str) -> &'static [ParamFlag] {
                 panic!("Can't call attribute_flags_static on ParamClassContainer")
             }
         }

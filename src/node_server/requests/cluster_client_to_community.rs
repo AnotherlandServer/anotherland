@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{oaPktServerAction, oaPktClusterClientToCommunity};
+use atlas::oaPktClusterClientToCommunity;
 use log::{debug, warn};
 
 use crate::{node_server::{NodeServer, ClientState}, util::AnotherlandResult, cluster::{CommunityMessage, connect_queue, RealmChannel, ClusterMessage, MessageChannel}, db::{ZoneDef, realm_database}};
@@ -101,7 +101,7 @@ impl NodeServer {
 
                 Ok(())
             },
-            CommunityMessage::Unknown_A1 { avatar, boolean } => {
+            CommunityMessage::UnknownA1 { boolean, .. } => {
                 warn!("Unabled community message: 0xa1: {}", boolean);
 
                 Ok(())

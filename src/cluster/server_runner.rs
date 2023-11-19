@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{time::Duration, any::type_name, pin::Pin, task::{Context, Poll}};
+use std::{time::Duration, any::type_name};
 
-use log::{error, debug};
-use tokio::{task::{JoinHandle, JoinSet}, sync::mpsc, sync::mpsc::{Sender, Receiver}, spawn, select, time};
-use futures::{future::join_all, Future, stream::FuturesUnordered, Stream, StreamExt};
+use log::error;
+use tokio::{task::JoinHandle, sync::mpsc, sync::mpsc::Sender, spawn, select, time};
+use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
 
-use crate::util::{AnotherlandResult, AnotherlandErrorKind, AnotherlandError};
+use crate::util::AnotherlandResult;
 
 use super::{server_instance::ServerInstance, connect_queue, MessageQueueConsumer, ClusterMessage};
 

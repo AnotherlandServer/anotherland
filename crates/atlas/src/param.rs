@@ -14,48 +14,29 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use core::fmt;
-use std::any;
-use std::any::Any;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error;
 use std::io;
-use std::marker::PhantomData;
 
 use bitstream_io::ByteWrite;
 use glam::Quat;
 use legion::Entity;
 use legion::World;
-use log::debug;
-use log::trace;
 use nom::IResult;
 use nom::bytes::complete::take;
 use nom::error::VerboseError;
-use nom::error::VerboseErrorKind;
 use nom::error::context;
 use nom::multi;
 use nom::multi::count;
 use nom::number;
 use nom::combinator::fail;
 use nom::number::complete::le_i32;
-use nom::sequence::tuple;
-use serde::Deserializer;
-use serde::Serializer;
-use serde::de;
-use serde::de::DeserializeOwned;
-use serde::de::MapAccess;
-use serde::de::SeqAccess;
-use serde::de::Visitor;
-use serde::ser::SerializeStruct;
-use serde_hex::{SerHex, StrictPfx};
 
 use glam::f32::{Vec3, Vec4};
-use nom::number::complete::le_u32;
 use serde::Deserialize;
 use serde::Serialize;
-use serde::ser::SerializeSeq;
-use serde_json::Map;
 use serde_json::Value;
 use crate::avatarid::AvatarId;
 
@@ -657,7 +638,7 @@ impl From<Vec<String>> for Param {
 }
 
 impl From<HashMap<String, i32>> for Param {
-    fn from(value: HashMap<String, i32>) -> Self {
+    fn from(_value: HashMap<String, i32>) -> Self {
         todo!()
     }
 }
@@ -1027,7 +1008,7 @@ impl AnyClass {
             }
         });
         
-        for (id, name, a) in filtered_params {
+        for (id, _name, a) in filtered_params {
             writer.write(id)?;
             a.write(writer)?;
         }
@@ -1035,7 +1016,7 @@ impl AnyClass {
         Ok(())
     }
 
-    fn raw_write_to_client<T, C>(&self, outer: &C, writer: &mut T) -> Result<(), io::Error> 
+    fn raw_write_to_client<T, C>(&self, _outer: &C, writer: &mut T) -> Result<(), io::Error> 
         where T: ByteWrite,
         C: BoundParamClass
     {
@@ -1062,7 +1043,7 @@ impl AnyClass {
         writer.write(1u8)?;
         writer.write(filtered_params.len() as u16)?;
 
-        for (id, name, a) in filtered_params {
+        for (id, _name, a) in filtered_params {
             writer.write(id)?;
             a.write(writer)?;
         }
@@ -1115,7 +1096,7 @@ impl ParamClass for AnyClass {
 
     fn to_anyclass(self) -> AnyClass { self }
 
-    fn attribute_flags_static(name: &str) -> &'static [ParamFlag] {
+    fn attribute_flags_static(_name: &str) -> &'static [ParamFlag] {
         &[]
     }
 }

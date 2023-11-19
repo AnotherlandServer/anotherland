@@ -13,21 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{time::{Duration, SystemTime, UNIX_EPOCH}, collections::HashMap, fs, sync::Arc, io, net::SocketAddrV4};
+use std::{collections::HashMap, net::SocketAddrV4};
 
 use async_trait::async_trait;
-use bitstream_io::{ByteWriter, LittleEndian, ByteWrite, ToByteStream};
-use bson::doc;
-use glam::{Vec3, Vec4, Quat};
-use log::{info, debug, trace, error, warn, as_serde};
+use bitstream_io::{ByteWriter, LittleEndian};
+use log::{info, debug, warn};
 use mongodb::Database;
-use nom::{multi::length_count, number::complete::le_u8};
-use once_cell::sync::Lazy;
 use serde::{Serialize, Serializer, ser::SerializeStruct};
-use tokio::{sync::RwLock, task::JoinHandle, time::{Interval, self, Instant}};
 use log::kv::{ToValue, Value};
 
-use crate::{CONF, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, db::{WorldDef, DatabaseRecord, realm_database, Account, Session, cluster_database, Character, Content, CashShopVendor, CashShopBundle, CashShopItem, ItemContent, ZoneDef}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}};
+use crate::{CONF, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, db::{DatabaseRecord, realm_database, Account, Session, cluster_database, Character, CashShopVendor, ZoneDef}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}};
 use raknet::*;
 use atlas::*;
 use crate::util::AnotherlandResult;
@@ -179,7 +174,7 @@ impl ServerInstance for FrontendServer {
     async fn handle_request(&mut self, request: RakNetRequest) -> AnotherlandResult<()> {
         use Message::*;
 
-        let (peer_id, mut state) = match self.authenticate_request(&request).await {
+        let (peer_id, state) = match self.authenticate_request(&request).await {
             Ok(state) => state,
             Err(e) => {
                 warn!("Failed to authenticate client: {}", e);
@@ -254,7 +249,7 @@ impl ServerInstance for FrontendServer {
 
                 let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_blob.as_message()).await?;
             },*/
-            AtlasPkt(CPkt::oaPktFriendRequest(pkt)) => {
+            AtlasPkt(CPkt::oaPktFriendRequest(_pkt)) => {
                 let mut friend_list = CPktStream_167_0::default();
                 friend_list.friend_list.count = 0;
 
@@ -461,7 +456,7 @@ impl ServerInstance for FrontendServer {
 
                 let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response.as_message()).await?;
             },
-            AtlasPkt(CPkt::oaPktSKUBundleSyncRequest(pkt)) => {
+            AtlasPkt(CPkt::oaPktSKUBundleSyncRequest(_pkt)) => {
                 //debug!("{:#?}", pkt);
 
                 let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, oaPktSKUBundleSyncAcknowledge {
@@ -663,8 +658,8 @@ impl ServerInstance for FrontendServer {
     async fn tick(&mut self) -> AnotherlandResult<()> {
         let mut disconnected_peers = Vec::new();
 
-        for (peer_id, state) in self.client_state.iter_mut() {
-            let peer = match self.listener.peer(peer_id).await {
+        for (peer_id, _state) in self.client_state.iter_mut() {
+            let _peer = match self.listener.peer(peer_id).await {
                 Some(peer) => peer,
                 None => {
                     disconnected_peers.push(peer_id.clone());

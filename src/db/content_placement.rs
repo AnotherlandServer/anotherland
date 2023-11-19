@@ -15,14 +15,12 @@
 
 use async_trait::async_trait;
 use bson::doc;
-use chrono::{DateTime, Utc};
 use glam::{Vec3, Vec4};
-use log::debug;
-use mongodb::{Database, IndexModel, options::IndexOptions, Collection, bson::oid::ObjectId};
+use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use serde::Serialize;
 use serde_derive::Deserialize;
 
-use crate::{util::AnotherlandResult};
+use crate::util::AnotherlandResult;
 use atlas::Uuid;
 
 use super::{Account, DatabaseRecord};

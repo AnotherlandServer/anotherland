@@ -13,20 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{net::{SocketAddrV4, SocketAddr, Ipv4Addr}, collections::HashMap, time::{Instant, Duration}};
+use std::{net::{SocketAddrV4, Ipv4Addr}, collections::HashMap, time::Instant};
 
 use async_trait::async_trait;
 use bitstream_io::{ByteWriter, LittleEndian};
-use bson::doc;
 use log::{info, debug, warn, error};
-use mongodb::{options::UpdateOptions, Database};
-use nom::character;
-use std::fs;
-use std::error::Error;
+use mongodb::Database;
 
 use crate::{util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind::{ApplicationError, self}}, CONF, ARGS, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, db::{WorldDef}};
 use crate::db::{Account, cluster_database, Session, DatabaseRecord, realm_database, Character};
-use atlas::{CPkt, Uuid, PlayerParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess, ParamClass, Player, oaPktCharacterDeleteSuccess};
+use atlas::{CPkt, Uuid, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess, Player, oaPktCharacterDeleteSuccess};
 use atlas::raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest};
 use atlas::oaPktCharacterFailure;
 use atlas::BoundParamClass;
@@ -98,7 +94,7 @@ impl RealmServer {
 impl ServerInstance for RealmServer {
     type ServerProperties = ();
 
-    async fn init(properties: &Self::ServerProperties) -> AnotherlandResult<Box<Self>> {
+    async fn init(_properties: &Self::ServerProperties) -> AnotherlandResult<Box<Self>> {
         info!("Starting realm server [{}]...", CONF.realm.name);
 
         let mut listener = RakNetListener::new();

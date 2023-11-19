@@ -25,10 +25,7 @@ mod cluster;
 mod data_import;
 
 // Import modules
-use std::{net::Ipv4Addr, collections::VecDeque, fs};
-use atlas::{Uuid, ParamClass, PlayerParam};
-use bitstream_io::{ByteWriter, LittleEndian};
-use bson::{bson, DeserializerOptions};
+use std::net::Ipv4Addr;
 use clap::{Parser, Subcommand};
 use ::config::File;
 use log::{LevelFilter, info};
@@ -36,10 +33,10 @@ use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, 
 use glob::glob;
 use once_cell::sync::Lazy;
 use mongodb::bson::doc;
-use tokio::{signal, sync::RwLock};
+use tokio::signal;
 
 use util::AnotherlandResult;
-use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, WorldDef, ItemContent, DatabaseRecord, Character, ZoneDef}, frontend_server::FrontendServer, node_server::{NodeServer, NodeServerOptions}, api_server::ApiServer};
+use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, ZoneDef}, frontend_server::FrontendServer, node_server::{NodeServer, NodeServerOptions}, api_server::ApiServer};
 
 
 
@@ -215,7 +212,7 @@ async fn main() -> AnotherlandResult<()> {
         StartCommand::FrontendServer { .. } => {
             servers.push(ServerRunner::new::<FrontendServer>(()));
         }
-        StartCommand::NodeServer { world_id, .. } => {
+        StartCommand::NodeServer { .. } => {
             //WORLD_SERVER_IDS.write().await.push_front(*world_id);
 
             //servers.push(ServerRunner::new::<WorldServer>());

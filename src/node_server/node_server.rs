@@ -13,23 +13,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::{HashMap, HashSet, VecDeque}, cell::RefCell, sync::Arc, ops::{DerefMut, Deref}, time::{Instant, SystemTime, UNIX_EPOCH, Duration}, fs, f32::consts::PI};
+use std::{collections::{HashMap, HashSet, VecDeque}, sync::Arc, ops::{DerefMut, Deref}, time::{SystemTime, UNIX_EPOCH, Duration}};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use glam::{Vec3, Quat};
 use legion::{Entity, IntoQuery, World, component, EntityStore};
-use mongodb::Client;
-use tokio::sync::{RwLock, Mutex};
+use tokio::sync::RwLock;
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, RakNetRequest, Message}, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, Uuid, AvatarId, PositionUpdate, ParamClass, CPktBlob, Player, PlayerComponent, PlayerParam, BoundParamClass, NonClientBase, NonClientBaseComponent, TriggerComponent, StartingPointComponent, SpawnNodeComponent, oaPktS2XConnectionState, NpcOtherlandParam, PortalParam, SpawnNodeParam, StartingPointParam, StructureParam, TriggerParam, ParamClassContainer, CPktAvatarUpdate, CPktServerNotify, oaPktServerAction, NativeParam};
-use log::{debug, info, kv::{ToValue, Value}, error, trace, warn};
+use atlas::{raknet::Message, CPkt, Uuid, AvatarId, PositionUpdate, Player, PlayerComponent, PlayerParam, NonClientBase, NonClientBaseComponent, TriggerComponent, StartingPointComponent, SpawnNodeComponent, oaPktS2XConnectionState, NpcOtherlandParam, PortalParam, SpawnNodeParam, StartingPointParam, StructureParam, TriggerParam, ParamClassContainer, CPktAvatarUpdate, CPktServerNotify, oaPktServerAction};
+use log::{debug, kv::{ToValue, Value}, error, trace, warn};
 use serde::{Serialize, Serializer, ser::SerializeStruct};
 use atlas::ParamEntity;
-use crate::node_server::requests::*;
 
-use super::world::{Zone, self, load_zone_from_definition, AvatarComponent, InterestList, AvatarType};
-use crate::{db::{ZoneDef, ItemContent}, cluster::{CommunityMessage, TravelType::{DirectTravel, PortalTravel, NonPortalTravel}}};
-use crate::{db::{WorldDef, DatabaseRecord, realm_database, Account, Session, cluster_database, Character}, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}};
+use super::world::{Zone, self, load_zone_from_definition, AvatarComponent, AvatarType};
+use crate::{db::ZoneDef, cluster::TravelType::{DirectTravel, PortalTravel, NonPortalTravel}};
+use crate::{db::{WorldDef, DatabaseRecord, realm_database, Account, Session, cluster_database, Character}, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, util::{AnotherlandResult, AnotherlandError}};
 
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::node_server) enum ClientLoadState {
@@ -519,7 +517,7 @@ impl ServerInstance for NodeServer {
 
     async fn tick(&mut self) -> AnotherlandResult<()> {
         let world_state = self.0.read().await;
-        for (session_id, client_state) in &world_state.client_state {
+        for (_session_id, client_state) in &world_state.client_state {
             let mut client_state_s = client_state.write().await;
 
             // remove avatars

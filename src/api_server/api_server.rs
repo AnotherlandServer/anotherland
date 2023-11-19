@@ -13,16 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{sync::Arc, ops::Deref, convert::Infallible, collections::HashMap};
+use std::{sync::Arc, ops::Deref, collections::HashMap};
 
 use async_graphql::{Schema, EmptySubscription, http::GraphiQLSource, FieldResult};
 use async_graphql_poem::GraphQL;
-use async_trait::async_trait;
-use log::{info, error};
 use poem::{Route, IntoResponse, web::Html, handler, get, Server, listener::TcpListener};
-use tokio::{sync::{RwLock, oneshot::{Sender, self}}};
+use tokio::sync::{RwLock, oneshot::{Sender, self}};
 use atlas::Uuid;
-use crate::{cluster::{ServerInstance, ClusterMessage, MessageChannel, ApiResponse, ApiRequest, connect_queue, MessageQueueConsumer, MessageQueueProducer, ApiError}, util::AnotherlandResult, CONF};
+use crate::{cluster::{ClusterMessage, MessageChannel, ApiResponse, ApiRequest, connect_queue, MessageQueueProducer}, util::AnotherlandResult, CONF};
 
 use super::schema::{QueryRoot, MutationRoot};
 

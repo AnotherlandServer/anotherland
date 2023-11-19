@@ -13,12 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::UNIX_EPOCH;
-
 use async_trait::async_trait;
 use bson::{doc, Document};
-use chrono::{DateTime, Utc};
-use glam::Vec3;
 use log::debug;
 use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use once_cell::sync::Lazy;
@@ -27,10 +23,10 @@ use serde_derive::Deserialize;
 use sha1::{Sha1, Digest};
 use tokio_stream::StreamExt;
 
-use crate::{util::AnotherlandResult};
+use crate::util::AnotherlandResult;
 use atlas::{Uuid, PlayerParam, Player};
 
-use super::{Account, DatabaseRecord, ItemContent};
+use super::{DatabaseRecord, ItemContent};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Character {

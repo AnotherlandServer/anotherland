@@ -14,7 +14,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_graphql::{Object, Result, Context, SimpleObject};
-use atlas::Uuid;
 use chrono::{DateTime, Utc};
 use serde_derive::{Serialize, Deserialize};
 

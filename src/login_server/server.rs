@@ -22,7 +22,7 @@ use mongodb::Database;
 use tokio::{time::{Interval, self}, net::{TcpListener, TcpStream}};
 use tokio_stream::StreamExt;
 
-use crate::{util::AnotherlandResult, CONF, db::{Account, Session, cluster_database}, cluster::{ServerInstance, ClusterMessage::{InvalidateSession, self}, MessageChannel, MessageQueueProducer, connect_queue, ApiRequest, ApiResponse, ApiError}, api_server::schema};
+use crate::{util::AnotherlandResult, CONF, db::{Account, Session, cluster_database}, cluster::{ServerInstance, ClusterMessage::{InvalidateSession, self}, MessageChannel, MessageQueueProducer, connect_queue, ApiRequest, ApiResponse, ApiError}};
 use atlas::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest, RakNetPeerHandle}, Uuid};
 use atlas::{CPktLogin, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktRealmStatusList};
 use atlas::RealmStatus;
@@ -277,7 +277,7 @@ impl LoginServer {
             },
 
             // silently ignore requests we can't answer
-            _ => Ok(None),
+            #[allow(unreachable_patterns)] _ => Ok(None),
         }
     }
 

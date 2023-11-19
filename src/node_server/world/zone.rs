@@ -22,16 +22,14 @@ use atlas::{BoundParamClass, ParamError, Uuid, ParamEntity, AvatarId, NonClientB
 use atlas::{NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, SpawnNodeParam};
 use glam::Vec3;
 use legion::*;
-use legion::storage::{IntoComponentSource, PackOptions};
-use log::{info, warn, debug, error};
+use legion::storage::{IntoComponentSource};
+use log::{info, warn, error};
 use mongodb::Database;
 use atlas::ParamClassContainer;
 use rand::{thread_rng, Rng};
-use rsa::traits::PublicKeyParts;
 use tokio::sync::RwLock;
 
 use crate::db::ZoneDef;
-use crate::util::AnotherlandError;
 use crate::{util::AnotherlandResult, db::{Instance, DatabaseRecord, Content, NpcContent, StructureContent}};
 
 use super::{AvatarType, AvatarComponent};

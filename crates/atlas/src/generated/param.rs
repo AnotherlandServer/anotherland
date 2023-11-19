@@ -15,14 +15,8 @@
 
 use nom::IResult;
 use nom::error::VerboseError;
-use nom::error::context;
-use nom::multi::count;
-use nom::number;
-use nom::combinator::fail;
-use nom::combinator::success;
-use nom::sequence::tuple;
 use crate::{Param, ParamError, AnyClass, BoundParamClass, ParamClass, ParamEntity, AvatarId, ParamFlag, generated::cpkt::Uuid};
-use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
+use bitstream_io::ByteWrite;
 use serde::{Serialize, Deserialize};
 use serde::ser::Serializer;
 use serde::de::Deserializer;
@@ -30,10 +24,7 @@ use std::convert::{Into, TryInto};
 use serde_json::{Value, json};
 use glam::f32::Vec3;
 use std::collections::{HashSet, HashMap};
-use std::ops::Deref;
 use std::io;
-use log::error;
-use log::debug;
 use legion::{World, Entity};
 use legion::EntityStore;
 

@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_trait::async_trait;
-use bson::{doc, Document};
+use bson::doc;
 use chrono::{Utc, DateTime};
 use mongodb::{Database, options::IndexOptions, IndexModel, Collection};
 use serde::{Serialize, Deserialize};

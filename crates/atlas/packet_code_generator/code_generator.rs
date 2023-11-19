@@ -287,12 +287,12 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
     }
 }
 
-pub fn generate_field_parser_code(generated_struct: &GeneratedStruct, field: &FieldDefinition, condition: Option<TokenStream>) -> TokenStream {
+pub fn generate_field_parser_code(generated_struct: &GeneratedStruct, field: &FieldDefinition, _condition: Option<TokenStream>) -> TokenStream {
     match field {
         FieldDefinition::Branch { field: field_name, test, is_true, is_false } => {
             let generated_cond_field = generated_struct.fields_mapped.get(field_name).unwrap().borrow();
             let cond_field_ident = format_ident!("{}", generated_cond_field.name);
-            let mut sub_condition = match &test {
+            let sub_condition = match &test {
                 BranchTestDefinition::BoolValue => {
                     //if generated_cond_field.optional {
                     //    quote!{#cond_field_ident.unwrap()}

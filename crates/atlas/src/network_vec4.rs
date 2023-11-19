@@ -50,6 +50,7 @@ impl Into<Vec3> for NetworkVec4 {
     }
 }
 
+#[allow(dead_code)]
 fn rad_to_otherland_angle(mut r: f32) -> f32 {
     while r > PI {
         r -= PI * 2.0;
@@ -62,7 +63,8 @@ fn rad_to_otherland_angle(mut r: f32) -> f32 {
     r / PI
 }
 
-fn otherland_angle_to_rad(mut a: f32) -> f32 {
+#[allow(dead_code)]
+fn otherland_angle_to_rad(a: f32) -> f32 {
     a * PI
 }
 
@@ -82,21 +84,12 @@ impl From<Vec3> for NetworkVec4 {
 
 #[cfg(test)]
 mod tests {
-    use std::f32::consts::PI;
-
     use glam::Vec3;
-    use log::debug;
+    use crate::NetworkVec4;
 
-    use crate::{NetworkVec4, network_vec4::{otherland_angle_to_rad, rad_to_otherland_angle}};
+    use std::{io, path::Path, env};
 
-    use std::{io, path::Path, env, collections::HashSet};
-    use bitstream_io::{ByteWriter, LittleEndian};
-    use nom::{number, multi, IResult, error::VerboseError};
-    use test_case::test_case;
-
-    use assert_float_eq::*;
-
-    use crate::{param::{AnyClass, ParamClass}, ParamClassContainer, Param, ClassAttrib};
+    use crate::{param::ParamClass, ParamClassContainer};
 
     #[test]
     fn instance_rot_test() -> io::Result<()>{ 

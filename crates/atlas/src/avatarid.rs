@@ -14,11 +14,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::fmt::Debug;
-use std::num::NonZeroU64;
 
 use serde::{Serialize, Deserialize, de};
 use serde::ser::Serializer;
-use serde::de::{Deserializer, Visitor, SeqAccess};
+use serde::de::{Deserializer, Visitor};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[repr(transparent)]

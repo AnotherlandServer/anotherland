@@ -525,9 +525,9 @@ impl Serialize for RakNetPeer {
         S: serde::Serializer {
         
         let mut state = serializer.serialize_struct("RakNetPeer", 3)?;
-        state.serialize_field("guid", &self.guid);
-        state.serialize_field("remote_address", &self.remote_address);
-        state.serialize_field("local_address", &self.local_address);
+        state.serialize_field("guid", &self.guid)?;
+        state.serialize_field("remote_address", &self.remote_address)?;
+        state.serialize_field("local_address", &self.local_address)?;
         state.end()
     }
 }
