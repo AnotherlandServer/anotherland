@@ -10,12 +10,14 @@ use atlas::{raknet::{RakNetListener, RakNetRequest, Message}, CPkt, CPktResource
 use log::{debug, info, kv::{ToValue, Value}, error, trace, warn};
 use serde::{Serialize, Serializer, ser::SerializeStruct};
 use atlas::ParamEntity;
+use crate::node_server::requests::*;
 
-use crate::{world::{Zone, self, load_zone_from_definition, AvatarComponent, InterestList, AvatarType}, db::{ZoneDef, ItemContent}, cluster::{CommunityMessage, TravelType::{DirectTravel, PortalTravel, NonPortalTravel}}};
+use super::world::{Zone, self, load_zone_from_definition, AvatarComponent, InterestList, AvatarType};
+use crate::{db::{ZoneDef, ItemContent}, cluster::{CommunityMessage, TravelType::{DirectTravel, PortalTravel, NonPortalTravel}}};
 use crate::{db::{WorldDef, DatabaseRecord, realm_database, Account, Session, cluster_database, Character}, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}};
 
 #[derive(Clone, PartialEq, Eq)]
-enum ClientLoadState {
+pub(in crate::node_server) enum ClientLoadState {
     EarlyLoadSequence,
     RequestAvatarStream,
     StreamedAvatars,
@@ -35,17 +37,17 @@ impl Into<u32> for ClientLoadState {
     }
 }
 
-struct ClientState {
-    account: Account,
-    session: Session,
-    peer_id: Uuid,
-    avatar_id: AvatarId,
-    entity: Entity,
-    load_state: ClientLoadState,
-    zone: Uuid,
-    interest_list: HashSet<Entity>,
-    avatar_upload_queue: VecDeque<Entity>,
-    avatar_despawn_queue: VecDeque<AvatarId>,
+pub(in crate::node_server) struct ClientState {
+    pub account: Account,
+    pub session: Session,
+    pub peer_id: Uuid,
+    pub avatar_id: AvatarId,
+    pub entity: Entity,
+    pub load_state: ClientLoadState,
+    pub zone: Uuid,
+    pub interest_list: HashSet<Entity>,
+    pub avatar_upload_queue: VecDeque<Entity>,
+    pub avatar_despawn_queue: VecDeque<AvatarId>,
 }
 
 impl Serialize for ClientState {
@@ -73,28 +75,28 @@ impl ToValue for &mut ClientState {
     }
 }
 
-pub struct ZoneServerOptions {
+pub struct NodeServerOptions {
     pub zone_guid: Uuid,
     pub realm_id: u32,
 }
 
-pub struct ZoneServerData {
-    realm_id: u32,
-    worlddef: WorldDef,
-    zone: Arc<RwLock<Zone>>,
+pub struct NodeServerData {
+    pub(in crate::node_server) realm_id: u32,
+    pub(in crate::node_server) worlddef: WorldDef,
+    pub(in crate::node_server) zone: Arc<RwLock<Zone>>,
     //zones: Arc<RwLock<HashMap<Uuid, Zone>>>,
     //world: World,
-    realm: MessageQueueProducer,
-    frontend: MessageQueueProducer,
-    client_state: HashMap<Uuid, Arc<RwLock<ClientState>>>,
+    pub(in crate::node_server) realm: MessageQueueProducer,
+    pub(in crate::node_server) frontend: MessageQueueProducer,
+    pub(in crate::node_server) client_state: HashMap<Uuid, Arc<RwLock<ClientState>>>,
     //player_avatar_events: VecDeque<(AvatarId, AvatarEvent)>,
 }
 
 #[derive(Clone)]
-pub struct ZoneServer(Arc<RwLock<ZoneServerData>>, u32, Uuid);
+pub struct NodeServer(Arc<RwLock<NodeServerData>>, u32, Uuid);
 
-impl Deref for ZoneServer {
-    type Target = Arc<RwLock<ZoneServerData>>;
+impl Deref for NodeServer {
+    type Target = Arc<RwLock<NodeServerData>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -102,8 +104,8 @@ impl Deref for ZoneServer {
 
 }
 
-impl ZoneServer {
-    async fn send(&self, peer_id: &Uuid, message: Message) -> AnotherlandResult<()> {
+impl NodeServer {
+    pub(in crate::node_server) async fn send(&self, peer_id: &Uuid, message: Message) -> AnotherlandResult<()> {
         let serialized = message.to_bytes();
 
         debug!("Sending message of size {}", serialized.len());
@@ -118,371 +120,35 @@ impl ZoneServer {
         use Message::*;
 
         match request {
-            AtlasPkt(CPkt::oaPktRequestEnterGame(_)) => {
-                info!(client = state; "Player joining world!");
-
-                // Send resource notification 
-                let mut worlddef = CPktResourceNotify::default();
-                worlddef.resource_type = CpktResourceNotifyResourceType::WorldDef;
-                worlddef.field_2 = self.read().await.worlddef.guid.clone();
-                worlddef.field_3 = "".to_owned();
-
-                self.send(&state.peer_id, worlddef.as_message()).await?;
-
-                // Update and get avatar data
-                let (name, params, pos) = {
-                    let mut param_buffer = Vec::new();
-                    let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
-
-                    let world_state = self.read().await;
-                    let zone = world_state.zone.read().await;
-                    //let zones = world_state.zones.read().await;
-                    //let zone = zones.get(&state.zone)
-                    //.ok_or(AnotherlandError::app_err("zone not found"))?;
-
-                    // update player state
-                    let character_component = {
-                        let mut instance = zone.instance().write().await;
-                        let mut entry = instance
-                            .entry(state.entity).ok_or(AnotherlandError::app_err("entity not found"))?;
-
-                        let character_component = entry.get_component::<AvatarComponent>().unwrap().to_owned();
-
-                        let player_component = entry.get_component_mut::<PlayerComponent>().unwrap();
-                        player_component.set_spawn_mode(2);
-                        player_component.set_client_ready(false);
-                        player_component.set_player_loading(true);
-                        player_component.set_player_node_state(2);
-                        player_component.set_world_map_guid(world_state.worlddef.guid.clone());
-                        player_component.set_zone(zone.zonedef().zone.clone());
-                        player_component.set_zone_guid(state.zone.clone());
-
-                        character_component
-                    };
-
-                    let params = PlayerParam::from_component(zone.instance().write().await.deref_mut(), state.entity)?;
-                    params.write(&mut writer)?;
-
-                    (
-                        character_component.name,
-                        param_buffer,
-                        PositionUpdate {
-                            pos: params.pos().unwrap().to_owned().into(),
-                            rot: params.rot().unwrap().to_owned().into(),
-                            vel: character_component.vel.into(),
-                        }.to_bytes()
-                    )
-                };
-
-                debug!("Player avatar id: {:#?}", state.avatar_id);
-
-                // Transfer character to client
-                let mut avatar_blob = CPktBlob::default();
-                avatar_blob.avatar_id = state.avatar_id.as_u64();
-                avatar_blob.avatar_name = name;
-                avatar_blob.class_id = PlayerParam::CLASS_ID.as_u32();
-                avatar_blob.param_bytes = params.len() as u32;
-                avatar_blob.params = params;
-                avatar_blob.movement_bytes = pos.len() as u32;
-                avatar_blob.movement = pos;
-                avatar_blob.has_guid = true;
-                avatar_blob.field_9 = Some(state.session.id.clone());
-
-                self.send(&state.peer_id, avatar_blob.as_message()).await?;
-
-                Ok(())
+            AtlasPkt(CPkt::oaPktRequestEnterGame(pkt)) => {
+                self.request_enter_game(state, *pkt).await
             },
             AtlasPkt(CPkt::oaPktServerAction(pkt)) => {
-                let mut action = pkt.clone();
-                action.version = 2;
-                self.send(&state.peer_id, action.as_message()).await?;
-
-                Ok(())
+                self.request_server_action(state, *pkt).await
             },
             AtlasPkt(CPkt::oaPktC2SConnectionState(pkt)) => {
-                state.load_state = match pkt.field_1 {
-                    5 => ClientLoadState::RequestAvatarStream,
-                    6 => ClientLoadState::StreamedAvatars,
-                    7 => ClientLoadState::RequestSpawn,
-                    8 => ClientLoadState::Spawned,
-                    _ => {
-                        warn!(client = state; "Invalid client loadstate: {}", pkt.field_1);
-                        ClientLoadState::EarlyLoadSequence
-                    }
-                };
-
-                // Confirm loading state
-                let mut response = pkt.clone();
-                response.field_1 = state.load_state.clone().into();
-                response.field_2 = pkt.field_2 + 1;
-
-                self.send(&state.peer_id, response.as_message()).await?;
-                
-                Ok(())
+                self.request_c2s_connection_state(state, *pkt).await
             },
             AtlasPkt(CPkt::CPktRouted(pkt)) => {
                 //println!("Routed pkt {:#?}", Message::from_bytes(&pkt.field_4).unwrap());
                 match Message::from_bytes(&pkt.field_4).unwrap().1 {
                     AtlasPkt(CPkt::oaPktMoveManagerPosUpdate(pkt)) => {
-                        // Update world state
-                        let instance =  self.read().await.zone.read().await.instance().clone();
-
-                        // update world
-                        {
-                            let mut instance_s = instance.write().await;
-
-                            if let Ok(mut entry) = instance_s.entry_mut(state.entity) {
-                                let player_component = entry.get_component_mut::<PlayerComponent>().unwrap();
-
-                                player_component.set_pos(pkt.pos.pos.into());
-                                player_component.set_rot(pkt.pos.rot.clone().into());
-                            }
-                        }
-
-                        // check interests
-                        let instance_s = instance.read().await;
-
-                        if let Ok(entry) = instance_s.entry_ref(state.entity) {
-                            let player_component = entry.get_component::<PlayerComponent>().unwrap();
-
-                            let interests = Self::query_interests(
-                                player_component.pos().unwrap().clone(), 
-                                *player_component.aware_range().unwrap(), 
-                                instance_s.deref());
-
-                            // stream avatars which newly came into range
-                            for interest in interests.iter() {
-                                if !state.interest_list.contains(&interest) {
-                                    state.avatar_upload_queue.push_back(interest.clone());
-                                    state.interest_list.insert(interest.clone());
-                                }
-                            }
-
-                            // remove the ones out of our awarenes range
-                            for interest in state.interest_list.clone() {
-                                if !interests.contains(&interest) {
-                                    if let Ok(entry) = instance_s.entry_ref(interest) {
-                                        let avatar_component = entry.get_component::<AvatarComponent>().unwrap();
-                                        state.avatar_despawn_queue.push_back(avatar_component.id.clone());
-                                        state.interest_list.remove(&interest);
-                                    }
-                                }
-                            }
-                        }
-
-                        let vec_rot: Vec3 = pkt.pos.rot.clone().into();
-
-                        debug!("Rot Quat: {:#?}", pkt.pos.rot);
-                        debug!("Rot: {:#?}", vec_rot);
-                                   
-                        /*let avatar = self.world
-                            .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
-                            .get_avatar_mut(state.avatar_id.as_ref().unwrap()).unwrap();
-                        avatar.set_position(pkt.pos.pos.into());
-                        avatar.set_rotation(pkt.pos.rot.into());
-                        avatar.set_velocity(pkt.pos.vel.into());*/
+                       self.request_move_manager_pos_update(state, *pkt).await
                     },
                     _ => {
                         warn!("Unhandled routed packet: {:#?}", Message::from_bytes(&pkt.field_4).unwrap());
+                        Ok(())
                     },
                 }
-
-                Ok(())
             },
             AtlasPkt(CPkt::oaPktAvatarTellBehaviorBinary(pkt)) => {
-                match pkt.field_3.as_str() {
-                    "doVendorExecute" => {
-                        match &pkt.field_4 {
-                            NativeParam::Struct(attrib) => {
-                                let instance =  self.read().await.zone.read().await.instance().clone();
-                                let mut instance_s = instance.write().await;
-
-                                let db: mongodb::Database = realm_database().await;
-        
-                                if let Ok(mut entry) = instance_s.entry_mut(state.entity) {
-                                    let player_component = entry.get_component_mut::<PlayerComponent>().unwrap();
-
-                                    player_component.set_customization_gender(attrib[0].to_f32()?);
-                                    player_component.set_customization_height(attrib[1].to_f32()?);
-                                    player_component.set_customization_fat(attrib[2].to_f32()?);
-                                    player_component.set_customization_skinny(attrib[3].to_f32()?);
-                                    player_component.set_customization_muscular(attrib[4].to_f32()?);
-                                    player_component.set_customization_bust_size(attrib[5].to_f32()?);
-                                    player_component.set_race(attrib[6].to_i32()?);
-                                    player_component.set_customization_brow_angle(attrib[7].to_f32()?);
-                                    player_component.set_customization_eye_brow_pos(attrib[8].to_f32()?);
-                                    player_component.set_customization_eye_pos_spacing(attrib[9].to_f32()?);
-                                    player_component.set_customization_eye_pos(attrib[10].to_f32()?);
-                                    player_component.set_customization_eye_size_length(attrib[11].to_f32()?);
-                                    player_component.set_customization_eye_size_width(attrib[12].to_f32()?);
-                                    player_component.set_customization_eyes_pretty(attrib[13].to_f32()?);
-                                    player_component.set_customization_mouth_pos(attrib[14].to_f32()?);
-                                    player_component.set_customization_mouth_width(attrib[15].to_f32()?);
-                                    player_component.set_customization_mouth_lower_lip_thic(attrib[16].to_f32()?);
-                                    player_component.set_customization_mouth_upper_lip_thic(attrib[17].to_f32()?);
-                                    player_component.set_customization_mouth_expression(attrib[18].to_f32()?);
-                                    player_component.set_customization_nose_pos_length(attrib[19].to_f32()?);
-                                    player_component.set_customization_nose_pos_width(attrib[20].to_f32()?);
-                                    player_component.set_customization_nose_portude(attrib[21].to_f32()?);
-                                    player_component.set_customization_ear_size(attrib[22].to_f32()?);
-                                    player_component.set_customization_ear_elf(attrib[23].to_f32()?);
-                                    player_component.set_customization_cheek_bone(attrib[24].to_f32()?);
-                                    player_component.set_customization_cheek(attrib[25].to_f32()?);
-                                    player_component.set_customization_chin_portude(attrib[26].to_f32()?);
-                                    player_component.set_customization_jaw_chubby(attrib[27].to_f32()?);
-                                    debug!("Attrib 28: {}", attrib[28].to_string()?);
-                                    debug!("Attrib 29: {:#?}", attrib[29]);
-                                    // voucher 28
-                                    // int items 29
-
-                                    let mut visible_items = Vec::new();
-                                    for a in attrib[30..].iter() {
-                                        let item_uuid = a.to_uuid()?;
-                                        debug!("Load item {}", item_uuid.to_string());
-                                    let db: mongodb::Database = realm_database().await;
-                                    let item = ItemContent::get(db.clone(), &item_uuid).await?;
-                                        visible_items.push(item.unwrap().id as i32);
-                                    }
-
-                                    if !visible_items.is_empty() {
-                                        debug!("set visible item info");
-                                        player_component.set_visible_item_info(visible_items);
-                                    } else {
-                                        debug!("received empty visible item info after metamorph");
-                                    }
-                                }
-
-                                // Save changes
-                                debug!("Save avatar change");
-
-                                let params = PlayerParam::from_component(&instance_s, state.entity).unwrap();
-                                
-                                let mut character = Character::get(db.clone(), &state.session.character_id.unwrap()).await.unwrap().unwrap();
-                                character.data = params.clone();
-                                character.save(db.clone()).await?;
-
-                                // Update avatar
-                                let mut data = Vec::new();
-                                let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-                                params.write(&mut writer)?;
-    
-                                let mut avatar_update = CPktAvatarUpdate::default();
-                                avatar_update.full_update = false;
-                                avatar_update.avatar_id = Some(state.avatar_id.as_u64());
-                                avatar_update.update_source = 0;
-                                avatar_update.param_bytes = data.len() as u32;
-                                avatar_update.params = data;
-                                
-                                self.send(&state.peer_id, avatar_update.as_message()).await?;
-                                //let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
-                            },
-                            _ => panic!(),
-                        }
-                    },
-                    _ => {
-                        info!("Unknown avatar behavior: {:#?}", pkt);
-                        todo!();
-                    }
-                }
-
-                Ok(())
+                self.request_avatar_tell_behavior_binary(state, *pkt).await
             },
             AtlasPkt(CPkt::oaPktClusterClientToCommunity(pkt)) => {
-                debug!("{:#?}", pkt);
-
-                match CommunityMessage::from_native(pkt.field_3.clone())? {
-                    CommunityMessage::SocialTravel { avatar, map, travel } => {
-                        if avatar != state.avatar_id {
-                            // what are you doing??
-                            warn!("Client tried to 'send' an avatar it doesn't has onership of: {:#?}", avatar);
-                        } else {
-                            if travel {
-                                if let Some(target_zone) = ZoneDef::get_by_name(realm_database().await, &map).await? {
-                                    // we initiate the travel handshake. First, we inform the target zone server, that
-                                    // we'd like to initiate travel. After it has confirmed, we notify the frontend server 
-                                    // about the change and remove the client from this zone server.
-                                    let (dest_server, _) = connect_queue(MessageChannel::RealmChannel { 
-                                        realm_id: self.read().await.realm_id, 
-                                        channel: RealmChannel::ZoneChannel { zone_guid: target_zone.guid.clone() } 
-                                    }).await?;
-
-                                    dest_server.send(ClusterMessage::ZoneTravelRequest { 
-                                        session_id: state.session.id.clone(), 
-                                        peer_id: state.peer_id.clone(),
-                                        avatar_id: state.avatar_id.clone(),
-                                        current_zone: self.read().await.zone.read().await.zonedef().guid.clone(),
-                                        destination_zone: target_zone.guid, 
-                                        travel_type: DirectTravel
-                                    }).await?;
-                                } else {
-                                    // todo: inform the player, that the travel destination was invalid
-                                }
-
-                              
-
-                                /*match self.world
-                                .get_zone_mut(state.zone_guid.as_ref().unwrap()).unwrap()
-                                .get_avatar_mut(&avatar).unwrap() {
-
-                                    Avatar::Player(player) => {
-                                        // get world
-                                        let world = WorldDef::get_by_name(self.realm_db.clone(), &map).await?.unwrap();
-
-                                        // Send resource notification 
-                                        /*let mut worlddef = CPktResourceNotify::default();
-                                        worlddef.resource_type = CpktResourceNotifyResourceType::WorldDef;
-                                        worlddef.field_2 = world.unwrap().guid.clone();
-                                        worlddef.field_3 = "".to_owned();
-                        
-                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, worlddef.as_message()).await?;*/
-
-                                        let params = player.player_param_mut();
-                                        params.set_world_map_guid(world.guid.clone());
-                                        params.set_zone_guid(Uuid::from_str("b1bbd5c5-0990-454b-bcfa-5dfe176c6756").unwrap());
-
-                                        // Update avatar
-                                        let mut data = Vec::new();
-                                        let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-                                        player.params().write(&mut writer)?;
-            
-                                        let mut avatar_update = CPktAvatarUpdate::default();
-                                        avatar_update.full_update = false;
-                                        avatar_update.avatar_id = Some(state.avatar_id.as_ref().unwrap().as_u64());
-                                        avatar_update.update_source = 0;
-                                        avatar_update.param_bytes = data.len() as u32;
-                                        avatar_update.params = data;
-                                        
-                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, avatar_update.as_message()).await?;
-                                        /*let mut action = oaPktServerAction::default();
-                                        action.action = format!{"TELEPORT:TeleportTravel:TeleportTravelDefault",};
-                                        action.version = 4;
-                                        action.override_teleport = true;
-                                        action.pos = NetworkVec3 { x: 0.0, y: 0.0, z: 0.0};
-                                        action.rot = NetworkVec4 { x: 0.0, y: 0.0, z: 0.0, w: 0.0};
-                                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, action.as_message()).await;*/
-                                    },
-                                    _ => {}
-                                }*/
-                            }
-                        }
-
-                        Ok(())
-                    },
-                    CommunityMessage::Unknown_A1 { avatar, boolean } => {
-                        warn!("Unabled community message: 0xa1: {}", boolean);
-
-                        Ok(())
-                    },
-                }
+                self.request_cluster_client_to_community(state, *pkt).await
             },
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
-                if pkt.avatar_id.unwrap() == state.avatar_id.as_u64() {
-                    if let Ok(param) = PlayerParam::read(&pkt.params) {
-                        debug!("{:#?}", param.1.as_anyclass());
-                    }
-                }
-
-                Ok(())
+                self.request_avatar_update(state, *pkt).await
             },
             _ => {
                 debug!(client = state; "Unhandled message: {:#?}", request);
@@ -491,7 +157,7 @@ impl ZoneServer {
         }
     }
 
-    fn query_interests(pos: Vec3, radius: f32, zone: &World) -> Vec<Entity> {
+    pub(in crate::node_server) fn query_interests(pos: Vec3, radius: f32, zone: &World) -> Vec<Entity> {
         let mut interests = Vec::new();
 
         // query nonclient avatars
@@ -501,7 +167,7 @@ impl ZoneServer {
 
             for chunk in query.iter_chunks(zone) {
                 for (entity, nonclient_base) in chunk.into_iter_entities() {
-                    trace!("Entity dist {:#?} - {} - {}/{} - {}", entity, radius, pos, nonclient_base.pos().unwrap(), nonclient_base.pos().unwrap().distance(pos).abs());
+                    //trace!("Entity dist {:#?} - {} - {}/{} - {}", entity, radius, pos, nonclient_base.pos().unwrap(), nonclient_base.pos().unwrap().distance(pos).abs());
 
                     if nonclient_base.pos().unwrap().distance(pos) <= radius {
                         interests.push(entity);
@@ -528,8 +194,8 @@ impl ZoneServer {
 }
 
 #[async_trait]
-impl ServerInstance for ZoneServer {
-    type ServerProperties = ZoneServerOptions;
+impl ServerInstance for NodeServer {
+    type ServerProperties = NodeServerOptions;
 
     fn tickrate() -> Duration { Duration::from_millis(20) }
 
@@ -559,7 +225,7 @@ impl ServerInstance for ZoneServer {
             channel: RealmChannel::GlobalChannel 
         }).await?;
 
-        Ok(Box::new(Self(Arc::new(RwLock::new(ZoneServerData {
+        Ok(Box::new(Self(Arc::new(RwLock::new(NodeServerData {
             realm_id: properties.realm_id,
             worlddef: worlddef,
             zone: Arc::new(RwLock::new(zone)),
@@ -671,8 +337,6 @@ impl ServerInstance for ZoneServer {
                         }
                     }.await;
 
-                    trace!("Handling message");
-
                     match state {
                         Ok(state) => {
                             // Allow only one active message per client
@@ -763,7 +427,7 @@ impl ServerInstance for ZoneServer {
                     // notify the original zone server
                     let (src_server, _) = connect_queue(MessageChannel::RealmChannel { 
                         realm_id: self.read().await.realm_id, 
-                        channel: RealmChannel::ZoneChannel { zone_guid: current_zone } 
+                        channel: RealmChannel::NodeChannel { zone_guid: current_zone } 
                     }).await?;
 
                     src_server.send(ClusterMessage::ZoneTravelResponse { 
@@ -922,9 +586,12 @@ impl ServerInstance for ZoneServer {
                         
                                 let _ = writer.write_bytes(&pos.to_bytes());
         
+                                let _ = writer.write(0u64);
+                                let _ = writer.write(0u8);
+                                let _ = writer.write(0u8);
                                 let _ = writer.write(0u8);
                                 let _ = writer.write(0u16);
-                                let _ = writer.write(0u64);
+                                let _ = writer.write(0u16);
                                 let _ = writer.write(0u64);
                             }
     
@@ -974,9 +641,12 @@ impl ServerInstance for ZoneServer {
                     
                             let _ = writer.write_bytes(&pos.to_bytes());
     
+                            let _ = writer.write(0u64);
+                            let _ = writer.write(0u8);
+                            let _ = writer.write(0u8);
                             let _ = writer.write(0u8);
                             let _ = writer.write(0u16);
-                            let _ = writer.write(0u64);
+                            let _ = writer.write(0u16);
                             let _ = writer.write(0u64);
     
                             let mut data = Vec::new();
@@ -1102,7 +772,7 @@ impl ServerInstance for ZoneServer {
             },
             MessageChannel::RealmChannel { 
                 realm_id: self.1, 
-                channel: RealmChannel::ZoneChannel { zone_guid: self.2.clone() }
+                channel: RealmChannel::NodeChannel { zone_guid: self.2.clone() }
             }
         ]
     }

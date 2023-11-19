@@ -5,12 +5,13 @@ use bitstream_io::{ByteWriter, LittleEndian};
 use bson::doc;
 use log::{info, debug, warn, error};
 use mongodb::{options::UpdateOptions, Database};
+use nom::character;
 use std::fs;
 use std::error::Error;
 
 use crate::{util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind::{ApplicationError, self}}, CONF, ARGS, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, db::{WorldDef}};
 use crate::db::{Account, cluster_database, Session, DatabaseRecord, realm_database, Character};
-use atlas::{CPkt, Uuid, PlayerParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess, ParamClass, Player};
+use atlas::{CPkt, Uuid, PlayerParam, oaCharacter, CPktStream_126_1, oaCharacterList, CPktStream_126_5, oaPktResponseSelectWorld, oaPktCharacterSelectSuccess, ParamClass, Player, oaPktCharacterDeleteSuccess};
 use atlas::raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest};
 use atlas::oaPktCharacterFailure;
 use atlas::BoundParamClass;
@@ -186,6 +187,20 @@ impl ServerInstance for RealmServer {
                             failure.field_1 = 0; // not sure what 0 means
                             let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, failure.as_message()).await?;
                         }
+                    }
+                }
+            },
+            AtlasPkt(CPkt::oaPktCharacterDelete(pkt)) => {
+                if let Some(character) = Character::get(self.realm_db.clone(), &pkt.character_id).await? {
+                    if character.account == state.account.id {
+                        character.delete(self.realm_db.clone()).await?;
+
+                        let mut response_character_delete = oaPktCharacterDeleteSuccess::default();
+                        response_character_delete.character_id = character.id;
+
+                        let _ = request.peer().write().await.send(Priority::High, Reliability::Reliable, response_character_delete.as_message()).await?;
+                    } else {
+                        error!("Tried to remove character from different account! Character id: {}, Violating account: {:#?}", character.id, state.account);
                     }
                 }
             },

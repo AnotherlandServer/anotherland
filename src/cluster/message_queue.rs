@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddrV4};
+use std::{collections::HashMap, net::SocketAddrV4, fmt::Display};
 
 use glam::Vec3;
 use once_cell::sync::Lazy;
@@ -7,7 +7,7 @@ use tokio::sync::{broadcast::{Sender, self, Receiver}, RwLock};
 use rabbitmq_stream_client::{Environment, Producer, Consumer, NoDedup, types::Message};
 use tokio_stream::StreamExt;
 
-use crate::{ARGS, util::AnotherlandResult};
+use crate::{ARGS, util::AnotherlandResult, api_server::schema::Account};
 use atlas::{Uuid, AvatarId};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -24,6 +24,37 @@ pub enum TravelType {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApiRequest {
+    CreateAccout {
+        name: String,
+        email: String,
+        password: String,
+    },
+    QueryAccount { id: String },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApiError {
+    NotFound,
+    Custom{message: String},
+}
+
+impl Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApiError::NotFound => f.write_str("not found"),
+            ApiError::Custom { message } => f.write_str(&message),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApiResponse {
+    Error(ApiError),
+    Account(Account)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ClusterMessage {
     Shutdown{subject: ShutdownSubject},
     InvalidateSession{session_id: Uuid},
@@ -34,8 +65,11 @@ pub enum ClusterMessage {
     ZoneTravelRequest{session_id: Uuid, peer_id: Uuid, avatar_id: AvatarId, current_zone: Uuid, destination_zone: Uuid, travel_type: TravelType},
     ZoneTravelResponse{session_id: Uuid, avatar_id: AvatarId, destination_zone: Uuid, pos: Vec3, rot: Vec3},
     ZoneTravelFinished{session_id: Uuid, avatar_id: AvatarId, world_id: u16, zone_id: Uuid},
+    ApiRequest{request_id: Uuid, request: ApiRequest},
+    ApiResponse{request_id: Uuid, response: ApiResponse},
 }
 
+#[derive(Clone)]
 pub enum MessageQueueProducer {
     Broadcast(Sender<ClusterMessage>),
     RabbitMq(Producer<NoDedup>),
@@ -90,6 +124,10 @@ static INTERNAL_MESSAGE_QUEUES: Lazy<RwLock<HashMap<String, Sender<ClusterMessag
 pub enum MessageChannel {
     ClusterChannel,
     RealmChannel{realm_id: u32, channel: RealmChannel},
+
+    ApiFrontend,
+    ClusterApiChannel,
+    RealmApiChannel{realm_id: u32}
 }
 
 #[derive(Serialize, Deserialize)]
@@ -97,7 +135,7 @@ pub enum RealmChannel {
     FrontendChannel,
     GlobalChannel,
     //WorldChannel{world_id: u16},
-    ZoneChannel{zone_guid: Uuid},
+    NodeChannel{zone_guid: Uuid},
     DungeonChannel{dungeon_id: Uuid},
 }
 

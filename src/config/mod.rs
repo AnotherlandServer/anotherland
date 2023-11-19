@@ -1,4 +1,4 @@
-use std::net::SocketAddrV4;
+use std::net::{SocketAddrV4, SocketAddr};
 
 use serde_derive::Deserialize;
 
@@ -25,9 +25,16 @@ pub struct ConfFrontendServer {
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
+pub struct ConfApiServer {
+    pub listen_address: SocketAddr,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
 pub struct ConfMain {
     pub login_server: ConfLoginServer,
     pub realm: ConfRealmServer,
     pub frontend: ConfFrontendServer,
+    pub api: ConfApiServer,
 }
 

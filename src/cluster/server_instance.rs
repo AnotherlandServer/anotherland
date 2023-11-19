@@ -14,7 +14,6 @@ pub trait ServerInstance {
     async fn init(properties: &Self::ServerProperties) -> AnotherlandResult<Box<Self>>;
     async fn close(&mut self);
     fn raknet_listener(&self) -> Option<&RakNetListener> { None }
-    //async fn next_request(&mut self) -> AnotherlandResult<Option<RakNetRequest>>;
     async fn handle_request(&mut self, request: RakNetRequest) -> AnotherlandResult<()> { Ok(()) }
     async fn handle_cluster_message(&mut self, message: ClusterMessage) -> AnotherlandResult<()> { Ok(()) }
     async fn tick(&mut self) -> AnotherlandResult<()> { Ok(()) }

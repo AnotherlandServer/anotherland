@@ -7,8 +7,8 @@ use mongodb::Database;
 use tokio::{time::{Interval, self}, net::{TcpListener, TcpStream}};
 use tokio_stream::StreamExt;
 
-use crate::{util::AnotherlandResult, CONF, db::{Account, Session, cluster_database}, cluster::{ServerInstance, ClusterMessage::{InvalidateSession, self}, MessageChannel, MessageQueueProducer, connect_queue}};
-use atlas::raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest, RakNetPeerHandle};
+use crate::{util::AnotherlandResult, CONF, db::{Account, Session, cluster_database}, cluster::{ServerInstance, ClusterMessage::{InvalidateSession, self}, MessageChannel, MessageQueueProducer, connect_queue, ApiRequest, ApiResponse, ApiError}, api_server::schema};
+use atlas::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetRequest, RakNetPeerHandle}, Uuid};
 use atlas::{CPktLogin, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktRealmStatusList};
 use atlas::RealmStatus;
 
@@ -30,6 +30,7 @@ pub struct LoginServer {
     realms: Vec<RealmEntry>,
 
     cluster: MessageQueueProducer,
+    api_frontend: MessageQueueProducer,
 }
 
 enum LoginError {
@@ -47,7 +48,7 @@ impl ServerInstance for LoginServer {
         let db = cluster_database().await;
 
         // Create Admin account if it doesn't exist yet
-        if Account::get_by_username_or_mail(db.clone(), "admin").await?.is_none() {
+        /*if Account::get_by_username_or_mail(db.clone(), "admin").await?.is_none() {
             Account::create(db.clone(), "admin".to_owned(), "admin@localhost".to_owned(), "1234".to_owned()).await?;
 
 
@@ -55,7 +56,7 @@ impl ServerInstance for LoginServer {
             info!("=========== ADMIN ACCOUNT PASSWORD ===========");
             info!("1234");
             info!("==============================================");
-        }
+        }*/
 
         info!("Starting login server...");
 
@@ -65,6 +66,7 @@ impl ServerInstance for LoginServer {
         let queue_listener = TcpListener::bind(&CONF.login_server.queue_listen_address).await?;
 
         let (producer, _) = connect_queue(MessageChannel::ClusterChannel).await?;
+        let (api_frontend, _) = connect_queue(MessageChannel::ApiFrontend).await?;
 
         Ok(Box::new(Self {
             listener,
@@ -74,6 +76,7 @@ impl ServerInstance for LoginServer {
             queued_clients: Vec::new(),
             realms: Vec::new(),
             cluster: producer,
+            api_frontend,
         }))
     }
 
@@ -206,6 +209,17 @@ impl ServerInstance for LoginServer {
 
                 Ok(())
             },
+            ClusterMessage::ApiRequest { request_id, request } => {
+                match self.handle_api_request(request).await {
+                    Ok(Some(response)) => self.api_frontend.send(ClusterMessage::ApiResponse { request_id, response }).await,
+                    Ok(None) => Ok(()),
+                    Err(e) => self.api_frontend.send(ClusterMessage::ApiResponse { 
+                        request_id, 
+                        response: ApiResponse::Error(ApiError::Custom { message: e.to_string() }) 
+                    }).await,
+                }
+                
+            }
             _ => Ok(())
         }
     }
@@ -227,11 +241,31 @@ impl ServerInstance for LoginServer {
     }
 
     fn get_subscribed_channels(&self) -> Vec<MessageChannel> {
-        vec![MessageChannel::ClusterChannel]
+        vec![MessageChannel::ClusterChannel, MessageChannel::ClusterApiChannel]
     }
 }
 
 impl LoginServer {
+    async fn handle_api_request(&self, request: ApiRequest) -> AnotherlandResult<Option<ApiResponse>> {
+        match request {
+            ApiRequest::CreateAccout { name, email, password } => {
+                let account = Account::create(self.db.clone(), name, email, password).await?;
+                Ok(Some(ApiResponse::Account(account.into())))
+            },
+
+            ApiRequest::QueryAccount { id } => {
+                if let Some(account) = Account::get_by_id(self.db.clone(),  &Uuid::from_str(&id)?).await? {
+                    Ok(Some(ApiResponse::Account(account.into())))
+                } else {
+                    Ok(Some(ApiResponse::Error(ApiError::NotFound)))
+                }
+            },
+
+            // silently ignore requests we can't answer
+            _ => Ok(None),
+        }
+    }
+
     async fn verify_and_create_auth_token(&self, pkt: &CPktLogin, account: &Account) -> AnotherlandResult<Option<Session>> {
         if bcrypt::verify(&pkt.password, &account.password)? {
             // Check if we have a session already running and invalidate those

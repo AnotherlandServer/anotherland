@@ -4,9 +4,9 @@ mod config;
 mod login_server;
 mod realm_server;
 mod frontend_server;
-mod zone_server;
+mod node_server;
+mod api_server;
 mod cluster;
-mod world;
 mod data_import;
 
 // Import modules
@@ -24,6 +24,8 @@ use mongodb::bson::doc;
 use tokio::{signal, sync::RwLock};
 
 use util::AnotherlandResult;
+use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, WorldDef, ItemContent, DatabaseRecord, Character, ZoneDef}, frontend_server::FrontendServer, node_server::{NodeServer, NodeServerOptions}, api_server::ApiServer};
+
 
 
 #[derive(Parser)]
@@ -69,7 +71,7 @@ enum StartCommand {
         #[arg(long, env = "MONGO_REALM_DB")]
         mongo_realm_db: String,
     },
-    WorldServer {
+    NodeServer {
         #[arg(long)]
         world_id: u16,
 
@@ -83,6 +85,7 @@ enum StartCommand {
         #[arg(long, env = "MONGO_REALM_DB")]
         mongo_realm_db: String,
     },
+    ApiServer,
     StandaloneServer {
         #[arg(long, env = "MAX_INSTANCES")]
         max_instances: usize,
@@ -114,7 +117,7 @@ impl Args {
 
     pub fn mongo_realm_db(&self) -> Option<String> {
         match &self.start_command {
-            StartCommand::WorldServer { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
+            StartCommand::NodeServer { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
             StartCommand::InstancePoolServer { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
             StartCommand::StandaloneServer { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
             StartCommand::DataImport { mongo_realm_db, .. } => Some(mongo_realm_db.clone()),
@@ -123,8 +126,6 @@ impl Args {
         }
     }
 }
-
-use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, WorldDef, ItemContent, DatabaseRecord, Character, ZoneDef}, frontend_server::FrontendServer, zone_server::{ZoneServer, ZoneServerOptions}};
 
 static ARGS: Lazy<Args> = Lazy::new(Args::parse);
 
@@ -143,10 +144,6 @@ static CONF: Lazy<ConfMain> = Lazy::new(|| {
         .try_deserialize::<ConfMain>()
         .expect("Failed to parse config")
 });
-
-// Todo: This is a hack, but I don't want to refactor the server runner / server instance impl
-// to accept parameters on creation.
-static WORLD_SERVER_IDS: Lazy<RwLock<VecDeque<u16>>> = Lazy::new(||RwLock::new(VecDeque::new()));
 
 async fn init_database() -> AnotherlandResult<()> {
     
@@ -183,6 +180,7 @@ async fn main() -> AnotherlandResult<()> {
 
     // Start tokio runtime
     let mut servers = Vec::new();
+    let mut api_server = None;
 
     match &ARGS.start_command {
         StartCommand::InitDb => {
@@ -202,7 +200,7 @@ async fn main() -> AnotherlandResult<()> {
         StartCommand::FrontendServer { .. } => {
             servers.push(ServerRunner::new::<FrontendServer>(()));
         }
-        StartCommand::WorldServer { world_id, .. } => {
+        StartCommand::NodeServer { world_id, .. } => {
             //WORLD_SERVER_IDS.write().await.push_front(*world_id);
 
             //servers.push(ServerRunner::new::<WorldServer>());
@@ -210,45 +208,44 @@ async fn main() -> AnotherlandResult<()> {
         StartCommand::InstancePoolServer { .. } => {
 
         },
+        StartCommand::ApiServer => {
+            let server = ApiServer::new().await?;
+            server.start().await?;
+
+            api_server = Some(server);
+        },
         StartCommand::StandaloneServer { .. } => {
             init_database().await?;
 
-            /*let char = Character::get(realm_database().await, &2781041876).await?.unwrap();
+            // start api server
+            let server = ApiServer::new().await?;
+            server.start().await?;
             
-            let mut data = Vec::new();
-            let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-            char.data.write(&mut writer)?;
-
-            let (_, deserialized) = PlayerParam::read(&data).unwrap();
-
-            fs::write("chardata.bin", data);*/
+            api_server = Some(server);
 
             // load all zones
             let zones = ZoneDef::list(realm_database().await).await?.into_iter().map(|z| z.guid);
-            //let worlds = WorldDef::list(realm_database().await).await?.into_iter().map(|w| w.id);
 
             servers.push(ServerRunner::new::<LoginServer>(()));
             servers.push(ServerRunner::new::<RealmServer>(()));
             servers.push(ServerRunner::new::<FrontendServer>(()));
 
             for zone_guid in zones {
-                servers.push(ServerRunner::new::<ZoneServer>(ZoneServerOptions {
+                servers.push(ServerRunner::new::<NodeServer>(NodeServerOptions {
                     realm_id: CONF.realm.id,
                     zone_guid
                 }));
             }
-            /*for world_id in worlds {
-                servers.push(ServerRunner::new::<ZoneServer>(ZoneServerOptions {
-                    realm_id: CONF.realm.id,
-                    zone_guid
-                }));
-            }*/
         }
     }
 
     if !servers.is_empty() {
         match signal::ctrl_c().await {
             Ok(()) => {
+                if let Some(api_server) = api_server {
+                    api_server.stop().await;
+                }
+
                 for server in servers.drain(..) {
                     server.stop().await;
                 }

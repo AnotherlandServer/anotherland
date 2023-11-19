@@ -12,7 +12,7 @@ use serde::{Serialize, Serializer, ser::SerializeStruct};
 use tokio::{sync::RwLock, task::JoinHandle, time::{Interval, self, Instant}};
 use log::kv::{ToValue, Value};
 
-use crate::{CONF, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, WORLD_SERVER_IDS, db::{WorldDef, DatabaseRecord, realm_database, Account, Session, cluster_database, Character, Content, CashShopVendor, CashShopBundle, CashShopItem, ItemContent, ZoneDef}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}};
+use crate::{CONF, cluster::{ServerInstance, ClusterMessage, MessageChannel, RealmChannel, MessageQueueProducer, connect_queue}, db::{WorldDef, DatabaseRecord, realm_database, Account, Session, cluster_database, Character, Content, CashShopVendor, CashShopBundle, CashShopItem, ItemContent, ZoneDef}, ARGS, util::{AnotherlandError, AnotherlandErrorKind::ApplicationError}};
 use raknet::*;
 use atlas::*;
 use crate::util::AnotherlandResult;
@@ -125,7 +125,7 @@ impl ServerInstance for FrontendServer {
         for zone_guid in zones {
             zone_channels.insert(zone_guid.clone(), connect_queue(MessageChannel::RealmChannel { 
                 realm_id: CONF.realm.id, 
-                channel: RealmChannel::ZoneChannel { zone_guid }
+                channel: RealmChannel::NodeChannel { zone_guid }
             }).await?.0);
         }
         /*let worlds = WorldDef::list(realm_database().await).await?.into_iter().map(|w| w.id);

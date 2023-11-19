@@ -10,7 +10,7 @@ use log::kv::{ToValue, Value};
 impl Uuid {
     pub fn from_str(val: &str) -> Result<Self, io::Error> {
         let sanitized: String = val.chars().filter(|c| c.is_alphanumeric() || *c == '-').collect();
-        let uuid = external_uuid::parse_str(&sanitized).unwrap();
+        let uuid = external_uuid::parse_str(&sanitized).map_err(|e| io::Error::other(e))?;
         let (time_low, time_mid, time_hi_and_version, tail) = uuid.to_fields_le();
         Ok(Self {
             time_low: time_low.swap_bytes(),
