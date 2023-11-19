@@ -1,3 +1,3 @@
 [submodule "packet_definitions"]
 	path = packet_definitions
-	url = https://github.com/plehmkuhl/otherland-packet-formats.git
+	url = https://github.com/AnotherlandServer/packet-formats.git
