@@ -84,7 +84,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "anotherland_server"
+name = "anotherland"
 version = "0.1.0"
 dependencies = [
  "async-graphql",

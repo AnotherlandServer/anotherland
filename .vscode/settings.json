@@ -5,5 +5,8 @@
     ],
     "yaml.schemas": {
         "otherland-proto": "${workspaceFolder}/packet_definitions/otherproto.schema.yaml"
-    }
+    },
+    "licenser.author": "AnotherlandServer",
+    "licenser.license": "AGPLv3",
+    "licenser.projectName": "Anotherland"
 }
