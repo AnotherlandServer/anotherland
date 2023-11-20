@@ -7,7 +7,7 @@ FROM rust:1 as builder
 # Mount the secret as /root/.ssh/id_rsa
 RUN mkdir -p /root/.ssh
 RUN --mount=type=secret,id=private_build_repo_key \
-  cat /run/secrets/private_build_repo_key > /root/.ssh/id_rsa
+  cat /run/secrets/private_build_repo_key
 
 # Setup ssh access
 RUN chmod 600 /root/.ssh/id_rsa && \
