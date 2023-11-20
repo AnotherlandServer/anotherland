@@ -8,10 +8,9 @@ FROM rust:1 as builder
 RUN mkdir -p /root/.ssh
 RUN --mount=type=secret,id=private_build_repo_key \
   cat /run/secrets/private_build_repo_key > /root/.ssh/id_rsa
-RUN cat /root/.ssh/id_rsa
 
 # Setup ssh access
-RUN chmod 600 /root/.ssh/id_rsa && \
+RUN chmod 0600 /root/.ssh/id_rsa && \
     touch /root/.ssh/known_hosts && \
     ssh-keyscan github.com >> /root/.ssh/known_hosts
 
