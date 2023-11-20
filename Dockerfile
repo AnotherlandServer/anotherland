@@ -9,6 +9,9 @@ RUN mkdir -p /root/.ssh
 RUN --mount=type=secret,id=private_build_repo_key \
   cat /run/secrets/private_build_repo_key > /root/.ssh/id_rsa
 
+RUN ls -la /root/.ssh/id_rsa
+RUN sha1sum /root/.ssh/id_rsa
+
 # Setup ssh access
 RUN chmod 0600 /root/.ssh/id_rsa && \
     touch /root/.ssh/known_hosts && \
@@ -19,8 +22,7 @@ WORKDIR /usr/src/anotherland
 COPY . .
 
 # clone private files required for build
-RUN ssh -vvv git@github.com || true && \
-    git clone git@github.com:AnotherlandServer/private-build-files.git
+RUN git clone git@github.com:AnotherlandServer/private-build-files.git
 
 
 # build
@@ -32,3 +34,4 @@ FROM debian:stable-slim
 RUN apt-get update && apt-get install -y libsqlite3-0 && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/cargo/bin/anotherland /usr/local/bin/anotherland
 CMD ["anotherland"]
+
