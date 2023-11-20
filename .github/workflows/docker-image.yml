@@ -46,4 +46,4 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         secrets: |
-          "ssh_private_key=${{ secrets.PRIVATE_BUILD_REPO_KEY }}"
+          "private_build_repo_key=${{ secrets.PRIVATE_BUILD_REPO_KEY }}"
