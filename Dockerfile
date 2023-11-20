@@ -1,14 +1,17 @@
+# Syntax to use BuildKit
+# syntax=docker/dockerfile:1.2
+
 FROM rust:1 as builder
 
-# add credentials on build
-RUN --mount=type=secret,id=ssh_private_key
-RUN mkdir /root/.ssh/
-RUN cp /run/secrets/ssh_private_key /root/.ssh/id_rsa
-RUN chmod 600 /root/.ssh/id_rsa
 
-# prepare ssh for github
-RUN touch /root/.ssh/known_hosts
-RUN ssh-keyscan github.com >> /root/.ssh/known_hosts
+# Mount the secret as /root/.ssh/id_rsa
+RUN --mount=type=secret,id=ssh_private_key,dst=/root/.ssh/id_rsa
+
+# Setup ssh access
+RUN chmod 600 /root/.ssh/id_rsa && \
+    mkdir -p /root/.ssh && \
+    touch /root/.ssh/known_hosts && \
+    ssh-keyscan github.com >> /root/.ssh/known_hosts
 
 # setup workdir
 WORKDIR /usr/src/anotherland
