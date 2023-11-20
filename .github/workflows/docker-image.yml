@@ -17,4 +17,4 @@ jobs:
     - name: Build the Docker image
       run: docker build . --file Dockerfile --tag anotherland:$(date +%s) --tag anotherland:unstable --build-arg="SSH_PRIVATE_KEY=${{ secrets.PRIVATE_BUILD_REPO_KEY }}"
     - name: Push the Docker image
-      run: docker push --all-tags ghcr.io/AnotherlandServer/anotherland
+      run: docker push --all-tags ghcr.io/anotherlandserver/anotherland
