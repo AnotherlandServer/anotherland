@@ -1,9 +1,9 @@
 FROM rust:1 as builder
 
 # add credentials on build
-ARG SSH_PRIVATE_KEY
+RUN --mount=type=secret,id=ssh_private_key
 RUN mkdir /root/.ssh/
-RUN echo "${SSH_PRIVATE_KEY}" > /root/.ssh/id_rsa
+RUN cp /run/secrets/ssh_private_key /root/.ssh/id_rsa
 RUN chmod 600 /root/.ssh/id_rsa
 
 # prepare ssh for github
