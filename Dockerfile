@@ -19,7 +19,9 @@ WORKDIR /usr/src/anotherland
 COPY . .
 
 # clone private files required for build
-RUN git clone git@github.com:AnotherlandServer/private-build-files.git
+RUN ssh -vvv git@github.com || true && \
+    git clone git@github.com:AnotherlandServer/private-build-files.git
+
 
 # build
 ENV OTHERLAND_CLIENT_PATH /usr/src/anotherland/private-build-files/client_files/
