@@ -144,13 +144,24 @@ static ARGS: Lazy<Args> = Lazy::new(Args::parse);
 static CONF: Lazy<ConfMain> = Lazy::new(|| {
     type Config = ::config::Config;
     
-    Config::builder()
+    let mut builder = Config::builder()
         .add_source(
             glob("conf/*.toml")
                 .unwrap()
                 .map(|path| File::from(path.unwrap()))
                 .collect::<Vec<_>>(),
-        )
+        );
+
+    if cfg!(unix) {
+        builder = builder.add_source(
+            glob("/etc/anotherland/*.toml")
+                .unwrap()
+                .map(|path| File::from(path.unwrap()))
+                .collect::<Vec<_>>(),
+        );
+    }
+        
+    builder
         .build()
         .unwrap()
         .try_deserialize::<ConfMain>()

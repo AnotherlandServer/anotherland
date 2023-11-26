@@ -31,5 +31,7 @@ RUN cargo install --path .
 FROM debian:stable-slim
 RUN apt-get update && apt-get install -y libsqlite3-0 && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/cargo/bin/anotherland /usr/local/bin/anotherland
+COPY --from=builder /usr/src/anotherland/conf /etc/anotherland
+COPY --from=builder /usr/src/anotherland/log4rs.yaml /usr/local/bin/log4rs.yaml
 CMD ["anotherland"]
 
