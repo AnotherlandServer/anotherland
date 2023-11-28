@@ -37,7 +37,7 @@ impl QueryRoot {
 
 #[Object]
 impl MutationRoot {
-    async fn create_account(&self, ctx: &Context<'_>, name: String, email: String, password: String) -> Result<Account> {
+    async fn create_account(&self, ctx: &Context<'_>, name: String, email: Option<String>, password: String) -> Result<Account> {
         match ctx.data_unchecked::<ApiServer>().query_cluster(ApiRequest::CreateAccout { name, email, password }).await {
             Ok(ApiResponse::Account(account)) => Ok(account),
             Err(e) => Err(e),
@@ -50,7 +50,7 @@ impl MutationRoot {
 pub struct Account {
     id: String,
     username: String,
-    email: String,
+    email: Option<String>,
     created: DateTime<Utc>,
     last_login: Option<DateTime<Utc>>,
     banned: bool,

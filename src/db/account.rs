@@ -16,7 +16,8 @@
 use async_trait::async_trait;
 use bson::doc;
 use chrono::{Utc, DateTime};
-use mongodb::{Database, options::IndexOptions, IndexModel, Collection};
+use log::{debug, info};
+use mongodb::{Database, options::{IndexOptions, InsertOneOptions}, IndexModel, Collection};
 use serde::{Serialize, Deserialize};
 use sha1::{Sha1, Digest};
 
@@ -30,7 +31,7 @@ pub struct Account {
     pub id: Uuid,
     pub numeric_id: u32,
     pub username: String,
-    pub email: String,
+    pub email: Option<String>,
     pub password: String,
     pub created: DateTime<Utc>,
     pub last_login: Option<DateTime<Utc>>,
@@ -55,7 +56,7 @@ impl Account {
          None).await?)
     }
 
-    pub async fn create(db: Database, username: String, email: String, password: String) -> AnotherlandResult<Account> {
+    pub async fn create(db: Database, username: String, email: Option<String>, password: String) -> AnotherlandResult<Account> {
         let collection = db.collection::<Account>("accounts");
         let id = Uuid::new_v4();
 
@@ -79,7 +80,8 @@ impl Account {
             is_gm: false,
         };
 
-        collection.insert_one(&account, None).await?;
+        let result = collection.insert_one(&account, None).await?;
+        info!("Result: {:#?}", result);
         Ok(account)
     }
 
@@ -113,7 +115,7 @@ impl Account {
         collection.create_index(
             IndexModel::builder()
             .keys(doc!("email": 1))            
-            .options(IndexOptions::builder().unique(true).build())
+            .options(IndexOptions::builder().unique(true).partial_filter_expression(doc!("email":{"$exists":true})).build())
             .build(), 
             None).await?;
 

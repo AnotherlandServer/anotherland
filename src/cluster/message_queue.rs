@@ -42,7 +42,7 @@ pub enum TravelType {
 pub enum ApiRequest {
     CreateAccout {
         name: String,
-        email: String,
+        email: Option<String>,
         password: String,
     },
     QueryAccount { id: String },
