@@ -12,14 +12,3 @@
 // 
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-mod zone;
-mod components;
-mod avatar;
-mod player;
-mod systems;
-
-pub use zone::*;
-pub use avatar::*;
-pub use components::*;
-pub use player::*;
