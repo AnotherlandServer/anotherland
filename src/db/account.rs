@@ -115,7 +115,7 @@ impl Account {
         collection.create_index(
             IndexModel::builder()
             .keys(doc!("email": 1))            
-            .options(IndexOptions::builder().unique(true).partial_filter_expression(doc!("email":{"$exists":true})).build())
+            .options(IndexOptions::builder().unique(true).partial_filter_expression(doc!("email":{"$type":"string"})).build())
             .build(), 
             None).await?;
 
