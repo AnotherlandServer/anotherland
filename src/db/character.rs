@@ -42,7 +42,7 @@ pub struct Character {
 static NEW_CHARACTER_TEMPLATE: Lazy<PlayerParam> = Lazy::new(|| {
     let mut player = PlayerParam::default();
 
-    player.set_world_map_guid(Uuid::from_str("f6b8f8b7-a726-4d36-9634-f6d403943fff").unwrap());
+    player.set_world_map_guid("f6b8f8b7-a726-4d36-9634-f6d403943fff");
     player.set_zone_guid(Uuid::from_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
     player.set_zone("ClassSelection_P");
 
