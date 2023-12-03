@@ -13,10 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod avatar_component;
-mod interest_list;
-mod network_component;
+use atlas::Uuid;
 
-pub use avatar_component::*;
-pub use interest_list::*;
-pub use network_component::*;
+#[derive(Clone, Debug)]
+pub struct NetworkComponent {
+    pub peer_id: Uuid,
+}

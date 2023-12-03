@@ -363,6 +363,10 @@ impl ServerInstance for RealmServer {
             MessageChannel::RealmChannel { 
                 realm_id: self.realm_id, 
                 channel: RealmChannel::GlobalChannel,
+            }, 
+            MessageChannel::RealmChannel { 
+                realm_id: self.realm_id, 
+                channel: RealmChannel::SocialChannel,
             }
         ]
     }

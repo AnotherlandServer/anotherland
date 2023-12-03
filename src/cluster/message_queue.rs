@@ -70,6 +70,27 @@ pub enum ApiResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ChatType {
+    Say,
+    Whisper { character: String },
+    Shout,
+    Party,
+    Clan,
+    Officer,
+    Channel { name: String },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum SocialEvent {
+    PeerEnter{peer_id: Uuid, zone: Uuid},
+    PeerLeave{peer_id: Uuid},
+    PeerTravel{peer_id: Uuid, zone: Uuid},
+    ChannelOptIn{peer_id: Uuid, channel: String},
+    ChannelOptOut{peer_id: Uuid, channel: String},
+    Chat{peer_id: Uuid, chat_type: ChatType, message: String},
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ClusterMessage {
     Shutdown{subject: ShutdownSubject},
     InvalidateSession{session_id: Uuid},
@@ -82,6 +103,7 @@ pub enum ClusterMessage {
     ZoneTravelFinished{session_id: Uuid, avatar_id: AvatarId, world_id: u16, zone_id: Uuid},
     ApiRequest{request_id: Uuid, request: ApiRequest},
     ApiResponse{request_id: Uuid, response: ApiResponse},
+    SocialEvent{event: SocialEvent},
 }
 
 #[derive(Clone)]
@@ -149,6 +171,7 @@ pub enum MessageChannel {
 pub enum RealmChannel {
     FrontendChannel,
     GlobalChannel,
+    SocialChannel,
     //WorldChannel{world_id: u16},
     NodeChannel{zone_guid: Uuid},
     DungeonChannel{dungeon_id: Uuid},

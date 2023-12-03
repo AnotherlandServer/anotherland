@@ -19,7 +19,7 @@ use log::{info, debug};
 use atlas::Player;
 use std::ops::DerefMut;
 
-use crate::{util::{AnotherlandResult, AnotherlandError}, node_server::{NodeServer, ClientState, world::AvatarComponent}};
+use crate::{util::{AnotherlandResult, AnotherlandError}, node_server::{NodeServer, ClientState, world::{AvatarComponent, PlayerSpawnMode}}, cluster::{ClusterMessage, SocialEvent}};
 
 impl NodeServer {
     pub(in crate::node_server) async fn request_enter_game(&self, state: &mut ClientState, _pkt: oaPktRequestEnterGame) -> AnotherlandResult<()> {
@@ -53,13 +53,13 @@ impl NodeServer {
                 let character_component = entry.get_component::<AvatarComponent>().unwrap().to_owned();
 
                 let player_component = entry.get_component_mut::<PlayerComponent>().unwrap();
-                player_component.set_spawn_mode(2);
+                player_component.set_spawn_mode(PlayerSpawnMode::LoginNormal.into());
                 player_component.set_client_ready(false);
                 player_component.set_player_loading(true);
                 player_component.set_player_node_state(2);
-                player_component.set_world_map_guid(world_state.worlddef.guid.clone());
-                player_component.set_zone(zone.zonedef().zone.clone());
-                player_component.set_zone_guid(state.zone.clone());
+                /*player_component.set_world_map_guid(&world_state.worlddef.guid.to_string());
+                player_component.set_zone(&zone.zonedef().zone.to_string());
+                player_component.set_zone_guid(state.zone.clone());*/
 
                 character_component
             };
@@ -77,6 +77,10 @@ impl NodeServer {
                 }.to_bytes()
             )
         };
+
+        self.read().await.social.send(ClusterMessage::SocialEvent { 
+            event: SocialEvent::PeerEnter { peer_id: state.peer_id.clone(), zone: state.zone.clone() }
+        }).await?;
 
         debug!("Player avatar id: {:#?}", state.avatar_id);
 
