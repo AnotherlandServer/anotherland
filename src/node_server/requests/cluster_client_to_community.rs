@@ -13,8 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::oaPktClusterClientToCommunity;
+use atlas::{oaPktClusterClientToCommunity, PlayerComponent, Player};
 use log::{debug, warn};
+use legion::EntityStore;
 
 use crate::{node_server::{NodeServer, ClientState}, util::AnotherlandResult, cluster::{CommunityMessage, connect_queue, RealmChannel, ClusterMessage, MessageChannel}, db::{ZoneDef, realm_database}};
 use crate::cluster::TravelType::DirectTravel;
@@ -24,6 +25,8 @@ impl NodeServer {
         debug!("{:#?}", pkt);
 
         match CommunityMessage::from_native(pkt.field_3.clone())? {
+            // This is called after character creation, when choosing to play as a "social" character.
+            // No other instances are kown yet.
             CommunityMessage::SocialTravel { avatar, map, travel } => {
                 if avatar != state.avatar_id {
                     // what are you doing??
@@ -31,6 +34,19 @@ impl NodeServer {
                 } else {
                     if travel {
                         if let Some(target_zone) = ZoneDef::get_by_name(realm_database().await, &map).await? {
+                            // Update player hp, as they all start with 0
+                            {
+                                let instance =  self.read().await.zone.read().await.instance().clone();
+
+                                let mut instance_s = instance.write().await;
+
+                                if let Ok(mut entry) = instance_s.entry_mut(state.entity) {
+                                    let player_component = entry.get_component_mut::<PlayerComponent>().unwrap();
+                                    
+                                    player_component.set_hp_cur(player_component.hp_max().unwrap_or(0i32));
+                                }
+                            }
+
                             // we initiate the travel handshake. First, we inform the target zone server, that
                             // we'd like to initiate travel. After it has confirmed, we notify the frontend server 
                             // about the change and remove the client from this zone server.
@@ -102,10 +118,15 @@ impl NodeServer {
                 Ok(())
             },
             CommunityMessage::UnknownA1 { boolean, .. } => {
-                warn!("Unabled community message: 0xa1: {}", boolean);
+                warn!("Unimplemented community message: 0xa1: {}", boolean);
 
                 Ok(())
             },
+            CommunityMessage::Unknown77 { avatar } => {
+                warn!("Unimplemented community message: 0x77: {:#?}", avatar);
+
+                Ok(())
+            }
         }
     }
 }

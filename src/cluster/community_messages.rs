@@ -21,6 +21,7 @@ use crate::util::AnotherlandResult;
 pub enum CommunityMessage {
     SocialTravel{avatar: AvatarId, map: String, travel: bool},
     UnknownA1{avatar: AvatarId, boolean: bool},
+    Unknown77{avatar: AvatarId},
 }
 
 impl CommunityMessage {
@@ -41,7 +42,12 @@ impl CommunityMessage {
                     avatar: values.next().ok_or(ParamError(()))?.to_avatar_id()?, 
                     boolean: values.next().ok_or(ParamError(()))?.to_bool()? 
                 })
-            }
+            },
+            0x77 => {
+                Ok(CommunityMessage::Unknown77 { 
+                    avatar: values.next().ok_or(ParamError(()))?.to_avatar_id()?
+                })
+            },
             _ => {
                 warn!("Unknown community message id: {}", msgtype);
                 todo!();
