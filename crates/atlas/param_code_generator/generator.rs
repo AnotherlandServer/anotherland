@@ -581,8 +581,13 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
                             }
                         }),
+                        ParamType::Int => tokens.push(quote! { 
+                            fn #field_name_ident<'a>(&'a self) -> Option<i32> {
+                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
+                            }
+                        }),
                         ParamType::Int64 => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a i64> {
+                            fn #field_name_ident<'a>(&'a self) -> Option<i64> {
                                 self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
                             }
                         }),
@@ -626,13 +631,18 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
                             }
                         }),
+                        ParamType::String => tokens.push(quote! { 
+                            fn #field_name_ident<'a>(&'a self) -> Option<&'a str> {
+                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
+                            }
+                        }),
                         ParamType::StringFloatPair => tokens.push(quote! { 
                             fn #field_name_ident<'a>(&'a self) -> Option<&'a (String, f32)> {
                                 self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
                             }
                         }),
                         ParamType::StringIntHashmap => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a HashMap<String,i32>> {
+                            fn #field_name_ident<'a>(&'a self) -> Option<&'a HashMap<String, i32>> {
                                 self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
                             }
                         }),
@@ -650,14 +660,14 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             fn #field_name_ident<'a>(&'a self) -> Option<&'a Vec3> {
                                 self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
                             }
-                        }),
-                        _ => tokens.push(quote! { 
+                        })
+                        /*_ => tokens.push(quote! { 
                             fn #field_name_ident<'a, T>(&'a self) -> Option<&'a T> 
                                 where &'a Param: TryInto<&'a T, Error = ParamError>, 
                             {
                                 self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
                             }
-                        })
+                        })*/
                     }
 
                     //if options.flags.contains(&ParamFlag::NodeOwn) || options.flags.contains(&ParamFlag::ServerOwn) {
@@ -740,6 +750,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 self.as_anyclass_mut().set_param(#name, val.into())
                             }
                         }),
+                        ParamType::Int => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: i32) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
                         ParamType::Int64 => tokens.push(quote! { 
                             fn #set_field_name(&mut self, val: i64) {
                                 self.as_anyclass_mut().set_param(#name, val.into())
@@ -785,6 +800,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 self.as_anyclass_mut().set_param(#name, val.into())
                             }
                         }),
+                        ParamType::String => tokens.push(quote! { 
+                            fn #set_field_name(&mut self, val: &str) {
+                                self.as_anyclass_mut().set_param(#name, val.into())
+                            }
+                        }),
                         ParamType::StringFloatPair => tokens.push(quote! { 
                             fn #set_field_name(&mut self, val: (String, f32)) {
                                 self.as_anyclass_mut().set_param(#name, val.into())
@@ -820,11 +840,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 })
                             }
                         },
-                        _ => tokens.push(quote! { 
+                        /*_ => tokens.push(quote! { 
                             fn #set_field_name<T>(&mut self, val: T) where T: Into<Param> {
                                 self.as_anyclass_mut().set_param(#name, val.into())
                             }
-                        })
+                        })*/
                     }
                     //}
 

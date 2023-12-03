@@ -583,6 +583,12 @@ impl From<i32> for Param {
     }
 }
 
+impl From<&i32> for Param {
+    fn from(value: &i32) -> Self {
+        Param::Int32(value.to_owned(), None)
+    }
+}
+
 impl From<String> for Param {
     fn from(value: String) -> Self {
         Param::String(value, None)
@@ -803,6 +809,17 @@ impl <'a>TryInto<&'a Vec<i32>> for &'a Param {
     }
 }
 
+impl <'a>TryInto<&'a str> for &'a Param {
+    type Error = ParamError;
+
+    fn try_into(self) -> Result<&'a str, Self::Error> {
+        match self {
+            Param::String(val, _) => Ok(val.as_str()),
+            _ => Err(ParamError(()))
+        }
+    }
+}
+
 impl <'a>TryInto<&'a Vec<String>> for &'a Param {
     type Error = ParamError;
 
@@ -814,12 +831,23 @@ impl <'a>TryInto<&'a Vec<String>> for &'a Param {
     }
 }
 
-impl <'a>TryInto<&'a i64> for &'a Param {
+impl <'a>TryInto<i32> for &'a Param {
     type Error = ParamError;
 
-    fn try_into(self) -> Result<&'a i64, Self::Error> {
+    fn try_into(self) -> Result<i32, Self::Error> {
         match self {
-            Param::Int64(val) => Ok(val),
+            Param::Int32(val, _) => Ok(val.to_owned()),
+            _ => Err(ParamError(()))
+        }
+    }
+}
+
+impl <'a>TryInto<i64> for &'a Param {
+    type Error = ParamError;
+
+    fn try_into(self) -> Result<i64, Self::Error> {
+        match self {
+            Param::Int64(val) => Ok(val.to_owned()),
             _ => Err(ParamError(()))
         }
     }
