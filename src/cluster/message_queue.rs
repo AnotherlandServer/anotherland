@@ -22,7 +22,7 @@ use tokio::sync::{broadcast::{Sender, self, Receiver}, RwLock};
 use rabbitmq_stream_client::{Environment, Producer, Consumer, NoDedup, types::Message};
 use tokio_stream::StreamExt;
 
-use crate::{ARGS, util::AnotherlandResult, api_server::schema::Account};
+use crate::{ARGS, util::AnotherlandResult}; //api_server::schema::Account
 use atlas::{Uuid, AvatarId};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -66,7 +66,7 @@ impl Display for ApiError {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ApiResponse {
     Error(ApiError),
-    Account(Account)
+    //Account(Account)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -92,7 +92,8 @@ pub enum SocialEvent {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ClusterMessage {
-    Shutdown{subject: ShutdownSubject},
+    SessionDestroyed{session_id: Uuid},
+    /*Shutdown{subject: ShutdownSubject},
     InvalidateSession{session_id: Uuid},
     RealmServerHearthbeat{realm_id: u32, name: String, population: usize, address: SocketAddrV4},
     FrontendServerHearthbeat{realm_id: u32, address: SocketAddrV4},
@@ -103,7 +104,7 @@ pub enum ClusterMessage {
     ZoneTravelFinished{session_id: Uuid, avatar_id: AvatarId, world_id: u16, zone_id: Uuid},
     ApiRequest{request_id: Uuid, request: ApiRequest},
     ApiResponse{request_id: Uuid, response: ApiResponse},
-    SocialEvent{event: SocialEvent},
+    SocialEvent{event: SocialEvent},*/
 }
 
 #[derive(Clone)]
@@ -162,19 +163,19 @@ pub enum MessageChannel {
     ClusterChannel,
     RealmChannel{realm_id: u32, channel: RealmChannel},
 
-    ApiFrontend,
-    ClusterApiChannel,
-    RealmApiChannel{realm_id: u32}
+    //ApiFrontend,
+    //ClusterApiChannel,
+    //RealmApiChannel{realm_id: u32}
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum RealmChannel {
-    FrontendChannel,
-    GlobalChannel,
-    SocialChannel,
+    //FrontendChannel,
+    //GlobalChannel,
+    //SocialChannel,
     //WorldChannel{world_id: u16},
-    NodeChannel{zone_guid: Uuid},
-    DungeonChannel{dungeon_id: Uuid},
+    //NodeChannel{zone_guid: Uuid},
+    //DungeonChannel{dungeon_id: Uuid},
 }
 
 pub async fn connect_queue(channel: MessageChannel) -> AnotherlandResult<(MessageQueueProducer, MessageQueueConsumer)> {

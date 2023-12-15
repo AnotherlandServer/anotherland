@@ -56,9 +56,9 @@ fn main() {
         .expect("Failed to generate packet handling code");
 
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=../../packet_definitions");
-    println!("cargo:rerun-if-changed=../../packet_definitions/packets");
-    println!("cargo:rerun-if-changed=../../packet_definitions/structs");
+    println!("cargo:rerun-if-changed=../packet_definitions");
+    println!("cargo:rerun-if-changed=../packet_definitions/packets");
+    println!("cargo:rerun-if-changed=../packet_definitions/structs");
     println!("cargo:rerun-if-changed=packet_code_generator");
     println!("cargo:rerun-if-changed=param_code_generator");
 }

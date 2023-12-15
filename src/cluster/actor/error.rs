@@ -13,18 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod server_instance;
-mod server_runner;
-mod message_queue;
-mod community_messages;
+#[derive(Debug)]
+pub enum ActorErr {
+    SendError,
+}
 
-#[cfg(test)]
-mod tests;
-
-pub mod actor;
-pub mod frontend;
-
-pub use server_instance::*;
-pub use server_runner::*;
-pub use message_queue::*;
-pub use community_messages::*;
+pub type ActorResult<T> = Result<T, ActorErr>;

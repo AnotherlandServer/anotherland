@@ -27,8 +27,8 @@ pub fn generate_packet_code() -> io::Result<()> {
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR not set");
     let out_dir_path = Path::new(&out_dir);
 
-    let struct_definitions = load_struct_definitions("../../packet_definitions/structs")?;
-    let packet_definitions = load_packet_definitions("../../packet_definitions/packets")?;
+    let struct_definitions = load_struct_definitions("../packet_definitions/structs")?;
+    let packet_definitions = load_packet_definitions("../packet_definitions/packets")?;
     
     let mut generated_structs = HashMap::new();
     let mut generated_enums = Vec::new();

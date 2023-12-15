@@ -13,18 +13,28 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod server_instance;
-mod server_runner;
-mod message_queue;
-mod community_messages;
+use std::{fmt::Debug, marker::PhantomData};
 
-#[cfg(test)]
-mod tests;
+use async_trait::async_trait;
+use tokio::sync::mpsc;
 
-pub mod actor;
-pub mod frontend;
+use crate::util::AnotherlandResult;
 
-pub use server_instance::*;
-pub use server_runner::*;
-pub use message_queue::*;
-pub use community_messages::*;
+use super::ActorErr;
+
+#[async_trait]
+pub trait Actor: Send {
+    fn name(&self) -> &str;
+    async fn pre_start(&mut self) -> AnotherlandResult<()> { Ok(()) }
+    async fn started(&mut self) -> AnotherlandResult<()> { Ok(()) }
+    async fn stopped(&mut self) -> AnotherlandResult<()> { Ok(()) }
+}
+
+#[async_trait]
+pub trait ActorHandler {
+    type MessageType: Send;
+    type RemoteActorHandler;
+
+    async fn handle_message(&mut self, message: Self::MessageType);
+    fn has_remote_actions() -> bool;
+}

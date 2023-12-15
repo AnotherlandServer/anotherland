@@ -1,7 +1,8 @@
 {
     "rust-analyzer.linkedProjects": [
-        ".\\Cargo.toml",
-        ".\\crates\\atlas\\Cargo.toml"
+        "./Cargo.toml",
+        "./atlas/Cargo.toml",
+        "./actor_macros/Cargo.toml",
     ],
     "yaml.schemas": {
         "otherland-proto": "${workspaceFolder}/packet_definitions/otherproto.schema.yaml"
