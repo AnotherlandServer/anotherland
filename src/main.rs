@@ -16,29 +16,27 @@
 mod util;
 mod db;
 mod config;
-mod login_server;
-mod realm_server;
-mod frontend_server;
-mod node_server;
-mod api_server;
 mod cluster;
 mod data_import;
+mod components;
+mod frontends;
 
 // Import modules
 use std::net::Ipv4Addr;
 use clap::{Parser, Subcommand};
+use cluster::actor::ClusterNode;
 use ::config::File;
 use log::{LevelFilter, info};
 use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, Root}};
 use glob::glob;
 use once_cell::sync::Lazy;
 use mongodb::bson::doc;
-use tokio::signal;
+use tokio::{signal, sync::RwLock};
 
 use util::AnotherlandResult;
-use crate::{config::ConfMain, login_server::LoginServer, realm_server::RealmServer, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, ZoneDef}, frontend_server::FrontendServer, node_server::{NodeServer, NodeServerOptions}, api_server::ApiServer};
-
-
+use crate::{config::ConfMain, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, ZoneDef}, components::SessionManager, frontends::LoginFrontend};
+use crate::components::{Authenticator, SessionHandler};
+//use crate::{login_server::LoginServer, realm_server::RealmServer, frontend_server::FrontendServer, node_server::{NodeServer, NodeServerOptions}, api_server::ApiServer};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -168,6 +166,8 @@ static CONF: Lazy<ConfMain> = Lazy::new(|| {
         .expect("Failed to parse config")
 });
 
+static NODE: Lazy<ClusterNode> = Lazy::new(ClusterNode::new);
+
 async fn init_database() -> AnotherlandResult<()> {
     
 
@@ -202,8 +202,8 @@ async fn main() -> AnotherlandResult<()> {
     initalize_db().await?;
 
     // Start tokio runtime
-    let mut servers = Vec::new();
-    let mut api_server = None;
+    let mut servers: Vec<()> = Vec::new();
+    //let mut api_server = None;
 
     match &ARGS.start_command {
         StartCommand::InitDb => {
@@ -215,13 +215,16 @@ async fn main() -> AnotherlandResult<()> {
             import_client_data(path_to_client.into()).await?;
         }
         StartCommand::LoginServer { .. } => {
-            servers.push(ServerRunner::new::<LoginServer>(()));
+            NODE.add_actor(Authenticator::new().await);
+            NODE.add_actor(SessionManager::new().await?);
+            NODE.add_frontend("login_frontend", LoginFrontend::new());
+            //servers.push(ServerRunner::new::<LoginServer>(()));
         },
         StartCommand::RealmServer { .. } => {
-            servers.push(ServerRunner::new::<RealmServer>(()));
+            //servers.push(ServerRunner::new::<RealmServer>(()));
         },
         StartCommand::FrontendServer { .. } => {
-            servers.push(ServerRunner::new::<FrontendServer>(()));
+            //servers.push(ServerRunner::new::<FrontendServer>(()));
         }
         StartCommand::NodeServer { .. } => {
             //WORLD_SERVER_IDS.write().await.push_front(*world_id);
@@ -232,16 +235,20 @@ async fn main() -> AnotherlandResult<()> {
 
         },
         StartCommand::ApiServer => {
-            let server = ApiServer::new().await?;
+            /*let server = ApiServer::new().await?;
             server.start().await?;
 
-            api_server = Some(server);
+            api_server = Some(server);*/
         },
         StartCommand::StandaloneServer { .. } => {
             init_database().await?;
 
+            NODE.add_actor(Authenticator::new().await);
+            NODE.add_actor(SessionManager::new().await?);
+            NODE.add_frontend("login_frontend", LoginFrontend::new());
+
             // start api server
-            let server = ApiServer::new().await?;
+            /*let server = ApiServer::new().await?;
             server.start().await?;
             
             api_server = Some(server);
@@ -258,20 +265,20 @@ async fn main() -> AnotherlandResult<()> {
                     realm_id: CONF.realm.id,
                     zone_guid
                 }));
-            }
+            }*/
         }
     }
 
     if !servers.is_empty() {
         match signal::ctrl_c().await {
             Ok(()) => {
-                if let Some(api_server) = api_server {
+                /*if let Some(api_server) = api_server {
                     api_server.stop().await;
                 }
 
                 for server in servers.drain(..) {
                     server.stop().await;
-                }
+                }*/
             },
             Err(err) => {
                 eprintln!("Unable to listen for shutdown signal: {}", err);
