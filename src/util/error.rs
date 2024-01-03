@@ -31,6 +31,10 @@ pub enum AnotherlandErrorKind {
     ThreadError,
     MessageQueueError,
     ParamError,
+    QuinnConnectError,
+    QuinnConnectionError,
+    QuinnReadError,
+    QuinnWriteError,
 
     // Application errors
     ApplicationError,
@@ -49,6 +53,10 @@ impl AnotherlandErrorKind {
             MessageQueueError => "message queue error",
             ParamError => "param error",
             ApplicationError => "application error",
+            QuinnConnectError => "quinn connect error",
+            QuinnConnectionError => "quinn connection error",
+            QuinnReadError => "quinn read error",
+            QuinnWriteError => "quinn write error",
         }
     }
 }
@@ -101,6 +109,12 @@ impl Error for AnotherlandError {
     }
 }
 
+impl From<AnotherlandErrorKind> for AnotherlandError {
+    fn from(kind: AnotherlandErrorKind) -> Self {
+        Self::new(kind, "")
+    }
+}
+
 impl From<RakNetError> for AnotherlandError {
     fn from(value: RakNetError) -> Self {
         Self::new(AnotherlandErrorKind::RakNetError, value)
@@ -125,9 +139,9 @@ impl From<BcryptError> for AnotherlandError {
     }
 }
 
-impl From<nom::Err<VerboseError<&'static [u8]>>> for AnotherlandError {
-    fn from(value: nom::Err<VerboseError<&'static [u8]>>) -> Self {
-        Self::new(AnotherlandErrorKind::ParseError, value)
+impl <'a> From<nom::Err<VerboseError<&'a [u8]>>> for AnotherlandError {
+    fn from(value: nom::Err<VerboseError<&'a [u8]>>) -> Self {
+        Self::new(AnotherlandErrorKind::ParseError, value.to_string())
     }
 }
 
@@ -212,6 +226,31 @@ impl From<serde_json::Error> for AnotherlandError {
 impl From<ParamError> for AnotherlandError {
     fn from(value: ParamError) -> Self {
         Self::new(AnotherlandErrorKind::ParamError, value)
+    }
+}
+
+impl From<quinn::ConnectError> for AnotherlandError {
+    fn from(value: quinn::ConnectError) -> Self {
+        Self::new(AnotherlandErrorKind::QuinnConnectError, value)
+    }
+}
+
+
+impl From<quinn::ConnectionError> for AnotherlandError {
+    fn from(value: quinn::ConnectionError) -> Self {
+        Self::new(AnotherlandErrorKind::QuinnConnectionError, value)
+    }
+}
+
+impl From<quinn::ReadError> for AnotherlandError {
+    fn from(value: quinn::ReadError) -> Self {
+        Self::new(AnotherlandErrorKind::QuinnReadError, value)
+    }
+}
+
+impl From<quinn::WriteError> for AnotherlandError {
+    fn from(value: quinn::WriteError) -> Self {
+        Self::new(AnotherlandErrorKind::QuinnWriteError, value)
     }
 }
 
