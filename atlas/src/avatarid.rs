@@ -13,25 +13,77 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
+use log::kv::{ToValue, Value};
 use serde::{Serialize, Deserialize, de};
 use serde::ser::Serializer;
 use serde::de::{Deserializer, Visitor};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct AvatarId(u64);
+pub struct AvatarId((u64, AvatarType));
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub enum AvatarType {
+    None,
+    Player,
+    Npc,
+    Other,
+}
 
 impl AvatarId {
-    pub fn new(val: u64) -> Self { Self(val) }
-    pub fn as_u64(&self) -> u64 { self.0 }
+    pub fn new(val: u64, avatar_type: AvatarType) -> Self { Self((val & !0xFF, avatar_type)) }
+
+    pub fn as_u64(&self) -> u64 { (self.0.0 & !0xFF) | match self.0.1 {
+        // Those prefixes need to be verified. 
+        // I'm only sure that player is 1 and NPCs 2.
+        AvatarType::None => 0x00,
+        AvatarType::Player => 0x01,
+        AvatarType::Npc => 0x02,
+        AvatarType::Other => 0x03,
+    } }
+
+    pub fn avatar_type(&self) -> &AvatarType { &self.0.1 }
+
+    pub fn is_none(&self) -> bool { self.0.1 == AvatarType::None }
+    pub fn is_player(&self) -> bool { self.0.1 == AvatarType::Player }
+    pub fn is_npc(&self) -> bool { self.0.1 == AvatarType::Npc }
+    pub fn is_other(&self) -> bool { self.0.1 == AvatarType::Other }
+}
+
+impl Default for AvatarId {
+    fn default() -> Self {
+        Self((0, AvatarType::None))
+    }
+}
+
+impl From<u64> for AvatarId {
+    fn from(mut value: u64) -> Self {
+        let avatar_type = match value & 0xFF {
+            0x01 => AvatarType::Player,
+            0x02 => AvatarType::Npc,
+            0x03 => AvatarType::Other,
+            _ => {
+                value = 0;
+                AvatarType::None
+            },
+        };
+
+        AvatarId((value, avatar_type))
+    }
 }
 
 impl Debug for AvatarId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#{:016x}", self.0)
+        write!(f, "#{:016x}", self.as_u64())
         //f.debug_tuple("AvatarId").field(&format!("#{:016x}", self.0)).finish()
+    }
+}
+
+impl Display for AvatarId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{:016x}", self.as_u64())
     }
 }
 
@@ -40,7 +92,13 @@ impl Serialize for AvatarId {
     where
         S: Serializer {
         
-        serializer.serialize_str(format!("{:016x}", self.0).as_str())
+        serializer.serialize_str(format!("{:016x}", self.as_u64()).as_str())
+    }
+}
+
+impl ToValue for AvatarId {
+    fn to_value(&self) -> Value {
+        Value::from_display(self)
     }
 }
 
@@ -57,7 +115,7 @@ impl<'de> Visitor<'de> for AvatarIdVisitor {
         where
             E: de::Error, {
         
-        Ok(AvatarId(u64::from_str_radix(v, 16).map_err(|e| E::custom(e.to_string()))?))
+        Ok(u64::from_str_radix(v, 16).map_err(|e| E::custom(e.to_string()))?.into())
     }
 }
 
@@ -71,18 +129,7 @@ impl <'dr>Deserialize<'dr> for AvatarId {
 
 impl Into<u64> for AvatarId {
     fn into(self) -> u64 {
-        self.0
+        self.as_u64()
     }
 }
 
-impl <'a>Into<&'a u64> for &'a AvatarId {
-    fn into(self) -> &'a u64 {
-        &self.0
-    }
-}
-
-impl From<u64> for AvatarId {
-    fn from(value: u64) -> Self {
-        AvatarId(value)
-    }
-}
