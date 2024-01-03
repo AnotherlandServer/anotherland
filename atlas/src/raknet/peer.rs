@@ -22,7 +22,7 @@ use log::{debug, trace, info};
 use log::kv::{ToValue, Value};
 use serde::Serialize;
 use serde::ser::SerializeStruct;
-use tokio::{net::UdpSocket, io, sync::RwLock};
+use tokio::{net::UdpSocket, io, sync::{RwLock, oneshot}};
 use async_recursion::async_recursion;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -34,6 +34,7 @@ pub enum State {
 }
 
 #[allow(unused)]
+#[derive(Debug)]
 pub enum Priority {
     System,
     High,
@@ -61,7 +62,7 @@ struct SendQueueItem {
 }
 
 #[allow(unused)]
-pub struct RakNetPeer {
+pub(crate) struct RakNetPeerData {
     guid: Uuid,
     remote_address: PeerAddress,
     local_address: PeerAddress,
@@ -81,10 +82,8 @@ pub struct RakNetPeer {
     split_packet_id: u16,
 }
 
-pub type RakNetPeerHandle = Arc<RwLock<RakNetPeer>>;
-
 #[allow(unused)]
-impl RakNetPeer {
+impl RakNetPeerData {
     fn create_prioritized_send_queue() -> Vec<VecDeque<SendQueueItem>> {
         let mut vec = Vec::new();
 
@@ -95,7 +94,7 @@ impl RakNetPeer {
         vec
     }
 
-    pub fn new(socket: Arc<UdpSocket>, remote_addr: SocketAddr, local_addr: SocketAddr) -> RakNetResult<Self> {
+    pub(crate) fn new(socket: Arc<UdpSocket>, remote_addr: SocketAddr, local_addr: SocketAddr) -> RakNetResult<Self> {
         match remote_addr {
             SocketAddr::V4(a) => {
                 Ok(Self {
@@ -125,7 +124,7 @@ impl RakNetPeer {
         }
     }
 
-    pub async fn send(&mut self, priority: Priority, reliability: Reliability, message: Message) -> RakNetResult<()> {
+    pub(crate) async fn send(&mut self, priority: Priority, reliability: Reliability, message: Message) -> RakNetResult<()> {
         if self.state == State::HalfClosed || self.state == State::Disconnected {
             return Err(RakNetError::new(RakNetErrorKind::IOError, io::Error::from(io::ErrorKind::BrokenPipe)));
         }
@@ -182,7 +181,7 @@ impl RakNetPeer {
     }
 
     #[async_recursion]
-    pub async fn digest_message_fragments(&mut self, fragments: Vec<MessageFragment>) -> RakNetResult<Vec<Message>> {
+    pub(crate) async fn digest_message_fragments(&mut self, fragments: Vec<MessageFragment>) -> RakNetResult<Vec<Message>> {
         let mut messages = Vec::new();
         
         for fragment in fragments {
@@ -263,7 +262,7 @@ impl RakNetPeer {
                                         }).await?;
                                     },
                                     Message::ConnectionRequest { .. } => {
-                                        debug!("Got connection request from {:#?}", self.remote_address());
+                                        debug!("Got connection request from {:?}", self.remote_address());
         
                                         self.state = State::Connected;
                                         self.send_internal(Priority::System, Reliability::Reliable, Message::ConnectionRequestAccepted { 
@@ -337,34 +336,34 @@ impl RakNetPeer {
         }
     }
 
-    pub fn generate_next_message_id(&mut self) -> u32 {
+    fn generate_next_message_id(&mut self) -> u32 {
         let msg = self.next_send_message_id;
         self.next_send_message_id = self.next_send_message_id.wrapping_add(1);
 
         msg
     }
 
-    pub fn remote_address(&self) -> &PeerAddress {
+    pub(crate) fn remote_address(&self) -> &PeerAddress {
         &self.remote_address
     }
 
-    pub fn local_address(&self) -> &PeerAddress {
+    pub(crate) fn local_address(&self) -> &PeerAddress {
         &self.local_address
     }
 
-    pub fn guid(&self) -> &Uuid {
+    pub(crate) fn guid(&self) -> &Uuid {
         &self.guid
     }
 
-    pub fn remote_time(&self) -> Duration {
-        self.remote_time
+    pub(crate) fn remote_time(&self) -> &Duration {
+        &self.remote_time
     }
 
-    pub fn state(&self) -> State { 
-        self.state
+    pub(crate) fn state(&self) -> &State { 
+        &self.state
     }
 
-    pub async fn disconnect(&mut self) {
+    pub(crate) async fn disconnect(&mut self) {
         match self.state {
             State::Unconnected => self.state = State::Disconnected,
             _ => {
@@ -374,11 +373,11 @@ impl RakNetPeer {
         }
     }
 
-    pub fn disconnect_immediate(&mut self) {
+    pub(crate) fn disconnect_immediate(&mut self) {
         self.state = State::Disconnected
     }
 
-    pub fn serialize_acks_to_bitwriter<E, W>(&mut self, writer: &mut BitWriter<E, W>) -> RakNetResult<()> 
+    fn serialize_acks_to_bitwriter<E, W>(&mut self, writer: &mut BitWriter<E, W>) -> RakNetResult<()> 
     where
     E: std::io::Write,
     W: bitstream_io::Endianness
@@ -414,7 +413,7 @@ impl RakNetPeer {
         Ok(())
     }
     
-    pub async fn run_update(&mut self) -> RakNetResult<()> {
+    pub(crate) async fn run_update(&mut self) -> RakNetResult<()> {
         let mut time_sent = false;
         let mut acks_sent = false;
 
@@ -519,21 +518,3 @@ impl RakNetPeer {
     }
 }
 
-impl Serialize for RakNetPeer {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer {
-        
-        let mut state = serializer.serialize_struct("RakNetPeer", 3)?;
-        state.serialize_field("guid", &self.guid)?;
-        state.serialize_field("remote_address", &self.remote_address)?;
-        state.serialize_field("local_address", &self.local_address)?;
-        state.end()
-    }
-}
-
-impl ToValue for RakNetPeer {
-    fn to_value(&self) -> Value<'_> {
-        Value::from_serde(self)
-    }
-}
