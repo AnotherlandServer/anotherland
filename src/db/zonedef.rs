@@ -18,8 +18,7 @@ use bson::{Document, doc};
 use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
-
-use atlas::Uuid;
+use uuid::Uuid;
 
 use crate::util::AnotherlandResult;
 

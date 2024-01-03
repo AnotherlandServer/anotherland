@@ -13,13 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error::Error;
+use std::{error::Error, str::FromStr};
 
 use serde::{Serializer, de::{Visitor, self, SeqAccess}, Deserializer, Serialize, Deserialize, ser::SerializeSeq};
 use serde_json::Value;
-
-use crate::Uuid;
-
+use uuid::Uuid;
 
 pub fn serialize_string<S>(
     string: &String, 

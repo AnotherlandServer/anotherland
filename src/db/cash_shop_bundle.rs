@@ -19,8 +19,7 @@ use chrono::{DateTime, Utc};
 use mongodb::{Database, Collection};
 use serde::Serialize;
 use serde_derive::Deserialize;
-
-use atlas::Uuid;
+use uuid::Uuid;
 
 use super::DatabaseRecord;
 

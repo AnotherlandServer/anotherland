@@ -21,9 +21,9 @@ use serde_derive::{Serialize, Deserialize};
 use tokio::sync::{broadcast::{Sender, self, Receiver}, RwLock};
 use rabbitmq_stream_client::{Environment, Producer, Consumer, NoDedup, types::Message};
 use tokio_stream::StreamExt;
+use uuid::Uuid;
 
 use crate::{ARGS, util::AnotherlandResult}; //api_server::schema::Account
-use atlas::{Uuid, AvatarId};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ShutdownSubject {

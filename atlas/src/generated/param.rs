@@ -15,7 +15,7 @@
 
 use nom::IResult;
 use nom::error::VerboseError;
-use crate::{Param, ParamError, AnyClass, BoundParamClass, ParamClass, ParamEntity, AvatarId, ParamFlag, generated::cpkt::Uuid};
+use crate::{Param, ParamError, AnyClass, BoundParamClass, ParamClass, ParamEntity, AvatarId, ParamFlag};
 use bitstream_io::ByteWrite;
 use serde::{Serialize, Deserialize};
 use serde::ser::Serializer;
@@ -27,5 +27,6 @@ use std::collections::{HashSet, HashMap};
 use std::io;
 use legion::{World, Entity};
 use legion::EntityStore;
+use uuid::Uuid;
 
 include!(concat!(env!("OUT_DIR"), "/generated_params.rs"));

@@ -19,9 +19,9 @@ use glam::{Vec3, Vec4};
 use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use serde::Serialize;
 use serde_derive::Deserialize;
+use uuid::Uuid;
 
 use crate::util::AnotherlandResult;
-use atlas::Uuid;
 
 use super::{Account, DatabaseRecord};
 

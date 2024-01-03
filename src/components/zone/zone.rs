@@ -17,7 +17,7 @@ use std::{time::{Duration, Instant}, cell::Cell, collections::HashMap, sync::Arc
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ParamClassContainer, AvatarId, Uuid, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, PositionUpdate, NonClientBaseComponent};
+use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, PositionUpdate, NonClientBaseComponent};
 use futures::Future;
 use glam::{Vec3, Quat};
 use legion::{World, WorldOptions, Schedule, Resources, Entity, storage::IntoComponentSource};
@@ -26,6 +26,7 @@ use mongodb::Database;
 use rand::{thread_rng, Rng};
 use tokio::{time::{Interval, self}, sync::{mpsc, broadcast}, select, task::JoinHandle, runtime::Handle};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use uuid::Uuid;
 
 use crate::{cluster::actor::Actor, db::{ZoneDef, realm_database, Character, Instance, Content, NpcContent, StructureContent, SpawnerContent, WorldDef}, util::{AnotherlandResult, AnotherlandError}, NODE, components::zone::components::AvatarComponent};
 use crate::db::DatabaseRecord;
@@ -235,7 +236,7 @@ impl Zone {
 
         let cycle_duration = Instant::now().duration_since(start_time);
         if cycle_duration.as_millis() >= 30 {
-            warn!(zone = self.zone_def.guid; "Zone update cycle can't keep up! Took {}ms", cycle_duration.as_millis());
+            warn!(zone = self.zone_def.guid.to_string(); "Zone update cycle can't keep up! Took {}ms", cycle_duration.as_millis());
         }
     }
 

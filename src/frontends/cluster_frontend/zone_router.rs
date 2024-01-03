@@ -18,12 +18,13 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::DerefMut;
 
-use atlas::{Uuid, AvatarId, raknet::Message};
+use atlas::{AvatarId, raknet::Message};
 use futures::future::Remote;
 use log::{error, warn, trace};
 use tokio::select;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
+use uuid::Uuid;
 
 use crate::cluster::RemoteActorRef;
 use crate::util::{AnotherlandErrorKind, AnotherlandError};
@@ -73,7 +74,10 @@ impl ZoneRouter {
                                 Some(ZoneRouterCommand::ConnectZone { zone_id, session_id, avatar_id, retval }) => {
                                     match connections.get_or_create_zone_server_client(&zone_id, &token, &tasks, &command_sender).await {
                                         Ok(connection) => {
-                                            trace!(session_id = session_id, avatar_id = avatar_id; "Entering zone {}", zone_id);
+                                            trace!(
+                                                session_id = session_id.to_string(), 
+                                                avatar_id = avatar_id.to_string(); 
+                                                "Entering zone {}", zone_id);
             
                                             // Notify zone server that a client is entering
                                             if let Err(_) = connection.send(ZoneMessage::EnterZone { 
@@ -85,7 +89,10 @@ impl ZoneRouter {
                                             } else {
                                                 let (message_sender, message_receiver) = mpsc::channel(10);
             
-                                                trace!(session_id = session_id, avatar_id = avatar_id; "Returning connection handle for zone {}", zone_id);
+                                                trace!(
+                                                    session_id = session_id.to_string(), 
+                                                    avatar_id = avatar_id.to_string(); 
+                                                    "Returning connection handle for zone {}", zone_id);
             
                                                 let _ = retval.send(Ok(ZoneRouterConnection {
                                                     zone_id: zone_id.clone(),
@@ -251,7 +258,9 @@ impl ZoneConnectionRegistry {
                                 },
                                 Some(message) = zone_message_receiver.recv() => {
                                     if let Err(e) = client.send(&message).await {
-                                        error!(zone_id = zone_id; "Zone connection closed: {:#?}", e);
+                                        error!(
+                                            zone_id = zone_id.to_string(); 
+                                            "Zone connection closed: {:#?}", e);
 
                                         zone_message_receiver.close();
                                     }

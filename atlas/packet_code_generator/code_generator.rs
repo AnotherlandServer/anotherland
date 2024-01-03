@@ -33,12 +33,28 @@ pub fn generate_enum_code(enums: &Vec<Rc<RefCell<GeneratedEnum>>>) -> TokenStrea
         let values: Vec<Ident> = generated_enum.values.iter()
             .map(|v| format_ident!("{}", v.1)).collect();
 
+        let mut compare: Vec<_> = generated_enum.values.iter()
+            .map(|(k, v)| {
+                let val_ident = format_ident!("{}", v);
+                let k = *k as u32;
+
+                quote! { if rh == &#k && self == &#enum_identifier::#val_ident { true } }
+            }).collect();
+
+        compare.push(quote! { { false } });
+
         code.extend(quote! {
             #[allow(non_camel_case_types)]
-            #[derive(Debug, Clone, Copy, Default)]
+            #[derive(Debug, Clone, Copy, Default, PartialEq)]
             pub enum #enum_identifier {
                 #[default]
                 #(#values),*
+            }
+
+            impl PartialEq<u32> for #enum_identifier {
+                fn eq(&self, rh: &u32) -> bool {
+                    #(#compare)else*
+                }
             }
         });
     }
@@ -82,6 +98,7 @@ fn generate_field_type_code(r#type: &GeneratedFieldType) -> TokenStream {
         GeneratedFieldType::I64 => quote! {i64},
         GeneratedFieldType::F32 => quote! {f32},
         GeneratedFieldType::F64 => quote! {f64},
+        GeneratedFieldType::Uuid => quote! {Uuid},
         GeneratedFieldType::NativeParam => quote! {NativeParam},
     }
 }
@@ -144,6 +161,7 @@ pub fn generate_nom_parser_for_primitive(primitive: &str) -> TokenStream {
         "i64" => quote! {le_i64},
         "f32" => quote! {le_f32},
         "f64" => quote! {le_f64},
+        "uuid" => quote! {map(take(16usize), |v: &[u8]| Uuid::from_bytes(v.try_into().unwrap()))},
         "nativeparam" => quote! {NativeParam::parse_struct},
         _ => panic!("Unknown primitive")
     }
@@ -521,6 +539,7 @@ pub fn generate_primitive_writer_code(primitive: &str, generated_field: &Generat
         "i64" => quote! { writer.write(#field_getter as i64)?; },
         "f32" => quote! { writer.write_bytes((#field_getter as f32).to_le_bytes().as_slice())?; },
         "f64" => quote! { writer.write_bytes((#field_getter as f64).to_le_bytes().as_slice())?; },
+        "uuid" => quote! { writer.write_bytes(#field_getter.to_bytes_le().as_slice())?; }, 
         "nativeparam" => quote! { writer.write_bytes(#field_getter.to_struct_bytes().as_slice())?; },
         _ => panic!("Tried to serialize unkown primitive"),
     }

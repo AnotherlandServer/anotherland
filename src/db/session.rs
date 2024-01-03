@@ -20,9 +20,9 @@ use log::debug;
 use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use serde::Serialize;
 use serde_derive::Deserialize;
+use uuid::Uuid;
 
 use crate::util::AnotherlandResult;
-use atlas::{Uuid, AvatarId};
 
 use super::{Account, DatabaseRecord};
 

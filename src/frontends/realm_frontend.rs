@@ -303,12 +303,19 @@ impl RealmFrontendSession {
     
                             peer.send(Priority::High, Reliability::Reliable, character_select_success.into_message()).await?;
                         } else {
-                            error!(peer = peer.id(), session = session_ref.session().id, character = character.guid; "Character select failed, cluster server is offline");
+                            error!(
+                                peer = peer.id().to_string(), 
+                                session = session_ref.session().id.to_string(), 
+                                character = character.guid.to_string(); 
+                                "Character select failed, cluster server is offline");
                             peer.disconnect().await;
                         }
 
                     } else {
-                        error!(peer = peer.id(), session = session_ref.session().id; "Character select failed, character not found: {}", pkt.field_1);
+                        error!(
+                            peer = peer.id().to_string(), 
+                            session = session_ref.session().id.to_string(); 
+                            "Character select failed, character not found: {}", pkt.field_1);
                         peer.disconnect().await;
                     }
 
@@ -316,11 +323,11 @@ impl RealmFrontendSession {
                 }
             },
             AtlasPkt(CPkt::oaPktSendMsgToRealm(pkt)) => {
-                debug!(peer = peer.id(); "Client Message: {}", pkt.message);
+                debug!(peer = peer.id().to_string(); "Client Message: {}", pkt.message);
                 Ok(())
             }
             _ => {
-                warn!(peer = peer.id(); "Unhandled message: {:#?}", message);
+                warn!(peer = peer.id().to_string(); "Unhandled message: {:#?}", message);
                 Err(AnotherlandError::app_err("unknown message"))
             },
         }

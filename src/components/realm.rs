@@ -17,7 +17,7 @@ use std::net::SocketAddrV4;
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{Uuid, AvatarId};
+use atlas::AvatarId;
 use bson::doc;
 use mongodb::{Database, options::{UpdateModifications, UpdateOptions, FindOneOptions}};
 use serde_derive::{Serialize, Deserialize};

@@ -287,7 +287,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             },
                             ParamType::FloatRange => None,
                             ParamType::FloatVector => None,
-                            ParamType::Guid => Some(quote!{ Uuid::from_str(#default_str).unwrap() }),
+                            ParamType::Guid => Some(quote!{ Uuid::parse_str(#default_str).unwrap() }),
                             ParamType::GuidPair => None,
                             ParamType::Int => {
                                 let val: i32 = default_str.parse().expect("failed to parse int");
@@ -303,7 +303,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 let json = default_str.replace("\\\"", "\"");
                                 Some(quote! { serde_json::from_str(#json).unwrap() })
                             },
-                            ParamType::LocalizedString => Some(quote! { Uuid::from_str(#default_str).unwrap() }),
+                            ParamType::LocalizedString => Some(quote! { Uuid::parse_str(#default_str).unwrap() }),
                             ParamType::String => Some(quote! { #default_str }),
                             ParamType::StringFloatPair => None,
                             ParamType::StringStringHashmap => None,

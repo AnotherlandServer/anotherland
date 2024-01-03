@@ -16,10 +16,11 @@
 use std::{net::Ipv4Addr, io};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
+use uuid::Uuid;
 use std::time::Duration;
 use nom::{number::complete::{le_u8, le_u32, le_u16}, combinator::{flat_map, fail, map, rest_len, peek}, error::{context, VerboseError}, IResult, sequence::tuple, bytes::complete::{take, tag}, multi::{many0, count}};
 
-use crate::{CPkt, Uuid};
+use crate::CPkt;
 
 use super::PeerAddress;
 
@@ -201,7 +202,7 @@ impl Message {
                     index: index, 
                     peer_addr: PeerAddress::new(&Ipv4Addr::from(peer_addr.0), peer_addr.1), 
                     own_addr: PeerAddress::new(&Ipv4Addr::from(own_addr.0), own_addr.1),
-                    guid: Uuid::from_bytes(&guid).unwrap().1,
+                    guid: Uuid::from_bytes(guid.try_into().unwrap()),
                 }))(data)
     }
 
@@ -285,7 +286,7 @@ impl Message {
                 writer.write_bytes(peer_addr.to_bytes().as_slice())?;
                 writer.write(*index)?;
                 writer.write_bytes(own_addr.to_bytes().as_slice())?;
-                writer.write_bytes(guid.to_bytes().as_slice())?;
+                writer.write_bytes(guid.to_bytes_le().as_slice())?;
             },
             Self::DisconnectionNotification => {
                 writer.write(ID_DISCONNECTION_NOTIFICATION)?;

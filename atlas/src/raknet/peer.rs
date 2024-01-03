@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::{Uuid, raknet::MAX_MTU_SIZE};
+use crate::{raknet::MAX_MTU_SIZE};
 
 use super::{RakNetErrorKind, PeerAddress, MessageFragment, MessageNumber, Reliability, PacketSplit, Message, OnlineMessage, RakNetError, RakNetResult};
 use std::{time::{Instant, SystemTime}, time::{Duration, UNIX_EPOCH}, net::SocketAddr, collections::{VecDeque, HashMap}, sync::Arc};
@@ -24,6 +24,7 @@ use serde::Serialize;
 use serde::ser::SerializeStruct;
 use tokio::{net::UdpSocket, io, sync::{RwLock, oneshot}};
 use async_recursion::async_recursion;
+use uuid::Uuid;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum State {

@@ -16,7 +16,7 @@
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, IpAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}, thread};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, Message}, AvatarId, Uuid, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, PositionUpdate, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate};
+use atlas::{raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, PositionUpdate, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate, CpktServerNotifyNotifyType};
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use glam::Vec3;
 use log::{debug, error, trace, warn, info};
@@ -24,6 +24,7 @@ use mongodb::change_stream::session;
 use quinn::{ServerConfig, Endpoint};
 use tokio::{sync::{Mutex, OnceCell, mpsc::{self, Sender}}, net::{TcpListener, TcpStream, UdpSocket}, time::{Interval, self}, select, task};
 use tokio_util::{task::TaskTracker, sync::CancellationToken, udp::UdpFramed};
+use uuid::Uuid;
 
 use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, components::{Zone, ZoneRegistry, SessionHandler, SessionRef, ZoneEvent, InterestEvent}, NODE, CLUSTER_CERT};
 use crate::db::DatabaseRecord;
@@ -239,13 +240,19 @@ impl ZoneSession {
                                 ZoneMessage::EnterZone { .. } => unreachable!(),
                                 ZoneMessage::Travel { .. } => {
                                     if let Err(e) = self.travel_to_zone().await {
-                                        error!(session = self.session_id, avatar = self.avatar_id; "Error while travelling: {:#?}", e);
+                                        error!(
+                                            session = self.session_id.to_string(), 
+                                            avatar = self.avatar_id.to_string(); 
+                                            "Error while travelling: {:#?}", e);
                                         break 'net_loop;
                                     }
                                 },
                                 ZoneMessage::Message { message, ..} => {
                                     if let Err(e) = self.handle_message(Message::from_bytes(&message).unwrap().1).await {
-                                        error!(session = self.session_id, avatar = self.avatar_id; "Error while handling message: {:#?}", e);
+                                        error!(
+                                            session = self.session_id.to_string(), 
+                                            avatar = self.avatar_id.to_string(); 
+                                            "Error while handling message: {:#?}", e);
                                         break 'net_loop;
                                     }
                                 }
@@ -262,25 +269,37 @@ impl ZoneSession {
                                 let _ = self.handle_zone_event(event).await;
                             },
                             Err(e) => {
-                                error!(session = self.session_id, avatar = self.avatar_id; "Zone event error: {:#?}", e);
+                                error!(
+                                    session = self.session_id.to_string(), 
+                                    avatar = self.avatar_id.to_string(); 
+                                    "Zone event error: {:#?}", e);
                                 break 'net_loop;
                             }
                         }
                     },
                     Some(event) = interest_event_receiver.recv() => {
                         if let Err(e) = self.handle_interest_event(event).await {
-                            error!(session = self.session_id, avatar = self.avatar_id; "Interest event error: {:#?}", e);
+                            error!(
+                                session = self.session_id.to_string(), 
+                                avatar = self.avatar_id.to_string(); 
+                                "Interest event error: {:#?}", e);
                             break 'net_loop;
                         }  
                     },
                     _ = update_timer.tick() => {
                         if let Err(e) = self.update().await {
-                            error!(session = self.session_id, avatar = self.avatar_id; "Update error: {:#?}", e);
+                            error!(
+                                session = self.session_id.to_string(), 
+                                avatar = self.avatar_id.to_string(); 
+                                "Update error: {:#?}", e);
                             break 'net_loop;
                         } 
                     }
                     _ = session_ref.invalidated() => {
-                        warn!(session = self.session_id, avatar = self.avatar_id; "Session invalidated!");
+                        warn!(
+                            session = self.session_id.to_string(), 
+                            avatar = self.avatar_id.to_string(); 
+                            "Session invalidated!");
                         break 'net_loop;
                     },
                     _ = token.cancelled() => {
@@ -292,7 +311,10 @@ impl ZoneSession {
             // despawn avatar
             self.zone.despawn_avatar(self.avatar_id.clone()).await;
             
-            trace!(session = self.session_id, avatar = self.avatar_id; "Stopping zone frontend session");
+            trace!(
+                session = self.session_id.to_string(), 
+                avatar = self.avatar_id.to_string(); 
+                "Stopping zone frontend session");
         });
 
         request_sender
@@ -308,7 +330,10 @@ impl ZoneSession {
         let player = self.zone.spawn_player(self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
         let _ = player.data.write_to_client(&mut writer)?;
         
-        info!(session = self.session_id, avatar = self.avatar_id; "Spawning player: {}", player.name);
+        info!(
+            session = self.session_id.to_string(), 
+            avatar = self.avatar_id.to_string(); 
+            "Spawning player: {}", player.name);
 
         let pos = PositionUpdate {
             pos: player.data.pos().unwrap().to_owned().into(),
@@ -345,7 +370,7 @@ impl ZoneSession {
         avatar_update.field_2 = Some(false);
         avatar_update.name = Some(player.name);
         avatar_update.class_id = Some(PlayerParam::CLASS_ID.as_u32());
-        avatar_update.field_6 = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
+        avatar_update.field_6 = Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap());
         avatar_update.param_bytes = data.len() as u32;
         avatar_update.params = data;
         
@@ -448,7 +473,10 @@ impl ZoneSession {
                     ..Default::default()
                 }.to_bytes();
 
-                info!(session = self.session_id, avatar = self.avatar_id; "Spawning player: {}", player.name);
+                info!(
+                    session = self.session_id.to_string(), 
+                    avatar = self.avatar_id.to_string(); 
+                    "Spawning player: {}", player.name);
 
                 // Transfer player character to client
                 let mut avatar_blob = CPktBlob::default();
@@ -478,7 +506,10 @@ impl ZoneSession {
                     7 => ClientLoadState::RequestSpawn,
                     8 => ClientLoadState::Spawned,
                     _ => {
-                        warn!(session = self.session_id, avatar = self.avatar_id; "Invalid client loadstate: {}", pkt.field_1);
+                        warn!(
+                            session = self.session_id.to_string(), 
+                            avatar = self.avatar_id.to_string(); 
+                            "Invalid client loadstate: {}", pkt.field_1);
                         ClientLoadState::EarlyLoadSequence
                     }
                 };
@@ -588,16 +619,25 @@ impl ZoneSession {
 
                         self.zone.update_avatar(self.avatar_id.clone(), params).await;
                     } else {
-                        error!(session = self.session_id, avatar = self.avatar_id; "Client sent invalid param update!");
+                        error!(
+                            session = self.session_id.to_string(), 
+                            avatar = self.avatar_id.to_string(); 
+                            "Client sent invalid param update!");
                     }
                 } else {
-                    error!(session = self.session_id, avatar = self.avatar_id; "Client tried to update unowned avatar #{}", pkt.avatar_id.unwrap_or_default());
+                    error!(
+                        session = self.session_id.to_string(), 
+                        avatar = self.avatar_id.to_string(); 
+                        "Client tried to update unowned avatar #{}", pkt.avatar_id.unwrap_or_default());
                 }
 
                 debug!("Got avatar update from client: {:#?}", pkt);
             },
             _ => {
-                debug!(session = self.session_id, avatar = self.avatar_id; "Unhandled message: {:#?}", message);
+                debug!(
+                    session = self.session_id.to_string(), 
+                    avatar = self.avatar_id.to_string(); 
+                    "Unhandled message: {:#?}", message);
             }
         }
 
@@ -795,7 +835,7 @@ impl ZoneSession {
                         avatar_update.field_2 = Some(false);
                         avatar_update.name = Some(name);
                         avatar_update.class_id = Some(params.class_id().as_u32());
-                        avatar_update.field_6 = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
+                        avatar_update.field_6 = Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap());
                         //avatar_update.flags = Some(2);
                         //avatar_update.flag_2_uuid = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
                         avatar_update.param_bytes = data.len() as u32;
@@ -824,7 +864,7 @@ impl ZoneSession {
                 // Synchronize time
                 {
                 let mut game_time_sync = CPktServerNotify::default();
-                game_time_sync.notify_type = 0;
+                game_time_sync.notify_type = CpktServerNotifyNotifyType::SyncGameClock;
                 game_time_sync.field_2 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
 
                 self.send(game_time_sync.into_message()).await?;
@@ -832,7 +872,7 @@ impl ZoneSession {
 
             {
                 let mut realm_time_sync = CPktServerNotify::default();
-                realm_time_sync.notify_type = 19;
+                realm_time_sync.notify_type = CpktServerNotifyNotifyType::SyncRealmTime;
                 realm_time_sync.field_4 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
                 self.send(realm_time_sync.into_message()).await?;
             }

@@ -22,9 +22,10 @@ use serde::Serialize;
 use serde_derive::Deserialize;
 use sha1::{Sha1, Digest};
 use tokio_stream::StreamExt;
+use uuid::Uuid;
 
 use crate::util::AnotherlandResult;
-use atlas::{Uuid, PlayerParam, Player};
+use atlas::{PlayerParam, Player};
 
 use super::{DatabaseRecord, ItemContent};
 
@@ -43,7 +44,7 @@ static NEW_CHARACTER_TEMPLATE: Lazy<PlayerParam> = Lazy::new(|| {
     let mut player = PlayerParam::default();
 
     player.set_world_map_guid("f6b8f8b7-a726-4d36-9634-f6d403943fff");
-    player.set_zone_guid(Uuid::from_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
+    player.set_zone_guid(Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
     player.set_zone("ClassSelection_P");
 
     // default customization
@@ -71,7 +72,7 @@ impl Character {
 
         let mut avatar_data = NEW_CHARACTER_TEMPLATE.clone();
         let default_items = ItemContent::list_by_categories(db.clone(), vec![
-            Uuid::from_str("6B74CF2D-79A3-48B8-B752-995179A064BD").unwrap()
+            Uuid::parse_str("6B74CF2D-79A3-48B8-B752-995179A064BD").unwrap()
         ].as_slice()).await?;
 
         debug!("Default item count: {}", default_items.len());

@@ -17,7 +17,7 @@ use std::{net::SocketAddr, collections::HashMap};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::Uuid;
+use uuid::Uuid;
 
 use crate::{cluster::actor::Actor, db::ZoneDef, util::AnotherlandResult};
 

@@ -20,9 +20,9 @@ use log::{debug, info};
 use mongodb::{Database, options::{IndexOptions, InsertOneOptions}, IndexModel, Collection};
 use serde::{Serialize, Deserialize};
 use sha1::{Sha1, Digest};
+use uuid::Uuid;
 
 use crate::util::AnotherlandResult;
-use atlas::Uuid;
 
 use super::DatabaseRecord;
 

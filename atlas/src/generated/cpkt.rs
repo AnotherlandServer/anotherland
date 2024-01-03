@@ -13,11 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use nom::{IResult, error::{VerboseError, context}, combinator::*, sequence::*, number::complete::*};
+use nom::{IResult, error::{VerboseError, context}, combinator::*, sequence::*, number::complete::*, bytes::complete::take};
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use crate::parsers::*;
 use std::io;
 use log::error;
+use uuid::Uuid;
 use crate::raknet::Message;
 use crate::NativeParam;
 

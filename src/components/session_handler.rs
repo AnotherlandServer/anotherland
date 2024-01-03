@@ -21,10 +21,9 @@ use futures::select;
 use log::{debug, trace};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
+use uuid::Uuid;
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard, mpsc};
-
-use atlas::Uuid;
 
 use crate::cluster::{connect_queue, MessageChannel, ClusterMessage};
 use crate::util::{AnotherlandResult, AnotherlandError};

@@ -13,9 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use uuid::Uuid;
+
 use crate::{NetworkVec3, NetworkVec4, PositionUpdate};
 
-use super::{oaCharacterList, oaCharacter, oaFriendList, oaFriendInfo, Uuid};
+use super::{oaCharacterList, oaCharacter, oaFriendList, oaFriendInfo};
 
 impl Default for oaCharacterList {
     fn default() -> Self {
@@ -91,10 +93,10 @@ impl Default for PositionUpdate {
             pos: NetworkVec3::default(),
             rot: NetworkVec4::default(),
             vel: NetworkVec3::default(),
-            field_3: 0,
+            /*field_3: 0,
             field_4: 0,
             field_5: 0,
-            field_6: 0,
+            field_6: 0,*/
         }
     }
 }

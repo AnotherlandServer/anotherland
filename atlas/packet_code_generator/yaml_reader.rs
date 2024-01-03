@@ -14,9 +14,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::{fs, io, path::Path, collections::HashMap, rc::Rc, cell::RefCell};
-use yaml_rust::{YamlLoader, Yaml};
+use yaml_rust::{YamlLoader, Yaml, yaml::Hash};
 use itertools::Itertools;
 
+pub struct DefinitionFile {
+    packets: Vec<PacketDefintion>,
+    structures: Vec<StructDefinition>,
+}
 #[derive(Debug)]
 pub struct PacketDefintion {
     pub id: u8,
@@ -75,7 +79,7 @@ pub enum FieldTypeDefinition {
     Enum { primitive: Box<FieldTypeDefinition>, values: Vec<(usize, String)> },
 }
 
-impl PacketDefintion {
+impl DefinitionFile {
     pub fn load_from_file(file_path: &str) -> io::Result<Self> {
         let yaml_contents = fs::read(file_path)?;
         let yaml_doc = YamlLoader::load_from_str(String::from_utf8_lossy(&yaml_contents).as_ref())
@@ -86,12 +90,37 @@ impl PacketDefintion {
             .ok_or(io::ErrorKind::InvalidInput)?
             .to_str().unwrap();
 
-        let id = yaml_defintion["id"].as_i64()
+        let mut definition = DefinitionFile {
+            packets: Vec::new(),
+            structures: Vec::new(),
+        };
+
+        // parse packets
+        for (name, packet) in yaml_defintion["packets"].as_hash().unwrap_or(&Hash::new()) {
+            definition.packets.push(PacketDefintion::load_from_yaml(
+                name.as_str().ok_or(io::ErrorKind::InvalidData)?, 
+                packet)?);
+        }
+
+        // parse structs
+        for (name, packet) in yaml_defintion["structures"].as_hash().unwrap_or(&Hash::new()) {
+            definition.structures.push(StructDefinition::load_from_yaml(
+                name.as_str().ok_or(io::ErrorKind::InvalidData)?, 
+                packet)?);
+        }
+
+        Ok(definition)
+    }
+}
+
+impl PacketDefintion {
+    pub fn load_from_yaml(name: &str, yaml: &Yaml) -> io::Result<Self> {
+        let id = yaml["id"].as_i64()
             .ok_or(io::Error::new(io::ErrorKind::Other, "id required"))? as u8;
-        let sub_id = yaml_defintion["subId"].as_i64()
+        let sub_id = yaml["subId"].as_i64()
             .ok_or(io::Error::new(io::ErrorKind::Other, "subId required"))? as u8;
-        let inherit = yaml_defintion["inherit"].as_str();
-        let fields = yaml_defintion["fields"].as_vec();
+        let inherit = yaml["inherit"].as_str();
+        let fields = yaml["fields"].as_vec();
 
         let mut definition = Self {
             id,
@@ -163,18 +192,9 @@ impl PacketDefintion {
 }
 
 impl StructDefinition {
-    pub fn load_from_file(file_path: &str) -> io::Result<Self> {
-        let yaml_contents = fs::read(file_path)?;
-        let yaml_doc = YamlLoader::load_from_str(String::from_utf8_lossy(&yaml_contents).as_ref())
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-        let yaml_defintion = &yaml_doc[0];
-
-        let name = Path::new(file_path).file_stem()
-            .ok_or(io::ErrorKind::InvalidInput)?
-            .to_str().unwrap();
-
-        let inherit = yaml_defintion["inherit"].as_str();
-        let fields = yaml_defintion["fields"].as_vec()
+    pub fn load_from_yaml(name: &str, yaml: &Yaml) -> io::Result<Self> {
+        let inherit = yaml["inherit"].as_str();
+        let fields = yaml["fields"].as_vec()
             .ok_or(io::Error::new(io::ErrorKind::Other, "fields required"))?;
 
         let mut definition = Self {
@@ -447,6 +467,7 @@ impl FieldTypeDefinition {
                 "i64" |
                 "f32" |
                 "f64" |
+                "uuid" |
                 "nativeparam" => Ok(Self::Primitive(type_name.to_owned())),
                 "cstring" => {
                     let maxlen = yaml["maxlen"].as_i64().map(|v| v as usize);
@@ -498,8 +519,14 @@ impl FieldTypeDefinition {
     }
 }
 
-pub fn load_packet_definitions(path: &str) -> io::Result<HashMap<String, Rc<RefCell<PacketDefintion>>>> {
-    let mut definitions = HashMap::new();
+pub fn load_definitions(path: &str) -> 
+    io::Result<(
+        HashMap<String, Rc<RefCell<PacketDefintion>>>, 
+        HashMap<String, Rc<RefCell<StructDefinition>>>
+    )> {
+
+    let mut packet_definitions = HashMap::new();
+    let mut struct_definitions = HashMap::new();
 
     // parse all files
     for entry in fs::read_dir(path)? {
@@ -508,77 +535,12 @@ pub fn load_packet_definitions(path: &str) -> io::Result<HashMap<String, Rc<RefC
         if !entry.file_type()?.is_file() || 
             !(Path::new(&entry.file_name()).extension().unwrap() == "yaml") { continue; }
 
-        println!("Parsing packet definition {}...", entry.file_name().to_string_lossy());
+        println!("Parsing definition {}...", entry.file_name().to_string_lossy());
 
-        let def = PacketDefintion::load_from_file(entry.path().to_str().unwrap())?;
-        println!("{:#?}", def);
-
-        definitions.insert(def.name.clone(), Rc::new(RefCell::new(def)));
+        let def = DefinitionFile::load_from_file(entry.path().to_str().unwrap())?;
+        def.packets.into_iter().for_each(|v| { packet_definitions.insert(v.name.clone(), Rc::new(RefCell::new(v))); });
+        def.structures.into_iter().for_each(|v| { struct_definitions.insert(v.name.clone(), Rc::new(RefCell::new(v))); });
     }
 
-    // resolve inheritance
-    for (name, definition) in &definitions {
-        let mut definition = definition.borrow_mut();
-
-        if let Some(inherit) = &definition.inherit {
-            match inherit {
-                PacketDefinitionReference::Unresolved(parent_name) => {
-                    if let Some(parent) = definitions.get(parent_name) {
-                        definition.inherit = Some(PacketDefinitionReference::Resolved(parent.clone()));
-                        Ok(())
-                    } else {
-                        Err(io::Error::new(
-                            io::ErrorKind::NotFound, 
-                            format!("Inherited struct {} not found for packet {}!", parent_name, name)
-                        ))
-                    }
-                }
-                _ => Ok(()),
-            }?;
-        }
-    }
-
-    Ok(definitions)
-}
-
-pub fn load_struct_definitions(path: &str) -> io::Result<HashMap<String, Rc<RefCell<StructDefinition>>>> {
-    let mut definitions = HashMap::new();
-
-    // parse all files
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-
-        if !entry.file_type()?.is_file() || 
-            !(Path::new(&entry.file_name()).extension().unwrap() == "yaml") { continue; }
-
-        println!("Parsing struct definition {}...", entry.file_name().to_string_lossy());
-
-        let def = StructDefinition::load_from_file(entry.path().to_str().unwrap())?;
-
-        definitions.insert(def.name.clone(), Rc::new(RefCell::new(def)));
-    }
-
-    // resolve inheritance
-    for (name, definition) in &definitions {
-        let mut definition = definition.borrow_mut();
-
-        if let Some(inherit) = &definition.inherit {
-            match inherit {
-                StructDefinitionReference::Unresolved(parent_name) => {
-                    if let Some(parent) = definitions.get(parent_name) {
-                        definition.inherit = Some(StructDefinitionReference::Resolved(parent.clone()));
-                        Ok(())
-                    } else {
-                        Err(io::Error::new(
-                            io::ErrorKind::NotFound, 
-                            format!("Inherited struct {} not found for packet {}!", parent_name, name)
-                        ))
-                    }
-                }
-                _ => Ok(()),
-            }?;
-        }
-    }
-
-    Ok(definitions)
+    Ok((packet_definitions, struct_definitions))
 }

@@ -16,11 +16,12 @@
 use std::{collections::{HashSet, HashMap}, sync::Arc, time::{Duration, Instant, UNIX_EPOCH, SystemTime}, net::SocketAddrV4};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, RakNetPeer, Message, Priority, Reliability}, AvatarId, CPkt, Uuid, CPktStream_167_0, oaPktClusterNodeToClient, NativeParam, FactionRelation, FactionRelationList, oaPktFactionResponse, oaPktCashItemVendorSyncAcknowledge, CashItemVendorEntry, oaPktSKUBundleSyncAcknowledge};
+use atlas::{raknet::{RakNetListener, RakNetPeer, Message, Priority, Reliability}, AvatarId, CPkt, CPktStream_167_0, oaPktClusterNodeToClient, NativeParam, FactionRelation, FactionRelationList, oaPktFactionResponse, oaPktCashItemVendorSyncAcknowledge, CashItemVendorEntry, oaPktSKUBundleSyncAcknowledge};
 use log::{warn, error, trace, info, debug};
 use rand::random;
 use tokio::{sync::Mutex, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
+use uuid::Uuid;
 
 use crate::{cluster::{frontend::Frontend, CommunityMessage, ActorRef}, util::AnotherlandResult, CONF, NODE, components::{ZoneRegistry, SessionHandler, Realm, SessionRef}, ARGS, db::{Session, CashShopVendor, realm_database, ZoneDef, WorldDef}, frontends::{ZoneServerClient, ZoneMessage}};
 use crate::db::DatabaseRecord;
@@ -110,7 +111,7 @@ impl ClusterFrontendSession {
             }
         };
 
-        trace!(peer = peer.id(), avatar_id = avatar_id; "Started cluster session");
+        trace!(peer = peer.id().to_string(), avatar_id = avatar_id.to_string(); "Started cluster session");
 
         Self {
             peer,
@@ -141,7 +142,10 @@ impl ClusterFrontendSession {
                     result = self.peer.recv() => {
                         if let Ok(message) = result {
                             if let Err(e) = self.handle_message(message).await {
-                                error!(peer = self.peer.id(), avatar_id = self.avatar_id; "Failed to handle client message: {:#?}", e);
+                                error!(
+                                    peer = self.peer.id().to_string(), 
+                                    avatar_id = self.avatar_id.to_string(); 
+                                    "Failed to handle client message: {:#?}", e);
                             }
                         } else {
                             break 'net_loop;
@@ -151,7 +155,10 @@ impl ClusterFrontendSession {
                         if let Some(message) = message {
                             let _ = self.peer.send(Priority::High, Reliability::Reliable, message).await;
                         } else {
-                            error!(peer = self.peer.id(), avatar_id = self.avatar_id; "Lost connection to zone server");
+                            error!(
+                                peer = self.peer.id().to_string(), 
+                                avatar_id = self.avatar_id.to_string(); 
+                                "Lost connection to zone server");
                             break 'net_loop;
                         }
                     },
@@ -189,15 +196,27 @@ impl ClusterFrontendSession {
                         self.session_id = Some(session.session().id.clone());
                         
                         if let Some(zone) = session.session().zone_guid.as_ref() {
-                            trace!(peer = self.peer.id(), session_id = self.session_id, avatar_id = self.avatar_id; "Connecting to zone {}", zone);
+                            trace!(
+                                peer = self.peer.id().to_string(), 
+                                session_id = self.session_id.map(|v| v.to_string()), 
+                                avatar_id = self.avatar_id.to_string(); 
+                                "Connecting to zone {}", zone);
 
                             match self.zone_router.connect_zone(zone, &session.session().id, &self.avatar_id).await {
                                 
                                 Ok(connection) => {
-                                    trace!(peer = self.peer.id(), session_id = self.session_id, avatar_id = self.avatar_id; "Connected to zone, forwarding initial message.");
+                                    trace!(
+                                        peer = self.peer.id().to_string(), 
+                                        session_id = self.session_id.map(|v| v.to_string()), 
+                                        avatar_id = self.avatar_id.to_string(); 
+                                        "Connected to zone, forwarding initial message.");
 
                                     if let Err(e) = connection.send(&message).await {
-                                        error!(peer = self.peer.id(), session_id = self.session_id, avatar_id = self.avatar_id; "Failed to forward message to zone: {:#?}", e);
+                                        error!(
+                                            peer = self.peer.id().to_string(), 
+                                            session_id = self.session_id.map(|v| v.to_string()), 
+                                            avatar_id = self.avatar_id.to_string(); 
+                                            "Failed to forward message to zone: {:#?}", e);
                                         self.peer.disconnect().await;
                                     } else {
                                         self.zone_connection = Some(Arc::new(connection));
@@ -205,17 +224,26 @@ impl ClusterFrontendSession {
                                     //let _ = connection.send(&message).await;
                                 },
                                 Err(e) => {
-                                    error!(peer = self.peer.id(), session = pkt.session_id; "Zone connection failed: {:#?}", e);
+                                    error!(
+                                        peer = self.peer.id().to_string(), 
+                                        session = pkt.session_id.to_string(); 
+                                        "Zone connection failed: {:#?}", e);
                                     self.peer.disconnect().await;
                                 }
                             }
                         } else {
-                            error!(peer = self.peer.id(), session = pkt.session_id; "No zone selected!");
+                            error!(
+                                peer = self.peer.id().to_string(), 
+                                session = pkt.session_id.to_string(); 
+                                "No zone selected!");
                             self.peer.disconnect().await;
                         }
                     },
                     Err(e) => {
-                        warn!(peer = self.peer.id(), session = pkt.session_id; "Failed to initialize session: {:#?}", e);
+                        warn!(
+                            peer = self.peer.id().to_string(), 
+                            session = pkt.session_id.to_string(); 
+                            "Failed to initialize session: {:#?}", e);
                         self.peer.disconnect().await;
                     }
                 }
@@ -234,7 +262,10 @@ impl ClusterFrontendSession {
             AtlasPkt(CPkt::oaPktClusterClientToCommunication(pkt)) => {
                 match pkt.field_2 {
                     _ => {
-                        info!(peer = self.peer.id(), session = self.session_id; "Unknown communication packet: {:#?}", pkt);
+                        info!(
+                            peer = self.peer.id().to_string(), 
+                            session = self.session_id.map(|v| v.to_string()); 
+                            "Unknown communication packet: {:#?}", pkt);
                     }
                 }
             },
@@ -258,7 +289,7 @@ impl ClusterFrontendSession {
             },
             AtlasPkt(CPkt::oaPktFactionRequest(pkt)) => {
                 let factions = vec![FactionRelation {
-                    field_0: Uuid::from_str("be55863a-03a0-4f2a-807c-b794e84f537c").unwrap(),
+                    field_0: Uuid::parse_str("be55863a-03a0-4f2a-807c-b794e84f537c").unwrap(),
                     field_1: "Player".to_owned(),
                     field_2: 6000.0,
                 }];
@@ -339,10 +370,18 @@ impl ClusterFrontendSession {
                                     match self.zone_router.connect_zone(&target_zone.guid, &session_s.session().id, &self.avatar_id).await {
                                 
                                         Ok(connection) => {
-                                            trace!(peer = self.peer.id(), session_id = self.session_id, avatar_id = self.avatar_id; "Connected to zone, forwarding initial message.");
+                                            trace!(
+                                                peer = self.peer.id().to_string(), 
+                                                session_id = self.session_id.map(|v| v.to_string()), 
+                                                avatar_id = self.avatar_id.to_string(); 
+                                                "Connected to zone, forwarding initial message.");
         
                                             if let Err(e) = connection.send(&message).await {
-                                                error!(peer = self.peer.id(), session_id = self.session_id, avatar_id = self.avatar_id; "Failed to forward message to zone: {:#?}", e);
+                                                error!(
+                                                    peer = self.peer.id().to_string(), 
+                                                    session_id = self.session_id.map(|v| v.to_string()), 
+                                                    avatar_id = self.avatar_id.to_string(); 
+                                                    "Failed to forward message to zone: {:#?}", e);
                                                 self.peer.disconnect().await;
                                             } else {
                                                 
@@ -352,7 +391,10 @@ impl ClusterFrontendSession {
                                             //let _ = connection.send(&message).await;
                                         },
                                         Err(e) => {
-                                            error!(peer = self.peer.id(), session = session_s.session().id; "Zone connection failed: {:#?}", e);
+                                            error!(
+                                                peer = self.peer.id().to_string(), 
+                                                session = session_s.session().id.to_string(); 
+                                                "Zone connection failed: {:#?}", e);
                                             self.peer.disconnect().await;
                                         }
                                     }
@@ -391,11 +433,17 @@ impl ClusterFrontendSession {
                 // forward messages to connected zone server
                 if let Some(connection) = self.zone_connection.as_ref() {
                     if let Err(_) = connection.send(&message).await {
-                        error!(peer = self.peer.id(), session = self.session_id; "Forward to zone server failed, closing connection.");
+                        error!(
+                            peer = self.peer.id().to_string(), 
+                            session = self.session_id.map(|v| v.to_string()); 
+                            "Forward to zone server failed, closing connection.");
                         self.peer.disconnect().await;
                     }
                 } else {
-                    warn!(peer = self.peer.id(), session = self.session_id; "Client not connected to zone server!");
+                    warn!(
+                        peer = self.peer.id().to_string(), 
+                        session = self.session_id.map(|v| v.to_string()); 
+                        "Client not connected to zone server!");
                     self.peer.disconnect().await;
                 }
             },

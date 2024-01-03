@@ -16,13 +16,14 @@
 use std::vec::IntoIter;
 
 use glam::f32::Vec3;
-use nom::{IResult, error::VerboseError, number::complete::{le_u8, le_f32, le_f64, le_i32, le_u64, le_u32, le_i64}, multi::count};
+use nom::{IResult, error::VerboseError, number::complete::{le_u8, le_f32, le_f64, le_i32, le_u64, le_u32, le_i64}, multi::count, bytes::complete::take, combinator::map};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
+use uuid::Uuid;
 
 use crate::{ParamError, AvatarId};
 
-use super::{Uuid, parsers::parse_pkt_cstring};
+use super::{parsers::parse_pkt_cstring};
 
 #[derive(Debug, Clone, Default)]
 pub enum NativeParam {
@@ -77,8 +78,8 @@ impl NativeParam {
                 Ok((data, val))
             },
             7 => {
-                let (data, val) = Uuid::from_bytes(data)?;
-                Ok((data, NativeParam::Guid(val)))
+                let (data, bytes) = take(16usize)(data)?;
+                Ok((data, NativeParam::Guid(Uuid::from_bytes_le(bytes.try_into().unwrap()))))
             },
             8 => {
                 let (data, val) = le_u64(data)?;
@@ -116,7 +117,7 @@ impl NativeParam {
             },
             16 => {
                 let (data, len) = le_u32(data)?;
-                let (data, val) = count(Uuid::from_bytes, len as usize)(data)?;
+                let (data, val) = count(map(take(16usize), |v: &[u8]| Uuid::from_bytes_le(v.try_into().unwrap())), len as usize)(data)?;
                 Ok((data, NativeParam::GuidArray(val)))
             },
             17 => {
@@ -188,7 +189,7 @@ impl NativeParam {
             },
             Self::Guid(val) => {
                 let _ = writer.write(7u8);
-                let _ = writer.write_bytes(&val.to_bytes());
+                let _ = writer.write_bytes(&val.to_bytes_le());
             },
             Self::AvatarId(val) => {
                 let _ = writer.write(8u8);
@@ -233,7 +234,7 @@ impl NativeParam {
                 let _ = writer.write(16u8);
                 let _ = writer.write(val.len() as u16);
                 for val in val {
-                    let _ = writer.write_bytes(&val.to_bytes());
+                    let _ = writer.write_bytes(&val.to_bytes_le());
                 }
             },
             Self::StringArray(val) => {

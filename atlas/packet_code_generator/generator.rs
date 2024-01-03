@@ -21,18 +21,55 @@ use ::quote::quote;
 
 use crate::packet_code_generator::struct_generator::GeneratedStructSource;
 
-use super::{yaml_reader::{load_struct_definitions, load_packet_definitions}, struct_generator::GeneratedStruct, code_generator::{generate_enum_code, generate_struct_code, generate_implementation_code}};
+use super::{yaml_reader::{load_definitions, PacketDefinitionReference}, struct_generator::GeneratedStruct, code_generator::{generate_enum_code, generate_struct_code, generate_implementation_code}};
 
 pub fn generate_packet_code() -> io::Result<()> {
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR not set");
     let out_dir_path = Path::new(&out_dir);
 
-    let struct_definitions = load_struct_definitions("../packet_definitions/structs")?;
-    let packet_definitions = load_packet_definitions("../packet_definitions/packets")?;
+    let mut packet_definitions = HashMap::new();
+    let mut struct_definitions = HashMap::new();
+
+    {
+        let (parsed_packet_definitions, parsed_struct_definitions) 
+            = load_definitions("../packet_definitions/structs")?;
+
+        parsed_packet_definitions.into_iter().for_each(|(k, v)| { packet_definitions.insert(k, v); });
+        parsed_struct_definitions.into_iter().for_each(|(k, v)| { struct_definitions.insert(k, v); });
+    }
     
+    {
+        let (parsed_packet_definitions, parsed_struct_definitions) 
+            = load_definitions("../packet_definitions/packets")?;
+
+        parsed_packet_definitions.into_iter().for_each(|(k, v)| { packet_definitions.insert(k, v); });
+        parsed_struct_definitions.into_iter().for_each(|(k, v)| { struct_definitions.insert(k, v); });
+    }
+
+    // resolve packet inheritance
+    for (name, definition) in &packet_definitions {
+        let mut definition = definition.borrow_mut();
+
+        if let Some(inherit) = &definition.inherit {
+            match inherit {
+                PacketDefinitionReference::Unresolved(parent_name) => {
+                    if let Some(parent) = packet_definitions.get(parent_name) {
+                        definition.inherit = Some(PacketDefinitionReference::Resolved(parent.clone()));
+                        Ok(())
+                    } else {
+                        Err(io::Error::new(
+                            io::ErrorKind::NotFound, 
+                            format!("Inherited struct {} not found for packet {}!", parent_name, name)
+                        ))
+                    }
+                }
+                _ => Ok(()),
+            }?;
+        }
+    }
+
     let mut generated_structs = HashMap::new();
     let mut generated_enums = Vec::new();
-    //let mut generated_packet_structs = Vec::new();
 
     // resolve type references
     for (_, def) in &struct_definitions {
@@ -44,14 +81,6 @@ pub fn generate_packet_code() -> io::Result<()> {
         def.borrow_mut().resolve_references(&packet_definitions, &struct_definitions)?;
         def.borrow_mut().normalize();
     }
-
-    /*for (_, def) in &struct_definitions {
-        println!("{:#?}", def);
-    }
-
-    for (_, def) in &packet_definitions {
-        println!("{:#?}", def);
-    }*/
 
     // generate struct layouts & enums
     for (_, struct_definition) in &struct_definitions {
