@@ -797,8 +797,8 @@ pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>)
         let message_code = match &generated_struct.definition {
             GeneratedStructSource::PacketDefintion(_) => {
                 quote!{ 
-                    pub fn as_message(&self) -> Message {
-                        Message::AtlasPkt(CPkt::#struct_ident(Box::new(self.clone())))
+                    pub fn into_message(self) -> Message {
+                        Message::AtlasPkt(CPkt::#struct_ident(Box::new(self)))
                     }
                 }
             },
