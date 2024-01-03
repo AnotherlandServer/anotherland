@@ -51,21 +51,26 @@ pub fn actor_actions(args: proc_macro::TokenStream, item: proc_macro::TokenStrea
 
     let generics = input.generics.to_token_stream();
 
-    let message_ident = format_ident!("{}ActionMessage", input_type.to_string());
+    let input_type_name = input_type.to_string();
+    let message_ident = format_ident!("{}ActionMessage", input_type_name);
 
-    let public_actions: Vec<_> = input.items.iter().filter_map(|f| {
+    let actions: Vec<_> = input.items.iter().filter_map(|f| {
         match f {
-          ImplItem::Fn(f) => {
-              match f.vis {
-                  Visibility::Public(_) => Some(f.clone()),
-                  _ => None,
-              }
-          },
-          _ => None,
-        }  
+            ImplItem::Fn(f) => {
+                Some(f.clone())
+            },
+            _ => None,
+        } 
+    }).collect();
+
+    let public_actions: Vec<_> = actions.iter().filter_map(|f| {
+        match f.vis {
+            Visibility::Public(_) => Some(f.clone()),
+            _ => None,
+        }
       }).collect();
 
-    let ref_action_messages: Vec<_> = public_actions.iter().map(|f| {
+    let ref_action_messages: Vec<_> = actions.iter().map(|f| {
         //let signature = f.sig.to_token_stream();
         let ident = format_ident!("{}", f.sig.ident.to_string().to_case(Case::UpperCamel));
         let arguments: Vec<_> = f.sig.inputs.iter().filter_map(|a| {
@@ -85,7 +90,7 @@ pub fn actor_actions(args: proc_macro::TokenStream, item: proc_macro::TokenStrea
         }
     }).collect();
 
-    let ref_action_message_handlers: Vec<_> = public_actions.iter().map(|f| {
+    let ref_action_message_handlers: Vec<_> = actions.iter().map(|f| {
         //let signature = f.sig.to_token_stream();
         let ident = format_ident!("{}", f.sig.ident.to_string().to_case(Case::UpperCamel));
         let fn_ident = f.sig.ident.clone();
@@ -117,9 +122,10 @@ pub fn actor_actions(args: proc_macro::TokenStream, item: proc_macro::TokenStrea
         }
     }).collect();
 
-    let ref_actions: Vec<_> = public_actions.iter().map(|f| {
+    let ref_actions: Vec<_> = actions.iter().map(|f| {
         let ident = format_ident!("{}", f.sig.ident.to_string().to_case(Case::UpperCamel));
         let signature = f.sig.to_token_stream();
+        let visibility = f.vis.to_token_stream();
 
         let asyncness = if let None = f.sig.asyncness {
             quote!(async)
@@ -136,14 +142,16 @@ pub fn actor_actions(args: proc_macro::TokenStream, item: proc_macro::TokenStrea
                 },
             }
         }).collect();
+
+        let method_name = f.sig.ident.to_string();
         
         quote! { 
-            pub #asyncness #signature {
+            #visibility #asyncness #signature {
                 let (tx, rx) = oneshot::channel();
 
                 match self.send_message(#message_ident::#ident { ret: tx, #(#arguments),*}).await {
                     Ok(_) => rx.await.unwrap(),
-                    Err(_) => panic!("failed to send to rpc channel"),
+                    Err(_) => panic!("failed to send to rpc channel. Method: {}::{}", #input_type_name, #method_name),
                 }
             }
         }
@@ -227,18 +235,6 @@ pub fn actor_actions(args: proc_macro::TokenStream, item: proc_macro::TokenStrea
             _ => (),
         }
     }
-    
-    /* .map(|f| {
-        match f {
-          ImplItem::Fn(f) => {
-              match f.vis {
-                  Visibility::Public(_) => Some(f.clone()),
-                  _ => None,
-              }
-          },
-          _ => None,
-        }  
-      })*/
 
     let (remote_actor_ref, remote_actor_type, has_remote_actions) = if remote_ref_actions.is_empty() {
         (quote!(), quote!(()), false)
