@@ -271,7 +271,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             ParamType::Any => None,
                             ParamType::AvatarID => {
                                 let val: u64 = default_str.strip_prefix("#").unwrap().parse().expect("failed to parse avatar id");
-                                Some(quote! { AvatarId::new(#val) })
+                                Some(quote! { #val.into() })
                             },
                             ParamType::AvatarIDSet => None,
                             ParamType::AvatarIDVector => None,
@@ -945,7 +945,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             next_parent = next_parent.unwrap().borrow().extends_ref.clone();
         }
 
-        let component = if v.borrow().is_child_of("nonClientBase") || v.borrow().is_child_of("player") {
+        // todo: Find a better way than hardcoding those
+        let component = if v.borrow().is_child_of("nonClientBase") || 
+                v.borrow().is_child_of("player") || 
+                v.borrow().is_child_of("NonSpawnPlacement") || 
+                v.borrow().name == "NonSpawnPlacement" 
+        {
             let component_name = format_ident!("{}Component", formatted_class_name(&v.borrow().name));
             
             let to_components_return_types: Vec<_> = 
@@ -1031,6 +1036,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     #(#param_copy_section)*
 
                     new_class
+                }
+            }
+
+            impl #class_name {
+                pub fn new() -> Self {
+                    Self(AnyClass::new())
                 }
             }
 

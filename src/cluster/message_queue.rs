@@ -93,6 +93,7 @@ pub enum SocialEvent {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ClusterMessage {
     SessionDestroyed{session_id: Uuid},
+    RealmServerHearthbeat{realm_id: u32, name: String, channels: Vec<(u32, f32)>, address: SocketAddrV4},
     /*Shutdown{subject: ShutdownSubject},
     InvalidateSession{session_id: Uuid},
     RealmServerHearthbeat{realm_id: u32, name: String, population: usize, address: SocketAddrV4},

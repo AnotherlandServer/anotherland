@@ -22,7 +22,7 @@ use serde::Serialize;
 use serde_derive::Deserialize;
 
 use crate::util::AnotherlandResult;
-use atlas::Uuid;
+use atlas::{Uuid, AvatarId};
 
 use super::{Account, DatabaseRecord};
 
@@ -30,6 +30,7 @@ use super::{Account, DatabaseRecord};
 pub struct Session {
     pub id: Uuid,
     pub account: Uuid,
+    pub is_gm: bool,
     pub realm_id: Option<u32>,
     pub world_id: Option<u16>,
     pub zone_guid: Option<Uuid>,
@@ -45,6 +46,7 @@ impl Session {
         let session = Session {
             id: Uuid::new_v4(),
             account: account.id.clone(),
+            is_gm: account.is_gm,
             realm_id: None,
             world_id: None,
             zone_guid: None,

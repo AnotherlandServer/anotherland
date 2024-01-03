@@ -28,13 +28,17 @@ pub struct SessionManager {
 }
 
 impl SessionManager {   
-    pub async fn new() -> AnotherlandResult<Self> {
-        let (producer, mut consumer) = connect_queue(MessageChannel::ClusterChannel).await?;
+    pub async fn initialize() -> AnotherlandResult<Self> {
+        let (producer, _) = connect_queue(MessageChannel::ClusterChannel).await?;
 
         Ok(Self {
             cluster_db: cluster_database().await,
             cluster_channel_producer: producer
         })
+    }
+
+    async fn starting(&mut self) -> AnotherlandResult<()> { 
+        Ok(()) 
     }
 }
 
@@ -47,15 +51,7 @@ impl Actor for SessionManager {
 impl SessionManager {
     pub async fn create_session(&mut self, account_id: Uuid) -> AnotherlandResult<Session> {
         if let Some(account) = Account::get(self.cluster_db.clone(), &account_id).await? {
-            // Check if we have a session already running and destroy those
-            let collection = self.cluster_db.collection::<Session>("sessions");
-            let mut result = collection.find(doc! { "account": { "$eq": account_id.to_string() } }, None).await?;
-
-            // Destroy all exsiting sessions for the requested account
-            while let Some(session) = result.try_next().await? {
-                self.destroy_session(session.id).await?;
-            }
-            
+            self.force_logout_account(account_id).await?;
             Ok(Session::create(self.cluster_db.clone(), &account).await?)
         } else {
             Err(AnotherlandError::app_err("account not found"))
@@ -72,6 +68,60 @@ impl SessionManager {
     }
 
     #[rpc]
+    pub async fn session_select_realm(&self, session_id: Uuid, realm_id: u32) -> AnotherlandResult<Session> {
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
+            session.select_realm(self.cluster_db.clone(), realm_id).await?;
+            Ok(session)
+        } else {
+            Err(AnotherlandError::app_err("session not found"))
+        }
+    }
+
+    #[rpc]
+    pub async fn session_select_character(&self, session_id: Uuid, character_id: u32) -> AnotherlandResult<Session> {
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
+            session.select_character(self.cluster_db.clone(), character_id).await?;
+            Ok(session)
+        } else {
+            Err(AnotherlandError::app_err("session not found"))
+        }
+    }
+
+    #[rpc]
+    pub async fn session_select_world(&self, session_id: Uuid, world_id: u16) -> AnotherlandResult<Session> {
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
+            session.select_world(self.cluster_db.clone(), world_id).await?;
+            Ok(session)
+        } else {
+            Err(AnotherlandError::app_err("session not found"))
+        }
+    }
+
+    #[rpc]
+    pub async fn session_select_zone(&self, session_id: Uuid, zone_id: Uuid) -> AnotherlandResult<Session> {
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
+            session.select_zone(self.cluster_db.clone(), zone_id).await?;
+            Ok(session)
+        } else {
+            Err(AnotherlandError::app_err("session not found"))
+        }
+    }
+
+    #[rpc]
+    pub async fn force_logout_account(&mut self, account_id: Uuid) -> AnotherlandResult<()> {
+        // Find all session associated with the given account
+        let collection = self.cluster_db.collection::<Session>("sessions");
+        let mut result = collection.find(doc! { "account": { "$eq": account_id.to_string() } }, None).await?;
+
+        // Destroy all found sessions
+        while let Some(session) = result.try_next().await? {
+            self.destroy_session(session.id).await?;
+        }
+    
+        Ok(())
+    }
+
+    #[rpc]
     pub async fn destroy_session(&mut self, session_id: Uuid) -> AnotherlandResult<()> {
         // first we tell all session handlers, that this session became invalid
         self.cluster_channel_producer.send(ClusterMessage::SessionDestroyed { session_id: session_id.clone() }).await?;
@@ -84,5 +134,17 @@ impl SessionManager {
         Ok(())
     }
 
+    #[rpc]
+    pub async fn destroy_all_unprivileged_sessions(&mut self) -> AnotherlandResult<()> {
+        // Collect all unprivileged sessions
+        let collection = self.cluster_db.collection::<Session>("sessions");
+        let mut result = collection.find(doc! { "$not" : { "is_gm": { "$eq": true } } }, None).await?;
 
+        // Destroy all found sessions
+        while let Some(session) = result.try_next().await? {
+            self.destroy_session(session.id).await?;
+        }
+
+        Ok(())
+    }
 }

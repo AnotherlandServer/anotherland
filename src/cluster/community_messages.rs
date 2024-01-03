@@ -18,6 +18,7 @@ use log::warn;
 
 use crate::util::AnotherlandResult;
 
+#[derive(Debug)]
 pub enum CommunityMessage {
     SocialTravel{avatar: AvatarId, map: String, travel: bool},
     UnknownA1{avatar: AvatarId, boolean: bool},

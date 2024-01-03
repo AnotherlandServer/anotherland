@@ -24,17 +24,22 @@ mod frontends;
 // Import modules
 use std::net::Ipv4Addr;
 use clap::{Parser, Subcommand};
-use cluster::actor::ClusterNode;
+use cluster::ClusterNode;
+use components::{RealmList, Realm, ZoneRegistry};
 use ::config::File;
-use log::{LevelFilter, info};
+use db::WorldDef;
+use frontends::{LoginQueueFrontend, RealmFrontend, ClusterFrontend, ZoneFrontend};
+use log::{LevelFilter, info, warn};
 use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, Root}};
 use glob::glob;
 use once_cell::sync::Lazy;
-use mongodb::bson::doc;
+use mongodb::{bson::doc, options::FindOptions};
+use rcgen::Certificate;
 use tokio::{signal, sync::RwLock};
 
+use tokio_stream::StreamExt;
 use util::AnotherlandResult;
-use crate::{config::ConfMain, cluster::ServerRunner, data_import::import_client_data, db::{database, initalize_db, realm_database, ZoneDef}, components::SessionManager, frontends::LoginFrontend};
+use crate::{config::ConfMain, data_import::import_client_data, db::{database, initalize_db, realm_database, ZoneDef, DatabaseRecord}, components::SessionManager, frontends::LoginFrontend};
 use crate::components::{Authenticator, SessionHandler};
 //use crate::{login_server::LoginServer, realm_server::RealmServer, frontend_server::FrontendServer, node_server::{NodeServer, NodeServerOptions}, api_server::ApiServer};
 
@@ -168,13 +173,45 @@ static CONF: Lazy<ConfMain> = Lazy::new(|| {
 
 static NODE: Lazy<ClusterNode> = Lazy::new(ClusterNode::new);
 
+static CLUSTER_CERT: Lazy<Certificate> = Lazy::new(||rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap());
+
 async fn init_database() -> AnotherlandResult<()> {
     
 
     Ok(())
 }
 
-#[tokio::main]  //(flavor = "current_thread")
+async fn initialize_login_server() -> AnotherlandResult<()> {
+    NODE.add_actor(Authenticator::initialize().await?);
+    NODE.add_actor(SessionManager::initialize().await?);
+    NODE.add_actor(RealmList::initialize().await);
+    NODE.add_frontend(LoginFrontend::initialize().await?);
+    NODE.add_frontend(LoginQueueFrontend::initialize().await?);
+
+    Ok(())
+}
+
+async fn initialize_realm_server() -> AnotherlandResult<()> {
+    NODE.add_actor(Realm::initialize().await?);
+    NODE.add_frontend(RealmFrontend::initialize().await?);
+
+    Ok(())
+}
+
+async fn initialize_cluster_frontend_server() -> AnotherlandResult<()> {
+    NODE.add_actor(ZoneRegistry::initialize().await?);
+    NODE.add_frontend(ClusterFrontend::initialize().await?);
+
+    Ok(())
+}
+
+async fn initialize_zone_server(world_def: WorldDef, zone_def: ZoneDef) -> AnotherlandResult<()> {
+    NODE.add_frontend(ZoneFrontend::initialize(world_def, zone_def).await?);
+
+    Ok(())
+}
+
+#[tokio::main(flavor = "current_thread")]  
 async fn main() -> AnotherlandResult<()> {
     let _ = dotenvy::dotenv();
 
@@ -201,10 +238,6 @@ async fn main() -> AnotherlandResult<()> {
     info!("Setting up database...");
     initalize_db().await?;
 
-    // Start tokio runtime
-    let mut servers: Vec<()> = Vec::new();
-    //let mut api_server = None;
-
     match &ARGS.start_command {
         StartCommand::InitDb => {
             init_database().await?;
@@ -215,76 +248,75 @@ async fn main() -> AnotherlandResult<()> {
             import_client_data(path_to_client.into()).await?;
         }
         StartCommand::LoginServer { .. } => {
-            NODE.add_actor(Authenticator::new().await);
-            NODE.add_actor(SessionManager::new().await?);
-            NODE.add_frontend("login_frontend", LoginFrontend::new());
-            //servers.push(ServerRunner::new::<LoginServer>(()));
+            todo!()
         },
         StartCommand::RealmServer { .. } => {
-            //servers.push(ServerRunner::new::<RealmServer>(()));
+            todo!()
         },
         StartCommand::FrontendServer { .. } => {
-            //servers.push(ServerRunner::new::<FrontendServer>(()));
+            todo!()
         }
         StartCommand::NodeServer { .. } => {
-            //WORLD_SERVER_IDS.write().await.push_front(*world_id);
-
-            //servers.push(ServerRunner::new::<WorldServer>());
+            todo!()
         },
         StartCommand::InstancePoolServer { .. } => {
-
+            todo!()
         },
         StartCommand::ApiServer => {
-            /*let server = ApiServer::new().await?;
-            server.start().await?;
-
-            api_server = Some(server);*/
+            todo!()
         },
         StartCommand::StandaloneServer { .. } => {
+            Lazy::force(&CLUSTER_CERT);
+
             init_database().await?;
 
-            NODE.add_actor(Authenticator::new().await);
-            NODE.add_actor(SessionManager::new().await?);
-            NODE.add_frontend("login_frontend", LoginFrontend::new());
+            let _ = initialize_login_server().await?;
+            let _ = initialize_realm_server().await?;
+            let _ = initialize_cluster_frontend_server().await?;
 
-            // start api server
-            /*let server = ApiServer::new().await?;
-            server.start().await?;
-            
-            api_server = Some(server);
+            // load all persistent zones
+            // the game does differentiate between primary, secondary and tertriary servers
+            // according to the instance.db database. 
+            // as we currently don't know how the original server architecture defined those,
+            // we currently treat all those zones as "primary", giving each one a dedicated zone actor
+            // with a single shared udp server (cluster frontend).
+            {
+                let db = realm_database().await;
 
-            // load all zones
-            let zones = ZoneDef::list(realm_database().await).await?.into_iter().map(|z| z.guid);
+                let zone_collection = ZoneDef::collection(db.clone());
+                let mut zones = zone_collection.find(doc!{
+                    "$or": [
+                        // todo: normalize this field during import
+                        {"server": {"$eq": "Primary"}},
+                        {"server": {"$eq": "primary"}},
+                        {"server": {"$eq": "Secondary"}},
+                        {"server": {"$eq": "secondary"}},
+                        {"server": {"$eq": "Tertriary"}},
+                        {"server": {"$eq": "tertriary"}}
+                    ]
+                }, None).await?;
 
-            servers.push(ServerRunner::new::<LoginServer>(()));
-            servers.push(ServerRunner::new::<RealmServer>(()));
-            servers.push(ServerRunner::new::<FrontendServer>(()));
-
-            for zone_guid in zones {
-                servers.push(ServerRunner::new::<NodeServer>(NodeServerOptions {
-                    realm_id: CONF.realm.id,
-                    zone_guid
-                }));
-            }*/
+                while let Some(zone) = zones.try_next().await? {
+                    if let Some(world_def) = WorldDef::get_by_guid(db.clone(), &zone.worlddef_guid).await? {
+                        let _ = initialize_zone_server(world_def, zone).await?;
+                    } else {
+                        warn!("Skipping zone {} - {}, world not found", zone.zone, zone.guid);
+                    }
+                }
+            }
         }
     }
 
-    if !servers.is_empty() {
-        match signal::ctrl_c().await {
-            Ok(()) => {
-                /*if let Some(api_server) = api_server {
-                    api_server.stop().await;
-                }
+    NODE.start().await;
 
-                for server in servers.drain(..) {
-                    server.stop().await;
-                }*/
-            },
-            Err(err) => {
-                eprintln!("Unable to listen for shutdown signal: {}", err);
-                // we also shut down in case of error
-            },
-        }
+    match signal::ctrl_c().await {
+        Ok(()) => {
+            NODE.stop().await;
+        },
+        Err(err) => {
+            eprintln!("Unable to listen for shutdown signal: {}", err);
+            // we also shut down in case of error
+        },
     }
 
     Ok(())

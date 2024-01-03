@@ -14,11 +14,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod login_frontend;
-mod node_frontend;
+mod login_queue_frontend;
 mod cluster_frontend;
 mod realm_frontend;
+mod zone_frontend;
 
 pub use login_frontend::*;
-pub use node_frontend::*;
+pub use login_queue_frontend::*;
 pub use cluster_frontend::*;
 pub use realm_frontend::*;
+pub use zone_frontend::*;

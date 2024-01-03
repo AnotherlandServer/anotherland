@@ -79,10 +79,10 @@ mod tests {
             NativeParam::Bool(true)
         ].to_vec());
 
-        let bytes = original.as_message().to_bytes();
+        let bytes = original.clone().into_message().to_bytes();
         let serialized = Message::from_bytes(&bytes).unwrap().1;
 
-        println!("{:#?}", original.as_message().to_bytes());
+        println!("{:#?}", original.clone().into_message().to_bytes());
 
         assert_eq!(format!("{:#?}", serialized), format!("{:#?}", Message::AtlasPkt(CPkt::oaPktClusterNodeToClient(Box::new(original)))));
     }

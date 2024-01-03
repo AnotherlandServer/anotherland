@@ -13,18 +13,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod actor;
-mod error;
-pub use actor_macros::*;
-pub use actor::*;
-pub use error::*;
+pub enum PlayerSpawnMode {
+    LoginFirstTime, // 1
+    LoginNormal, // 2
+    TravelDirect, // 3
+    TravelPortal, // 4
+    TravelCarrier, // 5
+    TravelPoint, // 6   
+}
 
-pub mod common_imports {
-    pub use crate::cluster::ActorRef;
-    pub use crate::cluster::RemoteActorRef;
-    pub use super::actor::Actor;
-    pub use super::actor::ActorHandler;
-    pub use tokio::sync::oneshot;
-    pub use poem::async_trait;
-    pub use std::marker::PhantomData;
+impl Into<i32> for PlayerSpawnMode {
+    fn into(self) -> i32 {
+        match self {
+            Self::LoginFirstTime => 1,
+            Self::LoginNormal => 2,
+            Self::TravelDirect => 3,
+            Self::TravelPortal => 4,
+            Self::TravelCarrier => 5,
+            Self::TravelPoint => 6,
+        }
+    }
 }

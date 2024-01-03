@@ -15,12 +15,14 @@
 
 use async_trait::async_trait;
 use tokio::{sync::{oneshot, mpsc}, select};
+use tokio_util::sync::CancellationToken;
 
 use crate::util::{AnotherlandResult, AnotherlandError};
 
 #[async_trait]
 pub trait Frontend: Send + Sync {
-    async fn pre_start(&mut self) -> AnotherlandResult<()> { Ok(()) }
-    async fn run(&mut self) -> AnotherlandResult<()> { Ok(()) }
+    fn name(&self) -> &str;
+    async fn starting(&mut self) -> AnotherlandResult<()> { Ok(()) }
+    async fn run(&mut self, token: CancellationToken) -> AnotherlandResult<()> { Ok(()) }
     async fn stopped(&mut self) -> AnotherlandResult<()> { Ok(()) }
 }

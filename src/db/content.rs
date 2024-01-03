@@ -20,7 +20,7 @@ use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
-use atlas::{Uuid, ParamClassContainer};
+use atlas::{Uuid, ParamClassContainer, OaBuff2Param, LootScatterContainerParam, FactionParam, NpcOtherlandParam, SpawnerParam, StructureParam, BoundParamClass, ParamEntity, ParamError};
 
 use crate::util::AnotherlandResult;
 
@@ -69,6 +69,15 @@ impl DatabaseRecord<'_> for BuffContent {
     }
 }
 
+impl BuffContent {
+    pub fn into_param<T>(self) -> Option<T> 
+        where
+            T: TryFrom<ParamClassContainer, Error = ParamError>
+    {
+        self.0.data.map(|v| v.try_into().unwrap())
+    }
+}
+
 // drops
 #[derive(Serialize, Deserialize)]
 pub struct DropsContent(Content);
@@ -103,6 +112,15 @@ impl DatabaseRecord<'_> for DropsContent {
     }
 }
 
+impl DropsContent {
+    pub fn into_param<T>(self) -> Option<T> 
+        where
+            T: TryFrom<ParamClassContainer, Error = ParamError>
+    {
+        self.0.data.map(|v| v.try_into().unwrap())
+    }
+}
+
 // factions
 #[derive(Serialize, Deserialize)]
 pub struct FactionContent(Content);
@@ -134,6 +152,15 @@ impl DatabaseRecord<'_> for FactionContent {
 
     fn query_one(key: &Self::Key) -> Document {
         doc!{ "guid": { "$eq": bson::to_bson(key).unwrap() } }
+    }
+}
+
+impl FactionContent {
+    pub fn into_param<T>(self) -> Option<T> 
+        where
+            T: TryFrom<ParamClassContainer, Error = ParamError>
+    {
+        self.0.data.map(|v| v.try_into().unwrap())
     }
 }
 
@@ -221,6 +248,15 @@ impl DatabaseRecord<'_> for NpcContent {
     }
 }
 
+impl NpcContent {
+    pub fn into_param<T>(self) -> Option<T> 
+        where
+            T: TryFrom<ParamClassContainer, Error = ParamError>
+    {
+        self.0.data.map(|v| v.try_into().unwrap())
+    }
+}
+
 // spawners
 #[derive(Serialize, Deserialize)]
 pub struct SpawnerContent(Content);
@@ -255,6 +291,15 @@ impl DatabaseRecord<'_> for SpawnerContent {
     }
 }
 
+impl SpawnerContent {
+    pub fn into_param<T>(self) -> Option<T> 
+        where
+            T: TryFrom<ParamClassContainer, Error = ParamError>
+    {
+        self.0.data.map(|v| v.try_into().unwrap())
+    }
+}
+
 // structures
 #[derive(Serialize, Deserialize)]
 pub struct StructureContent(Content);
@@ -286,5 +331,14 @@ impl DatabaseRecord<'_> for StructureContent {
 
     fn key(&self) ->  &Self::Key {
         &self.guid
+    }
+}
+
+impl StructureContent {
+    pub fn into_param<T>(self) -> Option<T> 
+        where
+            T: TryFrom<ParamClassContainer, Error = ParamError>
+    {
+        self.0.data.map(|v| v.try_into().unwrap())
     }
 }

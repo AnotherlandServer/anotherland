@@ -20,7 +20,7 @@ use log::info;
 use mongodb::{IndexModel, options::IndexOptions, bson::doc};
 use tokio::runtime::Handle;
 
-use crate::{util::AnotherlandResult, db::{Content, Instance, WorldDef, ZoneDef, realm_database, cluster_database, CashShopVendor, CashShopItem, CashShopBundle}};
+use crate::{util::AnotherlandResult, db::{Content, Instance, WorldDef, ZoneDef, realm_database, cluster_database, CashShopVendor, CashShopItem, CashShopBundle, RawInstance}};
 use atlas::{Uuid, ParamClassContainer};
 
 async fn import_content_table(game_client_path: &PathBuf, src_table: &str, target_table: &str) -> AnotherlandResult<()> {
@@ -88,7 +88,7 @@ async fn import_instance(game_client_path: &PathBuf) -> AnotherlandResult<()> {
         ).unwrap();
 
         let collection = Handle::current().block_on(async move {
-            realm_database().await.collection::<Instance>("instances")
+            realm_database().await.collection::<RawInstance>("instances")
         });
 
         info!("Importing Instance -> instances...");
@@ -112,7 +112,7 @@ async fn import_instance(game_client_path: &PathBuf) -> AnotherlandResult<()> {
                 None
             };
     
-            documents.push(Instance {
+            documents.push(RawInstance {
                 id: row.read::<i64,_>("ixInstanceID"),
                 guid: Uuid::from_str(row.read::<&str,_>("uxInstanceGuid")).unwrap(),
                 zone_guid: Uuid::from_str(row.read::<&str,_>("uxZoneGuid")).unwrap(),

@@ -286,7 +286,7 @@ impl NativeParam {
 
     pub fn to_avatar_id(self) -> Result<AvatarId, ParamError> {
         match self {
-            NativeParam::AvatarId(val) => Ok(AvatarId::new(val)),
+            NativeParam::AvatarId(val) => Ok(val.into()),
             _ => Err(ParamError(())),
         }
     }

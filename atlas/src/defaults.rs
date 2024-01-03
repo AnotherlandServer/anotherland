@@ -91,6 +91,10 @@ impl Default for PositionUpdate {
             pos: NetworkVec3::default(),
             rot: NetworkVec4::default(),
             vel: NetworkVec3::default(),
+            field_3: 0,
+            field_4: 0,
+            field_5: 0,
+            field_6: 0,
         }
     }
 }

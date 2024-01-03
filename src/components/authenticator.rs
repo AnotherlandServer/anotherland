@@ -16,23 +16,53 @@
 use actor_macros::actor_actions;
 use async_trait::async_trait;
 use atlas::Uuid;
-use mongodb::Database;
+use bson::doc;
+use mongodb::{Database, options::{UpdateModifications, UpdateOptions}};
+use serde_derive::{Serialize, Deserialize};
 
-use crate::{cluster::actor::Actor, util::AnotherlandResult, db::{Account, Session, cluster_database}, NODE};
+use crate::{cluster::actor::Actor, util::{AnotherlandResult, AnotherlandError}, db::{Account, Session, cluster_database}, NODE};
 
 use super::SessionManager;
+
+#[derive(Default, Serialize, Deserialize)]
+struct Status {
+    servers_locked: Option<bool>,
+}
 
 pub struct Authenticator {
     cluster_db: Database,
     session_manager: Option<ActorRef<SessionManager>>,
+    servers_locked: bool,
 }
 
 impl Authenticator {
-    pub async fn new() -> Self {
-        Self {
-            cluster_db: cluster_database().await,
+    pub async fn initialize() -> AnotherlandResult<Self> {
+        let cluster_db = cluster_database().await;
+
+        let status_record = cluster_db.collection::<Status>("authenticator_status").find_one(None, None).await?.unwrap_or_default();
+
+        Ok(Self {
+            cluster_db: cluster_db.clone(),
             session_manager: None,
-        }
+            servers_locked: status_record.servers_locked.unwrap_or(true),
+        })
+    }
+
+    fn session_manager_mut(&mut self) -> &mut ActorRef<SessionManager> {
+        self.session_manager.as_mut().unwrap()
+    }
+
+    async fn update_status_record(&self) -> AnotherlandResult<()> {
+        let record = Status {
+            servers_locked: Some(self.servers_locked)
+        };
+
+        self.cluster_db.collection::<Status>("authenticator_status").update_one(
+            doc!{}, 
+            doc!{"$set": bson::to_bson(&record).unwrap().as_document().unwrap() }, 
+            UpdateOptions::builder().upsert(true).build()).await?;
+
+        Ok(())
     }
 }
 
@@ -40,8 +70,11 @@ impl Authenticator {
 impl Actor for Authenticator {
     fn name(&self) -> &str { "authenticator" }
 
-    async fn pre_start(&mut self) -> AnotherlandResult<()> { 
+    async fn starting(&mut self) -> AnotherlandResult<()> { 
         self.session_manager = Some(NODE.get_actor("session_manager").unwrap());
+
+        // Update status record, in case we changed or added any defaults
+        self.update_status_record().await?;
 
         Ok(()) 
     }
@@ -51,6 +84,7 @@ pub enum LoginResult {
     Session(Session),
     InvalidCredentials,
     Banned,
+    ServersLocked,
 }
 
 #[actor_actions]
@@ -62,18 +96,45 @@ impl Authenticator {
     }
 
     #[rpc]
-    pub async fn login(&self, username_or_email: String, password: String) -> AnotherlandResult<LoginResult> {
+    pub async fn get_account(&self, account_id: Uuid) -> AnotherlandResult<Account> {
+        let account = Account::get_by_id(self.cluster_db.clone(), &account_id).await?;
+        account.ok_or(AnotherlandError::app_err("account not found"))
+    }
+
+    #[rpc]
+    pub async fn login(&mut self, username_or_email: String, password: String) -> AnotherlandResult<LoginResult> {
         if let Some(account) = Account::get_by_username_or_mail(self.cluster_db.clone(), &username_or_email).await? {
-            if account.banned {
-                Ok(LoginResult::Banned)
-            } else {
-                if bcrypt::verify(&password, &account.password)? {
-                    
+            if bcrypt::verify(&password, &account.password)? {
+                if account.banned {
+                    Ok(LoginResult::Banned)
+                } else if self.servers_locked && !account.is_gm {
+                    // only allow gm logins when servers are locked
+                    Ok(LoginResult::ServersLocked)
+                } else {
+                    let session = self.session_manager_mut().create_session(account.id.clone()).await?;
+                    Ok(LoginResult::Session(session))
                 }
-                todo!()
+            } else {
+                Ok(LoginResult::InvalidCredentials)
             }
         } else {
             Ok(LoginResult::InvalidCredentials)
         }
+    }
+
+    #[rpc]
+    pub async fn lock_servers(&mut self) -> AnotherlandResult<()> {
+        self.servers_locked = true;
+        self.update_status_record().await?;
+
+        Ok(())
+    }
+
+    #[rpc]
+    pub async fn unlock_servers(&mut self) -> AnotherlandResult<()> {
+        self.servers_locked = false;
+        self.update_status_record().await?;
+
+        Ok(())
     }
 }

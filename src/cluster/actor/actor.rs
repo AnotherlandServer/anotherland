@@ -16,6 +16,7 @@
 use std::{fmt::Debug, marker::PhantomData};
 
 use async_trait::async_trait;
+use futures::Future;
 use tokio::sync::mpsc;
 
 use crate::util::AnotherlandResult;
@@ -25,8 +26,11 @@ use super::ActorErr;
 #[async_trait]
 pub trait Actor: Send {
     fn name(&self) -> &str;
-    async fn pre_start(&mut self) -> AnotherlandResult<()> { Ok(()) }
+    async fn starting(&mut self) -> AnotherlandResult<()> { Ok(()) }
     async fn started(&mut self) -> AnotherlandResult<()> { Ok(()) }
+
+    /// Stopping MUST be cancel safe to avoid blocking the main event loop
+    async fn stopping(&mut self) -> AnotherlandResult<()> { Ok(()) }
     async fn stopped(&mut self) -> AnotherlandResult<()> { Ok(()) }
 }
 

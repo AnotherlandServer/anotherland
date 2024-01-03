@@ -13,18 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod actor;
-mod error;
-pub use actor_macros::*;
-pub use actor::*;
-pub use error::*;
+use atlas::{AvatarId, ParamClass};
+use glam::Vec3;
+use tokio::sync::mpsc;
 
-pub mod common_imports {
-    pub use crate::cluster::ActorRef;
-    pub use crate::cluster::RemoteActorRef;
-    pub use super::actor::Actor;
-    pub use super::actor::ActorHandler;
-    pub use tokio::sync::oneshot;
-    pub use poem::async_trait;
-    pub use std::marker::PhantomData;
+pub enum InterestEvent {
+    InterestAdded { ids: Vec<AvatarId> },
+    InterestRemoved { ids: Vec<AvatarId> },
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::components::zone) struct InterestList {
+    pub interests: Vec<AvatarId>,
+    pub update_sender: mpsc::Sender<InterestEvent>,
 }

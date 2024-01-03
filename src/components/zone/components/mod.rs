@@ -13,18 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod actor;
-mod error;
-pub use actor_macros::*;
-pub use actor::*;
-pub use error::*;
+mod avatar_component;
+mod entity_type;
+mod interest_list;
+mod position;
 
-pub mod common_imports {
-    pub use crate::cluster::ActorRef;
-    pub use crate::cluster::RemoteActorRef;
-    pub use super::actor::Actor;
-    pub use super::actor::ActorHandler;
-    pub use tokio::sync::oneshot;
-    pub use poem::async_trait;
-    pub use std::marker::PhantomData;
-}
+pub use avatar_component::*;
+pub use entity_type::*;
+pub use interest_list::*;
+pub use position::*;

@@ -13,18 +13,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod actor;
-mod error;
-pub use actor_macros::*;
-pub use actor::*;
-pub use error::*;
+#[derive(Clone, PartialEq, Eq)]
+pub(super) enum ClientLoadState {
+    EarlyLoadSequence,
+    RequestAvatarStream,
+    StreamedAvatars,
+    RequestSpawn,
+    Spawned
+}
 
-pub mod common_imports {
-    pub use crate::cluster::ActorRef;
-    pub use crate::cluster::RemoteActorRef;
-    pub use super::actor::Actor;
-    pub use super::actor::ActorHandler;
-    pub use tokio::sync::oneshot;
-    pub use poem::async_trait;
-    pub use std::marker::PhantomData;
+impl Into<u32> for ClientLoadState {
+    fn into(self) -> u32 {
+        match self {
+            ClientLoadState::EarlyLoadSequence => 0,
+            ClientLoadState::RequestAvatarStream => 5,
+            ClientLoadState::StreamedAvatars => 6,
+            ClientLoadState::RequestSpawn => 7,
+            ClientLoadState::Spawned => 8,
+        }
+    }
 }
