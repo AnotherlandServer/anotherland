@@ -10,5 +10,10 @@ root:
 loggers:
   anotherland:
     level: trace
-  anotherland::raknet:
+  anotherland::cluster::cluster_node:
+    level: debug
+  atlas::raknet:
+    level: debug
+  quinn:
     level: info
+  
