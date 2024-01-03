@@ -7,13 +7,30 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'AnotherlandServer'",
+            "name": "Debug 'anotherland'",
+            "cargo": {
+                "args": [
+                    "build",
+                ]
+            },
+            "args": [
+                "standalone-server"
+            ],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": ["rust"],
+            "stopOnEntry": false,
+            "terminal": "external",
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'anotherland'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=AnotherlandServer",
-                    "--package=AnotherlandServer"
+                    "--bin=anotherland",
+                    "--package=anotherland"
                 ],
                 "filter": {
                     "name": "AnotherlandServer",

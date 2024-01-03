@@ -9,5 +9,6 @@
     },
     "licenser.author": "AnotherlandServer",
     "licenser.license": "AGPLv3",
-    "licenser.projectName": "Anotherland"
+    "licenser.projectName": "Anotherland",
+    "rust-analyzer.showUnlinkedFileNotification": false,
 }
