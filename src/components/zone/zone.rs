@@ -17,7 +17,7 @@ use std::{time::{Duration, Instant}, cell::Cell, collections::HashMap, sync::Arc
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, PositionUpdate, NonClientBaseComponent};
+use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, NonClientBaseComponent};
 use futures::Future;
 use glam::{Vec3, Quat};
 use legion::{World, WorldOptions, Schedule, Resources, Entity, storage::IntoComponentSource};
@@ -31,7 +31,7 @@ use uuid::Uuid;
 use crate::{cluster::actor::Actor, db::{ZoneDef, realm_database, Character, Instance, Content, NpcContent, StructureContent, SpawnerContent, WorldDef}, util::{AnotherlandResult, AnotherlandError}, NODE, components::zone::components::AvatarComponent};
 use crate::db::DatabaseRecord;
 
-use super::{ZoneEvent, components::{EntityType, InterestEvent, InterestList, Position}, systems::{update_interests, update_interests_system}, PlayerSpawnMode};
+use super::{ZoneEvent, components::{EntityType, InterestEvent, InterestList, Position}, systems::{update_interests, update_interests_system}, PlayerSpawnMode, Movement};
 
 pub struct Zone {
     name: String,
@@ -252,7 +252,7 @@ impl Zone {
             character.data.set_player_node_state(2);
 
             character.data.set_zone(&self.zone_def.zone);
-            character.data.set_zone_guid(self.zone_def.guid.clone());
+            character.data.set_zone_guid(self.zone_def.guid.clone().into());
             character.data.set_world_map_guid(&self.world_def.umap_guid.to_string());
             
             // do some first time spawn setup
@@ -327,18 +327,18 @@ impl Zone {
     }
 
 
-    pub async fn move_player_avatar(&mut self, avatar_id: AvatarId, update: PositionUpdate) {
+    pub async fn move_player_avatar(&mut self, avatar_id: AvatarId, movement: Movement) {
         if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) {
             if let Some(mut entry) = self.world.entry(*entity) {
                 let position = entry.get_component_mut::<Position>().unwrap();
-                position.position = update.pos.clone().into();
-                position.rotation = update.rot.clone().into();
-                position.velocity = update.vel.clone().into();
+                position.position = movement.position.clone().into();
+                position.rotation = movement.rotation.clone().into();
+                position.velocity = movement.velocity.clone().into();
 
                 // update clients
                 let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarMoved { 
                     avatar_id, 
-                    position_update: update,
+                    movement,
                 }));
             }
         }
@@ -358,5 +358,17 @@ impl Zone {
         } else {
             None
         }
-    }   
+    }
+
+    pub fn get_avatar_move_state(&mut self, avatar_id: AvatarId) -> Option<Position> {
+        if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) {
+            if let Some(entry) = self.world.entry(*entity) {
+                Some(entry.get_component::<Position>().unwrap().clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
 }

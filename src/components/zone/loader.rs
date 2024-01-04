@@ -22,7 +22,7 @@ use super::{Zone, components::EntityType};
 
 impl Zone {
     pub(super) async fn load_content(&mut self) -> AnotherlandResult<()> {
-        let instances = Instance::load_for_zone(self.realm_db.clone(), &self.zone_def.guid).await?;
+        let instances = Instance::load_for_zone(self.realm_db.clone(), &self.zone_def.guid.into()).await?;
         for instance in instances.into_iter() {
             if instance.is_enabled() {
                 let id = match &instance {
@@ -420,9 +420,9 @@ impl Zone {
                     },
                 };
 
-                self.instance_template.insert(instance.guid().clone(), (instance, Some(id)));
+                self.instance_template.insert(instance.guid().clone().into(), (instance, Some(id)));
             } else {
-                self.instance_template.insert(instance.guid().clone(), (instance, None));
+                self.instance_template.insert(instance.guid().clone().into(), (instance, None));
             }
         }
 

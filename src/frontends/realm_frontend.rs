@@ -16,7 +16,7 @@
 use std::{time::Duration, net::{SocketAddrV4, SocketAddr}};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetPeer}, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktRealmStatusList, RealmStatus, oaCharacter, BoundParamClass, CPktStream_126_1, oaCharacterList, oaPktCharacterFailure, OaPktCharacterFailureErrorCode, CPktStream_126_5, oaPktCharacterDeleteSuccess, oaPktResponseSelectWorld, OaPktResponseSelectWorldErrorCode, Player, oaPktCharacterSelectSuccess};
+use atlas::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetPeer}, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktRealmStatusList, RealmStatus, oaCharacter, BoundParamClass, CPktStream_126_1, oaPktCharacterFailure, OaPktCharacterFailureErrorCode, CPktStream_126_5, oaPktCharacterDeleteSuccess, oaPktResponseSelectWorld, OaPktResponseSelectWorldErrorCode, Player, oaPktCharacterSelectSuccess};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::future::Remote;
 use log::{error, debug, warn};
@@ -117,7 +117,7 @@ impl Frontend for RealmFrontend {
 
                                 client_session.session_handler.forget_peer(peer.id().clone()).await;
                             } else {
-                                let _ = client_session.session_handler.destroy_session(session_ref.session().id.clone()).await;
+                                let _ = client_session.session_handler.destroy_session(session_ref.session().id.into()).await;
                             }
                         } else {
                             debug!("Client session not found during disconnect!");
@@ -171,17 +171,14 @@ impl RealmFrontendSession {
                         id: c.id,
                         name: c.name,
                         world_id: c.world_id,
-                        length: serialized.len() as u32,
-                        params: serialized,
-                        field_5: 0
+                        params: serialized.into(),
+                        field_4: 0
                     }
                 }).collect();
 
                 let mut character_list = CPktStream_126_1::default();
-                character_list.list = oaCharacterList {
-                    count: characters.len() as u32,
-                    characters,
-                };
+                character_list.count = characters.len() as u32;
+                character_list.characters = characters;
 
                 peer.send(Priority::High, Reliability::Reliable, character_list.into_message()).await?;
 
@@ -202,9 +199,8 @@ impl RealmFrontendSession {
                             id: character.id,
                             name: character.name.to_owned(),
                             world_id: character.world_id,
-                            length: serialized.len() as u32,
-                            params: serialized,
-                            field_5: 0,
+                            params: serialized.into(),
+                            field_4: 0,
                         };
 
                         let _ = peer.send(Priority::High, Reliability::Reliable, character_create_successful.into_message()).await?;
@@ -299,7 +295,7 @@ impl RealmFrontendSession {
                             let mut character_select_success = oaPktCharacterSelectSuccess::default();
                             character_select_success.world_ip = u32::from_be(cluster_server.ip().clone().into());
                             character_select_success.world_port = cluster_server.port();
-                            character_select_success.session_id = session_ref.session().id.clone();
+                            character_select_success.session_id = session_ref.session().id.into();
     
                             peer.send(Priority::High, Reliability::Reliable, character_select_success.into_message()).await?;
                         } else {

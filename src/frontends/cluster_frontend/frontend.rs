@@ -193,7 +193,7 @@ impl ClusterFrontendSession {
                         self.session_ref = Some(session.clone());
 
                         let session = session.lock().await;
-                        self.session_id = Some(session.session().id.clone());
+                        self.session_id = Some(session.session().id.clone().into());
                         
                         if let Some(zone) = session.session().zone_guid.as_ref() {
                             trace!(
@@ -202,7 +202,7 @@ impl ClusterFrontendSession {
                                 avatar_id = self.avatar_id.to_string(); 
                                 "Connecting to zone {}", zone);
 
-                            match self.zone_router.connect_zone(zone, &session.session().id, &self.avatar_id).await {
+                            match self.zone_router.connect_zone(&zone.to_uuid_1(), &session.session().id.into(), &self.avatar_id).await {
                                 
                                 Ok(connection) => {
                                     trace!(
@@ -269,7 +269,7 @@ impl ClusterFrontendSession {
                     }
                 }
             },
-            AtlasPkt(CPkt::oaPktClienToClusterNode(pkt)) => {
+            AtlasPkt(CPkt::oaPktClientToClusterNode(pkt)) => {
                 match pkt.field_2 {
                     // Some kind of ping
                     0x5 => {
@@ -364,10 +364,10 @@ impl ClusterFrontendSession {
                                     // update session
                                     let mut session_s = self.session_ref.as_ref().unwrap().lock().await;
                                     session_s.select_world(target_world.id).await?;
-                                    session_s.select_zone(target_zone.guid.clone()).await?;
+                                    session_s.select_zone(target_zone.guid.clone().into()).await?;
 
                                     // connect to new zone
-                                    match self.zone_router.connect_zone(&target_zone.guid, &session_s.session().id, &self.avatar_id).await {
+                                    match self.zone_router.connect_zone(&target_zone.guid.into(), &session_s.session().id.into(), &self.avatar_id).await {
                                 
                                         Ok(connection) => {
                                             trace!(

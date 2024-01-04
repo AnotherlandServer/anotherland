@@ -24,7 +24,7 @@ use tokio_stream::StreamExt;
 
 use atlas::{ParamClassContainer, NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, AnyClass, SpawnNodeParam, BoundParamClass, ParamEntity, ParamError, ParamClass, InteractObject, PatrolNodeParam, SpawnerParam, InteractObjectParam, EdnaContainerParam, ShipParam, MinigameInfoParam, MinigameScoreBoardParam, ChessPieceParam, NonSpawnPlacementParam, ServerGatewayExitPhaseParam, PresetPointParam, DoorParam, MyLandSettingsParam, ServerGatewayParam, QuestBeaconParam, OtherlandStructureParam, PlanetParam, ChessMetaGameLogicParam, MypadRoomDoorParam, BilliardBallParam, CustomTriggerParam, WorldDisplayParam};
 use atlas::NonClientBase;
-use uuid::Uuid;
+use bson::Uuid;
 use crate::util::AnotherlandResult;
 
 use super::{DatabaseRecord, Content};
@@ -202,11 +202,11 @@ impl Instance {
 
     pub async fn load_content<'a, T1, T2>(&'a self, db: Database) -> AnotherlandResult<T1> 
         where 
-            T1: DatabaseRecord<'a, Key = Uuid> + DerefMut<Target = Content>,
+            T1: DatabaseRecord<'a, Key = bson::Uuid> + DerefMut<Target = Content>,
             T2: BoundParamClass + ParamEntity,
             T2: TryFrom<ParamClassContainer, Error = ParamError>
     {
-        if let Some(mut content) = T1::get(db.clone(), self.content_guid()).await? {
+        if let Some(mut content) = T1::get(db.clone(), &self.content_guid()).await? {
             if let Some(class) = content.data.as_mut() {
                 class.as_anyclass_mut().apply(self.data_as_anyclass().clone());
             }

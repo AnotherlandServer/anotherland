@@ -19,7 +19,7 @@ use glam::{Vec3, Vec4};
 use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use serde::Serialize;
 use serde_derive::Deserialize;
-use uuid::Uuid;
+use bson::Uuid;
 
 use crate::util::AnotherlandResult;
 
@@ -56,7 +56,7 @@ pub struct ContentPlacement {
 impl ContentPlacement {
     pub async fn create(db: Database, world_id: u16, position: Vec3, rotation: Vec4, content_guid: ContentUuid) -> AnotherlandResult<ContentPlacement> {
         let placement = ContentPlacement {
-            id: Uuid::new_v4(),
+            id: uuid::Uuid::new_v4().into(),
             world_id,
             position,
             rotation,

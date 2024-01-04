@@ -135,13 +135,13 @@ impl LoginFrontendSession {
                 match self.authenticator.login(pkt.username.to_owned(), pkt.password.to_owned()).await? {
                     LoginResult::Session(session) => {
                         // Assign session to peer
-                        let session_ref = self.session_handler.initiate_trusted(peer.id().clone(), session.id.clone()).await?;
+                        let session_ref = self.session_handler.initiate_trusted(peer.id().clone(), session.id.into()).await?;
                         let mut session_ref_s = session_ref.lock().await;
 
                         let realms = self.realm_list.get_realms().await;
                         if realms.is_empty() {
                             // immediately destroy the session
-                            let _ = self.session_handler.destroy_session(session_ref_s.session().id.clone()).await;
+                            let _ = self.session_handler.destroy_session(session_ref_s.session().id.into()).await;
 
                             Self::report_login_error(peer, "#Login.ERROR_CONNECTIONFAILED#").await
                         } else if realms.len() == 1 {
@@ -162,7 +162,7 @@ impl LoginFrontendSession {
                             result.realm_port = Some(realms[0].address.port());
                             result.field38_0x34 = Some(0);
                             result.unknown_string = Some(String::new());
-                            result.session_id = Some(session.id);
+                            result.session_id = Some(session.id.into());
 
                             let _ = peer.send(Priority::High, Reliability::Reliable, result.into_message()).await?;
 
@@ -182,7 +182,7 @@ impl LoginFrontendSession {
                             result.realm_port = Some(0);
                             result.field38_0x34 = Some(0);
                             result.unknown_string = Some(String::new());
-                            result.session_id = Some(session.id);
+                            result.session_id = Some(session.id.into());
     
                             let _ = peer.send(Priority::High, Reliability::Reliable, result.into_message()).await?;
 

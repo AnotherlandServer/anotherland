@@ -20,7 +20,7 @@ use log::debug;
 use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use serde::Serialize;
 use serde_derive::Deserialize;
-use uuid::Uuid;
+use bson::Uuid;
 
 use crate::util::AnotherlandResult;
 
@@ -44,7 +44,7 @@ impl Session {
         debug!("Creating session for {}", account.username);
 
         let session = Session {
-            id: Uuid::new_v4(),
+            id: uuid::Uuid::new_v4().into(),
             account: account.id.clone(),
             is_gm: account.is_gm,
             realm_id: None,

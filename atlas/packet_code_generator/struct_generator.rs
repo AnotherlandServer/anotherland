@@ -164,7 +164,7 @@ impl GeneratedStruct {
         
         let mut generated: GeneratedStruct = Self {
             name: definition_ref.name.clone(),
-            derive_default: false,
+            derive_default: true,
             fields: Vec::new(),
             fields_mapped: HashMap::new(),
             definition: GeneratedStructSource::StructDefinition(definition.clone())

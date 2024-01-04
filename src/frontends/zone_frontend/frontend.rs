@@ -16,7 +16,7 @@
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, IpAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}, thread};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, PositionUpdate, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate, CpktServerNotifyNotifyType};
+use atlas::{raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate, CpktServerNotifyNotifyType};
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use glam::Vec3;
 use log::{debug, error, trace, warn, info};
@@ -26,7 +26,7 @@ use tokio::{sync::{Mutex, OnceCell, mpsc::{self, Sender}}, net::{TcpListener, Tc
 use tokio_util::{task::TaskTracker, sync::CancellationToken, udp::UdpFramed};
 use uuid::Uuid;
 
-use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, components::{Zone, ZoneRegistry, SessionHandler, SessionRef, ZoneEvent, InterestEvent}, NODE, CLUSTER_CERT};
+use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, components::{Zone, ZoneRegistry, SessionHandler, SessionRef, ZoneEvent, InterestEvent, Movement}, NODE, CLUSTER_CERT};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneServerListener, ZoneMessage, load_state::ClientLoadState};
@@ -162,7 +162,7 @@ impl Frontend for ZoneFrontend {
                     }
                 },
                 _ = registration_update_interval.tick() => {
-                    zone_registry.register_zone_frontend(self.zone_def.guid.clone(), listener.local_addr().unwrap()).await;
+                    zone_registry.register_zone_frontend(self.zone_def.guid.into(), listener.local_addr().unwrap()).await;
                 },
                 _ = token.cancelled() => {
                     break 'accept_loop;
@@ -335,18 +335,24 @@ impl ZoneSession {
             avatar = self.avatar_id.to_string(); 
             "Spawning player: {}", player.name);
 
-        let pos = PositionUpdate {
-            pos: player.data.pos().unwrap().to_owned().into(),
-            rot: player.data.rot().unwrap().to_owned().into(),
-            vel: NetworkVec3::default(),
-            ..Default::default()
-        };
+        let movement = self.zone.get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
 
         let mut buf = Vec::new();
         {
             let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
     
-            let _ = writer.write_bytes(&pos.to_bytes());
+            let _ = writer.write_bytes(&movement.position.x.to_le_bytes());
+            let _ = writer.write_bytes(&movement.position.y.to_le_bytes());
+            let _ = writer.write_bytes(&movement.position.z.to_le_bytes());
+
+            let _ = writer.write_bytes(&movement.rotation.x.to_le_bytes());
+            let _ = writer.write_bytes(&movement.rotation.y.to_le_bytes());
+            let _ = writer.write_bytes(&movement.rotation.z.to_le_bytes());
+            let _ = writer.write_bytes(&movement.rotation.w.to_le_bytes());
+
+            let _ = writer.write_bytes(&movement.velocity.x.to_le_bytes());
+            let _ = writer.write_bytes(&movement.velocity.y.to_le_bytes());
+            let _ = writer.write_bytes(&movement.velocity.z.to_le_bytes());
 
             let _ = writer.write(0u64);
             let _ = writer.write(0u8);
@@ -371,12 +377,10 @@ impl ZoneSession {
         avatar_update.name = Some(player.name);
         avatar_update.class_id = Some(PlayerParam::CLASS_ID.as_u32());
         avatar_update.field_6 = Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap());
-        avatar_update.param_bytes = data.len() as u32;
-        avatar_update.params = data;
+        avatar_update.params = data.into();
         
         avatar_update.update_source = 0;
-        avatar_update.move_mgr_bytes = Some(buf.len() as u32);
-        avatar_update.move_mgr_data = Some(buf);
+        avatar_update.movement = Some(buf.into());
 
         self.send(avatar_update.into_message()).await?;
 
@@ -416,16 +420,21 @@ impl ZoneSession {
                     avatar_update.full_update = false;
                     avatar_update.avatar_id = Some(avatar_id.as_u64());
                     avatar_update.update_source = 0;
-                    avatar_update.param_bytes = param_buffer.len() as u32;
-                    avatar_update.params = param_buffer;
+                    avatar_update.params = param_buffer.into();
 
                     let _ = self.send(avatar_update.into_message()).await?;
                 }
             },
-            ZoneEvent::AvatarMoved { avatar_id, position_update } => {
+            ZoneEvent::AvatarMoved { avatar_id, movement } => {
                 if self.interest_list.contains(avatar_id) {
                     let mut pos_update = oaPktMoveManagerPosUpdate::default();
-                    pos_update.pos = position_update.to_owned();
+                    pos_update.pos = movement.position.into();
+                    pos_update.rot = movement.rotation.into();
+                    pos_update.vel = movement.velocity.into();
+                    pos_update.field_4 = movement.field_4;
+                    pos_update.field_5 = movement.field_5;
+                    pos_update.field_6 = movement.field_6;
+                    pos_update.field_7 = movement.field_7;
 
                     let _ = self.send(pos_update.into_message()).await?;
                 }
@@ -454,7 +463,7 @@ impl ZoneSession {
                 // Send resource notification 
                 let mut worlddef = CPktResourceNotify::default();
                 worlddef.resource_type = CpktResourceNotifyResourceType::WorldDef;
-                worlddef.field_2 = self.zone_def.worlddef_guid.clone();
+                worlddef.field_2 = self.zone_def.worlddef_guid.clone().into();
                 worlddef.field_3 = "".to_owned();
 
                 let _ = self.send(worlddef.into_message()).await;
@@ -466,12 +475,25 @@ impl ZoneSession {
                 let player = self.zone.spawn_player(self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
                 let _ = player.data.write_to_client(&mut writer)?;
 
-                let position_data = PositionUpdate {
-                    pos: player.data.pos().unwrap().to_owned().into(),
-                    rot: player.data.rot().unwrap().to_owned().into(),
-                    vel: NetworkVec3::default(),
-                    ..Default::default()
-                }.to_bytes();
+                let movement = self.zone.get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
+
+                let mut position_data = Vec::new();
+                {
+                    let mut writer = ByteWriter::endian(&mut position_data, LittleEndian);
+            
+                    let _ = writer.write_bytes(&movement.position.x.to_le_bytes());
+                    let _ = writer.write_bytes(&movement.position.y.to_le_bytes());
+                    let _ = writer.write_bytes(&movement.position.z.to_le_bytes());
+        
+                    let _ = writer.write_bytes(&movement.rotation.x.to_le_bytes());
+                    let _ = writer.write_bytes(&movement.rotation.y.to_le_bytes());
+                    let _ = writer.write_bytes(&movement.rotation.z.to_le_bytes());
+                    let _ = writer.write_bytes(&movement.rotation.w.to_le_bytes());
+        
+                    let _ = writer.write_bytes(&movement.velocity.x.to_le_bytes());
+                    let _ = writer.write_bytes(&movement.velocity.y.to_le_bytes());
+                    let _ = writer.write_bytes(&movement.velocity.z.to_le_bytes());
+                }        
 
                 info!(
                     session = self.session_id.to_string(), 
@@ -483,12 +505,10 @@ impl ZoneSession {
                 avatar_blob.avatar_id = self.avatar_id.as_u64();
                 avatar_blob.avatar_name = player.name;
                 avatar_blob.class_id = PlayerParam::CLASS_ID.as_u32();
-                avatar_blob.param_bytes = param_buffer.len() as u32;
-                avatar_blob.params = param_buffer;
-                avatar_blob.movement_bytes = position_data.len() as u32;
-                avatar_blob.movement = position_data;
+                avatar_blob.params = param_buffer.into();
+                avatar_blob.movement = position_data.into();
                 avatar_blob.has_guid = true;
-                avatar_blob.field_9 = Some(self.session_id.clone());
+                avatar_blob.field_7 = Some(self.session_id.clone());
 
                 self.send(avatar_blob.into_message()).await?;
             },
@@ -524,9 +544,19 @@ impl ZoneSession {
             AtlasPkt(CPkt::CPktRouted(pkt)) => {
                 match Message::from_bytes(&pkt.field_4).unwrap().1 {
                     AtlasPkt(CPkt::oaPktMoveManagerPosUpdate(pkt)) => {
+                        debug!("Movement: {:#?}", pkt);
+
                         self.zone.move_player_avatar(
                             self.avatar_id.clone(), 
-                            pkt.pos
+                            Movement {
+                                position: pkt.pos.into(),
+                                rotation: pkt.rot.into(),
+                                velocity: pkt.vel.into(),
+                                field_4: pkt.field_4,
+                                field_5: pkt.field_5,
+                                field_6: pkt.field_6,
+                                field_7: pkt.field_7,
+                            }
                         ).await;
                     },
                     _ => {
@@ -580,7 +610,7 @@ impl ZoneSession {
                                             let item_uuid = a.to_uuid()?;
                                             debug!("Load item {}", item_uuid.to_string());
                                         let db: mongodb::Database = realm_database().await;
-                                        let item = ItemContent::get(db.clone(), &item_uuid).await?;
+                                        let item = ItemContent::get(db.clone(), &item_uuid.into()).await?;
                                             visible_items.push(item.unwrap().id as i32);
                                         }
             
@@ -614,7 +644,7 @@ impl ZoneSession {
             },
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
                 if pkt.avatar_id.unwrap_or_default() == self.avatar_id.as_u64() {
-                    if let Ok((_, params)) = ParamClassContainer::read(PlayerParam::CLASS_ID.as_u16(), &pkt.params) {
+                    if let Ok((_, params)) = ParamClassContainer::read(PlayerParam::CLASS_ID.as_u16(), pkt.params.as_slice()) {
                         debug!("Param update: {:#?}", params.as_anyclass());
 
                         self.zone.update_avatar(self.avatar_id.clone(), params).await;
@@ -671,148 +701,28 @@ impl ZoneSession {
             for _ in 0..10 {
                 if let Some(avatar_id) = self.interest_added_queue.pop_front() {
                     if let Some((name, params)) = self.zone.get_avatar_params(avatar_id.clone()).await {
+                        let movement = self.zone.get_avatar_move_state(avatar_id.clone()).await.unwrap();
+
                         // add to interest list, so the client will receive updates
                         // for this avatar.
                         self.interest_list.insert(avatar_id.clone());
-
-                        // until we got abstraction working, we have to check for each class here
-                        let pos = match &params {
-                            ParamClassContainer::Player(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::Structure(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::ChessPiece(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::Door(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::EdnaContainer(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::InteractObject(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::MinigameInfo(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::MinigameScoreBoard(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::MyLandSettings(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::NpcOtherland(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::OtherlandStructure(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::Planet(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::Portal(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::ServerGateway(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::ServerGatewayExitPhase(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            ParamClassContainer::Ship(params) => {
-                                PositionUpdate {
-                                    pos: params.pos().unwrap().to_owned().into(),
-                                    rot: params.rot().unwrap().to_owned().into(),
-                                    vel: Vec3::ZERO.into(),
-                                    ..Default::default()
-                                }
-                            },
-                            _ => unimplemented!(),
-                        };
 
                         let mut buf = Vec::new();
                         {
                             let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
                     
-                            let _ = writer.write_bytes(&pos.to_bytes());
+                            let _ = writer.write_bytes(&movement.position.x.to_le_bytes());
+                            let _ = writer.write_bytes(&movement.position.y.to_le_bytes());
+                            let _ = writer.write_bytes(&movement.position.z.to_le_bytes());
+                
+                            let _ = writer.write_bytes(&movement.rotation.x.to_le_bytes());
+                            let _ = writer.write_bytes(&movement.rotation.y.to_le_bytes());
+                            let _ = writer.write_bytes(&movement.rotation.z.to_le_bytes());
+                            let _ = writer.write_bytes(&movement.rotation.w.to_le_bytes());
+                
+                            let _ = writer.write_bytes(&movement.velocity.x.to_le_bytes());
+                            let _ = writer.write_bytes(&movement.velocity.y.to_le_bytes());
+                            let _ = writer.write_bytes(&movement.velocity.z.to_le_bytes());
     
                             let _ = writer.write(0u64);
                             let _ = writer.write(0u8);
@@ -838,12 +748,10 @@ impl ZoneSession {
                         avatar_update.field_6 = Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap());
                         //avatar_update.flags = Some(2);
                         //avatar_update.flag_2_uuid = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
-                        avatar_update.param_bytes = data.len() as u32;
-                        avatar_update.params = data;
+                        avatar_update.params = data.into();
                         
                         avatar_update.update_source = 0;
-                        avatar_update.move_mgr_bytes = Some(buf.len() as u32);
-                        avatar_update.move_mgr_data = Some(buf);
+                        avatar_update.movement = Some(buf.into());
 
                         let _ = self.send(avatar_update.into_message()).await?;
                     }

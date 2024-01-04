@@ -13,33 +13,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_trait::async_trait;
-use bson::doc;
-use mongodb::{Database, Collection};
-use serde::Serialize;
-use serde_derive::Deserialize;
-use bson::Uuid;
+use crate::Buffer;
 
-use super::DatabaseRecord;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CashShopVendor {
-    pub id: Uuid,
-    pub name: String,
-    pub sku_list: Vec<Uuid>,
-    pub bundle_list: Vec<Uuid>,
-    pub version: u32,
+impl Buffer {
+    pub fn as_slice(&self) -> &[u8] {
+        &self.data
+    }
 }
 
-#[async_trait]
-impl DatabaseRecord<'_> for CashShopVendor {
-    type Key = Uuid;
-
-    fn collection(db: Database) -> Collection<Self> {
-        db.collection::<Self>("cash_shop_vendors")
+impl From<Vec<u8>> for Buffer {
+    fn from(value: Vec<u8>) -> Self {
+        Self {
+            len: value.len() as u32,
+            data: value,
+        }
     }
+}
 
-    fn key(&self) -> &Self::Key {
-        &self.id
+impl Into<Vec<u8>> for Buffer {
+    fn into(self) -> Vec<u8> {
+        self.data
     }
 }

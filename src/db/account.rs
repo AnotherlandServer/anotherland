@@ -20,7 +20,7 @@ use log::{debug, info};
 use mongodb::{Database, options::{IndexOptions, InsertOneOptions}, IndexModel, Collection};
 use serde::{Serialize, Deserialize};
 use sha1::{Sha1, Digest};
-use uuid::Uuid;
+use bson::Uuid;
 
 use crate::util::AnotherlandResult;
 
@@ -58,7 +58,7 @@ impl Account {
 
     pub async fn create(db: Database, username: String, email: Option<String>, password: String) -> AnotherlandResult<Account> {
         let collection = db.collection::<Account>("accounts");
-        let id = Uuid::new_v4();
+        let id = uuid::Uuid::new_v4();
 
         // Compute numeric account id by hashing the uuid and trimming it to 32bits.
         // Not ideal, but using a 32bit id for accounts is kinda ludicrous to begin with...
@@ -68,7 +68,7 @@ impl Account {
         
         let numeric_id = u32::from_le_bytes(result[0..4].try_into().unwrap());
         let account = Account {
-            id,
+            id: id.into(),
             numeric_id,
             username,
             email,

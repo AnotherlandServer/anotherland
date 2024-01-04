@@ -50,7 +50,7 @@ impl Actor for SessionManager {
 #[actor_actions]
 impl SessionManager {
     pub async fn create_session(&mut self, account_id: Uuid) -> AnotherlandResult<Session> {
-        if let Some(account) = Account::get(self.cluster_db.clone(), &account_id).await? {
+        if let Some(account) = Account::get(self.cluster_db.clone(), &account_id.into()).await? {
             self.force_logout_account(account_id).await?;
             Ok(Session::create(self.cluster_db.clone(), &account).await?)
         } else {
@@ -60,7 +60,7 @@ impl SessionManager {
 
     #[rpc]
     pub async fn get_session(&self, session_id: Uuid) -> AnotherlandResult<Session> {
-        if let Some(session) = Session::get(self.cluster_db.clone(), &session_id).await? {
+        if let Some(session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
             Ok(session)
         } else {
             Err(AnotherlandError::app_err("session not found"))
@@ -69,7 +69,7 @@ impl SessionManager {
 
     #[rpc]
     pub async fn session_select_realm(&self, session_id: Uuid, realm_id: u32) -> AnotherlandResult<Session> {
-        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
             session.select_realm(self.cluster_db.clone(), realm_id).await?;
             Ok(session)
         } else {
@@ -79,7 +79,7 @@ impl SessionManager {
 
     #[rpc]
     pub async fn session_select_character(&self, session_id: Uuid, character_id: u32) -> AnotherlandResult<Session> {
-        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
             session.select_character(self.cluster_db.clone(), character_id).await?;
             Ok(session)
         } else {
@@ -89,7 +89,7 @@ impl SessionManager {
 
     #[rpc]
     pub async fn session_select_world(&self, session_id: Uuid, world_id: u16) -> AnotherlandResult<Session> {
-        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
             session.select_world(self.cluster_db.clone(), world_id).await?;
             Ok(session)
         } else {
@@ -99,8 +99,8 @@ impl SessionManager {
 
     #[rpc]
     pub async fn session_select_zone(&self, session_id: Uuid, zone_id: Uuid) -> AnotherlandResult<Session> {
-        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
-            session.select_zone(self.cluster_db.clone(), zone_id).await?;
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
+            session.select_zone(self.cluster_db.clone(), zone_id.into()).await?;
             Ok(session)
         } else {
             Err(AnotherlandError::app_err("session not found"))
@@ -115,7 +115,7 @@ impl SessionManager {
 
         // Destroy all found sessions
         while let Some(session) = result.try_next().await? {
-            self.destroy_session(session.id).await?;
+            self.destroy_session(session.id.into()).await?;
         }
     
         Ok(())
@@ -127,7 +127,7 @@ impl SessionManager {
         self.cluster_channel_producer.send(ClusterMessage::SessionDestroyed { session_id: session_id.clone() }).await?;
 
         // and only then we update the database
-        if let Some(session) = Session::get(self.cluster_db.clone(), &session_id).await? {
+        if let Some(session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
             session.delete(self.cluster_db.clone()).await?;
         }
 
@@ -142,7 +142,7 @@ impl SessionManager {
 
         // Destroy all found sessions
         while let Some(session) = result.try_next().await? {
-            self.destroy_session(session.id).await?;
+            self.destroy_session(session.id.into()).await?;
         }
 
         Ok(())

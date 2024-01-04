@@ -17,17 +17,18 @@ pub mod parsers;
 mod param;
 mod nativeparam;
 mod generated;
-mod defaults;
 mod network_vec3;
 mod network_vec4;
 mod serialize;
 mod avatarid;
+mod buffer;
 pub mod raknet;
 
 pub use param::*;
 pub use nativeparam::*;
 pub use generated::*;
 pub use avatarid::*;
+pub use buffer::*;
 
 #[cfg(test)]
 mod tests {

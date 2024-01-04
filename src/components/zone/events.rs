@@ -13,12 +13,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{AvatarId, ParamClassContainer, PositionUpdate};
+use atlas::{AvatarId, ParamClassContainer};
 use glam::{Quat, Vec3};
 
 pub enum ZoneEvent {
     AvatarSpawned { avatar_id: AvatarId, params: ParamClassContainer },
     AvatarUpdated { avatar_id: AvatarId, params: ParamClassContainer },
-    AvatarMoved { avatar_id: AvatarId, position_update: PositionUpdate },
+    AvatarMoved { avatar_id: AvatarId, movement: Movement },
     AvatarDespawned { avatar_id: AvatarId }
+}
+
+pub struct Movement {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub velocity: Vec3,
+    pub field_4: u8,
+    pub field_5: u16,
+    pub field_6: u64,
+    pub field_7: u64
 }

@@ -97,7 +97,7 @@ impl Authenticator {
 
     #[rpc]
     pub async fn get_account(&self, account_id: Uuid) -> AnotherlandResult<Account> {
-        let account = Account::get_by_id(self.cluster_db.clone(), &account_id).await?;
+        let account = Account::get_by_id(self.cluster_db.clone(), &account_id.into()).await?;
         account.ok_or(AnotherlandError::app_err("account not found"))
     }
 
@@ -111,7 +111,7 @@ impl Authenticator {
                     // only allow gm logins when servers are locked
                     Ok(LoginResult::ServersLocked)
                 } else {
-                    let session = self.session_manager_mut().create_session(account.id.clone()).await?;
+                    let session = self.session_manager_mut().create_session(account.id.clone().into()).await?;
                     Ok(LoginResult::Session(session))
                 }
             } else {

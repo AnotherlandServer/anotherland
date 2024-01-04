@@ -129,7 +129,7 @@ impl<T: 'static + Send + Sync + Default> SessionHandler<T> {
 
     pub async fn initiate_trusted(&mut self, peer_id: Uuid, session_id: Uuid) -> AnotherlandResult<SessionRef<T>> {
         let session = self.session_manager().get_session(session_id.clone()).await?;
-        let account = self.authenticator().get_account(session.account.clone()).await?;
+        let account = self.authenticator().get_account(session.account.clone().into()).await?;
 
         let token = CancellationToken::new();
 
@@ -173,7 +173,7 @@ impl<T: 'static + Send + Sync + Default> SessionHandler<T> {
 
     pub async fn forget_peer(&mut self, peer_id: Uuid) {
         if let Some(session) = self.session_data.remove(&peer_id) {
-            self.session_id_to_peer.remove(&session.lock().await.session().id);
+            self.session_id_to_peer.remove(&session.lock().await.session().id.into());
         }
     }
 
@@ -264,27 +264,27 @@ impl<T: 'static + Default + Send + Sync> SessionData<T> {
     }
 
     pub async fn reload(&mut self) -> AnotherlandResult<()> {
-        self.session = self.handler.get_session(self.session.id.clone()).await?;
+        self.session = self.handler.get_session(self.session.id.clone().into()).await?;
         Ok(())
     }
 
     pub async fn select_realm(&mut self, realm_id: u32) -> AnotherlandResult<()> {
-        self.session = self.handler.session_select_realm(self.session.id.clone(), realm_id).await?;
+        self.session = self.handler.session_select_realm(self.session.id.clone().into(), realm_id).await?;
         Ok(())
     }
 
     pub async fn select_world(&mut self, world_id: u16) -> AnotherlandResult<()> {
-        self.session = self.handler.session_select_world(self.session.id.clone(), world_id).await?;
+        self.session = self.handler.session_select_world(self.session.id.clone().into(), world_id).await?;
         Ok(())
     }
 
     pub async fn select_character(&mut self, character_id: u32) -> AnotherlandResult<()> {
-        self.session = self.handler.session_select_character(self.session.id.clone(), character_id).await?;
+        self.session = self.handler.session_select_character(self.session.id.clone().into(), character_id).await?;
         Ok(())
     }
 
     pub async fn select_zone(&mut self, zone_guid: Uuid) -> AnotherlandResult<()> {
-        self.session = self.handler.session_select_zone(self.session.id.clone(), zone_guid).await?;
+        self.session = self.handler.session_select_zone(self.session.id.clone().into(), zone_guid).await?;
         Ok(())
     }
 

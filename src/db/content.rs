@@ -21,7 +21,7 @@ use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
 use atlas::{ParamClassContainer, OaBuff2Param, LootScatterContainerParam, FactionParam, NpcOtherlandParam, SpawnerParam, StructureParam, BoundParamClass, ParamEntity, ParamError};
-use uuid::Uuid;
+use bson::Uuid;
 
 use crate::util::AnotherlandResult;
 

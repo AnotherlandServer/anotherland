@@ -211,7 +211,7 @@ async fn initialize_zone_server(world_def: WorldDef, zone_def: ZoneDef) -> Anoth
     Ok(())
 }
 
-#[tokio::main(flavor = "current_thread")]  
+#[tokio::main] // (flavor = "current_thread")
 async fn main() -> AnotherlandResult<()> {
     let _ = dotenvy::dotenv();
 
@@ -243,9 +243,10 @@ async fn main() -> AnotherlandResult<()> {
             init_database().await?;
         },
         StartCommand::DataImport { path_to_client, .. } => {
-            // Init database anyway
             init_database().await?;
             import_client_data(path_to_client.into()).await?;
+
+            return Ok(());
         }
         StartCommand::LoginServer { .. } => {
             todo!()

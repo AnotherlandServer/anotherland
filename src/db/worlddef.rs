@@ -18,7 +18,7 @@ use bson::{Document, doc};
 use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
-use uuid::Uuid;
+use bson::Uuid;
 
 use crate::util::AnotherlandResult;
 
