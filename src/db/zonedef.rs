@@ -61,7 +61,7 @@ impl ZoneDef {
     pub async fn load_for_world(db: Database, world_guid: &Uuid) -> AnotherlandResult<Vec<Self>> {
         let mut rows = Vec::new();
 
-        let mut result = Self::collection(db).find(doc!{"worlddef_guid": {"$eq": world_guid.to_string()}}, None).await?;
+        let mut result = Self::collection(db).find(doc!{"worlddef_guid": {"$eq": world_guid}}, None).await?;
         while let Some(row) = result.try_next().await? {
             rows.push(row);
         }
