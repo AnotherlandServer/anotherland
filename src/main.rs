@@ -28,7 +28,7 @@ use cluster::ClusterNode;
 use components::{RealmList, Realm, ZoneRegistry};
 use ::config::File;
 use db::WorldDef;
-use frontends::{LoginQueueFrontend, RealmFrontend, ClusterFrontend, ZoneFrontend};
+use frontends::{LoginQueueFrontend, RealmFrontend, ClusterFrontend, ZoneFrontend, ApiFrontend};
 use log::{LevelFilter, info, warn};
 use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, Root}};
 use glob::glob;
@@ -211,6 +211,12 @@ async fn initialize_zone_server(world_def: WorldDef, zone_def: ZoneDef) -> Anoth
     Ok(())
 }
 
+async fn initialize_api_server() -> AnotherlandResult<()> {
+    NODE.add_frontend(ApiFrontend::initialize().await?);
+
+    Ok(())
+}
+
 #[tokio::main] // (flavor = "current_thread")
 async fn main() -> AnotherlandResult<()> {
     let _ = dotenvy::dotenv();
@@ -274,6 +280,7 @@ async fn main() -> AnotherlandResult<()> {
             let _ = initialize_login_server().await?;
             let _ = initialize_realm_server().await?;
             let _ = initialize_cluster_frontend_server().await?;
+            let _ = initialize_api_server().await?;
 
             // load all persistent zones
             // the game does differentiate between primary, secondary and tertriary servers
