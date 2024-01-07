@@ -217,7 +217,7 @@ async fn initialize_api_server() -> AnotherlandResult<()> {
     Ok(())
 }
 
-#[tokio::main] // (flavor = "current_thread")
+#[tokio::main]
 async fn main() -> AnotherlandResult<()> {
     let _ = dotenvy::dotenv();
 
