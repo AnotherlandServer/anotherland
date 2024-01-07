@@ -228,7 +228,7 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
                         map(#primitive_parser, |i| {
                             match i {
                                 #(#enum_fields)*
-                                _ => panic!("Invalid enum value"),
+                                _ => panic!("Invalid enum value: {}", i),
                             }
                         })
                     }
