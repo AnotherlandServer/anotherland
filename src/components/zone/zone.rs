@@ -23,6 +23,7 @@ use glam::{Vec3, Quat};
 use legion::{World, WorldOptions, Schedule, Resources, Entity, storage::IntoComponentSource};
 use log::{info, warn, as_serde, debug, trace};
 use mongodb::Database;
+use nom::character;
 use rand::{thread_rng, Rng};
 use tokio::{time::{Interval, self}, sync::{mpsc, broadcast}, select, task::JoinHandle, runtime::Handle};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -252,6 +253,12 @@ impl Zone {
 
             // update zone if stored zone differs
             if character.data.zone_guid().unwrap_or(&Uuid::default()) != &self.zone_def.guid {
+                // special case if the player comes from class selection,
+                // perform some setup in that case.
+                if character.data.zone_guid().unwrap_or(&Uuid::default()) == &Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap() {
+                    character.data.set_hp_cur(character.data.hp_max().unwrap_or_default());
+                }
+
                 character.data.set_zone(&self.zone_def.zone);
                 character.data.set_zone_guid(self.zone_def.guid.clone());
                 character.data.set_world_map_guid(&self.world_def.umap_guid.to_string());

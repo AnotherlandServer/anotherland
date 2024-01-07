@@ -16,7 +16,7 @@
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, IpAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}, thread};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate, CpktServerNotifyNotifyType, Uuid};
+use atlas::{raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate, CpktServerNotifyNotifyType, Uuid, MoveManagerInit, MoveManagerInitPhysicsState};
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use glam::Vec3;
 use log::{debug, error, trace, warn, info};
@@ -336,31 +336,12 @@ impl ZoneSession {
 
         let movement = self.zone.get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
 
-        let mut buf = Vec::new();
-        {
-            let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
-    
-            let _ = writer.write_bytes(&movement.position.x.to_le_bytes());
-            let _ = writer.write_bytes(&movement.position.y.to_le_bytes());
-            let _ = writer.write_bytes(&movement.position.z.to_le_bytes());
+        let mut mm_init: MoveManagerInit = MoveManagerInit::default();
+        mm_init.pos = movement.position.into();
+        mm_init.rot = movement.rotation.into();
+        mm_init.vel = movement.velocity.into();
 
-            let _ = writer.write_bytes(&movement.rotation.x.to_le_bytes());
-            let _ = writer.write_bytes(&movement.rotation.y.to_le_bytes());
-            let _ = writer.write_bytes(&movement.rotation.z.to_le_bytes());
-            let _ = writer.write_bytes(&movement.rotation.w.to_le_bytes());
-
-            let _ = writer.write_bytes(&movement.velocity.x.to_le_bytes());
-            let _ = writer.write_bytes(&movement.velocity.y.to_le_bytes());
-            let _ = writer.write_bytes(&movement.velocity.z.to_le_bytes());
-
-            let _ = writer.write(0u64);
-            let _ = writer.write(0u8);
-            let _ = writer.write(0u8);
-            let _ = writer.write(0u8);
-            let _ = writer.write(0u16);
-            let _ = writer.write(0u16);
-            let _ = writer.write(0u64);
-        }
+        mm_init.physics_state = MoveManagerInitPhysicsState::Standing;
 
         let mut data = Vec::new();
         {
@@ -379,7 +360,7 @@ impl ZoneSession {
         avatar_update.params = data.into();
         
         avatar_update.update_source = 0;
-        avatar_update.movement = Some(buf.into());
+        avatar_update.movement = Some(mm_init.to_bytes().into());
 
         self.send(avatar_update.into_message()).await?;
 
@@ -430,10 +411,10 @@ impl ZoneSession {
                     pos_update.pos = movement.position.into();
                     pos_update.rot = movement.rotation.into();
                     pos_update.vel = movement.velocity.into();
-                    pos_update.field_4 = movement.field_4;
-                    pos_update.field_5 = movement.field_5;
-                    pos_update.field_6 = movement.field_6;
-                    pos_update.field_7 = movement.field_7;
+                    pos_update.physics_state = movement.physics_state.into();
+                    pos_update.mover_key = movement.mover_key;
+                    pos_update.avatar_id = avatar_id.as_u64();
+                    pos_update.seconds = movement.seconds;
 
                     let _ = self.send(pos_update.into_message()).await?;
                 }
@@ -476,23 +457,12 @@ impl ZoneSession {
 
                 let movement = self.zone.get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
 
-                let mut position_data = Vec::new();
-                {
-                    let mut writer = ByteWriter::endian(&mut position_data, LittleEndian);
-            
-                    let _ = writer.write_bytes(&movement.position.x.to_le_bytes());
-                    let _ = writer.write_bytes(&movement.position.y.to_le_bytes());
-                    let _ = writer.write_bytes(&movement.position.z.to_le_bytes());
-        
-                    let _ = writer.write_bytes(&movement.rotation.x.to_le_bytes());
-                    let _ = writer.write_bytes(&movement.rotation.y.to_le_bytes());
-                    let _ = writer.write_bytes(&movement.rotation.z.to_le_bytes());
-                    let _ = writer.write_bytes(&movement.rotation.w.to_le_bytes());
-        
-                    let _ = writer.write_bytes(&movement.velocity.x.to_le_bytes());
-                    let _ = writer.write_bytes(&movement.velocity.y.to_le_bytes());
-                    let _ = writer.write_bytes(&movement.velocity.z.to_le_bytes());
-                }        
+                let mut mm_init: MoveManagerInit = MoveManagerInit::default();
+                mm_init.pos = movement.position.into();
+                mm_init.rot = movement.rotation.into();
+                mm_init.vel = movement.velocity.into();
+
+                mm_init.physics_state = MoveManagerInitPhysicsState::Standing;       
 
                 info!(
                     session = self.session_id.to_string(), 
@@ -505,7 +475,7 @@ impl ZoneSession {
                 avatar_blob.avatar_name = player.name;
                 avatar_blob.class_id = PlayerParam::CLASS_ID.as_u32();
                 avatar_blob.params = param_buffer.into();
-                avatar_blob.movement = position_data.into();
+                avatar_blob.movement = mm_init.to_bytes().into();
                 avatar_blob.has_guid = true;
                 avatar_blob.field_7 = Some(self.session_id.clone());
 
@@ -551,10 +521,9 @@ impl ZoneSession {
                                 position: pkt.pos.into(),
                                 rotation: pkt.rot.into(),
                                 velocity: pkt.vel.into(),
-                                field_4: pkt.field_4,
-                                field_5: pkt.field_5,
-                                field_6: pkt.field_6,
-                                field_7: pkt.field_7,
+                                physics_state: pkt.physics_state.into(),
+                                mover_key: pkt.mover_key,
+                                seconds: pkt.seconds,
                             }
                         ).await;
                     },
@@ -644,8 +613,6 @@ impl ZoneSession {
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
                 if pkt.avatar_id.unwrap_or_default() == self.avatar_id.as_u64() {
                     if let Ok((_, params)) = ParamClassContainer::read(PlayerParam::CLASS_ID.as_u16(), pkt.params.as_slice()) {
-                        debug!("Param update: {:#?}", params.as_anyclass());
-
                         self.zone.update_avatar(self.avatar_id.clone(), params).await;
                     } else {
                         error!(
@@ -659,8 +626,6 @@ impl ZoneSession {
                         avatar = self.avatar_id.to_string(); 
                         "Client tried to update unowned avatar #{}", pkt.avatar_id.unwrap_or_default());
                 }
-
-                debug!("Got avatar update from client: {:#?}", pkt);
             },
             _ => {
                 debug!(
@@ -706,31 +671,12 @@ impl ZoneSession {
                         // for this avatar.
                         self.interest_list.insert(avatar_id.clone());
 
-                        let mut buf = Vec::new();
-                        {
-                            let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
-                    
-                            let _ = writer.write_bytes(&movement.position.x.to_le_bytes());
-                            let _ = writer.write_bytes(&movement.position.y.to_le_bytes());
-                            let _ = writer.write_bytes(&movement.position.z.to_le_bytes());
-                
-                            let _ = writer.write_bytes(&movement.rotation.x.to_le_bytes());
-                            let _ = writer.write_bytes(&movement.rotation.y.to_le_bytes());
-                            let _ = writer.write_bytes(&movement.rotation.z.to_le_bytes());
-                            let _ = writer.write_bytes(&movement.rotation.w.to_le_bytes());
-                
-                            let _ = writer.write_bytes(&movement.velocity.x.to_le_bytes());
-                            let _ = writer.write_bytes(&movement.velocity.y.to_le_bytes());
-                            let _ = writer.write_bytes(&movement.velocity.z.to_le_bytes());
-    
-                            let _ = writer.write(0u64);
-                            let _ = writer.write(0u8);
-                            let _ = writer.write(0u8);
-                            let _ = writer.write(0u8);
-                            let _ = writer.write(0u16);
-                            let _ = writer.write(0u16);
-                            let _ = writer.write(0u64);
-                        }
+                        let mut mm_init: MoveManagerInit = MoveManagerInit::default();
+                        mm_init.pos = movement.position.into();
+                        mm_init.rot = movement.rotation.into();
+                        mm_init.vel = movement.velocity.into();
+
+                        mm_init.physics_state = MoveManagerInitPhysicsState::Standing;  
 
                         let mut data = Vec::new();
                         {
@@ -750,7 +696,7 @@ impl ZoneSession {
                         avatar_update.params = data.into();
                         
                         avatar_update.update_source = 0;
-                        avatar_update.movement = Some(buf.into());
+                        avatar_update.movement = Some(mm_init.to_bytes().into());
 
                         let _ = self.send(avatar_update.into_message()).await?;
                     }
