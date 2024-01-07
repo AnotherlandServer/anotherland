@@ -20,11 +20,11 @@ use serde::{Serialize, Deserialize, de};
 use serde::ser::Serializer;
 use serde::de::{Deserializer, Visitor};
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct AvatarId((u64, AvatarType));
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AvatarType {
     None,
     Player,
@@ -70,14 +70,7 @@ impl From<u64> for AvatarId {
             },
         };
 
-        AvatarId((value, avatar_type))
-    }
-}
-
-impl Debug for AvatarId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#{:016x}", self.as_u64())
-        //f.debug_tuple("AvatarId").field(&format!("#{:016x}", self.0)).finish()
+        AvatarId((value & !0xFF, avatar_type))
     }
 }
 
