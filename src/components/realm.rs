@@ -19,6 +19,7 @@ use actor_macros::actor_actions;
 use async_trait::async_trait;
 use atlas::AvatarId;
 use bson::doc;
+use log::debug;
 use mongodb::{Database, options::{UpdateModifications, UpdateOptions, FindOneOptions}};
 use serde_derive::{Serialize, Deserialize};
 
@@ -64,15 +65,17 @@ impl Realm {
 
     #[rpc]
     pub async fn get_character(&self, session: Session, id: u32) -> AnotherlandResult<Option<Character>> {
+        debug!("Account id: {}", session.account);
+
         let collection = Character::collection(self.realm_db.clone());
-        Ok(collection.find_one(doc!{"$and": [ {"id": {"$eq": id}}, {"account": {"$eq": session.account.to_string()}}]}, None).await?)
+        Ok(collection.find_one(doc!{"$and": [ {"id": {"$eq": id}}, {"account": {"$eq": session.account}}]}, None).await?)
     }
 
 
     #[rpc]
     pub async fn get_character_by_name(&self, session: Session, name: String) -> AnotherlandResult<Option<Character>> {
         let collection = Character::collection(self.realm_db.clone());
-        Ok(collection.find_one(doc!{"$and": [ {"name": {"$eq": name}}, {"account": {"$eq": session.account.to_string()}}]}, None).await?)
+        Ok(collection.find_one(doc!{"$and": [ {"name": {"$eq": name}}, {"account": {"$eq": session.account}}]}, None).await?)
     }
 
     #[rpc]
@@ -83,14 +86,14 @@ impl Realm {
     #[rpc]
     pub async fn delete_character(&mut self, session: Session, id: u32) -> AnotherlandResult<()> {
         let collection = Character::collection(self.realm_db.clone());
-        collection.delete_one(doc!{"$and": [ {"id": {"$eq": id}}, {"account": {"$eq": session.account.to_string()}}]}, None).await?;
+        collection.delete_one(doc!{"$and": [ {"id": {"$eq": id}}, {"account": {"$eq": session.account}}]}, None).await?;
         Ok(())
     }
 
     #[rpc]
     pub async fn delete_character_by_name(&mut self, session: Session, name: String) -> AnotherlandResult<()> {
         let collection = Character::collection(self.realm_db.clone());
-        collection.delete_one(doc!{"$and": [ {"name": {"$eq": name}}, {"account": {"$eq": session.account.to_string()}}]}, None).await?;
+        collection.delete_one(doc!{"$and": [ {"name": {"$eq": name}}, {"account": {"$eq": session.account}}]}, None).await?;
         Ok(())
     }
 

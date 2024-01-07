@@ -14,13 +14,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_trait::async_trait;
+use atlas::Uuid;
 use bson::doc;
 use chrono::{DateTime, Utc};
 use log::debug;
 use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use serde::Serialize;
 use serde_derive::Deserialize;
-use bson::Uuid;
 
 use crate::util::AnotherlandResult;
 
@@ -44,7 +44,7 @@ impl Session {
         debug!("Creating session for {}", account.username);
 
         let session = Session {
-            id: uuid::Uuid::new_v4().into(),
+            id: Uuid::new(),
             account: account.id.clone(),
             is_gm: account.is_gm,
             realm_id: None,
@@ -131,7 +131,7 @@ impl Session {
 
         collection.update_one(
             Self::query_one(self.key()), 
-            doc!{"$set": {"zone_guid": zone_guid.to_string()}},
+            doc!{"$set": {"zone_guid": zone_guid}},
             None
         ).await?;
 

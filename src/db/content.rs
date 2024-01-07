@@ -20,8 +20,7 @@ use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
-use atlas::{ParamClassContainer, OaBuff2Param, LootScatterContainerParam, FactionParam, NpcOtherlandParam, SpawnerParam, StructureParam, BoundParamClass, ParamEntity, ParamError};
-use bson::Uuid;
+use atlas::{ParamClassContainer, OaBuff2Param, LootScatterContainerParam, FactionParam, NpcOtherlandParam, SpawnerParam, StructureParam, BoundParamClass, ParamEntity, ParamError, Uuid};
 
 use crate::util::AnotherlandResult;
 
@@ -204,7 +203,7 @@ impl ItemContent {
         let collection = Self::collection(db);
         let mut items = Vec::new();
 
-        let string_categories: Vec<_> = categories.iter().map(|v| v.to_string()).collect();
+        let string_categories: Vec<_> = categories.iter().map(|v| v).collect();
 
         let mut result = collection.find(doc!{"data.ednaModule.Category.v": {"$in":string_categories}}, None).await?;
         while let Some(item) = result.try_next().await? {

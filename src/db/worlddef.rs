@@ -14,11 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_trait::async_trait;
+use atlas::Uuid;
 use bson::{Document, doc};
 use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
-use bson::Uuid;
 
 use crate::util::AnotherlandResult;
 

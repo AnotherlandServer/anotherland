@@ -15,7 +15,6 @@ bitstream-io = "1.6.0"
 sha1 = "0.10.5"
 num-traits = "0.2.15"
 async-trait = "0.1.72"
-uuid = { version = "1.4.1", features = ["v4"] }
 glam = { version = "0.24.1", features = ["serde"] }
 log = { version = "0.4.20", features = ["kv_unstable", "kv_unstable_serde"] }
 log4rs = "1.2.0"

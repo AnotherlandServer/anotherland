@@ -15,7 +15,7 @@
 
 use std::{net::{SocketAddr, Ipv6Addr}, sync::Arc, time::Duration};
 
-use atlas::{AvatarId, raknet::Message};
+use atlas::{AvatarId, raknet::Message, Uuid};
 use log::{trace, debug};
 use nom::AsBytes;
 use quinn::{RecvStream, SendStream, Chunk, Endpoint, ServerConfig, Connecting, VarInt, Connection, ClientConfig};
@@ -23,7 +23,6 @@ use rustls::server;
 use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::{self, Receiver, Sender}, select};
 use tokio_util::{sync::CancellationToken, task::TaskTracker, bytes::Bytes};
-use uuid::Uuid;
 
 use crate::util::{AnotherlandResult, AnotherlandErrorKind};
 

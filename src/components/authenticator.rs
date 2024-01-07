@@ -15,10 +15,10 @@
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
+use atlas::Uuid;
 use bson::doc;
 use mongodb::{Database, options::{UpdateModifications, UpdateOptions}};
 use serde_derive::{Serialize, Deserialize};
-use uuid::Uuid;
 
 use crate::{cluster::actor::Actor, util::{AnotherlandResult, AnotherlandError}, db::{Account, Session, cluster_database}, NODE};
 

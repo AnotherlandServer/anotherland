@@ -22,9 +22,8 @@ use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
-use atlas::{ParamClassContainer, NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, AnyClass, SpawnNodeParam, BoundParamClass, ParamEntity, ParamError, ParamClass, InteractObject, PatrolNodeParam, SpawnerParam, InteractObjectParam, EdnaContainerParam, ShipParam, MinigameInfoParam, MinigameScoreBoardParam, ChessPieceParam, NonSpawnPlacementParam, ServerGatewayExitPhaseParam, PresetPointParam, DoorParam, MyLandSettingsParam, ServerGatewayParam, QuestBeaconParam, OtherlandStructureParam, PlanetParam, ChessMetaGameLogicParam, MypadRoomDoorParam, BilliardBallParam, CustomTriggerParam, WorldDisplayParam};
+use atlas::{ParamClassContainer, NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, AnyClass, SpawnNodeParam, BoundParamClass, ParamEntity, ParamError, ParamClass, InteractObject, PatrolNodeParam, SpawnerParam, InteractObjectParam, EdnaContainerParam, ShipParam, MinigameInfoParam, MinigameScoreBoardParam, ChessPieceParam, NonSpawnPlacementParam, ServerGatewayExitPhaseParam, PresetPointParam, DoorParam, MyLandSettingsParam, ServerGatewayParam, QuestBeaconParam, OtherlandStructureParam, PlanetParam, ChessMetaGameLogicParam, MypadRoomDoorParam, BilliardBallParam, CustomTriggerParam, WorldDisplayParam, Uuid};
 use atlas::NonClientBase;
-use bson::Uuid;
 use crate::util::AnotherlandResult;
 
 use super::{DatabaseRecord, Content};
@@ -93,7 +92,7 @@ impl Instance {
     pub async fn load_for_zone(db: Database, zone: &Uuid) -> AnotherlandResult<Vec<Instance>> {
         let mut rows = Vec::new();
 
-        let mut result = RawInstance::collection(db).find(doc!{"zone_guid": {"$eq": zone.to_string()}}, None).await?;
+        let mut result = RawInstance::collection(db).find(doc!{"zone_guid": {"$eq": zone}}, None).await?;
         while let Some(row) = result.try_next().await? {
             rows.push(row.into());
         }

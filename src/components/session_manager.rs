@@ -15,10 +15,11 @@
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
+use atlas::Uuid;
 use bson::doc;
+use log::debug;
 use mongodb::Database;
 use tokio_stream::StreamExt;
-use uuid::Uuid;
 
 use crate::{cluster::{actor::{Actor, ActorResult}, connect_queue, MessageChannel, MessageQueueProducer, MessageQueueConsumer, ClusterMessage}, util::{AnotherlandResult, AnotherlandError}, db::{Account, Session, cluster_database, DatabaseRecord}, NODE};
 
@@ -50,7 +51,7 @@ impl Actor for SessionManager {
 #[actor_actions]
 impl SessionManager {
     pub async fn create_session(&mut self, account_id: Uuid) -> AnotherlandResult<Session> {
-        if let Some(account) = Account::get(self.cluster_db.clone(), &account_id.into()).await? {
+        if let Some(account) = Account::get(self.cluster_db.clone(), &account_id).await? {
             self.force_logout_account(account_id).await?;
             Ok(Session::create(self.cluster_db.clone(), &account).await?)
         } else {
@@ -60,7 +61,9 @@ impl SessionManager {
 
     #[rpc]
     pub async fn get_session(&self, session_id: Uuid) -> AnotherlandResult<Session> {
-        if let Some(session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
+        debug!("Session id: {}", session_id);
+
+        if let Some(session) = Session::get(self.cluster_db.clone(), &session_id).await? {
             Ok(session)
         } else {
             Err(AnotherlandError::app_err("session not found"))
@@ -69,7 +72,7 @@ impl SessionManager {
 
     #[rpc]
     pub async fn session_select_realm(&self, session_id: Uuid, realm_id: u32) -> AnotherlandResult<Session> {
-        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
             session.select_realm(self.cluster_db.clone(), realm_id).await?;
             Ok(session)
         } else {
@@ -79,7 +82,7 @@ impl SessionManager {
 
     #[rpc]
     pub async fn session_select_character(&self, session_id: Uuid, character_id: u32) -> AnotherlandResult<Session> {
-        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
             session.select_character(self.cluster_db.clone(), character_id).await?;
             Ok(session)
         } else {
@@ -89,7 +92,7 @@ impl SessionManager {
 
     #[rpc]
     pub async fn session_select_world(&self, session_id: Uuid, world_id: u16) -> AnotherlandResult<Session> {
-        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
             session.select_world(self.cluster_db.clone(), world_id).await?;
             Ok(session)
         } else {
@@ -99,8 +102,8 @@ impl SessionManager {
 
     #[rpc]
     pub async fn session_select_zone(&self, session_id: Uuid, zone_id: Uuid) -> AnotherlandResult<Session> {
-        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
-            session.select_zone(self.cluster_db.clone(), zone_id.into()).await?;
+        if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
+            session.select_zone(self.cluster_db.clone(), zone_id).await?;
             Ok(session)
         } else {
             Err(AnotherlandError::app_err("session not found"))
@@ -111,7 +114,7 @@ impl SessionManager {
     pub async fn force_logout_account(&mut self, account_id: Uuid) -> AnotherlandResult<()> {
         // Find all session associated with the given account
         let collection = self.cluster_db.collection::<Session>("sessions");
-        let mut result = collection.find(doc! { "account": { "$eq": account_id.to_string() } }, None).await?;
+        let mut result = collection.find(doc! { "account": { "$eq": account_id } }, None).await?;
 
         // Destroy all found sessions
         while let Some(session) = result.try_next().await? {

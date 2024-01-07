@@ -14,12 +14,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_trait::async_trait;
+use atlas::Uuid;
 use bson::doc;
 use glam::{Vec3, Vec4};
 use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use serde::Serialize;
 use serde_derive::Deserialize;
-use bson::Uuid;
 
 use crate::util::AnotherlandResult;
 
@@ -56,7 +56,7 @@ pub struct ContentPlacement {
 impl ContentPlacement {
     pub async fn create(db: Database, world_id: u16, position: Vec3, rotation: Vec4, content_guid: ContentUuid) -> AnotherlandResult<ContentPlacement> {
         let placement = ContentPlacement {
-            id: uuid::Uuid::new_v4().into(),
+            id: Uuid::new(),
             world_id,
             position,
             rotation,

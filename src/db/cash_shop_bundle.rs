@@ -14,12 +14,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_trait::async_trait;
+use atlas::Uuid;
 use bson::doc;
 use chrono::{DateTime, Utc};
 use mongodb::{Database, Collection};
 use serde::Serialize;
 use serde_derive::Deserialize;
-use bson::Uuid;
 
 use super::DatabaseRecord;
 

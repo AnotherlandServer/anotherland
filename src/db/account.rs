@@ -14,13 +14,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_trait::async_trait;
+use atlas::Uuid;
 use bson::doc;
 use chrono::{Utc, DateTime};
 use log::{debug, info};
 use mongodb::{Database, options::{IndexOptions, InsertOneOptions}, IndexModel, Collection};
 use serde::{Serialize, Deserialize};
 use sha1::{Sha1, Digest};
-use bson::Uuid;
 
 use crate::util::AnotherlandResult;
 
@@ -43,7 +43,7 @@ pub struct Account {
 impl Account {
     pub async fn get_by_id(db: Database, guid: &Uuid) -> AnotherlandResult<Option<Account>> {
         let collection = db.collection::<Account>("accounts");
-        Ok(collection.find_one(doc! {"id": {"$eq": guid.to_string()}}, None).await?)
+        Ok(collection.find_one(doc! {"id": {"$eq": guid}}, None).await?)
     }
 
     pub async fn get_by_username_or_mail(db: Database, username_or_email: &str) -> AnotherlandResult<Option<Account>> {
@@ -58,7 +58,7 @@ impl Account {
 
     pub async fn create(db: Database, username: String, email: Option<String>, password: String) -> AnotherlandResult<Account> {
         let collection = db.collection::<Account>("accounts");
-        let id = uuid::Uuid::new_v4();
+        let id = Uuid::new();
 
         // Compute numeric account id by hashing the uuid and trimming it to 32bits.
         // Not ideal, but using a 32bit id for accounts is kinda ludicrous to begin with...

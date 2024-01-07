@@ -23,10 +23,9 @@ use serde_derive::Deserialize;
 use serde_with::serde_as;
 use sha1::{Sha1, Digest};
 use tokio_stream::StreamExt;
-use bson::Uuid;
 
 use crate::util::AnotherlandResult;
-use atlas::{PlayerParam, Player};
+use atlas::{PlayerParam, Player, Uuid};
 
 use super::{DatabaseRecord, ItemContent};
 
@@ -45,7 +44,7 @@ static NEW_CHARACTER_TEMPLATE: Lazy<PlayerParam> = Lazy::new(|| {
     let mut player = PlayerParam::default();
 
     player.set_world_map_guid("f6b8f8b7-a726-4d36-9634-f6d403943fff");
-    player.set_zone_guid(uuid::Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
+    player.set_zone_guid(Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
     player.set_zone("ClassSelection_P");
 
     // default customization
@@ -62,7 +61,7 @@ static NEW_CHARACTER_TEMPLATE: Lazy<PlayerParam> = Lazy::new(|| {
 
 impl Character {
     pub async fn create(db: Database, account_id: &Uuid, name: &str) -> AnotherlandResult<Character> {
-        let guid = uuid::Uuid::new_v4();
+        let guid = Uuid::new();
 
         // Compute numeric character id, similar to how we build account ids..
         let mut hasher = Sha1::new();
@@ -73,7 +72,7 @@ impl Character {
 
         let mut avatar_data = NEW_CHARACTER_TEMPLATE.clone();
         let default_items = ItemContent::list_by_categories(db.clone(), vec![
-            uuid::Uuid::parse_str("6B74CF2D-79A3-48B8-B752-995179A064BD").unwrap().into()
+            Uuid::parse_str("6B74CF2D-79A3-48B8-B752-995179A064BD").unwrap().into()
         ].as_slice()).await?;
 
         debug!("Default item count: {}", default_items.len());
@@ -82,7 +81,7 @@ impl Character {
 
         let character = Character {
             id: numeric_id,
-            guid: guid.into(),
+            guid: guid,
             account: account_id.clone(),
             name: name.to_owned(),
             world_id: 130,
@@ -99,7 +98,7 @@ impl Character {
         let collection = Character::collection(db.clone());
         let mut chracters = Vec::new();
 
-        let mut result = collection.find(doc!{"account": {"$eq":account_id.to_string()}}, None).await?;
+        let mut result = collection.find(doc!{"account": {"$eq":account_id}}, None).await?;
         while let Some(character) = result.try_next().await? {
             chracters.push(character);
         }

@@ -14,9 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_graphql::{Object, Result, Context, SimpleObject};
+use atlas::Uuid;
 use chrono::{DateTime, Utc};
 use serde_derive::{Serialize, Deserialize};
-use uuid::Uuid;
 
 use crate::{cluster::RemoteActorRef, components::Authenticator};
 
@@ -40,6 +40,20 @@ impl MutationRoot {
             .register(name, email, password).await?;
 
         Ok(account.into())
+    }
+
+    async fn lock_server(&self, ctx: &Context<'_>) -> Result<&str> {
+        let mut authenticator = ctx.data::<RemoteActorRef<Authenticator>>()?.to_owned();
+        authenticator.lock_servers().await?;
+
+        Ok("ok")
+    }
+
+    async fn unlock_server(&self, ctx: &Context<'_>) -> Result<&str> {
+        let mut authenticator = ctx.data::<RemoteActorRef<Authenticator>>()?.to_owned();
+        authenticator.unlock_servers().await?;
+
+        Ok("ok")
     }
 }
 

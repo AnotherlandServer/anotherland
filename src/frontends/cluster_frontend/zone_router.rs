@@ -17,14 +17,15 @@ use std::borrow::BorrowMut;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::DerefMut;
+use std::sync::Arc;
 
+use atlas::Uuid;
 use atlas::{AvatarId, raknet::Message};
 use futures::future::Remote;
 use log::{error, warn, trace};
 use tokio::select;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use uuid::Uuid;
 
 use crate::cluster::RemoteActorRef;
 use crate::util::{AnotherlandErrorKind, AnotherlandError};
@@ -52,7 +53,7 @@ pub(super) struct ZoneRouter {
 }
 
 impl ZoneRouter {
-    pub fn new() -> Self {
+    pub fn new() -> Arc<Self> {
         let token = CancellationToken::new();
         let tasks = TaskTracker::new();
 
@@ -186,11 +187,11 @@ impl ZoneRouter {
             }
         });
 
-        ZoneRouter { 
+        Arc::new(ZoneRouter { 
             token, 
             tasks,
             command_sender,
-        }
+        })
     }
 
     pub async fn connect_zone(&self, zone_id: &Uuid, session_id: &Uuid, avatar_id: &AvatarId) -> AnotherlandResult<ZoneRouterConnection> {
@@ -204,6 +205,15 @@ impl ZoneRouter {
         }).await.map_err(|_| AnotherlandErrorKind::IOError)?;
 
         retval_receiver.await.map_err(|_| AnotherlandErrorKind::IOError)?
+    }
+}
+
+impl Drop for ZoneRouter {
+    fn drop(&mut self) {
+        // close tasks but don't wait for them, because drop can't wait on async methods
+        // and there is no sync function for that purpose.
+        self.token.cancel();
+        self.tasks.close();
     }
 }
 

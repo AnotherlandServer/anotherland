@@ -16,14 +16,13 @@
 use std::{collections::{HashSet, HashMap}, sync::Arc, time::{Duration, Instant, UNIX_EPOCH, SystemTime}, net::SocketAddrV4};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, RakNetPeer, Message, Priority, Reliability}, AvatarId, CPkt, CPktStream_167_0, oaPktClusterNodeToClient, NativeParam, FactionRelation, FactionRelationList, oaPktFactionResponse, oaPktCashItemVendorSyncAcknowledge, CashItemVendorEntry, oaPktSKUBundleSyncAcknowledge};
+use atlas::{raknet::{RakNetListener, RakNetPeer, Message, Priority, Reliability}, AvatarId, CPkt, CPktStream_167_0, oaPktClusterNodeToClient, NativeParam, FactionRelation, FactionRelationList, oaPktFactionResponse, oaPktCashItemVendorSyncAcknowledge, CashItemVendorEntry, oaPktSKUBundleSyncAcknowledge, Uuid};
 use log::{warn, error, trace, info, debug};
 use rand::random;
 use tokio::{sync::Mutex, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
-use uuid::Uuid;
 
-use crate::{cluster::{frontend::Frontend, CommunityMessage, ActorRef}, util::AnotherlandResult, CONF, NODE, components::{ZoneRegistry, SessionHandler, Realm, SessionRef}, ARGS, db::{Session, CashShopVendor, realm_database, ZoneDef, WorldDef}, frontends::{ZoneServerClient, ZoneMessage}};
+use crate::{cluster::{frontend::Frontend, CommunityMessage, ActorRef}, util::AnotherlandResult, CONF, NODE, components::{SessionHandler, Realm, SessionRef}, ARGS, db::{Session, CashShopVendor, realm_database, ZoneDef, WorldDef}, frontends::{ZoneServerClient, ZoneMessage}};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneRouter, ZoneRouterConnection};
@@ -33,7 +32,7 @@ pub struct ClusterFrontend {
     avatar_ids: Arc<Mutex<HashSet<AvatarId>>>,
     tasks: TaskTracker,
     
-    zone_router: ZoneRouter,
+    zone_router: Arc<ZoneRouter>,
 }
 
 impl ClusterFrontend {
@@ -87,7 +86,7 @@ struct ClusterFrontendSession {
     peer: RakNetPeer,
     session_handler: ActorRef<SessionHandler<()>>,
     session_ref: Option<SessionRef<()>>,
-    zone_router: ZoneRouter,
+    zone_router: Arc<ZoneRouter>,
     zone_connection: Option<Arc<ZoneRouterConnection>>,
     avatar_ids: Arc<Mutex<HashSet<AvatarId>>>,
     avatar_id: AvatarId,
@@ -95,7 +94,7 @@ struct ClusterFrontendSession {
 }
 
 impl ClusterFrontendSession {
-    async fn new(peer: RakNetPeer, session_handler: &ActorRef<SessionHandler<()>>, zone_router: ZoneRouter, avatar_ids: Arc<Mutex<HashSet<AvatarId>>>) -> Self {
+    async fn new(peer: RakNetPeer, session_handler: &ActorRef<SessionHandler<()>>, zone_router: Arc<ZoneRouter>, avatar_ids: Arc<Mutex<HashSet<AvatarId>>>) -> Self {
         // generate new avatar id for this player
         let avatar_id = loop {
             let random_component = random::<u32>();
@@ -202,7 +201,7 @@ impl ClusterFrontendSession {
                                 avatar_id = self.avatar_id.to_string(); 
                                 "Connecting to zone {}", zone);
 
-                            match self.zone_router.connect_zone(&zone.to_uuid_1(), &session.session().id.into(), &self.avatar_id).await {
+                            match self.zone_router.connect_zone(&zone, &session.session().id.into(), &self.avatar_id).await {
                                 
                                 Ok(connection) => {
                                     trace!(
@@ -274,7 +273,7 @@ impl ClusterFrontendSession {
                     // Some kind of ping
                     0x5 => {
                         let mut response = oaPktClusterNodeToClient::default();
-                        response.field_1 = Uuid::new_v4();
+                        response.field_1 = Uuid::new();
                         response.field_3 = NativeParam::Struct(vec![
                             NativeParam::Int(0xa8)
                         ]);
@@ -350,7 +349,8 @@ impl ClusterFrontendSession {
                     CommunityMessage::SocialTravel { avatar, map, travel } => {
                         if avatar != self.avatar_id {
                             // what are you doing??
-                            warn!("Client tried to 'send' an avatar it doesn't has onership of: {:#?}", avatar);
+                            warn!("Client tried to 'send' an avatar it doesn't has onership of: {}", avatar);
+                            self.peer.disconnect().await;
                         } else {
                             if travel {
                                 let db = realm_database().await;
@@ -359,6 +359,8 @@ impl ClusterFrontendSession {
                                     let target_world = WorldDef::get_by_guid(db.clone(), &target_zone.worlddef_guid).await?.unwrap();
 
                                     // disconnect current zone
+                                    // todo: Gracefully terminate the zone connection, to give it some time to save the current character state
+                                    // without a data race.
                                     self.zone_connection.take();
 
                                     // update session
@@ -374,21 +376,18 @@ impl ClusterFrontendSession {
                                                 peer = self.peer.id().to_string(), 
                                                 session_id = self.session_id.map(|v| v.to_string()), 
                                                 avatar_id = self.avatar_id.to_string(); 
-                                                "Connected to zone, forwarding initial message.");
-        
-                                            if let Err(e) = connection.send(&message).await {
+                                                "Connected to zone, notify travel");
+
+                                            if let Err(e) = connection.notify_travel().await {
                                                 error!(
                                                     peer = self.peer.id().to_string(), 
                                                     session_id = self.session_id.map(|v| v.to_string()), 
                                                     avatar_id = self.avatar_id.to_string(); 
-                                                    "Failed to forward message to zone: {:#?}", e);
+                                                    "Failed to travel to zone: {:#?}", e);
                                                 self.peer.disconnect().await;
-                                            } else {
-                                                
                                             }
 
                                             self.zone_connection = Some(Arc::new(connection));
-                                            //let _ = connection.send(&message).await;
                                         },
                                         Err(e) => {
                                             error!(

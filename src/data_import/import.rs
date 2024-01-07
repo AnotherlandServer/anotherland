@@ -19,10 +19,9 @@ use chrono::{DateTime, Utc};
 use log::info;
 use mongodb::{IndexModel, options::IndexOptions, bson::doc};
 use tokio::runtime::Handle;
-use uuid::Uuid;
 
 use crate::{util::AnotherlandResult, db::{Content, Instance, WorldDef, ZoneDef, realm_database, cluster_database, CashShopVendor, CashShopItem, CashShopBundle, RawInstance}};
-use atlas::ParamClassContainer;
+use atlas::{ParamClassContainer, Uuid};
 
 async fn import_content_table(game_client_path: &PathBuf, src_table: &str, target_table: &str) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
@@ -287,7 +286,7 @@ async fn import_vendor_data(game_client_path: &PathBuf) -> AnotherlandResult<()>
                     .map(|s| s.trim())
                     .filter(|s| s.len() == 36)
                     .map(|s| Uuid::parse_str(s)
-                    .unwrap().into())
+                    .unwrap())
                     .collect(),
                 bundle_list: row.try_read::<&str,_>("BundleList")
                     .unwrap_or("")
@@ -295,7 +294,7 @@ async fn import_vendor_data(game_client_path: &PathBuf) -> AnotherlandResult<()>
                     .map(|s| s.trim())
                     .filter(|s| s.len() == 36)
                     .map(|s| Uuid::parse_str(s)
-                    .unwrap().into()).collect(),
+                    .unwrap()).collect(),
                 version: row.read::<i64,_>("Version") as u32
             });
         }

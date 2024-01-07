@@ -17,7 +17,7 @@ use std::{time::{Duration, Instant}, cell::Cell, collections::HashMap, sync::Arc
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, NonClientBaseComponent};
+use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, NonClientBaseComponent, Uuid};
 use futures::Future;
 use glam::{Vec3, Quat};
 use legion::{World, WorldOptions, Schedule, Resources, Entity, storage::IntoComponentSource};
@@ -26,7 +26,6 @@ use mongodb::Database;
 use rand::{thread_rng, Rng};
 use tokio::{time::{Interval, self}, sync::{mpsc, broadcast}, select, task::JoinHandle, runtime::Handle};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use uuid::Uuid;
 
 use crate::{cluster::actor::Actor, db::{ZoneDef, realm_database, Character, Instance, Content, NpcContent, StructureContent, SpawnerContent, WorldDef}, util::{AnotherlandResult, AnotherlandError}, NODE, components::zone::components::AvatarComponent};
 use crate::db::DatabaseRecord;
@@ -251,18 +250,25 @@ impl Zone {
             character.data.set_player_loading(true);
             character.data.set_player_node_state(2);
 
-            character.data.set_zone(&self.zone_def.zone);
-            character.data.set_zone_guid(self.zone_def.guid.clone().into());
-            character.data.set_world_map_guid(&self.world_def.umap_guid.to_string());
-            
+            // update zone if stored zone differs
+            if character.data.zone_guid().unwrap_or(&Uuid::default()) != &self.zone_def.guid {
+                character.data.set_zone(&self.zone_def.zone);
+                character.data.set_zone_guid(self.zone_def.guid.clone());
+                character.data.set_world_map_guid(&self.world_def.umap_guid.to_string());
+
+                character.data.set_pos(self.default_pos.clone());
+                character.data.set_rot(self.default_rot.clone());
+            }
+
             // do some first time spawn setup
             if *character.data.first_time_spawn().unwrap_or(&true) {
                 character.data.set_pos(self.default_pos.clone());
                 character.data.set_rot(self.default_rot.clone());
                 character.data.set_first_time_spawn(false);
-
-                character.save(self.realm_db.clone()).await?;
             }
+
+            // save character changes
+            character.save(self.realm_db.clone()).await?;
 
             let entity = self.world.push(character.data.clone().to_entity());
             let mut entry = self.world.entry(entity).unwrap();

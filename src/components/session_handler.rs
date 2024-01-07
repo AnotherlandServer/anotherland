@@ -17,11 +17,11 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use actor_macros::actor_actions;
 use async_trait::async_trait;
+use atlas::Uuid;
 use futures::select;
 use log::{debug, trace};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
-use uuid::Uuid;
 use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard, mpsc};
 
@@ -129,7 +129,7 @@ impl<T: 'static + Send + Sync + Default> SessionHandler<T> {
 
     pub async fn initiate_trusted(&mut self, peer_id: Uuid, session_id: Uuid) -> AnotherlandResult<SessionRef<T>> {
         let session = self.session_manager().get_session(session_id.clone()).await?;
-        let account = self.authenticator().get_account(session.account.clone().into()).await?;
+        let account = self.authenticator().get_account(session.account.clone()).await?;
 
         let token = CancellationToken::new();
 

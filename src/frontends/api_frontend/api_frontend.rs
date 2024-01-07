@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use async_graphql::{Schema, EmptySubscription, http::GraphiQLSource};
 use async_graphql_poem::GraphQL;
 use async_trait::async_trait;
@@ -49,7 +51,7 @@ impl Frontend for ApiFrontend {
 
         tokio::spawn(async move {
             Server::new(TcpListener::bind(CONF.api.listen_address))
-                .run_with_graceful_shutdown(app, token.cancelled(), None)
+                .run_with_graceful_shutdown(app, token.cancelled(), Some(Duration::from_secs(1)))
                 .await
         }).await?.map_err(|e| AnotherlandError::new(AnotherlandErrorKind::ApplicationError, e))
     }
