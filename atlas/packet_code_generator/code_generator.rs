@@ -161,7 +161,7 @@ pub fn generate_nom_parser_for_primitive(primitive: &str) -> TokenStream {
         "i64" => quote! {le_i64},
         "f32" => quote! {le_f32},
         "f64" => quote! {le_f64},
-        "uuid" => quote! {map(take(16usize), |v: &[u8]| Uuid::from_bytes(v.try_into().unwrap()))},
+        "uuid" => quote! {map(take(16usize), |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into())},
         "nativeparam" => quote! {NativeParam::parse_struct},
         _ => panic!("Unknown primitive")
     }
@@ -443,15 +443,22 @@ pub fn generate_parser_code(generated_struct: &GeneratedStruct) -> TokenStream {
     match &generated_struct.definition {
         GeneratedStructSource::PacketDefintion(def) => {
             let def = def.borrow();
+            let mut parent_ref = def.inherit.clone();
 
-            if let Some(inherit) = &def.inherit {
+            while let Some(inherit) = parent_ref {
                 match inherit {
                     PacketDefinitionReference::Resolved(parent_def) => {
                         let parent_def = parent_def.borrow();
 
+                        let mut parent_fields = Vec::new();
+
                         for field in &parent_def.fields {
-                            field_parser.push(generate_field_parser_code(generated_struct, field, None));
+                            parent_fields.push(generate_field_parser_code(generated_struct, field, None));
                         }
+
+                        field_parser = parent_fields.into_iter().chain(field_parser).collect();
+
+                        parent_ref = parent_def.inherit.clone();
                     },
                     _ => unreachable!()
                 }
@@ -539,7 +546,7 @@ pub fn generate_primitive_writer_code(primitive: &str, generated_field: &Generat
         "i64" => quote! { writer.write(#field_getter as i64)?; },
         "f32" => quote! { writer.write_bytes((#field_getter as f32).to_le_bytes().as_slice())?; },
         "f64" => quote! { writer.write_bytes((#field_getter as f64).to_le_bytes().as_slice())?; },
-        "uuid" => quote! { writer.write_bytes(#field_getter.to_bytes_le().as_slice())?; }, 
+        "uuid" => quote! { writer.write_bytes(#field_getter.to_uuid_1().to_bytes_le().as_slice())?; }, 
         "nativeparam" => quote! { writer.write_bytes(#field_getter.to_struct_bytes().as_slice())?; },
         _ => panic!("Tried to serialize unkown primitive"),
     }
@@ -748,16 +755,20 @@ pub fn generate_writer_code<'a>(generated_struct: &GeneratedStruct) -> TokenStre
     let parent_field_writers: Vec<_> =  match &generated_struct.definition {
         GeneratedStructSource::PacketDefintion(def) => {
             let def = def.borrow();
-            if let Some(parent) = &def.inherit {
+            let mut parent_ref = def.inherit.clone();
+            let mut writers = Vec::new();
+
+            while let Some(parent) = parent_ref {
                 match parent {
                     PacketDefinitionReference::Resolved(packet_def) => {
-                        packet_def.borrow().fields.iter().map(|v| generate_field_writer_code(generated_struct, v)).collect()
+                        writers = packet_def.borrow().fields.iter().map(|v| generate_field_writer_code(generated_struct, v)).chain(writers).collect();
+                        parent_ref = packet_def.borrow().inherit.clone();
                     },
                     _ => panic!("Unresolved parent definition"),
                 }
-            } else {
-                Vec::new()
             }
+
+            writers
         },
         GeneratedStructSource::StructDefinition(def) => {
             let def = def.borrow();

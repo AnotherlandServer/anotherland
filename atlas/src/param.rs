@@ -39,7 +39,7 @@ use glam::f32::{Vec3, Vec4};
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
-use uuid::Uuid;
+use crate::Uuid;
 use crate::avatarid::AvatarId;
 
 use super::generated::*;
@@ -266,7 +266,7 @@ impl Param {
                 context("Uuid", |i| {
                     let (i, uuid) = map(
                         take(16usize), 
-                        |v: &[u8]| Uuid::from_bytes(v.try_into().unwrap())
+                        |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
                     )(i)?;
 
                     Ok((i, Param::Uuid(uuid)))
@@ -320,7 +320,7 @@ impl Param {
                 context("LocalizedString", |i| {
                     let (i, uuid) = map(
                         take(16usize), 
-                        |v: &[u8]| Uuid::from_bytes(v.try_into().unwrap())
+                        |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
                     )(i)?;
 
                     Ok((i, Param::LocalizedString(uuid)))
@@ -398,7 +398,7 @@ impl Param {
                     let (i, data) = multi::count(
                         map(
                             take(16usize), 
-                            |v: &[u8]| Uuid::from_bytes(v.try_into().unwrap())
+                            |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
                         ), count as usize)(i)?;
 
                     Ok((i, Param::GuidArray(data, Some(type_id))))
@@ -436,7 +436,7 @@ impl Param {
             },
             Self::Uuid(val) => {
                 writer.write(5u8)?;
-                writer.write_bytes(val.to_bytes_le().as_slice())?;
+                writer.write_bytes(val.to_uuid_1().to_bytes_le().as_slice())?;
             },
             Self::Bool(val) => {
                 writer.write(7u8)?;
@@ -480,7 +480,7 @@ impl Param {
             },
             Self::LocalizedString(val) => {
                 writer.write(15u8)?;
-                writer.write_bytes(val.to_bytes_le().as_slice())?;
+                writer.write_bytes(val.to_uuid_1().to_bytes_le().as_slice())?;
             },
             Self::AvatarId(val) => {
                 writer.write(16u8)?;
@@ -525,7 +525,7 @@ impl Param {
                 }
                 writer.write(val.len() as u32)?;
                 for i in val.iter() {
-                    writer.write_bytes(&i.to_bytes_le())?;
+                    writer.write_bytes(&i.to_uuid_1().to_bytes_le())?;
                 }
             },
             Self::Class(class, val) => {

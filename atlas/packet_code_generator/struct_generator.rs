@@ -20,6 +20,8 @@ use std::collections::HashMap;
 
 use convert_case::{Converter, Boundary, Pattern};
 
+use crate::packet_code_generator::yaml_reader::PacketDefinitionReference;
+
 use super::PacketDefintion;
 use super::yaml_reader::{StructDefinition, FieldDefinition, FieldTypeDefinition, StructDefinitionReference};
 
@@ -145,11 +147,16 @@ impl GeneratedStruct {
         };
         
         if let Some(parent) = &definition_ref.inherit {
-            match parent {
-                crate::packet_code_generator::yaml_reader::PacketDefinitionReference::Resolved(parent) => {
-                    generated.generate_fields(&parent.borrow().fields, false, false, struct_registry);
-                },
-                _ => panic!(),
+            if let Some(parent) = match parent {
+                    PacketDefinitionReference::Resolved(parent) => {
+                        Some(Self::generate_from_packet_definition(parent, struct_registry)?)
+                        //generated.generate_fields(&parent.borrow().fields, false, false, struct_registry);
+                    },
+                    _ => panic!(),
+                } {
+
+                generated.fields = parent.fields;
+                generated.fields_mapped = parent.fields_mapped;
             }
         }
 

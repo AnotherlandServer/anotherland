@@ -30,7 +30,7 @@ pub struct PacketDefintion {
     pub fields: Vec<FieldDefinition>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PacketDefinitionReference {
     Unresolved(String),
     Resolved(Rc<RefCell<PacketDefintion>>),

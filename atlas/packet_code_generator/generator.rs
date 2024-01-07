@@ -54,6 +54,7 @@ pub fn generate_packet_code() -> io::Result<()> {
             match inherit {
                 PacketDefinitionReference::Unresolved(parent_name) => {
                     if let Some(parent) = packet_definitions.get(parent_name) {
+                        println!("Got parent: {}", parent_name);
                         definition.inherit = Some(PacketDefinitionReference::Resolved(parent.clone()));
                         Ok(())
                     } else {
@@ -62,7 +63,7 @@ pub fn generate_packet_code() -> io::Result<()> {
                             format!("Inherited struct {} not found for packet {}!", parent_name, name)
                         ))
                     }
-                }
+                },
                 _ => Ok(()),
             }?;
         }

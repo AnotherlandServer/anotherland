@@ -27,6 +27,6 @@ use std::collections::{HashSet, HashMap};
 use std::io;
 use legion::{World, Entity};
 use legion::EntityStore;
-use uuid::Uuid;
+use crate::Uuid;
 
 include!(concat!(env!("OUT_DIR"), "/generated_params.rs"));

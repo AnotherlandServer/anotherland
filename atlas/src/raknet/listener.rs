@@ -19,9 +19,8 @@ use log::{error, trace, debug};
 use nom::{IResult, error::{VerboseError, context}, bits, combinator::{map, flat_map, cond}, sequence::tuple, multi::many0};
 use tokio::{net::{ToSocketAddrs, UdpSocket}, time, sync::{mpsc, oneshot}, select, task::JoinHandle};
 use futures::future::join_all;
-use uuid::Uuid;
 
-use crate::raknet::{State, RakNetPeerData};
+use crate::{raknet::{State, RakNetPeerData}, Uuid};
 
 use super::{MessageFragment, Message, RakNetResult, RakNetError, RakNetErrorKind, Priority, Reliability};
 

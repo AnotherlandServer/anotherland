@@ -22,6 +22,7 @@ mod network_vec4;
 mod serialize;
 mod avatarid;
 mod buffer;
+mod uuid;
 pub mod raknet;
 
 pub use param::*;
@@ -29,11 +30,11 @@ pub use nativeparam::*;
 pub use generated::*;
 pub use avatarid::*;
 pub use buffer::*;
+pub use uuid::*;
 
 #[cfg(test)]
 mod tests {
-    use crate::{NativeParam, oaPktClusterNodeToClient, CPkt, raknet::Message};
-    use uuid::Uuid;
+    use crate::{NativeParam, oaPktClusterNodeToClient, CPkt, raknet::Message, Uuid};
 
     #[test]
     fn nativeparam_serialization() {
@@ -51,7 +52,7 @@ mod tests {
     #[test]
     fn oa_pkt_cluster_node_to_client_serialization() {
         let mut original = oaPktClusterNodeToClient::default();
-        original.field_1 = Uuid::new_v4();
+        original.field_1 = Uuid::new();
         original.field_3 = NativeParam::Struct([
             NativeParam::AvatarId(1),
             NativeParam::Bool(true)

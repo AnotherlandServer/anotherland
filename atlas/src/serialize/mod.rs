@@ -17,7 +17,8 @@ use std::{error::Error, str::FromStr};
 
 use serde::{Serializer, de::{Visitor, self, SeqAccess}, Deserializer, Serialize, Deserialize, ser::SerializeSeq};
 use serde_json::Value;
-use uuid::Uuid;
+
+use crate::Uuid;
 
 pub fn serialize_string<S>(
     string: &String, 
@@ -110,7 +111,7 @@ impl<'de> Visitor<'de> for UuidVecVisitor {
         let mut values = Vec::new();
 
         while let Some(value) = seq.next_element::<String>()? {
-            values.push(Uuid::from_str(value.as_str()).unwrap());
+            values.push(Uuid::parse_str(value.as_str()).unwrap());
         }
 
         Ok((values, None))

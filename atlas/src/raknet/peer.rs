@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::{raknet::MAX_MTU_SIZE};
+use crate::{raknet::MAX_MTU_SIZE, Uuid};
 
 use super::{RakNetErrorKind, PeerAddress, MessageFragment, MessageNumber, Reliability, PacketSplit, Message, OnlineMessage, RakNetError, RakNetResult};
 use std::{time::{Instant, SystemTime}, time::{Duration, UNIX_EPOCH}, net::SocketAddr, collections::{VecDeque, HashMap}, sync::Arc};
@@ -24,7 +24,6 @@ use serde::Serialize;
 use serde::ser::SerializeStruct;
 use tokio::{net::UdpSocket, io, sync::{RwLock, oneshot}};
 use async_recursion::async_recursion;
-use uuid::Uuid;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum State {
@@ -99,7 +98,7 @@ impl RakNetPeerData {
         match remote_addr {
             SocketAddr::V4(a) => {
                 Ok(Self {
-                    guid: Uuid::new_v4(),
+                    guid: Uuid::new(),
                     remote_address: PeerAddress::new(a.ip(), a.port()),
                     local_address: match local_addr {
                         SocketAddr::V4(a) => PeerAddress::new(a.ip(), a.port()),
@@ -216,7 +215,6 @@ impl RakNetPeerData {
                 MessageFragment::OnlineMessage(message) => {
                     match message.split {
                         PacketSplit::Split { id, index, count } => {
-                            info!("Received split message {} - {}/{}", id, index, count);
                             let reliability = message.reliability.clone();
 
                             if let Some(split_messages) = self.split_packet_channel.get_mut(&id) {
