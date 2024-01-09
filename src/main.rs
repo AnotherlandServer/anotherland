@@ -23,13 +23,14 @@ mod frontends;
 
 // Import modules
 use std::net::Ipv4Addr;
+use atlas::{ParamClassContainer, OaCommonConfig};
 use clap::{Parser, Subcommand};
 use cluster::ClusterNode;
 use components::{RealmList, Realm, ZoneRegistry};
 use ::config::File;
 use db::WorldDef;
 use frontends::{LoginQueueFrontend, RealmFrontend, ClusterFrontend, ZoneFrontend, ApiFrontend};
-use log::{LevelFilter, info, warn};
+use log::{LevelFilter, info, warn, error, debug};
 use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, Root}};
 use glob::glob;
 use once_cell::sync::Lazy;
@@ -39,7 +40,7 @@ use tokio::{signal, sync::RwLock};
 
 use tokio_stream::StreamExt;
 use util::AnotherlandResult;
-use crate::{config::ConfMain, data_import::import_client_data, db::{database, initalize_db, realm_database, ZoneDef, DatabaseRecord}, components::SessionManager, frontends::LoginFrontend};
+use crate::{config::ConfMain, data_import::import_client_data, db::{database, initalize_db, realm_database, ZoneDef, DatabaseRecord, MiscContent}, components::SessionManager, frontends::LoginFrontend};
 use crate::components::{Authenticator, SessionHandler};
 //use crate::{login_server::LoginServer, realm_server::RealmServer, frontend_server::FrontendServer, node_server::{NodeServer, NodeServerOptions}, api_server::ApiServer};
 
@@ -281,6 +282,37 @@ async fn main() -> AnotherlandResult<()> {
             let _ = initialize_realm_server().await?;
             let _ = initialize_cluster_frontend_server().await?;
             let _ = initialize_api_server().await?;
+
+            // load all active maps
+            {
+                let db = realm_database().await;
+
+                if let Some(config) = MiscContent::get_by_name(db.clone(), &"ActiveMaps").await?
+                    .as_ref()
+                    .map(|v| v.data.as_ref().map(|v| match v {
+                        ParamClassContainer::CommonConfig(conf) => conf.value(),
+                        _ => None,
+                    }))
+                    .flatten()
+                    .flatten()
+                {
+                    if let Some(active_maps) = config.get("activeMaps") {
+                        for map in active_maps.as_array().unwrap() {
+                            // load world by name
+                            if let Some(world_def) = WorldDef::get_by_name(db.clone(), map["map"].as_str().unwrap()).await? {
+                                // load and spawn world zones
+                                for zone in ZoneDef::load_for_world(db.clone(), &world_def.guid).await? {
+                                    let _ = initialize_zone_server(world_def.clone(), zone).await?;
+                                }
+                            } else {
+                                error!("World {} not found!", map["map"].as_str().unwrap());
+                            }
+                        }
+                    }
+                } else {
+                    warn!("No active maps found!");
+                }
+            }
 
             // load all persistent zones
             // the game does differentiate between primary, secondary and tertriary servers

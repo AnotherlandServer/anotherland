@@ -342,3 +342,53 @@ impl StructureContent {
         self.0.data.map(|v| v.try_into().unwrap())
     }
 }
+
+// misc
+#[derive(Serialize, Deserialize)]
+pub struct MiscContent(Content);
+
+impl Deref for MiscContent {
+    type Target = Content;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for MiscContent {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl DatabaseRecord<'_> for MiscContent {
+    type Key = Uuid;
+
+    fn collection(db:Database) -> Collection<Self>  {
+        db.collection::<Self>("misc")
+    }
+
+    fn query_one(key: &Self::Key) -> Document {
+        doc!{ "guid": { "$eq": bson::to_bson(key).unwrap() } }
+    }
+
+    fn key(&self) ->  &Self::Key {
+        &self.guid
+    }
+}
+
+impl MiscContent {
+    pub fn into_param<T>(self) -> Option<T> 
+        where
+            T: TryFrom<ParamClassContainer, Error = ParamError>
+    {
+        self.0.data.map(|v| v.try_into().unwrap())
+    }
+
+    pub async fn get_by_name(db: Database, name: &str) -> AnotherlandResult<Option<Self>> {
+        Ok(Self::collection(db).find_one(doc! { "name": mongodb::bson::Regex {
+            pattern: format!("^{}$", name),
+            options: "i".to_string(),
+        }}, None).await?)
+    }
+}

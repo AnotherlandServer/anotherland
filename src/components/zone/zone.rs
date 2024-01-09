@@ -17,7 +17,7 @@ use std::{time::{Duration, Instant}, cell::Cell, collections::HashMap, sync::Arc
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, NonClientBaseComponent, Uuid};
+use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, NonClientBaseComponent, Uuid, OaZoneConfigParam, OaZoneConfig};
 use futures::Future;
 use glam::{Vec3, Quat};
 use legion::{World, WorldOptions, Schedule, Resources, Entity, storage::IntoComponentSource};
@@ -28,7 +28,7 @@ use rand::{thread_rng, Rng};
 use tokio::{time::{Interval, self}, sync::{mpsc, broadcast}, select, task::JoinHandle, runtime::Handle};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-use crate::{cluster::actor::Actor, db::{ZoneDef, realm_database, Character, Instance, Content, NpcContent, StructureContent, SpawnerContent, WorldDef}, util::{AnotherlandResult, AnotherlandError}, NODE, components::zone::components::AvatarComponent};
+use crate::{cluster::actor::Actor, db::{ZoneDef, realm_database, Character, Instance, Content, NpcContent, StructureContent, SpawnerContent, WorldDef, MiscContent}, util::{AnotherlandResult, AnotherlandError}, NODE, components::zone::components::AvatarComponent};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneEvent, components::{EntityType, InterestEvent, InterestList, Position}, systems::{update_interests, update_interests_system}, PlayerSpawnMode, Movement};
@@ -52,11 +52,32 @@ pub struct Zone {
     event_sender: broadcast::Sender<Arc<ZoneEvent>>,
     avatar_id_to_entity_lookup: HashMap<AvatarId, Entity>,
 
+    config: OaZoneConfigParam,
+
     pub(super) instance_template: HashMap<Uuid, (Instance, Option<AvatarId>)>,
 }
 
 impl Zone {
     pub async fn initialize(world_def: WorldDef, zone_def: ZoneDef) -> AnotherlandResult<Self> {
+        let db = realm_database().await;
+
+        let config = if zone_def.realu_zone_type.is_empty() {
+            OaZoneConfigParam::default()
+        } else {
+            debug!("Loading zonecondig: {}", &zone_def.realu_zone_type);
+
+            MiscContent::get_by_name(db.clone(), &zone_def.realu_zone_type)
+                .await?
+                .map(|mut v| {
+                    v.data.take().map(|v| match v {
+                        ParamClassContainer::OaZoneConfig(config) => Some(config),
+                        _ => None
+                    })
+                })
+                .flatten().flatten()
+                .ok_or(AnotherlandError::app_err("zoneconfig not found"))?
+        };
+
         Ok(Self {
             name: format!("zone_{}", zone_def.guid),
             zone_def,
@@ -73,6 +94,7 @@ impl Zone {
             update_task: None,
             event_sender: broadcast::channel(10).0,
             avatar_id_to_entity_lookup: HashMap::new(),
+            config,
             instance_template: HashMap::new(),
         })
     }
