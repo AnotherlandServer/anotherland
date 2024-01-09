@@ -16,7 +16,7 @@
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, IpAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}, thread};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate, CpktServerNotifyNotifyType, Uuid, MoveManagerInit, MoveManagerInitPhysicsState};
+use atlas::{raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate, CpktServerNotifyNotifyType, Uuid, MoveManagerInit, oaPktDialogEnd, oaPktAvatarTellBehaviorBinary, oaPkt_SplineSurfing_Acknowledge};
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use glam::Vec3;
 use log::{debug, error, trace, warn, info};
@@ -25,7 +25,7 @@ use quinn::{ServerConfig, Endpoint};
 use tokio::{sync::{Mutex, OnceCell, mpsc::{self, Sender}}, net::{TcpListener, TcpStream, UdpSocket}, time::{Interval, self}, select, task};
 use tokio_util::{task::TaskTracker, sync::CancellationToken, udp::UdpFramed};
 
-use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, components::{Zone, ZoneRegistry, SessionHandler, SessionRef, ZoneEvent, InterestEvent, Movement}, NODE, CLUSTER_CERT};
+use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, components::{Zone, ZoneRegistry, SessionHandler, SessionRef, ZoneEvent, InterestEvent, Movement, PhysicsState}, NODE, CLUSTER_CERT};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneServerListener, ZoneMessage, load_state::ClientLoadState};
@@ -188,6 +188,8 @@ struct ZoneSession {
     interest_list: HashSet<AvatarId>,
     interest_added_queue: VecDeque<AvatarId>,
     interest_removed_queue: VecDeque<AvatarId>,
+
+    target_avatar: Option<AvatarId>,
 }
 
 impl ZoneSession {
@@ -215,6 +217,7 @@ impl ZoneSession {
             interest_list: HashSet::new(),
             interest_added_queue: VecDeque::new(),
             interest_removed_queue: VecDeque::new(),
+            target_avatar: None,
         };
 
         session.run(&tasks, token)
@@ -341,7 +344,7 @@ impl ZoneSession {
         mm_init.rot = movement.rotation.into();
         mm_init.vel = movement.velocity.into();
 
-        mm_init.physics_state = MoveManagerInitPhysicsState::Standing;
+        mm_init.physics = PhysicsState::Walking.into();
 
         let mut data = Vec::new();
         {
@@ -411,14 +414,14 @@ impl ZoneSession {
                     pos_update.pos = movement.position.into();
                     pos_update.rot = movement.rotation.into();
                     pos_update.vel = movement.velocity.into();
-                    pos_update.physics_state = movement.physics_state.into();
+                    pos_update.physics = movement.physics_state.into();
                     pos_update.mover_key = movement.mover_key;
                     pos_update.avatar_id = avatar_id.as_u64();
                     pos_update.seconds = movement.seconds;
 
                     let _ = self.send(pos_update.into_message()).await?;
                 }
-            }
+            },
             ZoneEvent::AvatarDespawned { avatar_id } => {
                 if self.interest_list.remove(avatar_id) {
                     // tell client the avatar despawned
@@ -427,6 +430,9 @@ impl ZoneSession {
 
                     self.send(avatar_notify.into_message()).await?;
                 }
+            },
+            ZoneEvent::ChatMessage { range, sender, message } => {
+                todo!()
             }
         }
 
@@ -462,7 +468,7 @@ impl ZoneSession {
                 mm_init.rot = movement.rotation.into();
                 mm_init.vel = movement.velocity.into();
 
-                mm_init.physics_state = MoveManagerInitPhysicsState::Standing;       
+                mm_init.physics = PhysicsState::Walking.into();       
 
                 info!(
                     session = self.session_id.to_string(), 
@@ -521,7 +527,7 @@ impl ZoneSession {
                                 position: pkt.pos.into(),
                                 rotation: pkt.rot.into(),
                                 velocity: pkt.vel.into(),
-                                physics_state: pkt.physics_state.into(),
+                                physics_state: pkt.physics.into(),
                                 mover_key: pkt.mover_key,
                                 seconds: pkt.seconds,
                             }
@@ -627,6 +633,23 @@ impl ZoneSession {
                         "Client tried to update unowned avatar #{}", pkt.avatar_id.unwrap_or_default());
                 }
             },
+            AtlasPkt(CPkt::CPktTargetRequest(pkt)) => {
+                if pkt.avatar_id == self.avatar_id.as_u64() {
+                    if pkt.target_avatar_id != 0 {
+                        self.target_avatar = Some(pkt.avatar_id.into());
+                    } else {
+                        self.target_avatar = None;
+                    }
+
+                    debug!(
+                        session = self.session_id.to_string(), 
+                        avatar = self.avatar_id.to_string(); 
+                        "Selected avatar: {:?}", self.target_avatar);
+                }
+            },
+            AtlasPkt(CPkt::oaPktDialogList(pkt)) => {
+                debug!("Dialog List: {:#?}", pkt);
+            },
             _ => {
                 debug!(
                     session = self.session_id.to_string(), 
@@ -676,7 +699,7 @@ impl ZoneSession {
                         mm_init.rot = movement.rotation.into();
                         mm_init.vel = movement.velocity.into();
 
-                        mm_init.physics_state = MoveManagerInitPhysicsState::Standing;  
+                        mm_init.physics = PhysicsState::Walking.into();  
 
                         let mut data = Vec::new();
                         {

@@ -31,7 +31,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use crate::{cluster::actor::Actor, db::{ZoneDef, realm_database, Character, Instance, Content, NpcContent, StructureContent, SpawnerContent, WorldDef, MiscContent}, util::{AnotherlandResult, AnotherlandError}, NODE, components::zone::components::AvatarComponent};
 use crate::db::DatabaseRecord;
 
-use super::{ZoneEvent, components::{EntityType, InterestEvent, InterestList, Position}, systems::{update_interests, update_interests_system}, PlayerSpawnMode, Movement};
+use super::{ZoneEvent, components::{EntityType, InterestEvent, InterestList, Position}, systems::{update_interests, update_interests_system}, PlayerSpawnMode, Movement, ProximityChatRange};
 
 pub struct Zone {
     name: String,
@@ -405,5 +405,9 @@ impl Zone {
         } else {
             None
         }
+    }
+
+    pub fn proximity_chat(&mut self, range: ProximityChatRange, avatar_id: AvatarId, message: String) {
+        
     }
 }
