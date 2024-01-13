@@ -35,7 +35,9 @@ impl ZoneRegistry {
 
 #[async_trait]
 impl Actor for ZoneRegistry {
-    fn name(&self) -> &str { "zone_registry" }
+    type ActorType = Self;
+
+    fn name(&self) -> Option<&str> { Some("zone_registry") }
 }
 
 #[actor_actions]

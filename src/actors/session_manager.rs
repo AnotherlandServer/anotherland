@@ -45,7 +45,9 @@ impl SessionManager {
 
 #[async_trait]
 impl Actor for SessionManager {
-    fn name(&self) -> &str { "session_manager" }
+    type ActorType = Self;
+
+    fn name(&self) -> Option<&str> { Some("session_manager") }
 }
 
 #[actor_actions]

@@ -18,6 +18,7 @@ mod db;
 mod config;
 mod cluster;
 mod data_import;
+mod actors;
 mod components;
 mod frontends;
 
@@ -26,7 +27,7 @@ use std::net::Ipv4Addr;
 use atlas::{ParamClassContainer, OaCommonConfig};
 use clap::{Parser, Subcommand};
 use cluster::ClusterNode;
-use components::{RealmList, Realm, ZoneRegistry};
+use actors::{RealmList, Realm, ZoneRegistry};
 use ::config::File;
 use db::WorldDef;
 use frontends::{LoginQueueFrontend, RealmFrontend, ClusterFrontend, ZoneFrontend, ApiFrontend};
@@ -40,8 +41,8 @@ use tokio::{signal, sync::RwLock};
 
 use tokio_stream::StreamExt;
 use util::AnotherlandResult;
-use crate::{config::ConfMain, data_import::import_client_data, db::{database, initalize_db, realm_database, ZoneDef, DatabaseRecord, MiscContent}, components::SessionManager, frontends::LoginFrontend};
-use crate::components::{Authenticator, SessionHandler};
+use crate::{config::ConfMain, data_import::import_client_data, db::{database, initalize_db, realm_database, ZoneDef, DatabaseRecord, MiscContent}, actors::SessionManager, frontends::LoginFrontend};
+use crate::actors::Authenticator;
 //use crate::{login_server::LoginServer, realm_server::RealmServer, frontend_server::FrontendServer, node_server::{NodeServer, NodeServerOptions}, api_server::ApiServer};
 
 #[derive(Parser)]

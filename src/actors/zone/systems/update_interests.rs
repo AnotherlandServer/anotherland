@@ -21,7 +21,7 @@ use legion::{system, Query, SystemBuilder, world::SubWorld, Entity};
 use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 
-use crate::components::zone::components::{InterestList, Position, AvatarComponent, EntityType};
+use crate::actors::zone::components::{InterestList, Position, AvatarComponent, EntityType, InterestEvent};
 
 #[system]
 pub fn update_interests(
@@ -51,6 +51,7 @@ pub fn update_interests(
             EntityType::OtherlandStructure |
             EntityType::Planet |
             EntityType::Portal |
+            EntityType::CTFGameFlag |
             EntityType::ServerGateway |
             EntityType::ServerGatewayExitPhase |
             EntityType::Ship |
@@ -92,11 +93,11 @@ pub fn update_interests(
 
             tasks.spawn(async move {
                 if !added_interests.is_empty() {
-                    let _ = sender.send(crate::components::zone::components::InterestEvent::InterestAdded { ids: added_interests }).await;
+                    let _ = sender.send(InterestEvent::InterestAdded { ids: added_interests }).await;
                 }
 
                 if !removed_interests.is_empty() {
-                    let _ = sender.send(crate::components::zone::components::InterestEvent::InterestRemoved { ids: removed_interests }).await;
+                    let _ = sender.send(InterestEvent::InterestRemoved { ids: removed_interests }).await;
                 }
             });
 

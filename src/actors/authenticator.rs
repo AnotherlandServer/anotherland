@@ -68,7 +68,9 @@ impl Authenticator {
 
 #[async_trait]
 impl Actor for Authenticator {
-    fn name(&self) -> &str { "authenticator" }
+    type ActorType = Self;
+
+    fn name(&self) -> Option<&str> { Some("authenticator") }
 
     async fn starting(&mut self) -> AnotherlandResult<()> { 
         self.session_manager = Some(NODE.get_actor("session_manager").unwrap());

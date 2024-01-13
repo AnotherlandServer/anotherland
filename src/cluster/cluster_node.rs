@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{marker::PhantomData, any::Any, collections::HashMap, sync::{Arc, Mutex}, net::SocketAddr, cell::OnceCell};
+use std::{marker::PhantomData, any::{Any, type_name}, collections::HashMap, sync::{Arc, Mutex}, net::SocketAddr, cell::OnceCell};
 use futures::future::join_all;
 use log::{debug, trace, error, info};
 use tokio::{sync::{mpsc, oneshot, broadcast, watch, Barrier}, select, net::TcpStream, task::JoinSet};
@@ -90,88 +90,107 @@ impl ClusterNode {
         })))
     }
 
-    pub fn add_actor<T>(&self, mut actor: T) -> ActorRef<T>
-        where T: 'static + Actor + ActorHandler + Send + Sync {
+    pub fn add_actor<T>(&self, mut actor: T) -> ActorRef<T::ActorType>
+        where T: 'static + Actor<ActorType = T> + ActorHandler + Send + Sync {
 
-        let name = actor.name().to_owned();
+        let name = actor.name().map(|v| v.to_owned());
 
         let (tx, mut rx) = mpsc::channel(10);
+        let actor_token = CancellationToken::new();
+
+        let actor_ref = ActorRef { 
+            channel: tx.clone(), 
+            token: Some(actor_token.clone()),
+            phantom: PhantomData::default() 
+        };
 
         let mut state_signal_wait = self.0.lock().unwrap().state_signal_wait.clone();
         let mut data = self.0.lock().unwrap();
 
-        let local_name = name.clone();
-
-        trace!("Starting actor {}", local_name);
+        if let Some(name) = name.as_ref() {
+            trace!("Starting actor {}", name);
+        } else {
+            trace!("Starting anonymus actor {}", type_name::<T>());
+        }
 
         let (starting_notify, starting_wait) = oneshot::channel();
         if *data.state_signal_wait.borrow() == ClusterNodeState::PreStart {
             data.starting_nodes.push(starting_wait);
         }
 
-        data.subtasks.get_mut().unwrap().spawn(async move {
-            let mut stopping = false;
+        data.subtasks.get_mut().unwrap().spawn({
+            let actor_ref = actor_ref.clone();
 
-            // Wait for node start
-            let _ = state_signal_wait.wait_for(|v| *v >= ClusterNodeState::Starting).await;
+            async move {
+                let mut stopping = false;
 
-            // Run start lifecycle
-            actor.starting().await?;
+                // Wait for node start
+                let _ = state_signal_wait.wait_for(|v| *v >= ClusterNodeState::Starting).await;
 
-            // Notify cluster we've started
-            let _ = starting_notify.send(());
+                // Run start lifecycle
+                actor.starting().await?;
 
-            let _ = state_signal_wait.wait_for(|v| *v >= ClusterNodeState::ActorsStarted).await;
+                // Notify cluster we've started
+                let _ = starting_notify.send(());
 
-            actor.started().await?;
+                let _ = state_signal_wait.wait_for(|v| *v >= ClusterNodeState::ActorsStarted).await;
 
-            'event_loop: loop {
-                tokio::select! {
-                    msg = rx.recv() => { 
-                        if let Some(msg) = msg {
-                            let _ = actor.handle_message(msg).await; 
-                        } else {
-                            // all messages are handled, stop actor task
-                            break 'event_loop;
-                        }
-                    },
-                    _ = actor.stopping(), if stopping => {
-                            // close channel to forbid new messages once Actor::stopping returns
-                            //rx.close();
+                actor.started(actor_ref.clone()).await?;
 
-                            // we are now done "stopping"
-                            stopping = false;
-                    },
-                    _ = state_signal_wait.changed() => {
-                        if *state_signal_wait.borrow() == ClusterNodeState::Stopping {
+                'event_loop: loop {
+                    tokio::select! {
+                        msg = rx.recv() => { 
+                            if let Some(msg) = msg {
+                                let _ = actor.handle_message(msg).await; 
+                            } else {
+                                // all messages are handled, stop actor task
+                                break 'event_loop;
+                            }
+                        },
+                        _ = actor.stopping(), if stopping => {
+                                // close channel to forbid new messages once Actor::stopping returns
+                                //rx.close();
+
+                                // we are now done "stopping"
+                                stopping = false;
+                        },
+                        _ = actor_token.cancelled() => {
                             stopping = true;
-                        }
-                    },
+                        },
+                        _ = state_signal_wait.changed() => {
+                            if *state_signal_wait.borrow() == ClusterNodeState::Stopping {
+                                stopping = true;
+                            }
+                        },
+                    }
                 }
+
+                // Run stop lifecycle
+                let _ = actor.stopped().await?;
+
+                if let Some(name) = actor.name() {
+                    trace!("Stopped actor {}", name);
+                } else {
+                    trace!("Stopped anonymus actor {}", type_name::<T>());
+                }
+
+                Ok::<_,AnotherlandError>(())
             }
-
-            // Run stop lifecycle
-            let _ = actor.stopped().await?;
-
-            trace!("Stopped actor {}", actor.name());
-
-            Ok::<_,AnotherlandError>(())
         });
         
-        // Register remote actors at local node, so they can be used in
-        // standalone server mode too, where we only have a single ClusterNode.
-        if T::has_remote_actions() {
-            data.remote_actors.insert(name.clone(), Arc::new(
-                RemoteActorNode::Local( ActorEntry { producer: Box::new(tx.clone()) })
-            ));
+        if let Some(name) = name {
+            // Register remote actors at local node, so they can be used in
+            // standalone server mode too, where we only have a single ClusterNode.
+            if T::has_remote_actions() {
+                data.remote_actors.insert(name.clone(), Arc::new(
+                    RemoteActorNode::Local( ActorEntry { producer: Box::new(tx.clone()) })
+                ));
+            }
+
+            data.actors.insert(name,  ActorEntry { producer: Box::new(tx) });
         }
 
-        data.actors.insert(name,  ActorEntry { producer: Box::new(tx.clone()) });
-
-        ActorRef { 
-            channel: tx, 
-            phantom: PhantomData::default() 
-        }
+        actor_ref
     }
 
     pub fn add_frontend<T>(&self, mut frontend: T)
@@ -263,6 +282,7 @@ impl ClusterNode {
             if let Some(producer) = actor.producer.downcast_ref::<mpsc::Sender<T::MessageType>>() {
                 Some(ActorRef { 
                     channel: producer.clone(), 
+                    token: None,
                     phantom: PhantomData::default() 
                 })
             } else {
@@ -337,6 +357,7 @@ impl ClusterNode {
 
 pub struct ActorRef<T: ActorHandler + Send + Sync> {
     channel: mpsc::Sender<T::MessageType>,
+    token: Option<CancellationToken>,
     pub(crate) phantom: PhantomData<T>,
 }
 
@@ -344,11 +365,19 @@ impl<T: ActorHandler + Send + Sync> ActorRef<T> {
     pub async fn send_message(&self, msg: T::MessageType) -> ActorResult<()> {
         self.channel.send(msg).await.map_err(|_| ActorErr::SendError)
     }
+
+    pub fn stop(self) {
+        if let Some(token) = self.token {
+            token.cancel();
+        } else {
+            panic!("Actor can't be stopped!")
+        }
+    }
 }
 
 impl<T: ActorHandler + Send + Sync> Clone for ActorRef<T> {
     fn clone(&self) -> Self {
-        Self { channel: self.channel.clone(), phantom: self.phantom.clone() }
+        Self { channel: self.channel.clone(), token: self.token.clone(), phantom: self.phantom.clone() }
     }
 }
 

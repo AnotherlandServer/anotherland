@@ -13,12 +13,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::AvatarId;
-use glam::Vec3;
+mod authenticator;
+mod session_manager;
+mod realm_list;
+mod realm;
+mod zone;
+mod zone_registry;
+//mod movement_manager;
 
-#[derive(Clone, Debug)]
-pub(in crate::components::zone) struct AvatarComponent {
-    pub id: AvatarId,
-    pub name: String,
-    pub phase_tag: String,
-}
+pub use authenticator::*;
+pub use session_manager::*;
+pub use realm_list::*;
+pub use realm::*;
+pub use zone::*;
+pub use zone_registry::*;
+//pub use movement_manager::*;

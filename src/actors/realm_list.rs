@@ -54,12 +54,13 @@ impl RealmList {
 
 #[async_trait]
 impl Actor for RealmList {
-    fn name(&self) -> &str { "realm_list" }
+    type ActorType = Self;
 
-    async fn started(&mut self) -> AnotherlandResult<()> {
+    fn name(&self) -> Option<&str> { Some("realm_list") }
+
+    async fn started(&mut self, mut handle: ActorRef<Self>) -> AnotherlandResult<()> {
         let cancellation_token = self.cancellation_token.clone();
         self.subtasks.spawn(async move {
-            let mut local_actor = NODE.get_actor::<Self>("realm_list").unwrap();
             let (_, mut cluster_channel) = connect_queue(MessageChannel::ClusterChannel).await.unwrap();
 
             loop {
@@ -68,7 +69,7 @@ impl Actor for RealmList {
                     Ok(msg) = cluster_channel.recv() => {
                         match msg {
                             ClusterMessage::RealmServerHearthbeat{realm_id, name, channels, address} => {
-                                local_actor.update_realm(realm_id, name, channels, address).await;
+                                handle.update_realm(realm_id, name, channels, address).await;
                             }
                             _ => (),
                         }

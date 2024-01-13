@@ -13,19 +13,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use atlas::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetPeer}, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktRealmStatusList, RealmStatus};
 use futures::future::Remote;
 use log::{error, debug};
-use tokio::select;
+use tokio::{select, sync::RwLock};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, RemoteActorRef, ActorRef}, util::{AnotherlandResult, AnotherlandError}, components::{Authenticator, LoginResult, SessionHandler, RealmList}, CONF, NODE, db::Session};
+use crate::{cluster::{frontend::Frontend, RemoteActorRef, ActorRef}, util::{AnotherlandResult, AnotherlandError}, actors::{Authenticator, LoginResult, RealmList}, CONF, NODE, db::Session, components::SessionHandler};
 
 pub struct LoginFrontend {
     //listener: RakNetListener,
     authenticator: Option<RemoteActorRef<Authenticator>>,
-    session_handler: Option<ActorRef<SessionHandler<()>>>,
+    session_handler: Arc<RwLock<SessionHandler>>,
     realm_list: Option<RemoteActorRef<RealmList>>,
     tasks: TaskTracker,
 }
@@ -35,7 +37,7 @@ impl LoginFrontend {
         Ok(Self { 
             //listener: RakNetListener::bind(CONF.login_server.listen_address).await?,
             authenticator: None,
-            session_handler: None,
+            session_handler: SessionHandler::new(),
             realm_list: None,
             tasks: TaskTracker::new(),
         })
@@ -43,10 +45,6 @@ impl LoginFrontend {
 
     fn authenticator(&mut self) -> &mut RemoteActorRef<Authenticator> {
         self.authenticator.as_mut().unwrap()
-    }
-
-    fn session_handler(&mut self) -> &mut ActorRef<SessionHandler<()>> {
-        self.session_handler.as_mut().unwrap()
     }
 
     fn realm_list(&self) -> &RemoteActorRef<RealmList> {
@@ -60,7 +58,6 @@ impl Frontend for LoginFrontend {
 
     async fn starting(&mut self) -> AnotherlandResult<()> { 
         self.authenticator = Some(NODE.get_remote_actor("authenticator").unwrap());
-        self.session_handler = Some(NODE.add_actor(SessionHandler::<()>::initialize("login_session_handler").await));
         self.realm_list = Some(NODE.get_remote_actor("realm_list").unwrap());
 
         //self.listener.listen(CONF.login_server.listen_address).await?;
@@ -78,7 +75,7 @@ impl Frontend for LoginFrontend {
 
                     let mut client_session = LoginFrontendSession {
                         authenticator: self.authenticator().clone(),
-                        session_handler: self.session_handler().clone(),
+                        session_handler: self.session_handler.clone(),
                         realm_list: self.realm_list().clone(),
                     };
 
@@ -101,7 +98,7 @@ impl Frontend for LoginFrontend {
 
                         // cleanup connection
                         peer.disconnect().await;
-                        client_session.session_handler.forget_peer(peer.id().clone()).await;
+                        client_session.session_handler.write().await.forget_peer(peer.id().clone()).await;
                     });
                 },
                 _ = token.cancelled() => break Ok(()),
@@ -121,7 +118,7 @@ impl Frontend for LoginFrontend {
 
 struct LoginFrontendSession {
     authenticator: RemoteActorRef<Authenticator>,
-    session_handler: ActorRef<SessionHandler<()>>,
+    session_handler: Arc<RwLock<SessionHandler>>,
     realm_list: RemoteActorRef<RealmList>,
 }
 
@@ -135,13 +132,13 @@ impl LoginFrontendSession {
                 match self.authenticator.login(pkt.username.to_owned(), pkt.password.to_owned()).await? {
                     LoginResult::Session(session) => {
                         // Assign session to peer
-                        let session_ref = self.session_handler.initiate_trusted(peer.id().clone(), session.id.into()).await?;
+                        let session_ref = self.session_handler.write().await.initiate_trusted(peer.id().clone(), session.id.into()).await?;
                         let mut session_ref_s = session_ref.lock().await;
 
                         let realms = self.realm_list.get_realms().await;
                         if realms.is_empty() {
                             // immediately destroy the session
-                            let _ = self.session_handler.destroy_session(session_ref_s.session().id.into()).await;
+                            let _ = self.session_handler.write().await.destroy_session(session_ref_s.session().id.into()).await;
 
                             Self::report_login_error(peer, "#Login.ERROR_CONNECTIONFAILED#").await
                         } else if realms.len() == 1 {

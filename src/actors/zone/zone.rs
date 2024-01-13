@@ -17,7 +17,7 @@ use std::{time::{Duration, Instant}, cell::Cell, collections::HashMap, sync::Arc
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, NonClientBaseComponent, Uuid, OaZoneConfigParam, OaZoneConfig};
+use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, NonClientBaseComponent, Uuid, OaZoneConfigParam, OaZoneConfig, CtfGameFlagParam};
 use futures::Future;
 use glam::{Vec3, Quat};
 use legion::{World, WorldOptions, Schedule, Resources, Entity, storage::IntoComponentSource};
@@ -28,16 +28,14 @@ use rand::{thread_rng, Rng};
 use tokio::{time::{Interval, self}, sync::{mpsc, broadcast}, select, task::JoinHandle, runtime::Handle};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-use crate::{cluster::actor::Actor, db::{ZoneDef, realm_database, Character, Instance, Content, NpcContent, StructureContent, SpawnerContent, WorldDef, MiscContent}, util::{AnotherlandResult, AnotherlandError}, NODE, components::zone::components::AvatarComponent};
+use crate::{cluster::actor::Actor, db::{ZoneDef, realm_database, Character, Instance, Content, NpcContent, StructureContent, SpawnerContent, WorldDef, MiscContent}, util::{AnotherlandResult, AnotherlandError}, NODE, actors::zone::components::AvatarComponent, components::ZoneFactory};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneEvent, components::{EntityType, InterestEvent, InterestList, Position}, systems::{update_interests, update_interests_system}, PlayerSpawnMode, Movement, ProximityChatRange};
 
 pub struct Zone {
-    name: String,
-    pub(super) zone_def: ZoneDef,
-    pub(super) world_def: WorldDef,
     pub(super) realm_db: Database,
+    pub(super) factory: ZoneFactory,
 
     default_pos: Vec3,
     default_rot: Vec3,
@@ -51,38 +49,13 @@ pub struct Zone {
 
     event_sender: broadcast::Sender<Arc<ZoneEvent>>,
     avatar_id_to_entity_lookup: HashMap<AvatarId, Entity>,
-
-    config: OaZoneConfigParam,
-
-    pub(super) instance_template: HashMap<Uuid, (Instance, Option<AvatarId>)>,
 }
 
 impl Zone {
-    pub async fn initialize(world_def: WorldDef, zone_def: ZoneDef) -> AnotherlandResult<Self> {
-        let db = realm_database().await;
-
-        let config = if zone_def.realu_zone_type.is_empty() {
-            OaZoneConfigParam::default()
-        } else {
-            debug!("Loading zonecondig: {}", &zone_def.realu_zone_type);
-
-            MiscContent::get_by_name(db.clone(), &zone_def.realu_zone_type)
-                .await?
-                .map(|mut v| {
-                    v.data.take().map(|v| match v {
-                        ParamClassContainer::OaZoneConfig(config) => Some(config),
-                        _ => None
-                    })
-                })
-                .flatten().flatten()
-                .ok_or(AnotherlandError::app_err("zoneconfig not found"))?
-        };
-
-        Ok(Self {
-            name: format!("zone_{}", zone_def.guid),
-            zone_def,
-            world_def,
-            realm_db: realm_database().await,
+    pub fn initialize(factory: ZoneFactory) -> Self {
+        Self {
+            realm_db: factory.db().clone(),
+            factory,
             default_pos: Vec3::default(),
             default_rot: Vec3::default(),
             world: World::new(WorldOptions::default()),
@@ -94,9 +67,7 @@ impl Zone {
             update_task: None,
             event_sender: broadcast::channel(10).0,
             avatar_id_to_entity_lookup: HashMap::new(),
-            config,
-            instance_template: HashMap::new(),
-        })
+        }
     }
 }
 
@@ -106,7 +77,9 @@ unsafe impl Sync for Zone {}
 
 #[async_trait]
 impl Actor for Zone {
-    fn name(&self) -> &str { self.name.as_str() }
+    type ActorType = Self;
+
+    fn name(&self) -> Option<&str> { None }
 
     async fn starting(&mut self) -> AnotherlandResult<()> {
         self.resources.insert(self.event_sender.clone());
@@ -115,22 +88,19 @@ impl Actor for Zone {
 
         self.load_content().await?;
 
-        info!("Loaded zone {}...", self.zone_def.guid);
+        info!("Spawned zone {}...", self.factory.zone_def().guid);
 
         Ok(()) 
     }
 
-    async fn started(&mut self) -> AnotherlandResult<()> { 
-        let actor_name = self.name().to_owned();
-
+    async fn started(&mut self, mut handle: ActorRef<Self>) -> AnotherlandResult<()> { 
         let token = self.cancellation_token.clone();
         self.update_task = Some(tokio::spawn(async move {
-            let mut local_actor = NODE.get_actor(&actor_name).unwrap();
             let mut interval = time::interval(Duration::from_millis(40)); // Aim for 25 cycles/sec
 
             loop {
                 select! {
-                    _ = interval.tick() => local_actor.update().await,
+                    _ = interval.tick() => handle.update().await,
                     _ = token.cancelled() => break,
                 }
             }
@@ -155,26 +125,8 @@ impl Actor for Zone {
 }
 
 impl Zone {
-    pub(super) fn spawn_non_player_avatar<T>(&mut self, entity_type: EntityType, name: &str, phase_tag: &str, components: T) -> AvatarId
-        where Option<T>: IntoComponentSource
-    {
-        // Avatar IDs are prefixed with the avatar type
-        let avatar_type = match entity_type {
-            EntityType::Player => unimplemented!(),
-            EntityType::NpcOtherland => AvatarType::Npc,
-            _ => AvatarType::Other,
-        };
-
-        // generate avatar id
-        let id = {
-            let mut rng = thread_rng();
-            loop {
-                let id = AvatarId::new(rng.gen_range(1..1<<56) << 0xF, avatar_type.clone());
-                if !self.avatar_id_to_entity_lookup.contains_key(&id) {
-                    break id;
-                }
-            }
-        };
+    pub(super) fn spawn_non_player_avatar<T>(&mut self, avatar_id: AvatarId, entity_type: EntityType, name: &str, phase_tag: &str, components: T) -> AvatarId
+        where Option<T>: IntoComponentSource {
 
         // spawn entity
         let entity = {
@@ -182,7 +134,7 @@ impl Zone {
             let mut entry = self.world.entry(entity).unwrap();
             entry.add_component(entity_type);
             entry.add_component(AvatarComponent {
-                id: id.clone(),
+                id: avatar_id.clone(),
                 name: name.to_owned(),
                 phase_tag: phase_tag.to_owned(),
             });
@@ -195,18 +147,18 @@ impl Zone {
                 });
             }
 
-            self.avatar_id_to_entity_lookup.insert(id.clone(), entity.clone());
+            self.avatar_id_to_entity_lookup.insert(avatar_id.clone(), entity.clone());
             entity
         };
 
         // notify clients
         let params = self.get_entity_params(entity).unwrap();
         let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarSpawned { 
-            avatar_id: id.clone(), 
+            avatar_id: avatar_id.clone(), 
             params,
         }));
 
-        id
+        avatar_id
     }
 
     pub(super) fn get_entity_params(&mut self, entity: Entity) -> Option<ParamClassContainer> {
@@ -233,6 +185,7 @@ impl Zone {
                 EntityType::MinigameScoreBoard => MinigameScoreBoardParam::from_component(&self.world, entity).unwrap().into(),
                 EntityType::PresetPoint => PresetPointParam::from_component(&self.world, entity).unwrap().into(),
                 EntityType::Door => DoorParam::from_component(&self.world, entity).unwrap().into(),
+                EntityType::CTFGameFlag => CtfGameFlagParam::from_component(&self.world, entity).unwrap().into(),
                 EntityType::ServerGateway => ServerGatewayParam::from_component(&self.world, entity).unwrap().into(),
                 EntityType::ServerGatewayExitPhase => ServerGatewayExitPhaseParam::from_component(&self.world, entity).unwrap().into(),
                 EntityType::NonSpawnPlacement => NonSpawnPlacementParam::from_component(&self.world, entity).unwrap().into(),
@@ -258,7 +211,7 @@ impl Zone {
 
         let cycle_duration = Instant::now().duration_since(start_time);
         if cycle_duration.as_millis() >= 30 {
-            warn!(zone = self.zone_def.guid.to_string(); "Zone update cycle can't keep up! Took {}ms", cycle_duration.as_millis());
+            warn!(zone = self.factory.zone_def().guid.to_string(); "Zone update cycle can't keep up! Took {}ms", cycle_duration.as_millis());
         }
     }
 
@@ -274,16 +227,16 @@ impl Zone {
             character.data.set_player_node_state(2);
 
             // update zone if stored zone differs
-            if character.data.zone_guid().unwrap_or(&Uuid::default()) != &self.zone_def.guid {
+            if character.data.zone_guid().unwrap_or(&Uuid::default()) != &self.factory.zone_def().guid {
                 // special case if the player comes from class selection,
                 // perform some setup in that case.
                 if character.data.zone_guid().unwrap_or(&Uuid::default()) == &Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap() {
                     character.data.set_hp_cur(character.data.hp_max().unwrap_or_default());
                 }
 
-                character.data.set_zone(&self.zone_def.zone);
-                character.data.set_zone_guid(self.zone_def.guid.clone());
-                character.data.set_world_map_guid(&self.world_def.umap_guid.to_string());
+                character.data.set_zone(&self.factory.zone_def().zone);
+                character.data.set_zone_guid(self.factory.zone_def().guid.clone());
+                character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
 
                 character.data.set_pos(self.default_pos.clone());
                 character.data.set_rot(self.default_rot.clone());

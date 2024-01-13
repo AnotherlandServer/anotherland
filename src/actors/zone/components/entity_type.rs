@@ -13,8 +13,36 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod session_handler;
-mod zone_factory;
-
-pub use session_handler::*;
-pub use zone_factory::*;
+#[derive(PartialEq, Eq)]
+pub enum EntityType {
+    Player,
+    Spawner,
+    NpcOtherland,
+    Structure,
+    Portal,
+    StartingPoint,
+    Trigger,
+    ChessPiece,
+    Ship,
+    Planet,
+    InteractObject,
+    PatrolNode,
+    SpawnNode,
+    MinigameInfo,
+    ChessMetaGameLogic,
+    EDNAContainer,
+    BilliardBall,
+    OtherlandStructure,
+    MinigameScoreBoard,
+    PresetPoint,
+    Door,
+    CTFGameFlag,
+    ServerGateway,
+    ServerGatewayExitPhase,
+    NonSpawnPlacement,
+    MyLandSettings,
+    WorldDisplay,
+    MypadRoomDoor,
+    QuestBeacon,
+    CustomTrigger,
+}

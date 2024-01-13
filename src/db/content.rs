@@ -26,7 +26,7 @@ use crate::util::AnotherlandResult;
 
 use super::DatabaseRecord;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Content {
     pub id: i64,
     pub guid: Uuid,
@@ -36,7 +36,7 @@ pub struct Content {
 }
 
 // buffs
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct BuffContent(Content);
 
 impl Deref for BuffContent {
@@ -79,7 +79,7 @@ impl BuffContent {
 }
 
 // drops
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct DropsContent(Content);
 
 impl Deref for DropsContent {
@@ -122,7 +122,7 @@ impl DropsContent {
 }
 
 // factions
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct FactionContent(Content);
 
 impl Deref for FactionContent {
@@ -165,7 +165,7 @@ impl FactionContent {
 }
 
 // items
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ItemContent(Content);
 
 impl Deref for ItemContent {
@@ -215,7 +215,7 @@ impl ItemContent {
 }
 
 // items
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct NpcContent(Content);
 
 impl Deref for NpcContent {
@@ -258,7 +258,7 @@ impl NpcContent {
 }
 
 // spawners
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SpawnerContent(Content);
 
 impl Deref for SpawnerContent {
@@ -301,7 +301,7 @@ impl SpawnerContent {
 }
 
 // structures
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct StructureContent(Content);
 
 impl Deref for StructureContent {
@@ -344,7 +344,7 @@ impl StructureContent {
 }
 
 // misc
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct MiscContent(Content);
 
 impl Deref for MiscContent {

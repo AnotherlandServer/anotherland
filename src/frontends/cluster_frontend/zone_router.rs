@@ -29,7 +29,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::cluster::RemoteActorRef;
 use crate::util::{AnotherlandErrorKind, AnotherlandError};
-use crate::{util::AnotherlandResult, components::ZoneRegistry, NODE};
+use crate::{util::AnotherlandResult, actors::ZoneRegistry, NODE};
 use crate::frontends::{ZoneServerClient, ZoneMessage};
 
 enum ZoneRouterCommand {

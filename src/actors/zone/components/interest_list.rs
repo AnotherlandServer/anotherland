@@ -13,35 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[derive(PartialEq, Eq)]
-pub enum EntityType {
-    Player,
-    Spawner,
-    NpcOtherland,
-    Structure,
-    Portal,
-    StartingPoint,
-    Trigger,
-    ChessPiece,
-    Ship,
-    Planet,
-    InteractObject,
-    PatrolNode,
-    SpawnNode,
-    MinigameInfo,
-    ChessMetaGameLogic,
-    EDNAContainer,
-    BilliardBall,
-    OtherlandStructure,
-    MinigameScoreBoard,
-    PresetPoint,
-    Door,
-    ServerGateway,
-    ServerGatewayExitPhase,
-    NonSpawnPlacement,
-    MyLandSettings,
-    WorldDisplay,
-    MypadRoomDoor,
-    QuestBeacon,
-    CustomTrigger,
+use atlas::{AvatarId, ParamClass};
+use glam::Vec3;
+use tokio::sync::mpsc;
+
+pub enum InterestEvent {
+    InterestAdded { ids: Vec<AvatarId> },
+    InterestRemoved { ids: Vec<AvatarId> },
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::actors::zone) struct InterestList {
+    pub interests: Vec<AvatarId>,
+    pub update_sender: mpsc::Sender<InterestEvent>,
 }

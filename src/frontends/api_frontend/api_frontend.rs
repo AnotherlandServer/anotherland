@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use poem::{Server, Route, get, handler, IntoResponse, web::Html, listener::TcpListener};
 use tokio_util::sync::CancellationToken;
 
-use crate::{cluster::frontend::Frontend, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}, CONF, NODE, components::Authenticator};
+use crate::{cluster::frontend::Frontend, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}, CONF, NODE, actors::Authenticator};
 
 use super::schema::{QueryRoot, MutationRoot};
 

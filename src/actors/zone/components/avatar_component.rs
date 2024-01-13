@@ -13,17 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{AvatarId, ParamClass};
+use atlas::AvatarId;
 use glam::Vec3;
-use tokio::sync::mpsc;
-
-pub enum InterestEvent {
-    InterestAdded { ids: Vec<AvatarId> },
-    InterestRemoved { ids: Vec<AvatarId> },
-}
 
 #[derive(Clone, Debug)]
-pub(in crate::components::zone) struct InterestList {
-    pub interests: Vec<AvatarId>,
-    pub update_sender: mpsc::Sender<InterestEvent>,
+pub(in crate::actors::zone) struct AvatarComponent {
+    pub id: AvatarId,
+    pub name: String,
+    pub phase_tag: String,
 }

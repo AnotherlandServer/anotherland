@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{time::Duration, net::{SocketAddrV4, SocketAddr}};
+use std::{time::Duration, net::{SocketAddrV4, SocketAddr}, sync::Arc};
 
 use async_trait::async_trait;
 use atlas::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetPeer}, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktRealmStatusList, RealmStatus, oaCharacter, BoundParamClass, CPktStream_126_1, oaPktCharacterFailure, OaPktCharacterFailureErrorCode, CPktStream_126_5, oaPktCharacterDeleteSuccess, oaPktResponseSelectWorld, OaPktResponseSelectWorldErrorCode, Player, oaPktCharacterSelectSuccess};
@@ -21,20 +21,17 @@ use bitstream_io::{ByteWriter, LittleEndian};
 use futures::future::Remote;
 use log::{error, debug, warn};
 use mongodb::Database;
-use tokio::{time::{self, Interval}, select};
+use tokio::{time::{self, Interval}, select, sync::RwLock};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, MessageQueueProducer, connect_queue, MessageChannel, ClusterMessage, RemoteActorRef, ActorRef}, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}, components::{Authenticator, LoginResult, SessionHandler, RealmList, Realm}, CONF, NODE, db::{Session, Character, WorldDef, realm_database, DatabaseRecord}, ARGS};
+use crate::{cluster::{frontend::Frontend, MessageQueueProducer, connect_queue, MessageChannel, ClusterMessage, RemoteActorRef, ActorRef}, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}, actors::{Authenticator, LoginResult, RealmList, Realm}, CONF, NODE, db::{Session, Character, WorldDef, realm_database, DatabaseRecord}, ARGS, components::SessionHandler};
 
-#[derive(Default)]
-struct RealmFrontendData {
-}
 
 pub struct RealmFrontend {
     //listener: RakNetListener,
     realm_db: Database,
     realm: Option<RemoteActorRef<Realm>>,
-    session_handler: Option<ActorRef<SessionHandler<RealmFrontendData>>>,
+    session_handler: Arc<RwLock<SessionHandler>>,
     heartbeat_interval: Interval,
     cluster_sender: MessageQueueProducer,
     tasks: TaskTracker,
@@ -46,7 +43,7 @@ impl RealmFrontend {
             //listener: RakNetListener::bind(CONF.realm.listen_address).await?,
             realm_db: realm_database().await,
             realm: None,
-            session_handler: None,
+            session_handler: SessionHandler::new(),
             heartbeat_interval: time::interval(Duration::from_secs(1)),
             cluster_sender: connect_queue(MessageChannel::ClusterChannel).await?.0,
             tasks: TaskTracker::new(),
@@ -54,7 +51,7 @@ impl RealmFrontend {
     }
 
     async fn send_heartbeat(&self, addr: &SocketAddr) {
-        let active_sessions = self.session_handler.as_ref().unwrap().active_sessions().await;
+        let active_sessions = self.session_handler.read().await.active_sessions();
 
         let _ = self.cluster_sender.send(ClusterMessage::RealmServerHearthbeat { 
             realm_id: CONF.realm.id, 
@@ -72,7 +69,6 @@ impl Frontend for RealmFrontend {
     async fn starting(&mut self) -> AnotherlandResult<()> { 
         //self.listener.listen(CONF.realm.listen_address).await?;
         self.realm = Some(NODE.get_remote_actor("realm").unwrap());
-        self.session_handler = Some(NODE.add_actor(SessionHandler::initialize("realm_session_handler").await));
 
         Ok(())
     }
@@ -86,7 +82,7 @@ impl Frontend for RealmFrontend {
                     let mut client_session = RealmFrontendSession {
                         realm_db: self.realm_db.clone(),
                         realm: self.realm.as_ref().unwrap().clone(),
-                        session_handler: self.session_handler.as_ref().unwrap().clone(),
+                        session_handler: self.session_handler.clone(),
                     };
         
                     self.tasks.spawn(async move {
@@ -105,8 +101,10 @@ impl Frontend for RealmFrontend {
                         }
         
                         debug!("Stopping client netloop");
+
+                        let mut session_handler_s = client_session.session_handler.write().await;
         
-                        if let Ok(session_ref_s) = client_session.session_handler.get(peer.id().clone()).await {
+                        if let Ok(session_ref_s) = session_handler_s.get(peer.id().clone()) {
                             let session_ref = session_ref_s.lock().await;
 
                             // destroy session if the client disconnects without selecting a zone,
@@ -115,9 +113,9 @@ impl Frontend for RealmFrontend {
                             if session_ref.session().zone_guid.is_some() {
                                 drop(session_ref); // explicitly drop session_ref to avoid a deadlock
 
-                                client_session.session_handler.forget_peer(peer.id().clone()).await;
+                                session_handler_s.forget_peer(peer.id().clone()).await;
                             } else {
-                                let _ = client_session.session_handler.destroy_session(session_ref.session().id.into()).await;
+                                let _ = session_handler_s.destroy_session(session_ref.session().id.into()).await;
                             }
                         } else {
                             debug!("Client session not found during disconnect!");
@@ -150,7 +148,7 @@ impl Frontend for RealmFrontend {
 struct RealmFrontendSession {
     realm_db: Database,
     realm: RemoteActorRef<Realm>,
-    session_handler: ActorRef<SessionHandler<RealmFrontendData>>,
+    session_handler: Arc<RwLock<SessionHandler>>,
 }
 
 impl RealmFrontendSession {
@@ -159,7 +157,7 @@ impl RealmFrontendSession {
 
         match message {
             AtlasPkt(CPkt::oaPktRequestCharacterList(pkt)) => {
-                let session_ref_s = self.session_handler.initiate(peer.id().clone(), pkt.session_id, pkt.magic_bytes).await?;
+                let session_ref_s = self.session_handler.write().await.initiate(peer.id().clone(), pkt.session_id, pkt.magic_bytes).await?;
                 let session_ref = session_ref_s.lock().await;
 
                 let characters: Vec<_> = self.realm.get_characters(session_ref.session().clone()).await?.into_iter().map(|c| {
@@ -185,7 +183,7 @@ impl RealmFrontendSession {
                 Ok(())
             },
             AtlasPkt(CPkt::oaPktCharacterCreate(pkt)) => {
-                let session_ref_s = self.session_handler.get(peer.id().clone()).await?;
+                let session_ref_s = self.session_handler.read().await.get(peer.id().clone())?;
                 let session_ref = session_ref_s.lock().await;
 
                 match self.realm.create_character(session_ref.session().clone(), pkt.character_name).await {
@@ -225,7 +223,7 @@ impl RealmFrontendSession {
                 Ok(())
             },
             AtlasPkt(CPkt::oaPktCharacterDelete(pkt)) => {
-                let session_ref_s = self.session_handler.get(peer.id().clone()).await?;
+                let session_ref_s = self.session_handler.read().await.get(peer.id().clone())?;
                 let session_ref = session_ref_s.lock().await;
 
                 if let Ok(_) = self.realm.delete_character(session_ref.session().clone(), pkt.character_id).await {
@@ -243,7 +241,7 @@ impl RealmFrontendSession {
                 Ok(())
             },
             AtlasPkt(CPkt::oaPktRequestSelectWorld(pkt)) => {
-                let session_ref_s = self.session_handler.get(peer.id().clone()).await?;
+                let session_ref_s = self.session_handler.read().await.get(peer.id().clone())?;
                 let mut session_ref = session_ref_s.lock().await;
 
                 match WorldDef::get(self.realm_db.clone(), &pkt.world_id).await? {
@@ -280,7 +278,7 @@ impl RealmFrontendSession {
                 Ok(())
             },
             AtlasPkt(CPkt::oaPktCharacterSelect(pkt)) => {
-                let session_ref_s = self.session_handler.get(peer.id().clone()).await?;
+                let session_ref_s = self.session_handler.read().await.get(peer.id().clone())?;
                 let mut session_ref = session_ref_s.lock().await;
 
                 if session_ref.session().world_id.is_none() {

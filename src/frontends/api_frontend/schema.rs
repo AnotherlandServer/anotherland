@@ -18,7 +18,7 @@ use atlas::Uuid;
 use chrono::{DateTime, Utc};
 use serde_derive::{Serialize, Deserialize};
 
-use crate::{cluster::RemoteActorRef, components::Authenticator};
+use crate::{cluster::RemoteActorRef, actors::Authenticator};
 
 pub struct QueryRoot;
 pub struct MutationRoot;

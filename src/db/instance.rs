@@ -18,15 +18,16 @@ use std::ops::DerefMut;
 
 use async_trait::async_trait;
 use bson::{Document, doc};
+use log::{warn, debug};
 use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
-use atlas::{ParamClassContainer, NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, AnyClass, SpawnNodeParam, BoundParamClass, ParamEntity, ParamError, ParamClass, InteractObject, PatrolNodeParam, SpawnerParam, InteractObjectParam, EdnaContainerParam, ShipParam, MinigameInfoParam, MinigameScoreBoardParam, ChessPieceParam, NonSpawnPlacementParam, ServerGatewayExitPhaseParam, PresetPointParam, DoorParam, MyLandSettingsParam, ServerGatewayParam, QuestBeaconParam, OtherlandStructureParam, PlanetParam, ChessMetaGameLogicParam, MypadRoomDoorParam, BilliardBallParam, CustomTriggerParam, WorldDisplayParam, Uuid};
+use atlas::{ParamClassContainer, NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, AnyClass, SpawnNodeParam, BoundParamClass, ParamEntity, ParamError, ParamClass, InteractObject, PatrolNodeParam, SpawnerParam, InteractObjectParam, EdnaContainerParam, ShipParam, MinigameInfoParam, MinigameScoreBoardParam, ChessPieceParam, NonSpawnPlacementParam, ServerGatewayExitPhaseParam, PresetPointParam, DoorParam, MyLandSettingsParam, ServerGatewayParam, QuestBeaconParam, OtherlandStructureParam, PlanetParam, ChessMetaGameLogicParam, MypadRoomDoorParam, BilliardBallParam, CustomTriggerParam, WorldDisplayParam, Uuid, CtfGameFlagParam};
 use atlas::NonClientBase;
-use crate::util::AnotherlandResult;
+use crate::util::{AnotherlandResult, AnotherlandError};
 
-use super::{DatabaseRecord, Content};
+use super::{DatabaseRecord, Content, SpawnerContent, NpcContent, StructureContent};
 
 #[derive(Serialize, Deserialize)]
 pub struct RawInstance {
@@ -58,43 +59,50 @@ impl DatabaseRecord<'_> for RawInstance {
 }
 
 pub enum Instance {
-    Spawner { guid: Uuid, content_guid: Uuid, name: String, data: SpawnerParam, phase_tag: String }, // 44
-    Npc { guid: Uuid, content_guid: Uuid, name: String, data: NpcOtherlandParam, phase_tag: String }, // 47
-    Structure { guid: Uuid, content_guid: Uuid, name: String, data: StructureParam, phase_tag: String }, // 55
-    Portal { guid: Uuid, content_guid: Uuid, name: String, data: PortalParam, phase_tag: String }, // 56
-    StartingPoint { guid: Uuid, content_guid: Uuid, name: String, data: StartingPointParam, phase_tag: String }, // 57
-    Trigger { guid: Uuid, content_guid: Uuid, name: String, data: TriggerParam, phase_tag: String }, // 61
-    ChessPiece { guid: Uuid, content_guid: Uuid, name: String, data: ChessPieceParam, phase_tag: String }, // 62
-    Ship { guid: Uuid, content_guid: Uuid, name: String, data: ShipParam, phase_tag: String }, // 66
-    Planet { guid: Uuid, content_guid: Uuid, name: String, data: PlanetParam, phase_tag: String }, // 67
-    InteractObject  { guid: Uuid, content_guid: Uuid, name: String, data: InteractObjectParam, phase_tag: String }, // 68
-    PatrolNode { guid: Uuid, content_guid: Uuid, name: String, data: PatrolNodeParam, phase_tag: String }, // 70
-    SpawnNode { guid: Uuid, content_guid: Uuid, name: String, data: SpawnNodeParam, phase_tag: String }, // 77
-    MinigameInfo { guid: Uuid, content_guid: Uuid, name: String, data: MinigameInfoParam, phase_tag: String }, // 104
-    ChessMetaGameLogic { guid: Uuid, content_guid: Uuid, name: String, data: ChessMetaGameLogicParam, phase_tag: String }, // 105
-    EDNAContainer { guid: Uuid, content_guid: Uuid, name: String, data: EdnaContainerParam, phase_tag: String }, // 109
-    /**/ BilliardBall { guid: Uuid, content_guid: Uuid, name: String, data: BilliardBallParam, phase_tag: String }, // 114
-    OtherlandStructure { guid: Uuid, content_guid: Uuid, name: String, data: OtherlandStructureParam, phase_tag: String }, // 121
-    MinigameScoreBoard { guid: Uuid, content_guid: Uuid, name: String, data: MinigameScoreBoardParam, phase_tag: String }, // 122
-    PresetPoint { guid: Uuid, content_guid: Uuid, name: String, data: PresetPointParam, phase_tag: String }, // 124
-    Door { guid: Uuid, content_guid: Uuid, name: String, data: DoorParam, phase_tag: String }, // 127
-    ServerGateway { guid: Uuid, content_guid: Uuid, name: String, data: ServerGatewayParam, phase_tag: String }, // 129
-    ServerGatewayExitPhase { guid: Uuid, content_guid: Uuid, name: String, data: ServerGatewayExitPhaseParam, phase_tag: String }, // 130
-    NonSpawnPlacement { guid: Uuid, content_guid: Uuid, name: String, data: NonSpawnPlacementParam, phase_tag: String }, // 132
-    MyLandSettings { guid: Uuid, content_guid: Uuid, name: String, data: MyLandSettingsParam, phase_tag: String }, // 135
-    /**/ WorldDisplay { guid: Uuid, content_guid: Uuid, name: String, data: WorldDisplayParam, phase_tag: String }, // 146
-    MypadRoomDoor { guid: Uuid, content_guid: Uuid, name: String, data: MypadRoomDoorParam, phase_tag: String }, // 154
-    QuestBeacon { guid: Uuid, content_guid: Uuid, name: String, data: QuestBeaconParam, phase_tag: String }, // 178
-    /**/ CustomTrigger { guid: Uuid, content_guid: Uuid, name: String, data: CustomTriggerParam, phase_tag: String }, // 192
+    Spawner { guid: Uuid, content_guid: Uuid, name: String, data: SpawnerParam, phase_tag: String, content: SpawnerContent }, // 44
+    Npc { guid: Uuid, content_guid: Uuid, name: String, data: NpcOtherlandParam, phase_tag: String, content: NpcContent }, // 47
+    Structure { guid: Uuid, content_guid: Uuid, name: String, data: StructureParam, phase_tag: String, content: StructureContent }, // 55
+    Portal { guid: Uuid, content_guid: Uuid, name: String, data: PortalParam, phase_tag: String, content: StructureContent }, // 56
+    StartingPoint { guid: Uuid, content_guid: Uuid, name: String, data: StartingPointParam, phase_tag: String, content: StructureContent }, // 57
+    Trigger { guid: Uuid, content_guid: Uuid, name: String, data: TriggerParam, phase_tag: String, content: StructureContent }, // 61
+    ChessPiece { guid: Uuid, content_guid: Uuid, name: String, data: ChessPieceParam, phase_tag: String, content: StructureContent }, // 62
+    Ship { guid: Uuid, content_guid: Uuid, name: String, data: ShipParam, phase_tag: String, content: StructureContent }, // 66
+    Planet { guid: Uuid, content_guid: Uuid, name: String, data: PlanetParam, phase_tag: String, content: StructureContent }, // 67
+    InteractObject  { guid: Uuid, content_guid: Uuid, name: String, data: InteractObjectParam, phase_tag: String, content: StructureContent }, // 68
+    PatrolNode { guid: Uuid, content_guid: Uuid, name: String, data: PatrolNodeParam, phase_tag: String, content: StructureContent }, // 70
+    SpawnNode { guid: Uuid, content_guid: Uuid, name: String, data: SpawnNodeParam, phase_tag: String, content: StructureContent }, // 77
+    MinigameInfo { guid: Uuid, content_guid: Uuid, name: String, data: MinigameInfoParam, phase_tag: String, content: StructureContent }, // 104
+    ChessMetaGameLogic { guid: Uuid, content_guid: Uuid, name: String, data: ChessMetaGameLogicParam, phase_tag: String, content: StructureContent }, // 105
+    EDNAContainer { guid: Uuid, content_guid: Uuid, name: String, data: EdnaContainerParam, phase_tag: String, content: StructureContent }, // 109
+    BilliardBall { guid: Uuid, content_guid: Uuid, name: String, data: BilliardBallParam, phase_tag: String, content: StructureContent }, // 114
+    OtherlandStructure { guid: Uuid, content_guid: Uuid, name: String, data: OtherlandStructureParam, phase_tag: String, content: StructureContent }, // 121
+    MinigameScoreBoard { guid: Uuid, content_guid: Uuid, name: String, data: MinigameScoreBoardParam, phase_tag: String, content: StructureContent }, // 122
+    PresetPoint { guid: Uuid, content_guid: Uuid, name: String, data: PresetPointParam, phase_tag: String, content: StructureContent }, // 124
+    Door { guid: Uuid, content_guid: Uuid, name: String, data: DoorParam, phase_tag: String, content: StructureContent }, // 127
+    CTFGameFlag { guid: Uuid, content_guid: Uuid, name: String, data: CtfGameFlagParam, phase_tag: String, content: StructureContent }, // 128
+    ServerGateway { guid: Uuid, content_guid: Uuid, name: String, data: ServerGatewayParam, phase_tag: String, content: StructureContent }, // 129
+    ServerGatewayExitPhase { guid: Uuid, content_guid: Uuid, name: String, data: ServerGatewayExitPhaseParam, phase_tag: String, content: StructureContent }, // 130
+    NonSpawnPlacement { guid: Uuid, content_guid: Uuid, name: String, data: NonSpawnPlacementParam, phase_tag: String, content: StructureContent }, // 132
+    MyLandSettings { guid: Uuid, content_guid: Uuid, name: String, data: MyLandSettingsParam, phase_tag: String, content: StructureContent }, // 135
+    WorldDisplay { guid: Uuid, content_guid: Uuid, name: String, data: WorldDisplayParam, phase_tag: String, content: StructureContent }, // 146
+    MypadRoomDoor { guid: Uuid, content_guid: Uuid, name: String, data: MypadRoomDoorParam, phase_tag: String, content: StructureContent }, // 154
+    QuestBeacon { guid: Uuid, content_guid: Uuid, name: String, data: QuestBeaconParam, phase_tag: String, content: StructureContent }, // 178
+    CustomTrigger { guid: Uuid, content_guid: Uuid, name: String, data: CustomTriggerParam, phase_tag: String, content: StructureContent }, // 192
 }
 
 impl Instance {
     pub async fn load_for_zone(db: Database, zone: &Uuid) -> AnotherlandResult<Vec<Instance>> {
         let mut rows = Vec::new();
 
-        let mut result = RawInstance::collection(db).find(doc!{"zone_guid": {"$eq": zone}}, None).await?;
+        let mut result = RawInstance::collection(db.clone()).find(doc!{"zone_guid": {"$eq": zone}}, None).await?;
         while let Some(row) = result.try_next().await? {
-            rows.push(row.into());
+            let content_guid = row.content_guid.clone();
+
+            if let Some(instance) = Instance::from_raw_instance(db.clone(), row).await? {
+                rows.push(instance);
+            } else {
+                warn!("Content {} not found", content_guid);
+            }
         }
 
         Ok(rows)
@@ -122,6 +130,7 @@ impl Instance {
             Self::MinigameScoreBoard { guid, .. } => guid,
             Self::PresetPoint { guid, .. } => guid,
             Self::Door { guid, .. } => guid,
+            Self::CTFGameFlag { guid, .. } => guid,
             Self::ServerGateway { guid, .. } => guid,
             Self::ServerGatewayExitPhase { guid, .. } => guid,
             Self::NonSpawnPlacement { guid, .. } => guid,
@@ -155,6 +164,7 @@ impl Instance {
             Self::MinigameScoreBoard { content_guid, .. } => content_guid,
             Self::PresetPoint { content_guid, .. } => content_guid,
             Self::Door { content_guid, .. } => content_guid,
+            Self::CTFGameFlag { content_guid, .. } => content_guid,
             Self::ServerGateway { content_guid, .. } => content_guid,
             Self::ServerGatewayExitPhase { content_guid, .. } => content_guid,
             Self::NonSpawnPlacement { content_guid, .. } => content_guid,
@@ -188,6 +198,7 @@ impl Instance {
             Self::MinigameScoreBoard { data, .. } => *data.enable_in_game().unwrap_or(&true),
             Self::PresetPoint { data, .. } => *data.enable_in_game().unwrap_or(&true),
             Self::Door { data, .. } => *data.enable_in_game().unwrap_or(&true),
+            Self::CTFGameFlag { data, .. } => *data.enable_in_game().unwrap_or(&true),
             Self::ServerGateway { data, .. } => *data.enable_in_game().unwrap_or(&true),
             Self::ServerGatewayExitPhase { data, .. } => *data.enable_in_game().unwrap_or(&true),
             Self::NonSpawnPlacement { .. } => true,
@@ -241,6 +252,7 @@ impl Instance {
             Self::MinigameScoreBoard { data, .. } => data.as_anyclass(),
             Self::PresetPoint { data, .. } => data.as_anyclass(),
             Self::Door { data, .. } => data.as_anyclass(),
+            Self::CTFGameFlag { data, .. } => data.as_anyclass(),
             Self::ServerGateway { data, .. } => data.as_anyclass(),
             Self::ServerGatewayExitPhase { data, .. } => data.as_anyclass(),
             Self::NonSpawnPlacement { data, .. } => data.as_anyclass(),
@@ -251,293 +263,478 @@ impl Instance {
             Self::CustomTrigger { data, .. } => data.as_anyclass(),
         }
     }
-}
 
-impl From<RawInstance> for Instance {
-    fn from(value: RawInstance) -> Self {
-        match value.class {
-            44 => Instance::Spawner { 
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(SpawnerParam::new()), 
-                phase_tag: value.phase_tag
+    async fn from_raw_instance(db: Database, value: RawInstance) -> AnotherlandResult<Option<Self>> {
+        Ok(match value.class {
+            44 => 
+                if let Some(content) = SpawnerContent::get(db, &value.content_guid).await? {
+                    Some(Instance::Spawner { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(SpawnerParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            47 => 
+                if let Some(content) = NpcContent::get(db, &value.content_guid).await? {
+                    Some(Instance::Npc { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(NpcOtherlandParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            55 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::Structure { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(StructureParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            56 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::Portal { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(PortalParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            57 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::StartingPoint { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(StartingPointParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            61 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::Trigger { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(TriggerParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            62 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::ChessPiece { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(ChessPieceParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            66 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::Ship { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(ShipParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            67 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::Planet { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(PlanetParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            68 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::InteractObject { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(InteractObjectParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            70 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::PatrolNode { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(PatrolNodeParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            71 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::SpawnNode { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(SpawnNodeParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            104 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::MinigameInfo { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(MinigameInfoParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            105 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::ChessMetaGameLogic { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(ChessMetaGameLogicParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            109 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::EDNAContainer { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(EdnaContainerParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            114 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::BilliardBall { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(BilliardBallParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            121 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::OtherlandStructure { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(OtherlandStructureParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            122 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::MinigameScoreBoard { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(MinigameScoreBoardParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            124 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::PresetPoint { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(PresetPointParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            127 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::Door { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(DoorParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            128 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::CTFGameFlag { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(CtfGameFlagParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            129 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::ServerGateway { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(ServerGatewayParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            130 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::ServerGatewayExitPhase { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(ServerGatewayExitPhaseParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            132 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::NonSpawnPlacement { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(NonSpawnPlacementParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            135 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::MyLandSettings { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(MyLandSettingsParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            136 => {
+                debug!("Class 136 (LocalTacticNode) not implemented!");
+                None
             },
-            47 => Instance::Npc { 
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(NpcOtherlandParam::new()), 
-                phase_tag: value.phase_tag
-            },
-            55 => Instance::Structure { 
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(StructureParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            56 => Instance::Portal {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(PortalParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            57 => Instance::StartingPoint {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(StartingPointParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            61 => Instance::Trigger {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(TriggerParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            62 => Instance::ChessPiece {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(ChessPieceParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            66 => Instance::Ship {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(ShipParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            67 => Instance::Planet {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(PlanetParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            68 => Instance::InteractObject {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(InteractObjectParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            70 => Instance::PatrolNode {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(PatrolNodeParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            71 => Instance::SpawnNode {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(SpawnNodeParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            104 => Instance::MinigameInfo {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(MinigameInfoParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            105 => Instance::ChessMetaGameLogic {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(ChessMetaGameLogicParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            109 => Instance::EDNAContainer {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(EdnaContainerParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            114 => Instance::BilliardBall {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(BilliardBallParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            121 => Instance::OtherlandStructure {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(OtherlandStructureParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            122 => Instance::MinigameScoreBoard {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(MinigameScoreBoardParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            124 => Instance::PresetPoint {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(PresetPointParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            127 => Instance::Door {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(DoorParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            129 => Instance::ServerGateway {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(ServerGatewayParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            130 => Instance::ServerGatewayExitPhase {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(ServerGatewayExitPhaseParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            132 => Instance::NonSpawnPlacement {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(NonSpawnPlacementParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            135 => Instance::MyLandSettings {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(MyLandSettingsParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            146 => Instance::WorldDisplay {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(WorldDisplayParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            154 => Instance::MypadRoomDoor { 
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name, 
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(MypadRoomDoorParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            178 => Instance::QuestBeacon {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(QuestBeaconParam::new()), 
-                phase_tag: value.phase_tag 
-            },
-            192 => Instance::CustomTrigger {
-                guid: value.guid, 
-                content_guid: value.content_guid, 
-                name: value.editor_name,
-                data: value.data.map(|v| 
-                    v.try_into()
-                    .expect("unexpected param class")
-                ).unwrap_or(CustomTriggerParam::new()), 
-                phase_tag: value.phase_tag 
-            },
+            146 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::WorldDisplay { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(WorldDisplayParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            154 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::MypadRoomDoor { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(MypadRoomDoorParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            178 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::QuestBeacon { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(QuestBeaconParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
+            192 => 
+                if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
+                    Some(Instance::CustomTrigger { 
+                        guid: value.guid, 
+                        content_guid: value.content_guid.clone(), 
+                        name: value.editor_name,
+                        data: value.data.map(|v| 
+                            v.try_into()
+                            .expect("unexpected param class")
+                        ).unwrap_or(CustomTriggerParam::new()), 
+                        phase_tag: value.phase_tag,
+                        content,
+                    })
+                } else {
+                    None
+                },
             _ => todo!("loader for content class {}", value.class),
-        }
+        })
     }
 }
-

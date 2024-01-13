@@ -19,15 +19,18 @@ use async_trait::async_trait;
 use futures::Future;
 use tokio::sync::mpsc;
 
-use crate::util::AnotherlandResult;
+use crate::{util::AnotherlandResult, cluster::ActorRef};
 
 use super::ActorErr;
 
 #[async_trait]
 pub trait Actor: Send {
-    fn name(&self) -> &str;
+    type ActorType: ActorHandler + Send + Sync;
+
+    fn name(&self) -> Option<&str>;
+
     async fn starting(&mut self) -> AnotherlandResult<()> { Ok(()) }
-    async fn started(&mut self) -> AnotherlandResult<()> { Ok(()) }
+    async fn started(&mut self, handle: ActorRef<Self::ActorType>) -> AnotherlandResult<()> { Ok(()) }
 
     /// Stopping MUST be cancel safe to avoid blocking the main event loop
     async fn stopping(&mut self) -> AnotherlandResult<()> { Ok(()) }

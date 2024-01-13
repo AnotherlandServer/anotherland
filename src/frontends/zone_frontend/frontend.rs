@@ -16,38 +16,48 @@
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, IpAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}, thread};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate, CpktServerNotifyNotifyType, Uuid, MoveManagerInit, oaPktDialogEnd, oaPktAvatarTellBehaviorBinary, oaPkt_SplineSurfing_Acknowledge};
+use atlas::{raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate, CpktServerNotifyNotifyType, Uuid, MoveManagerInit, oaPktDialogEnd, oaPktAvatarTellBehaviorBinary, oaPkt_SplineSurfing_Acknowledge, OaZoneConfig};
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use glam::Vec3;
 use log::{debug, error, trace, warn, info};
 use mongodb::change_stream::session;
 use quinn::{ServerConfig, Endpoint};
-use tokio::{sync::{Mutex, OnceCell, mpsc::{self, Sender}}, net::{TcpListener, TcpStream, UdpSocket}, time::{Interval, self}, select, task};
+use tokio::{sync::{Mutex, OnceCell, mpsc::{self, Sender}, RwLock}, net::{TcpListener, TcpStream, UdpSocket}, time::{Interval, self}, select, task};
 use tokio_util::{task::TaskTracker, sync::CancellationToken, udp::UdpFramed};
 
-use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, components::{Zone, ZoneRegistry, SessionHandler, SessionRef, ZoneEvent, InterestEvent, Movement, PhysicsState}, NODE, CLUSTER_CERT};
+use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, actors::{Zone, ZoneRegistry, ZoneEvent, InterestEvent, Movement, PhysicsState, SessionManager}, NODE, CLUSTER_CERT, components::{SessionHandler, SessionRef, ZoneFactory}};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneServerListener, ZoneMessage, load_state::ClientLoadState};
 
+#[derive(Clone)]
+enum ZoneInstance {
+    Persistent(ActorRef<Zone>),
+    Instance(ActorRef<Zone>),
+}
+
+impl ZoneInstance {
+    pub fn zone(&mut self) -> &mut ActorRef<Zone> {
+        match self {
+            Self::Persistent(zone) => zone,
+            Self::Instance(zone) => zone,
+        }
+    }
+}
+
 pub struct ZoneFrontend {
     name: String,
-    zone_def: Arc<ZoneDef>,
-    zone: ActorRef<Zone>,
-    //movement_manager: ActorRef<MovementManager>,
+    factory: ZoneFactory,
+    instances: Arc<Mutex<HashMap<Uuid, ZoneInstance>>>,
     tasks: TaskTracker,
 }
 
 impl ZoneFrontend {
     pub async fn initialize(world_def: WorldDef, zone_def: ZoneDef) -> AnotherlandResult<Self> {
-        let zone = NODE.add_actor(Zone::initialize(world_def, zone_def.clone()).await?);
-        //let movement_manager = NODE.add_actor(MovementManager::initialize(format!("mm_{}", zone_def.guid).as_str(), zone.clone()).await?);
-
         Ok(Self {
             name: format!("zone_server_{}", zone_def.guid),
-            zone_def: Arc::new(zone_def),
-            zone,
-            //movement_manager,
+            factory: ZoneFactory::new(realm_database().await, world_def, zone_def).await?,
+            instances: Arc::new(Mutex::new(HashMap::new())),
             tasks: TaskTracker::new(),
         })
     }
@@ -58,8 +68,6 @@ impl Frontend for ZoneFrontend {
     fn name(&self) -> &str { self.name.as_str() }
 
     async fn starting(&mut self) -> AnotherlandResult<()> { 
-        //let _ = self.zone.set(NODE.add_actor(Zone::initialize(self.zone_def.as_ref().clone()).await?));
-
         Ok(()) 
     }
 
@@ -79,7 +87,7 @@ impl Frontend for ZoneFrontend {
         let mut zone_registry = NODE.get_remote_actor::<ZoneRegistry>("zone_registry").ok_or(AnotherlandErrorKind::ApplicationError)?;
         let mut registration_update_interval = time::interval(Duration::from_secs(1));
 
-        let session_handler = NODE.add_actor(SessionHandler::<()>::initialize(format!("zone_{}_session_handler", self.zone_def.guid).as_str()).await);
+        let session_handler = SessionHandler::new();
 
         'accept_loop: loop {
             select! {
@@ -87,8 +95,8 @@ impl Frontend for ZoneFrontend {
                     if let Some(mut connection) = res {
                         let tasks = self.tasks.clone();
                         let token = token.clone();
-                        let zone = self.zone.clone();
-                        let zone_def = self.zone_def.clone();
+                        let factory = self.factory.clone();
+                        let instances = self.instances.clone();
                         let session_handler = session_handler.clone();
         
                         let mut sessions = HashMap::new();
@@ -104,13 +112,34 @@ impl Frontend for ZoneFrontend {
                                             Some(ZoneMessage::EnterZone { session_id, avatar_id }) => {
                                                 debug!("Session {} entering zone with avatar_id {}", session_id, avatar_id);
 
+                                                // if this zone is instanced, spin up a new zone and move the player to that
+                                                // use the primary zone otherwise.
+                                                let zone = if *factory.config().is_instance().unwrap() {
+                                                    debug!("Spinning up new instance of zone {}", factory.zone_def().guid);
+
+                                                    ZoneInstance::Instance(factory.spawn_zone().await)
+                                                } else {
+                                                    let mut instances_s = instances.lock().await;
+
+                                                    if let Some(zone) = instances_s.get(&Uuid::default()) {
+                                                        zone.clone()
+                                                    } else {
+                                                        debug!("Spinning up persistent zone {}", factory.zone_def().guid);
+
+                                                        let zone = ZoneInstance::Persistent(factory.spawn_zone().await);
+                                                        instances_s.insert(Uuid::default(), zone.clone());
+
+                                                        zone
+                                                    }
+                                                };
+
                                                 sessions.insert(session_id.clone(), ZoneSession::spawn(
                                                     tasks.clone(), 
                                                     connection_token.clone(), 
                                                     session_id, 
                                                     avatar_id, 
-                                                    zone.clone(),
-                                                    zone_def.clone(),
+                                                    zone,
+                                                    factory.clone(),
                                                     session_handler.clone(),
                                                     downstream_sender.clone()).await);
                                             },
@@ -161,7 +190,7 @@ impl Frontend for ZoneFrontend {
                     }
                 },
                 _ = registration_update_interval.tick() => {
-                    zone_registry.register_zone_frontend(self.zone_def.guid.into(), listener.local_addr().unwrap()).await;
+                    zone_registry.register_zone_frontend(self.factory.zone_def().guid, listener.local_addr().unwrap()).await;
                 },
                 _ = token.cancelled() => {
                     break 'accept_loop;
@@ -176,12 +205,12 @@ impl Frontend for ZoneFrontend {
 struct ZoneSession {
     session_id: Uuid,
     avatar_id: AvatarId,
-    zone_def: Arc<ZoneDef>,
-    session_handler: ActorRef<SessionHandler<()>>,
-    session_ref: SessionRef<()>,
+    zone_factory: ZoneFactory,
+    session_handler: Arc<RwLock<SessionHandler>>,
+    session_ref: SessionRef,
     downstream: Sender<ZoneMessage>,
     load_state: ClientLoadState,
-    zone: ActorRef<Zone>,
+    instance: ZoneInstance,
 
     interest_event_sender: mpsc::Sender<InterestEvent>,
     interest_events: Option<mpsc::Receiver<InterestEvent>>,
@@ -194,22 +223,22 @@ struct ZoneSession {
 
 impl ZoneSession {
     async fn spawn(tasks: TaskTracker, token: CancellationToken, session_id: &Uuid, avatar_id: &AvatarId, 
-        zone: ActorRef<Zone>, zone_def: Arc<ZoneDef>, mut session_handler: ActorRef<SessionHandler<()>>,
+        instance: ZoneInstance, zone_factory: ZoneFactory, session_handler: Arc<RwLock<SessionHandler>>,
         downstream: Sender<ZoneMessage>) -> Sender<ZoneMessage> {
 
         // todo: handle errors here, as this might be a race when the session
         // invalidates during the zone enter stage.
-        let session_ref = session_handler.initiate_trusted(session_id.clone(), session_id.clone()).await.unwrap();
+        let session_ref = session_handler.write().await.initiate_trusted(session_id.clone(), session_id.clone()).await.unwrap();
 
         let (interest_event_sender, interest_event_receiver) = mpsc::channel(10);
 
         let session = ZoneSession {
             session_id: session_id.to_owned(),
             avatar_id: avatar_id.to_owned(),
-            zone_def,
+            zone_factory,
             session_handler,
             session_ref,
-            zone,
+            instance,
             downstream,
             load_state: ClientLoadState::EarlyLoadSequence,
             interest_event_sender: interest_event_sender,
@@ -228,7 +257,7 @@ impl ZoneSession {
 
         tasks.spawn(async move {
             let session_ref = self.session_ref.clone();
-            let mut zone_events = self.zone.subscribe().await;
+            let mut zone_events = self.instance.zone().subscribe().await;
 
             let mut interest_event_receiver = self.interest_events.take().unwrap();
 
@@ -311,7 +340,15 @@ impl ZoneSession {
             }
 
             // despawn avatar
-            self.zone.despawn_avatar(self.avatar_id.clone()).await;
+            self.instance.zone().despawn_avatar(self.avatar_id.clone()).await;
+
+            // stop instance
+            match self.instance {
+                ZoneInstance::Instance(zone) => {
+                    zone.stop();
+                },
+                _ => {}
+            }
             
             trace!(
                 session = self.session_id.to_string(), 
@@ -329,7 +366,7 @@ impl ZoneSession {
         let mut param_buffer = Vec::new();
         let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
-        let player = self.zone.spawn_player(self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
+        let player = self.instance.zone().spawn_player(self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
         let _ = player.data.write_to_client(&mut writer)?;
         
         info!(
@@ -337,7 +374,7 @@ impl ZoneSession {
             avatar = self.avatar_id.to_string(); 
             "Spawning player: {}", player.name);
 
-        let movement = self.zone.get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
+        let movement = self.instance.zone().get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
 
         let mut mm_init: MoveManagerInit = MoveManagerInit::default();
         mm_init.pos = movement.position.into();
@@ -449,7 +486,7 @@ impl ZoneSession {
                 // Send resource notification 
                 let mut worlddef = CPktResourceNotify::default();
                 worlddef.resource_type = CpktResourceNotifyResourceType::WorldDef;
-                worlddef.field_2 = self.zone_def.worlddef_guid.clone().into();
+                worlddef.field_2 = self.zone_factory.world_def().guid.clone();
                 worlddef.field_3 = "".to_owned();
 
                 let _ = self.send(worlddef.into_message()).await;
@@ -458,10 +495,10 @@ impl ZoneSession {
                 let mut param_buffer = Vec::new();
                 let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
-                let player = self.zone.spawn_player(self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
+                let player = self.instance.zone().spawn_player(self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
                 let _ = player.data.write_to_client(&mut writer)?;
 
-                let movement = self.zone.get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
+                let movement = self.instance.zone().get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
 
                 let mut mm_init: MoveManagerInit = MoveManagerInit::default();
                 mm_init.pos = movement.position.into();
@@ -521,7 +558,7 @@ impl ZoneSession {
                     AtlasPkt(CPkt::oaPktMoveManagerPosUpdate(pkt)) => {
                         debug!("Movement: {:#?}", pkt);
 
-                        self.zone.move_player_avatar(
+                        self.instance.zone().move_player_avatar(
                             self.avatar_id.clone(), 
                             Movement {
                                 position: pkt.pos.into(),
@@ -543,7 +580,7 @@ impl ZoneSession {
                     "doVendorExecute" => {
                         match &pkt.field_4 {
                             NativeParam::Struct(attrib) => {
-                                let (_, mut params) = self.zone.get_avatar_params(self.avatar_id.clone()).await.unwrap();
+                                let (_, mut params) = self.instance.zone().get_avatar_params(self.avatar_id.clone()).await.unwrap();
                                 let db: mongodb::Database = realm_database().await;
 
                                 match &mut params {
@@ -605,7 +642,7 @@ impl ZoneSession {
                                     _ => unreachable!(),
                                 }
         
-                                self.zone.update_avatar(self.avatar_id.clone(), params).await;
+                                self.instance.zone().update_avatar(self.avatar_id.clone(), params).await;
                             },
                             _ => panic!(),
                         }
@@ -619,7 +656,7 @@ impl ZoneSession {
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
                 if pkt.avatar_id.unwrap_or_default() == self.avatar_id.as_u64() {
                     if let Ok((_, params)) = ParamClassContainer::read(PlayerParam::CLASS_ID.as_u16(), pkt.params.as_slice()) {
-                        self.zone.update_avatar(self.avatar_id.clone(), params).await;
+                        self.instance.zone().update_avatar(self.avatar_id.clone(), params).await;
                     } else {
                         error!(
                             session = self.session_id.to_string(), 
@@ -649,6 +686,26 @@ impl ZoneSession {
             },
             AtlasPkt(CPkt::oaPktDialogList(pkt)) => {
                 debug!("Dialog List: {:#?}", pkt);
+            },
+            AtlasPkt(CPkt::CPktRequestAvatarBehaviors(pkt)) => {
+                if pkt.behaviour == "FlightTube" {
+                    /*let mut response = oaPktAvatarTellBehaviorBinary::default();
+                    response.field_1 = self.avatar_id.as_u64();
+                    response.field_3 = "FlightTube".into();
+                    response.field_4 = NativeParam::Struct(vec![
+                        NativeParam::Guid(Uuid::parse_str("2851e8fe-6810-4281-b296-52b10cbb307d").unwrap()),
+                        NativeParam::Bool(false),
+                        NativeParam::Vector3(Vec3::new(1199.960693, -397.063202, 33.211296)),
+                    ]);*/
+
+                    let mut response = oaPkt_SplineSurfing_Acknowledge::default();
+                    response.avatar_id = self.avatar_id.as_u64();
+                    response.spline_id = Uuid::parse_str("2851e8fe-6810-4281-b296-52b10cbb307d").unwrap();
+                    response.acknowledged = true;
+                    response.loc = Vec3::new(1199.960693, -397.063202, 33.211296).into();
+
+                    self.send(response.into_message()).await?;
+                }
             },
             _ => {
                 debug!(
@@ -687,8 +744,8 @@ impl ZoneSession {
             // limit to push up to 10 avatars per tick
             for _ in 0..10 {
                 if let Some(avatar_id) = self.interest_added_queue.pop_front() {
-                    if let Some((name, params)) = self.zone.get_avatar_params(avatar_id.clone()).await {
-                        let movement = self.zone.get_avatar_move_state(avatar_id.clone()).await.unwrap();
+                    if let Some((name, params)) = self.instance.zone().get_avatar_params(avatar_id.clone()).await {
+                        let movement = self.instance.zone().get_avatar_move_state(avatar_id.clone()).await.unwrap();
 
                         // add to interest list, so the client will receive updates
                         // for this avatar.

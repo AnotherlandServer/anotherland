@@ -49,7 +49,9 @@ impl Realm {
 
 #[async_trait]
 impl Actor for Realm {
-    fn name(&self) -> &str { "realm" }
+    type ActorType = Self;
+
+    fn name(&self) -> Option<&str> { Some("realm") }
 
     async fn starting(&mut self) -> AnotherlandResult<()> { 
         Ok(()) 

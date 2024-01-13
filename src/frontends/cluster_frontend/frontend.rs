@@ -19,10 +19,10 @@ use async_trait::async_trait;
 use atlas::{raknet::{RakNetListener, RakNetPeer, Message, Priority, Reliability}, AvatarId, CPkt, CPktStream_167_0, oaPktClusterNodeToClient, NativeParam, FactionRelation, FactionRelationList, oaPktFactionResponse, oaPktCashItemVendorSyncAcknowledge, CashItemVendorEntry, oaPktSKUBundleSyncAcknowledge, Uuid};
 use log::{warn, error, trace, info, debug};
 use rand::random;
-use tokio::{sync::Mutex, time, select};
+use tokio::{sync::{Mutex, RwLock}, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, CommunityMessage, ActorRef}, util::AnotherlandResult, CONF, NODE, components::{SessionHandler, Realm, SessionRef}, ARGS, db::{Session, CashShopVendor, realm_database, ZoneDef, WorldDef}, frontends::{ZoneServerClient, ZoneMessage}};
+use crate::{cluster::{frontend::Frontend, CommunityMessage, ActorRef}, util::AnotherlandResult, CONF, NODE, actors::Realm, ARGS, db::{Session, CashShopVendor, realm_database, ZoneDef, WorldDef}, frontends::{ZoneServerClient, ZoneMessage}, components::{SessionHandler, SessionRef}};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneRouter, ZoneRouterConnection};
@@ -54,14 +54,14 @@ impl Frontend for ClusterFrontend {
         let mut listener = RakNetListener::bind(CONF.frontend.listen_address).await?;
 
         let mut realm = NODE.get_remote_actor::<Realm>("realm").unwrap();
-        let session_handler = NODE.add_actor(SessionHandler::<()>::initialize("cluster_session_handler").await);
+        let session_handler = SessionHandler::new();
 
         let mut heartbeat_interval = time::interval(Duration::from_secs(1));
 
         'accept_loop: loop {
             select! {
                 Ok(peer) = listener.accept() => {                   
-                    let frontend_session = ClusterFrontendSession::new(peer, &session_handler, self.zone_router.clone(), self.avatar_ids.clone()).await;
+                    let frontend_session = ClusterFrontendSession::new(peer, session_handler.clone(), self.zone_router.clone(), self.avatar_ids.clone()).await;
                     frontend_session.run(&self.tasks, token.clone());
                 },
                 _ = heartbeat_interval.tick() => {
@@ -84,8 +84,8 @@ impl Frontend for ClusterFrontend {
 
 struct ClusterFrontendSession {
     peer: RakNetPeer,
-    session_handler: ActorRef<SessionHandler<()>>,
-    session_ref: Option<SessionRef<()>>,
+    session_handler: Arc<RwLock<SessionHandler>>,
+    session_ref: Option<SessionRef>,
     zone_router: Arc<ZoneRouter>,
     zone_connection: Option<Arc<ZoneRouterConnection>>,
     avatar_ids: Arc<Mutex<HashSet<AvatarId>>>,
@@ -94,7 +94,7 @@ struct ClusterFrontendSession {
 }
 
 impl ClusterFrontendSession {
-    async fn new(peer: RakNetPeer, session_handler: &ActorRef<SessionHandler<()>>, zone_router: Arc<ZoneRouter>, avatar_ids: Arc<Mutex<HashSet<AvatarId>>>) -> Self {
+    async fn new(peer: RakNetPeer, session_handler: Arc<RwLock<SessionHandler>>, zone_router: Arc<ZoneRouter>, avatar_ids: Arc<Mutex<HashSet<AvatarId>>>) -> Self {
         // generate new avatar id for this player
         let avatar_id = loop {
             let random_component = random::<u32>();
@@ -172,7 +172,7 @@ impl ClusterFrontendSession {
 
             // once the client disconnected here, the session is no longer needed (and wanted)
             if let Some(session_id) = self.session_id {
-                let _ = self.session_handler.destroy_session(session_id).await;
+                let _ = self.session_handler.write().await.destroy_session(session_id).await;
             }
 
             // free avatar_id
@@ -187,7 +187,7 @@ impl ClusterFrontendSession {
 
         match &message {
             AtlasPkt(CPkt::oaPktRequestEnterGame(pkt)) => {
-                match self.session_handler.initiate(self.peer.id().clone(), pkt.session_id.clone(), pkt.magic_bytes.clone()).await {
+                match self.session_handler.write().await.initiate(self.peer.id().clone(), pkt.session_id.clone(), pkt.magic_bytes.clone()).await {
                     Ok(session) => {
                         self.session_ref = Some(session.clone());
 
