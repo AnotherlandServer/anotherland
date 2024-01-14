@@ -33,35 +33,9 @@ pub fn update_interests(
 {
     let mut avatar_positions = Vec::new();
 
-    // collect non-player avatar positions
+    // collect avatar positions
     avatars.for_each(world, |(entity_type, avatar, position)| {
-        match entity_type {
-            EntityType::Player |
-            EntityType::Structure | 
-            EntityType::ChessMetaGameLogic |
-            EntityType::ChessPiece |
-            EntityType::Door | 
-            EntityType::EDNAContainer |
-            EntityType::InteractObject |
-            EntityType::MinigameInfo |
-            EntityType::MinigameScoreBoard |
-            EntityType::MyLandSettings |
-            EntityType::NonSpawnPlacement |
-            EntityType::NpcOtherland |
-            EntityType::OtherlandStructure |
-            EntityType::Planet |
-            EntityType::Portal |
-            EntityType::CTFGameFlag |
-            EntityType::ServerGateway |
-            EntityType::ServerGatewayExitPhase |
-            EntityType::Ship |
-            EntityType::MypadRoomDoor |
-            EntityType::BilliardBall | 
-            EntityType::WorldDisplay => {
-                avatar_positions.push((avatar.id.clone(), position.position));
-            },
-            _ => (),
-        }
+        avatar_positions.push((avatar.id.clone(), position.position));
     });
 
     // check for avatars in range
