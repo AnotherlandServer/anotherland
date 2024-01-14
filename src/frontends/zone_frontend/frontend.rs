@@ -25,7 +25,7 @@ use quinn::{ServerConfig, Endpoint};
 use tokio::{sync::{Mutex, OnceCell, mpsc::{self, Sender}, RwLock}, net::{TcpListener, TcpStream, UdpSocket}, time::{Interval, self}, select, task};
 use tokio_util::{task::TaskTracker, sync::CancellationToken, udp::UdpFramed};
 
-use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, actors::{Zone, ZoneRegistry, ZoneEvent, InterestEvent, Movement, PhysicsState, SessionManager}, NODE, CLUSTER_CERT, components::{SessionHandler, SessionRef, ZoneFactory}};
+use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, actors::{Zone, ZoneRegistry, ZoneEvent, InterestEvent, Movement, PhysicsState, SessionManager, PlayerSpawnMode}, NODE, CLUSTER_CERT, components::{SessionHandler, SessionRef, ZoneFactory}};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneServerListener, ZoneMessage, load_state::ClientLoadState};
@@ -366,7 +366,7 @@ impl ZoneSession {
         let mut param_buffer = Vec::new();
         let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
-        let player = self.instance.zone().spawn_player(self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
+        let player = self.instance.zone().spawn_player(PlayerSpawnMode::TravelDirect, self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
         let _ = player.data.write_to_client(&mut writer)?;
         
         info!(
@@ -495,7 +495,7 @@ impl ZoneSession {
                 let mut param_buffer = Vec::new();
                 let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
-                let player = self.instance.zone().spawn_player(self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
+                let player = self.instance.zone().spawn_player(PlayerSpawnMode::LoginNormal, self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
                 let _ = player.data.write_to_client(&mut writer)?;
 
                 let movement = self.instance.zone().get_avatar_move_state(self.avatar_id.clone()).await.unwrap();

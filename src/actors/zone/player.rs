@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum PlayerSpawnMode {
     LoginFirstTime, // 1
     LoginNormal, // 2

@@ -17,10 +17,10 @@ use std::{time::{Duration, Instant}, cell::Cell, collections::HashMap, sync::Arc
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, NonClientBaseComponent, Uuid, OaZoneConfigParam, OaZoneConfig, CtfGameFlagParam};
+use atlas::{ParamClassContainer, AvatarId, Player, ParamEntity, PlayerComponent, PlayerParam, NpcOtherlandParam, PortalParam, SpawnNodeParam, StructureParam, TriggerParam, StartingPointParam, AvatarType, BoundParamClass, ParamError, ParamClass, NonClientBase, SpawnerParam, ChessPieceParam, ShipParam, InteractObjectParam, PatrolNodeParam, MinigameInfoParam, EdnaContainerParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, MyLandSettingsParam, QuestBeaconParam, ServerGatewayParam, Door, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, PlanetParam, ChessMetaGameLogicParam, OtherlandStructureParam, ServerGatewayExitPhase, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, NonClientBaseComponent, Uuid, OaZoneConfigParam, OaZoneConfig, CtfGameFlagParam, StartingPointComponent};
 use futures::Future;
 use glam::{Vec3, Quat};
-use legion::{World, WorldOptions, Schedule, Resources, Entity, storage::IntoComponentSource};
+use legion::{World, WorldOptions, Schedule, Resources, Entity, storage::IntoComponentSource, IntoQuery};
 use log::{info, warn, as_serde, debug, trace};
 use mongodb::Database;
 use nom::character;
@@ -219,35 +219,47 @@ impl Zone {
         self.event_sender.subscribe()
     }
 
-    pub async fn spawn_player(&mut self, avatar_id: AvatarId, character_id: u32, interest_event_sender: mpsc::Sender<InterestEvent>) -> AnotherlandResult<Character> {
+    pub async fn spawn_player(&mut self, spawn_mode: PlayerSpawnMode, avatar_id: AvatarId, character_id: u32, interest_event_sender: mpsc::Sender<InterestEvent>) -> AnotherlandResult<Character> {
+        let mut spawn_mode = spawn_mode;
+        
         if let Some(mut character) = Character::get(self.realm_db.clone(), &character_id).await? {
-            character.data.set_spawn_mode(PlayerSpawnMode::LoginNormal.into());
-            character.data.set_client_ready(false);
-            character.data.set_player_loading(true);
-            character.data.set_player_node_state(2);
+            // do some first time spawn setup
+            if *character.data.first_time_spawn().unwrap_or(&true) {
+                character.data.set_spawn_mode(PlayerSpawnMode::LoginFirstTime.into());
+                character.data.set_first_time_spawn(false);
 
-            // update zone if stored zone differs
-            if character.data.zone_guid().unwrap_or(&Uuid::default()) != &self.factory.zone_def().guid {
+                spawn_mode = PlayerSpawnMode::LoginFirstTime;
+            }
+
+            // update zone if stored zone differs or we force spawn to entry point
+            if spawn_mode == PlayerSpawnMode::TravelDirect || spawn_mode == PlayerSpawnMode::LoginFirstTime || *self.factory.config().only_spawn_to_entry_point().unwrap() {
                 // special case if the player comes from class selection,
                 // perform some setup in that case.
                 if character.data.zone_guid().unwrap_or(&Uuid::default()) == &Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap() {
                     character.data.set_hp_cur(character.data.hp_max().unwrap_or_default());
                 }
 
+                debug!("Updating player avatar zone");
+
+                // lookup entry point and copy position
+                let mut entry_point_query = <(&StartingPointComponent, &NonClientBaseComponent)>::query();
+                if let Some(entry_point) = entry_point_query.iter(&self.world).next() {
+                    debug!("Found entrypoint");
+
+                    character.data.set_pos(entry_point.1.pos().unwrap().to_owned());
+                    character.data.set_rot(entry_point.1.rot().unwrap().to_owned());
+                }
+
                 character.data.set_zone(&self.factory.zone_def().zone);
                 character.data.set_zone_guid(self.factory.zone_def().guid.clone());
                 character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
-
-                character.data.set_pos(self.default_pos.clone());
-                character.data.set_rot(self.default_rot.clone());
+                character.world_id = self.factory.world_def().id as u32;
             }
 
-            // do some first time spawn setup
-            if *character.data.first_time_spawn().unwrap_or(&true) {
-                character.data.set_pos(self.default_pos.clone());
-                character.data.set_rot(self.default_rot.clone());
-                character.data.set_first_time_spawn(false);
-            }
+            character.data.set_spawn_mode(spawn_mode.into());
+            character.data.set_client_ready(false);
+            character.data.set_player_loading(true);
+            character.data.set_player_node_state(2);
 
             // save character changes
             character.save(self.realm_db.clone()).await?;
