@@ -15,7 +15,7 @@
 
 use std::{collections::{HashMap, HashSet}, sync::Arc};
 
-use atlas::{OaZoneConfigParam, Uuid, AvatarId, ParamClassContainer, AvatarType};
+use atlas::{Uuid, AvatarId, AvatarType};
 use log::debug;
 use mongodb::Database;
 use rand::{thread_rng, Rng};

@@ -20,7 +20,7 @@ use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
-use atlas::{ParamClassContainer, OaBuff2Param, LootScatterContainerParam, FactionParam, NpcOtherlandParam, SpawnerParam, StructureParam, BoundParamClass, ParamEntity, ParamError, Uuid};
+use atlas::{ParamError, Uuid, ParamBox, ParamClass};
 
 use crate::util::AnotherlandResult;
 
@@ -32,7 +32,7 @@ pub struct Content {
     pub guid: Uuid,
     pub name: String,
     pub class: u16,
-    pub data: Option<ParamClassContainer>,
+    pub data: Option<ParamBox>,
 }
 
 // buffs
@@ -72,9 +72,9 @@ impl DatabaseRecord<'_> for BuffContent {
 impl BuffContent {
     pub fn into_param<T>(self) -> Option<T> 
         where
-            T: TryFrom<ParamClassContainer, Error = ParamError>
+            T: ParamClass
     {
-        self.0.data.map(|v| v.try_into().unwrap())
+        self.0.data.map(|v| v.take::<T>().unwrap())
     }
 }
 
@@ -115,9 +115,9 @@ impl DatabaseRecord<'_> for DropsContent {
 impl DropsContent {
     pub fn into_param<T>(self) -> Option<T> 
         where
-            T: TryFrom<ParamClassContainer, Error = ParamError>
+            T: ParamClass
     {
-        self.0.data.map(|v| v.try_into().unwrap())
+        self.0.data.map(|v| v.take::<T>().unwrap())
     }
 }
 
@@ -158,9 +158,9 @@ impl DatabaseRecord<'_> for FactionContent {
 impl FactionContent {
     pub fn into_param<T>(self) -> Option<T> 
         where
-            T: TryFrom<ParamClassContainer, Error = ParamError>
+            T: ParamClass
     {
-        self.0.data.map(|v| v.try_into().unwrap())
+        self.0.data.map(|v| v.take::<T>().unwrap())
     }
 }
 
@@ -251,9 +251,9 @@ impl DatabaseRecord<'_> for NpcContent {
 impl NpcContent {
     pub fn into_param<T>(self) -> Option<T> 
         where
-            T: TryFrom<ParamClassContainer, Error = ParamError>
+            T: ParamClass
     {
-        self.0.data.map(|v| v.try_into().unwrap())
+        self.0.data.map(|v| v.take::<T>().unwrap())
     }
 }
 
@@ -294,9 +294,9 @@ impl DatabaseRecord<'_> for SpawnerContent {
 impl SpawnerContent {
     pub fn into_param<T>(self) -> Option<T> 
         where
-            T: TryFrom<ParamClassContainer, Error = ParamError>
+            T: ParamClass
     {
-        self.0.data.map(|v| v.try_into().unwrap())
+        self.0.data.map(|v| v.take::<T>().unwrap())
     }
 }
 
@@ -337,9 +337,9 @@ impl DatabaseRecord<'_> for StructureContent {
 impl StructureContent {
     pub fn into_param<T>(self) -> Option<T> 
         where
-            T: TryFrom<ParamClassContainer, Error = ParamError>
+            T: ParamClass
     {
-        self.0.data.map(|v| v.try_into().unwrap())
+        self.0.data.map(|v| v.take::<T>().unwrap())
     }
 }
 
@@ -380,9 +380,9 @@ impl DatabaseRecord<'_> for MiscContent {
 impl MiscContent {
     pub fn into_param<T>(self) -> Option<T> 
         where
-            T: TryFrom<ParamClassContainer, Error = ParamError>
+            T: ParamClass
     {
-        self.0.data.map(|v| v.try_into().unwrap())
+        self.0.data.map(|v| v.take::<T>().unwrap())
     }
 
     pub async fn get_by_name(db: Database, name: &str) -> AnotherlandResult<Option<Self>> {

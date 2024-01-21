@@ -20,8 +20,8 @@ use log::info;
 use mongodb::{IndexModel, options::IndexOptions, bson::doc};
 use tokio::runtime::Handle;
 
-use crate::{util::AnotherlandResult, db::{Content, Instance, WorldDef, ZoneDef, realm_database, cluster_database, CashShopVendor, CashShopItem, CashShopBundle, RawInstance}};
-use atlas::{ParamClassContainer, Uuid};
+use crate::{util::AnotherlandResult, db::{Content, WorldDef, ZoneDef, realm_database, cluster_database, CashShopVendor, CashShopItem, CashShopBundle, RawInstance}};
+use atlas::{ParamBox, ParamSet, ParamSetBox, Uuid};
 
 async fn import_content_table(game_client_path: &PathBuf, src_table: &str, target_table: &str) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
@@ -48,7 +48,7 @@ async fn import_content_table(game_client_path: &PathBuf, src_table: &str, targe
         for row in result {
             let bin_data = row.read::<&[u8], _>("data");
             let data = if !bin_data.is_empty() {
-                let mut class = ParamClassContainer::read(row.read::<i64,_>("ixClass") as u16, bin_data).unwrap().1;
+                let mut class = ParamBox::read(row.read::<i64,_>("ixClass") as u16, bin_data).unwrap().1;
                 class.strip_original_data();
 
                 Some(class)
@@ -105,9 +105,9 @@ async fn import_instance(game_client_path: &PathBuf) -> AnotherlandResult<()> {
         for row in result {
             let bin_data = row.read::<&[u8], _>("data");
             let data = if !bin_data.is_empty() {
-                let mut class = ParamClassContainer::read(row.read::<i64,_>("ixClass") as u16, bin_data).unwrap().1;
-                class.strip_original_data();
-                Some(class)
+                let mut set = ParamSetBox::read(row.read::<i64,_>("ixClass") as u16, bin_data).unwrap().1;
+                set.strip_original_data();
+                Some(set)
             } else {
                 None
             };

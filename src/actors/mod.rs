@@ -17,14 +17,14 @@ mod authenticator;
 mod session_manager;
 mod realm_list;
 mod realm;
-mod zone;
-mod zone_registry;
+//mod zone;
+//mod zone_registry;
 //mod movement_manager;
 
 pub use authenticator::*;
 pub use session_manager::*;
 pub use realm_list::*;
 pub use realm::*;
-pub use zone::*;
-pub use zone_registry::*;
+//pub use zone::*;
+//pub use zone_registry::*;
 //pub use movement_manager::*;

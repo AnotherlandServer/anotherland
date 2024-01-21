@@ -25,7 +25,7 @@ use sha1::{Sha1, Digest};
 use tokio_stream::StreamExt;
 
 use crate::util::AnotherlandResult;
-use atlas::{PlayerParam, Player, Uuid};
+use atlas::{PlayerClass, Uuid, PlayerParams};
 
 use super::{DatabaseRecord, ItemContent};
 
@@ -37,30 +37,30 @@ pub struct Character {
     pub name: String,
     pub world_id: u32,
     
-    pub data: PlayerParam,
+    pub data: PlayerClass,
 }
-
-static NEW_CHARACTER_TEMPLATE: Lazy<PlayerParam> = Lazy::new(|| {
-    let mut player = PlayerParam::default();
-
-    player.set_world_map_guid("f6b8f8b7-a726-4d36-9634-f6d403943fff");
-    player.set_zone_guid(Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
-    player.set_zone("ClassSelection_P");
-
-    // default customization
-    player.set_visible_item_info(vec![3840]);
-    player.set_customization_gender(1.0);
-    player.set_customization_height(0.5);
-    player.set_customization_bust_size(0.5);
-    player.set_customization_fat(0.0);
-    player.set_customization_skinny(0.7);
-    player.set_customization_muscular(0.3);
-
-    player
-}); 
 
 impl Character {
     pub async fn create(db: Database, account_id: &Uuid, name: &str) -> AnotherlandResult<Character> {
+        let template = Lazy::new(|| {
+            let mut player = PlayerClass::default();
+        
+            player.set_world_map_guid("f6b8f8b7-a726-4d36-9634-f6d403943fff");
+            player.set_zone_guid(Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
+            player.set_zone("ClassSelection_P");
+        
+            // default customization
+            player.set_visible_item_info(vec![3840]);
+            player.set_customization_gender(1.0);
+            player.set_customization_height(0.5);
+            player.set_customization_bust_size(0.5);
+            player.set_customization_fat(0.0);
+            player.set_customization_skinny(0.7);
+            player.set_customization_muscular(0.3);
+        
+            player
+        }); 
+
         let guid = Uuid::new();
 
         // Compute numeric character id, similar to how we build account ids..
@@ -70,7 +70,7 @@ impl Character {
         
         let numeric_id = u32::from_le_bytes(result[0..4].try_into().unwrap());
 
-        let mut avatar_data = NEW_CHARACTER_TEMPLATE.clone();
+        let mut avatar_data = template.clone();
         let default_items = ItemContent::list_by_categories(db.clone(), vec![
             Uuid::parse_str("6B74CF2D-79A3-48B8-B752-995179A064BD").unwrap().into()
         ].as_slice()).await?;

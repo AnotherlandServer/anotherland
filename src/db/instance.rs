@@ -19,12 +19,12 @@ use std::ops::DerefMut;
 use async_trait::async_trait;
 use bson::{Document, doc};
 use log::{warn, debug};
+use log4rs::append::rolling_file::policy::compound::trigger::Trigger;
 use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
-use atlas::{ParamClassContainer, NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, AnyClass, SpawnNodeParam, BoundParamClass, ParamEntity, ParamError, ParamClass, InteractObject, PatrolNodeParam, SpawnerParam, InteractObjectParam, EdnaContainerParam, ShipParam, MinigameInfoParam, MinigameScoreBoardParam, ChessPieceParam, NonSpawnPlacementParam, ServerGatewayExitPhaseParam, PresetPointParam, DoorParam, MyLandSettingsParam, ServerGatewayParam, QuestBeaconParam, OtherlandStructureParam, PlanetParam, ChessMetaGameLogicParam, MypadRoomDoorParam, BilliardBallParam, CustomTriggerParam, WorldDisplayParam, Uuid, CtfGameFlagParam};
-use atlas::NonClientBase;
+use atlas::{BilliardBallAttribute, BilliardBallClass, ChessMetaGameLogicAttribute, ChessMetaGameLogicClass, ChessPieceAttribute, ChessPieceClass, CtfGameFlagAttribute, CtfGameFlagClass, CustomTriggerAttribute, CustomTriggerClass, DoorAttribute, DoorClass, EdnaContainerAttribute, EdnaContainerClass, InteractObjectAttribute, InteractObjectClass, MinigameInfoAttribute, MinigameInfoClass, MinigameScoreBoardAttribute, MinigameScoreBoardClass, MyLandSettingsAttribute, MyLandSettingsClass, MypadRoomDoorAttribute, MypadRoomDoorClass, NonSpawnPlacementAttribute, NonSpawnPlacementClass, NpcOtherlandAttribute, NpcOtherlandClass, OtherlandStructureAttribute, OtherlandStructureClass, ParamBox, ParamClass, ParamSet, ParamSetBox, PatrolNodeAttribute, PatrolNodeClass, PlanetAttribute, PlanetClass, PortalAttribute, PortalClass, PresetPointAttribute, PresetPointClass, QuestBeaconAttribute, QuestBeaconClass, ServerGatewayAttribute, ServerGatewayClass, ServerGatewayExitPhaseAttribute, ServerGatewayExitPhaseClass, ShipAttribute, ShipClass, SpawnNodeAttribute, SpawnNodeClass, SpawnerAttribute, SpawnerClass, StartingPointAttribute, StartingPointClass, StructureAttribute, StructureClass, TriggerAttribute, TriggerClass, Uuid, WorldDisplayAttribute, WorldDisplayClass};
 use crate::util::{AnotherlandResult, AnotherlandError};
 
 use super::{DatabaseRecord, Content, SpawnerContent, NpcContent, StructureContent};
@@ -37,7 +37,7 @@ pub struct RawInstance {
     pub class: i64,
     pub content_guid: Uuid,
     pub editor_name: String,
-    pub data: Option<ParamClassContainer>,
+    pub data: Option<ParamSetBox>,
     pub phase_tag: String,
 }
 
@@ -59,35 +59,35 @@ impl DatabaseRecord<'_> for RawInstance {
 }
 
 pub enum Instance {
-    Spawner { guid: Uuid, content_guid: Uuid, name: String, data: SpawnerParam, phase_tag: String, content: SpawnerContent }, // 44
-    Npc { guid: Uuid, content_guid: Uuid, name: String, data: NpcOtherlandParam, phase_tag: String, content: NpcContent }, // 47
-    Structure { guid: Uuid, content_guid: Uuid, name: String, data: StructureParam, phase_tag: String, content: StructureContent }, // 55
-    Portal { guid: Uuid, content_guid: Uuid, name: String, data: PortalParam, phase_tag: String, content: StructureContent }, // 56
-    StartingPoint { guid: Uuid, content_guid: Uuid, name: String, data: StartingPointParam, phase_tag: String, content: StructureContent }, // 57
-    Trigger { guid: Uuid, content_guid: Uuid, name: String, data: TriggerParam, phase_tag: String, content: StructureContent }, // 61
-    ChessPiece { guid: Uuid, content_guid: Uuid, name: String, data: ChessPieceParam, phase_tag: String, content: StructureContent }, // 62
-    Ship { guid: Uuid, content_guid: Uuid, name: String, data: ShipParam, phase_tag: String, content: StructureContent }, // 66
-    Planet { guid: Uuid, content_guid: Uuid, name: String, data: PlanetParam, phase_tag: String, content: StructureContent }, // 67
-    InteractObject  { guid: Uuid, content_guid: Uuid, name: String, data: InteractObjectParam, phase_tag: String, content: StructureContent }, // 68
-    PatrolNode { guid: Uuid, content_guid: Uuid, name: String, data: PatrolNodeParam, phase_tag: String, content: StructureContent }, // 70
-    SpawnNode { guid: Uuid, content_guid: Uuid, name: String, data: SpawnNodeParam, phase_tag: String, content: StructureContent }, // 77
-    MinigameInfo { guid: Uuid, content_guid: Uuid, name: String, data: MinigameInfoParam, phase_tag: String, content: StructureContent }, // 104
-    ChessMetaGameLogic { guid: Uuid, content_guid: Uuid, name: String, data: ChessMetaGameLogicParam, phase_tag: String, content: StructureContent }, // 105
-    EDNAContainer { guid: Uuid, content_guid: Uuid, name: String, data: EdnaContainerParam, phase_tag: String, content: StructureContent }, // 109
-    BilliardBall { guid: Uuid, content_guid: Uuid, name: String, data: BilliardBallParam, phase_tag: String, content: StructureContent }, // 114
-    OtherlandStructure { guid: Uuid, content_guid: Uuid, name: String, data: OtherlandStructureParam, phase_tag: String, content: StructureContent }, // 121
-    MinigameScoreBoard { guid: Uuid, content_guid: Uuid, name: String, data: MinigameScoreBoardParam, phase_tag: String, content: StructureContent }, // 122
-    PresetPoint { guid: Uuid, content_guid: Uuid, name: String, data: PresetPointParam, phase_tag: String, content: StructureContent }, // 124
-    Door { guid: Uuid, content_guid: Uuid, name: String, data: DoorParam, phase_tag: String, content: StructureContent }, // 127
-    CTFGameFlag { guid: Uuid, content_guid: Uuid, name: String, data: CtfGameFlagParam, phase_tag: String, content: StructureContent }, // 128
-    ServerGateway { guid: Uuid, content_guid: Uuid, name: String, data: ServerGatewayParam, phase_tag: String, content: StructureContent }, // 129
-    ServerGatewayExitPhase { guid: Uuid, content_guid: Uuid, name: String, data: ServerGatewayExitPhaseParam, phase_tag: String, content: StructureContent }, // 130
-    NonSpawnPlacement { guid: Uuid, content_guid: Uuid, name: String, data: NonSpawnPlacementParam, phase_tag: String, content: StructureContent }, // 132
-    MyLandSettings { guid: Uuid, content_guid: Uuid, name: String, data: MyLandSettingsParam, phase_tag: String, content: StructureContent }, // 135
-    WorldDisplay { guid: Uuid, content_guid: Uuid, name: String, data: WorldDisplayParam, phase_tag: String, content: StructureContent }, // 146
-    MypadRoomDoor { guid: Uuid, content_guid: Uuid, name: String, data: MypadRoomDoorParam, phase_tag: String, content: StructureContent }, // 154
-    QuestBeacon { guid: Uuid, content_guid: Uuid, name: String, data: QuestBeaconParam, phase_tag: String, content: StructureContent }, // 178
-    CustomTrigger { guid: Uuid, content_guid: Uuid, name: String, data: CustomTriggerParam, phase_tag: String, content: StructureContent }, // 192
+    Spawner { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<SpawnerAttribute>, phase_tag: String, content: SpawnerContent }, // 44
+    Npc { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<NpcOtherlandAttribute>, phase_tag: String, content: NpcContent }, // 47
+    Structure { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<StructureAttribute>, phase_tag: String, content: StructureContent }, // 55
+    Portal { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<PortalAttribute>, phase_tag: String, content: StructureContent }, // 56
+    StartingPoint { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<StartingPointAttribute>, phase_tag: String, content: StructureContent }, // 57
+    Trigger { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<TriggerAttribute>, phase_tag: String, content: StructureContent }, // 61
+    ChessPiece { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<ChessPieceAttribute>, phase_tag: String, content: StructureContent }, // 62
+    Ship { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<ShipAttribute>, phase_tag: String, content: StructureContent }, // 66
+    Planet { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<PlanetAttribute>, phase_tag: String, content: StructureContent }, // 67
+    InteractObject  { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<InteractObjectAttribute>, phase_tag: String, content: StructureContent }, // 68
+    PatrolNode { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<PatrolNodeAttribute>, phase_tag: String, content: StructureContent }, // 70
+    SpawnNode { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<SpawnNodeAttribute>, phase_tag: String, content: StructureContent }, // 77
+    MinigameInfo { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<MinigameInfoAttribute>, phase_tag: String, content: StructureContent }, // 104
+    ChessMetaGameLogic { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<ChessMetaGameLogicAttribute>, phase_tag: String, content: StructureContent }, // 105
+    EDNAContainer { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<EdnaContainerAttribute>, phase_tag: String, content: StructureContent }, // 109
+    BilliardBall { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<BilliardBallAttribute>, phase_tag: String, content: StructureContent }, // 114
+    OtherlandStructure { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<OtherlandStructureAttribute>, phase_tag: String, content: StructureContent }, // 121
+    MinigameScoreBoard { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<MinigameScoreBoardAttribute>, phase_tag: String, content: StructureContent }, // 122
+    PresetPoint { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<PresetPointAttribute>, phase_tag: String, content: StructureContent }, // 124
+    Door { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<DoorAttribute>, phase_tag: String, content: StructureContent }, // 127
+    CTFGameFlag { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<CtfGameFlagAttribute>, phase_tag: String, content: StructureContent }, // 128
+    ServerGateway { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<ServerGatewayAttribute>, phase_tag: String, content: StructureContent }, // 129
+    ServerGatewayExitPhase { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<ServerGatewayExitPhaseAttribute>, phase_tag: String, content: StructureContent }, // 130
+    NonSpawnPlacement { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<NonSpawnPlacementAttribute>, phase_tag: String, content: StructureContent }, // 132
+    MyLandSettings { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<MyLandSettingsAttribute>, phase_tag: String, content: StructureContent }, // 135
+    WorldDisplay { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<WorldDisplayAttribute>, phase_tag: String, content: StructureContent }, // 146
+    MypadRoomDoor { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<MypadRoomDoorAttribute>, phase_tag: String, content: StructureContent }, // 154
+    QuestBeacon { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<QuestBeaconAttribute>, phase_tag: String, content: StructureContent }, // 178
+    CustomTrigger { guid: Uuid, content_guid: Uuid, name: String, data: ParamSet<CustomTriggerAttribute>, phase_tag: String, content: StructureContent }, // 192
 }
 
 impl Instance {
@@ -176,49 +176,15 @@ impl Instance {
         }
     }
 
-    pub fn is_enabled(&self) -> bool {
-        match self {
-            Self::Spawner { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::Npc { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::Structure { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::Portal { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::StartingPoint { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::Trigger { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::ChessPiece { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::Ship { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::Planet { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::InteractObject { data, .. } =>*data.enable_in_game().unwrap_or(&true),
-            Self::PatrolNode { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::SpawnNode { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::MinigameInfo { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::ChessMetaGameLogic { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::EDNAContainer { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::BilliardBall { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::OtherlandStructure { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::MinigameScoreBoard { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::PresetPoint { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::Door { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::CTFGameFlag { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::ServerGateway { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::ServerGatewayExitPhase { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::NonSpawnPlacement { .. } => true,
-            Self::MyLandSettings { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::WorldDisplay { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::MypadRoomDoor { data, .. } => *data.enable_in_game().unwrap_or(&true),
-            Self::QuestBeacon { .. } => true,
-            Self::CustomTrigger { data, .. } => *data.enable_in_game().unwrap_or(&true),
-        }
-    }
-
     pub async fn load_content<'a, T1, T2>(&'a self, db: Database) -> AnotherlandResult<T1> 
         where 
             T1: DatabaseRecord<'a, Key = bson::Uuid> + DerefMut<Target = Content>,
-            T2: BoundParamClass + ParamEntity,
-            T2: TryFrom<ParamClassContainer, Error = ParamError>
+            T2: ParamClass,
     {
         if let Some(mut content) = T1::get(db.clone(), &self.content_guid()).await? {
-            if let Some(class) = content.data.as_mut() {
-                class.as_anyclass_mut().apply(self.data_as_anyclass().clone());
+            if let Some(mut class) = content.data.as_mut() {
+                self.extend_content(&mut class);
+                //class.as_anyclass_mut().apply(self.data_as_anyclass().clone());
             }
 
             Ok(content.into())
@@ -230,37 +196,37 @@ impl Instance {
         }
     }
 
-    fn data_as_anyclass(&self) -> &AnyClass {
+    fn extend_content(&self, content: &mut ParamBox) {
         match self {
-            Self::Spawner { data, .. } => data.as_anyclass(),
-            Self::Npc { data, .. } => data.as_anyclass(),
-            Self::Structure { data, .. } => data.as_anyclass(),
-            Self::Portal { data, .. } => data.as_anyclass(),
-            Self::StartingPoint { data, .. } => data.as_anyclass(),
-            Self::Trigger { data, .. } => data.as_anyclass(),
-            Self::ChessPiece { data, .. } => data.as_anyclass(),
-            Self::Ship { data, .. } => data.as_anyclass(),
-            Self::Planet { data, .. } => data.as_anyclass(),
-            Self::InteractObject { data, .. } => data.as_anyclass(),
-            Self::PatrolNode { data, .. } => data.as_anyclass(),
-            Self::SpawnNode { data, .. } => data.as_anyclass(),
-            Self::MinigameInfo { data, .. } => data.as_anyclass(),
-            Self::ChessMetaGameLogic { data, .. } => data.as_anyclass(),
-            Self::EDNAContainer { data, .. } => data.as_anyclass(),
-            Self::BilliardBall { data, .. } => data.as_anyclass(),
-            Self::OtherlandStructure { data, .. } => data.as_anyclass(),
-            Self::MinigameScoreBoard { data, .. } => data.as_anyclass(),
-            Self::PresetPoint { data, .. } => data.as_anyclass(),
-            Self::Door { data, .. } => data.as_anyclass(),
-            Self::CTFGameFlag { data, .. } => data.as_anyclass(),
-            Self::ServerGateway { data, .. } => data.as_anyclass(),
-            Self::ServerGatewayExitPhase { data, .. } => data.as_anyclass(),
-            Self::NonSpawnPlacement { data, .. } => data.as_anyclass(),
-            Self::MyLandSettings { data, .. } => data.as_anyclass(),
-            Self::WorldDisplay { data, .. } => data.as_anyclass(),
-            Self::MypadRoomDoor { data, .. } => data.as_anyclass(),
-            Self::QuestBeacon { data, .. } => data.as_anyclass(),
-            Self::CustomTrigger { data, .. } => data.as_anyclass(),
+            Self::Spawner { data, .. } => content.get_mut::<SpawnerClass>().unwrap().apply(data.clone()),
+            Self::Npc { data, .. } => content.get_mut::<NpcOtherlandClass>().unwrap().apply(data.clone()),
+            Self::Structure { data, .. } => content.get_mut::<StructureClass>().unwrap().apply(data.clone()),
+            Self::Portal { data, .. } => content.get_mut::<PortalClass>().unwrap().apply(data.clone()),
+            Self::StartingPoint { data, .. } => content.get_mut::<StartingPointClass>().unwrap().apply(data.clone()),
+            Self::Trigger { data, .. } => content.get_mut::<TriggerClass>().unwrap().apply(data.clone()),
+            Self::ChessPiece { data, .. } => content.get_mut::<ChessPieceClass>().unwrap().apply(data.clone()),
+            Self::Ship { data, .. } => content.get_mut::<ShipClass>().unwrap().apply(data.clone()),
+            Self::Planet { data, .. } => content.get_mut::<PlanetClass>().unwrap().apply(data.clone()),
+            Self::InteractObject { data, .. } => content.get_mut::<InteractObjectClass>().unwrap().apply(data.clone()),
+            Self::PatrolNode { data, .. } => content.get_mut::<PatrolNodeClass>().unwrap().apply(data.clone()),
+            Self::SpawnNode { data, .. } => content.get_mut::<SpawnNodeClass>().unwrap().apply(data.clone()),
+            Self::MinigameInfo { data, .. } => content.get_mut::<MinigameInfoClass>().unwrap().apply(data.clone()),
+            Self::ChessMetaGameLogic { data, .. } => content.get_mut::<ChessMetaGameLogicClass>().unwrap().apply(data.clone()),
+            Self::EDNAContainer { data, .. } => content.get_mut::<EdnaContainerClass>().unwrap().apply(data.clone()),
+            Self::BilliardBall { data, .. } => content.get_mut::<BilliardBallClass>().unwrap().apply(data.clone()),
+            Self::OtherlandStructure { data, .. } => content.get_mut::<OtherlandStructureClass>().unwrap().apply(data.clone()),
+            Self::MinigameScoreBoard { data, .. } => content.get_mut::<MinigameScoreBoardClass>().unwrap().apply(data.clone()),
+            Self::PresetPoint { data, .. } => content.get_mut::<PresetPointClass>().unwrap().apply(data.clone()),
+            Self::Door { data, .. } => content.get_mut::<DoorClass>().unwrap().apply(data.clone()),
+            Self::CTFGameFlag { data, .. } => content.get_mut::<CtfGameFlagClass>().unwrap().apply(data.clone()),
+            Self::ServerGateway { data, .. } => content.get_mut::<ServerGatewayClass>().unwrap().apply(data.clone()),
+            Self::ServerGatewayExitPhase { data, .. } => content.get_mut::<ServerGatewayExitPhaseClass>().unwrap().apply(data.clone()),
+            Self::NonSpawnPlacement { data, .. } => content.get_mut::<NonSpawnPlacementClass>().unwrap().apply(data.clone()),
+            Self::MyLandSettings { data, .. } => content.get_mut::<MyLandSettingsClass>().unwrap().apply(data.clone()),
+            Self::WorldDisplay { data, .. } => content.get_mut::<WorldDisplayClass>().unwrap().apply(data.clone()),
+            Self::MypadRoomDoor { data, .. } => content.get_mut::<MypadRoomDoorClass>().unwrap().apply(data.clone()),
+            Self::QuestBeacon { data, .. } => content.get_mut::<QuestBeaconClass>().unwrap().apply(data.clone()),
+            Self::CustomTrigger { data, .. } => content.get_mut::<CustomTriggerClass>().unwrap().apply(data.clone()),
         }
     }
 
@@ -273,9 +239,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(SpawnerParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -289,9 +255,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(NpcOtherlandParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -305,9 +271,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(StructureParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -321,9 +287,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(PortalParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -337,9 +303,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(StartingPointParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -353,9 +319,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(TriggerParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -369,9 +335,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(ChessPieceParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -385,9 +351,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(ShipParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -401,9 +367,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(PlanetParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -417,9 +383,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(InteractObjectParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -433,9 +399,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(PatrolNodeParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -449,9 +415,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(SpawnNodeParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -465,9 +431,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(MinigameInfoParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -481,9 +447,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(ChessMetaGameLogicParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -497,9 +463,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(EdnaContainerParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -513,9 +479,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(BilliardBallParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -529,9 +495,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(OtherlandStructureParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -545,9 +511,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(MinigameScoreBoardParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -561,9 +527,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(PresetPointParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -577,9 +543,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(DoorParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -593,9 +559,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(CtfGameFlagParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -609,9 +575,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(ServerGatewayParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -625,9 +591,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(ServerGatewayExitPhaseParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -641,9 +607,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(NonSpawnPlacementParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -657,9 +623,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(MyLandSettingsParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -677,9 +643,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(WorldDisplayParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -693,9 +659,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(MypadRoomDoorParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -709,9 +675,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(QuestBeaconParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })
@@ -725,9 +691,9 @@ impl Instance {
                         content_guid: value.content_guid.clone(), 
                         name: value.editor_name,
                         data: value.data.map(|v| 
-                            v.try_into()
+                            v.take()
                             .expect("unexpected param class")
-                        ).unwrap_or(CustomTriggerParam::new()), 
+                        ).unwrap_or_default(), 
                         phase_tag: value.phase_tag,
                         content,
                     })

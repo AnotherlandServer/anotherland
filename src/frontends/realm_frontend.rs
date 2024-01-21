@@ -16,7 +16,7 @@
 use std::{time::Duration, net::{SocketAddrV4, SocketAddr}, sync::Arc};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetPeer}, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktRealmStatusList, RealmStatus, oaCharacter, BoundParamClass, CPktStream_126_1, oaPktCharacterFailure, OaPktCharacterFailureErrorCode, CPktStream_126_5, oaPktCharacterDeleteSuccess, oaPktResponseSelectWorld, OaPktResponseSelectWorldErrorCode, Player, oaPktCharacterSelectSuccess};
+use atlas::{oaCharacter, oaPktCharacterDeleteSuccess, oaPktCharacterFailure, oaPktCharacterSelectSuccess, oaPktRealmStatusList, oaPktResponseSelectWorld, raknet::{RakNetListener, Message, Priority, Reliability, RakNetPeer}, CPkt, CPktLoginResult, CPktStream_126_1, CPktStream_126_5, CpktLoginResultUiState, OaPktCharacterFailureErrorCode, OaPktResponseSelectWorldErrorCode, ParamClass, PlayerParams, RealmStatus};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::future::Remote;
 use log::{error, debug, warn};
@@ -288,7 +288,11 @@ impl RealmFrontendSession {
                         // check if cluster server is online
                         if let Some(cluster_server) = self.realm.get_cluster_frontend_address().await {
                             session_ref.select_character(character.id).await?;
-                            session_ref.select_zone(character.data.zone_guid().unwrap().to_owned()).await?;
+                            session_ref.select_zone(character.data
+                                .zone_guid()
+                                .unwrap()
+                                .clone()
+                            ).await?;
 
                             let mut character_select_success = oaPktCharacterSelectSuccess::default();
                             character_select_success.world_ip = u32::from_be(cluster_server.ip().clone().into());
