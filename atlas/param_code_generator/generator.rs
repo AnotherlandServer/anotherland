@@ -25,6 +25,12 @@ use convert_case::{Converter, Boundary, Pattern, Case, Casing};
 
 use crate::write_source;
 
+static ADDITIONAL_PARAM_CLASSES: &[&str] = &[
+    "structure",
+    "InteractObject",
+    "NonSpawnPlacement",
+];
+
 #[derive(Debug, Default)]
 struct Paramlist {
     data_ver: u8,
@@ -46,6 +52,7 @@ struct ParamClass {
     name: String,
     extends: String,
     extends_ref: Option<Rc<RefCell<ParamClass>>>,
+    final_class: bool,
     binds_to: Vec<String>,
     content_table_binding: String,
     icon: String,
@@ -271,40 +278,40 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             ParamType::Any => None,
                             ParamType::AvatarID => {
                                 let val: u64 = default_str.strip_prefix("#").unwrap().parse().expect("failed to parse avatar id");
-                                Some(quote! { #val.into() })
+                                Some(quote! { Param::AvatarId(#val.into()) })
                             },
                             ParamType::AvatarIDSet => None,
                             ParamType::AvatarIDVector => None,
                             ParamType::BitSetFilter => None,
-                            ParamType::Bool => if default_str == "true" { Some(quote!{ true }) } else { Some(quote!{ false }) },
+                            ParamType::Bool => if default_str == "true" { Some(quote!{ Param::Bool(true) }) } else { Some(quote!{ Param::Bool(false) }) },
                             ParamType::ClassRefPowerRangeList => None,
                             ParamType::ContentRef => None,
                             ParamType::ContentRefAndInt => None,
                             ParamType::ContentRefList => None,
                             ParamType::Float => {
                                 let val: f32 = default_str.parse().expect("failed to parse float");
-                                Some(quote! { #val })
+                                Some(quote! { Param::Float(#val) })
                             },
                             ParamType::FloatRange => None,
                             ParamType::FloatVector => None,
-                            ParamType::Guid => Some(quote!{ Uuid::parse_str(#default_str).unwrap() }),
+                            ParamType::Guid => Some(quote!{ Param::Uuid(Uuid::parse_str(#default_str).unwrap()) }),
                             ParamType::GuidPair => None,
                             ParamType::Int => {
                                 let val: i32 = default_str.parse().expect("failed to parse int");
-                                Some(quote! { #val })
+                                Some(quote! { Param::Int32(#val, None) })
                             },
                             ParamType::Int64 => {
                                 let val: i64 = default_str.parse().expect("failed to parse int64");
-                                Some(quote! { #val })
+                                Some(quote! { Param::Int64(#val) })
                             },
                             ParamType::Int64Vector => None,
                             ParamType::IntVector => None,
                             ParamType::JSON => {
                                 let json = default_str.replace("\\\"", "\"");
-                                Some(quote! { serde_json::from_str(#json).unwrap() })
+                                Some(quote! { Param::JsonValue(serde_json::from_str(#json).unwrap(), None) })
                             },
-                            ParamType::LocalizedString => Some(quote! { Uuid::parse_str(#default_str).unwrap() }),
-                            ParamType::String => Some(quote! { #default_str }),
+                            ParamType::LocalizedString => Some(quote! { Param::LocalizedString(Uuid::parse_str(#default_str).unwrap()) }),
+                            ParamType::String => Some(quote! { Param::String(#default_str.to_owned(), None) }),
                             ParamType::StringFloatPair => None,
                             ParamType::StringStringHashmap => None,
                             ParamType::StringIntHashmap => None,
@@ -315,7 +322,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 let y: f32 = parts[1].parse().expect("failed to parse vector3");
                                 let z: f32 = parts[2].parse().expect("failed to parse vector3");
 
-                                Some(quote! { Vec3::new(#x, #y, #z) })
+                                Some(quote! { Param::Vector3(Vec3::new(#x, #y, #z)) })
                             },
                             ParamType::OAInstanceGroup => None,
                             ParamType::OASetGuid => None,
@@ -355,6 +362,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 if current_class.is_none() {
                     current_class = Some(ParamClass {
                         name: name.clone(),
+                        final_class: true,
                         ..Default::default()
                     });
                 }
@@ -364,6 +372,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                         class_map.insert(param_class.name.to_owned(), Rc::new(RefCell::new(param_class.clone())));
                         *param_class = ParamClass {
                             name: name.clone(),
+                            final_class: true,
                             ..Default::default()
                         };
                     }
@@ -419,67 +428,260 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         }
     }
 
+    // resolve references
     for (_, class) in class_map.iter() {
         if !class.borrow().extends.is_empty() {
-            let extend_class = class_map.get(&class.borrow().extends).map(|c| c.clone());
-            class.borrow_mut().extends_ref = extend_class;
+            let extend_class = class_map.get(&class.borrow().extends).map(|c| c.clone()).unwrap();
+            extend_class.borrow_mut().final_class = false;
+            class.borrow_mut().extends_ref = Some(extend_class);
         }
+    }
+
+    // inherit types and defaults from parent classes
+    for (_, class) in class_map.iter() {
+        let mut class = class.borrow_mut();
+
+        let mut options = Vec::new();
+
+        for (param, _) in class.paramid.iter() {
+            // check if we have options for this param
+            let mut has_option = false;
+            
+            for (param_b_name, _) in class.paramoption.iter() {
+                if param_b_name == param {
+                    has_option = true;
+                    break;
+                }
+            };
+
+            // if not, search in parents for optrions
+            if !has_option {
+                let mut current_class = class.extends_ref.clone();
+                'parent_search: while let Some(parent) = current_class.as_ref() {
+                    let parent = parent.borrow();
+
+                    for (param_b_name, option) in parent.paramoption.iter() {
+                        if param_b_name == param {
+                            options.push((param.clone(), option.clone()));
+                            break 'parent_search;
+                        }
+                    };
+
+                    // move to next parent
+                    let parent_ref = parent.extends_ref.clone();
+                    drop(parent);
+                    current_class = parent_ref;
+                }
+            }
+        }
+
+        class.paramoption.extend(options);
     }
 
     paramlist.classes = class_map.values().map(|v| v.to_owned()).collect();
 
-     // generate structs
-     let classes_src: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-        //let class_fields = generate_fields(v.to_owned(), &class_map).expect("Parameter generation failed");
-        
+    // search for all final param classes. Meaning ones that are not extended
+    let final_classes: Vec<_> = paramlist.classes.iter().filter(|v| { 
+        v.borrow().final_class || ADDITIONAL_PARAM_CLASSES.contains(&v.borrow().name.as_str())
+    }).collect();
+
+    // generate enum for fields
+    let param_name_enums: Vec<_> = final_classes.iter().map(|v| {
+        let class = v.borrow();
+
+        let enum_name = format_ident!("{}Attribute", class.name.to_case(Case::UpperCamel));
+
+        let class_id_literal = class.unique_id;
+
+        let enum_entries: Vec<_> = class.paramid.iter().map(|v| {
+            let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
+
+            quote!(#entry_name)
+        }).collect();
+
+        let enum_ids: Vec<_> = class.paramid.iter().map(|v| {
+            let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
+            let id_literal = v.1;
+
+            quote!(Self::#entry_name => #id_literal)
+        }).collect();
+
+        let enum_names: Vec<_> = class.paramid.iter().map(|v| {
+            let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
+            let name_literal = &v.0;
+
+            quote!(Self::#entry_name => #name_literal)
+        }).collect();
+
+        let enum_non_option = if class.paramid.len() != class.paramoption.len() {
+            quote!{_ => None}
+        } else {
+            quote!()
+        };
+
+        let enum_types: Vec<_> = class.paramoption.iter().map(|v| {
+            let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
+            let type_ident = match v.1.param_type {
+                ParamType::Any => quote!(ParamType::Any),
+                ParamType::AvatarID => quote!(ParamType::AvatarId),
+                ParamType::AvatarIDSet => quote!(ParamType::AvatarIdSet),
+                ParamType::AvatarIDVector => quote!(ParamType::AvatarIdArray),
+                ParamType::BitSetFilter => quote!(ParamType::Bitset),
+                ParamType::Bool => quote!(ParamType::Bool),
+                ParamType::ClassRefPowerRangeList => quote!(ParamType::ContentRefArray), // not sure about this
+                ParamType::ContentRef => quote!(ParamType::ContentRef),
+                ParamType::ContentRefAndInt => quote!(ParamType::ContentRef), // not sure about this
+                ParamType::ContentRefList => quote!(ParamType::ContentRefArray),
+                ParamType::Float => quote!(ParamType::Float),
+                ParamType::FloatRange => quote!(ParamType::FloatPair),
+                ParamType::FloatVector => quote!(ParamType::FloatArray),
+                ParamType::Guid => quote!(ParamType::Uuid),
+                ParamType::GuidPair => quote!(ParamType::UuidPair),
+                ParamType::Int => quote!(ParamType::Int32),
+                ParamType::Int64 => quote!(ParamType::Int64),
+                ParamType::Int64Vector => quote!(ParamType::Int64Array),
+                ParamType::IntVector => quote!(ParamType::IntArray),
+                ParamType::JSON => quote!(ParamType::JsonValue),
+                ParamType::LocalizedString => quote!(ParamType::LocalizedString),
+                ParamType::String => quote!(ParamType::String),
+                ParamType::StringFloatPair => quote!(ParamType::StringFloatPair),
+                ParamType::StringStringHashmap => quote!(ParamType::StringMap),
+                ParamType::StringIntHashmap => quote!(ParamType::IntMap),
+                ParamType::StringVector => quote!(ParamType::StringArray),
+                ParamType::Vector3 => quote!(ParamType::Vector3),
+                ParamType::OAInstanceGroup => quote!(ParamType::String),
+                ParamType::OASetGuid => quote!(ParamType::UuidSet),
+                ParamType::OAVectorGuid => quote!(ParamType::UuidArray),
+                ParamType::OAVactorLocalizedString => quote!(ParamType::UuidArray),
+            };
+
+            quote!(Self::#entry_name => #type_ident,)
+        }).collect();
+
+        let enum_defaults: Vec<_> = class.paramoption.iter().map(|v| {
+            let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
+            if let Some(default_literal) = v.1.default_literal.as_ref() {
+                quote!{Self::#entry_name => Some(#default_literal),}
+            } else {
+                quote!{Self::#entry_name => None,}
+            }
+        }).collect();
+
+        let enum_flags: Vec<_> = class.paramoption.iter().map(|v| {
+            let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
+            let flag_idents = v.1.flags.iter().map(|v| {
+                match v {
+                    ParamFlag::NodeOwn => quote!(ParamFlag::NodeOwn),
+                    ParamFlag::ServerOwn => quote!(ParamFlag::ServerOwn),
+                    ParamFlag::ClientOwn => quote!(ParamFlag::ClientOwn),
+                    ParamFlag::ClientUnknown => quote!(ParamFlag::ClientUnknown),
+                    ParamFlag::ClientPrivileged => quote!(ParamFlag::ClientPrivileged),
+                    ParamFlag::ClientInit => quote!(ParamFlag::ClientInit),
+                    ParamFlag::Persistent => quote!(ParamFlag::Persistent),
+                    ParamFlag::ExcludeFromClient => quote!(ParamFlag::ExcludeFromClient),
+                    ParamFlag::Content => quote!(ParamFlag::Content),
+                    ParamFlag::PerInstanceSetting => quote!(ParamFlag::PerInstanceSetting),
+                    ParamFlag::DupeSetOk => quote!(ParamFlag::DupeSetOk),
+                    ParamFlag::Deprecated => quote!(ParamFlag::Deprecated),
+                    ParamFlag::Metric => quote!(ParamFlag::Metric),
+                    ParamFlag::EquipSlot => quote!(ParamFlag::EquipSlot),
+                    ParamFlag::Uts => quote!(ParamFlag::Uts),
+                }
+            });
+
+            quote!{Self::#entry_name => &[#(#flag_idents),*],}
+        }).collect();
+
+        let enum_from_str: Vec<_> = class.paramid.iter().map(|v| {
+            let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
+            let name_literal = &v.0;
+
+            quote!(#name_literal => Ok(Self::#entry_name),)
+        }).collect();
+
+        let enum_from_u16: Vec<_> = class.paramid.iter().map(|v| {
+            let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
+            let id_literal = &v.1;
+
+            quote!(#id_literal => Ok(Self::#entry_name),)
+        }).collect();
+
+        quote!{
+            #[derive(PartialEq, Eq, Hash, Clone)]
+            pub enum #enum_name {
+                #(#enum_entries),*
+            }
+
+            impl ParamAttrib for #enum_name {
+                fn class_id() -> u16 { #class_id_literal }
+
+                fn id(&self) -> u16 { 
+                    match self {
+                        #(#enum_ids),*
+                    }
+                }
+
+                fn name(&self) -> &'static str { 
+                    match self {
+                        #(#enum_names),*
+                    } 
+                }
+
+                fn datatype(&self) -> ParamType { 
+                    match self {
+                        #(#enum_types)*
+                        #enum_non_option
+                    }
+                }
+
+                fn default(&self) -> Option<Param> { 
+                    match self {
+                        #(#enum_defaults)*
+                        #enum_non_option
+                    }
+                }
+
+                fn flags(&self) -> &[ParamFlag] {
+                    match self {
+                        #(#enum_flags)*
+                        #enum_non_option
+                    }
+                }
+            }
+
+            impl FromStr for #enum_name {
+                type Err = ParamError;
+
+                fn from_str(s: &str) -> Result<Self, Self::Err> {
+                    match s {
+                        #(#enum_from_str)*
+                        _ => Err(ParamError(())),
+                    }
+                }
+            }
+
+            impl TryFrom<u16> for #enum_name {
+                type Error = ParamError;
+
+                fn try_from(val: u16) -> Result<Self, Self::Error> {
+                    match val {
+                        #(#enum_from_u16)*
+                        _ => Err(ParamError(())),
+                    }
+                }
+            }
+        }
+    }).collect();
+
+    // generate enum for fields
+    let param_view_traits: Vec<_> = paramlist.classes.iter().map(|v| {
+        let class: std::cell::Ref<'_, ParamClass> = v.borrow();
+
+        let trait_name = format_ident!("{}Params", class.name.to_case(Case::UpperCamel));
+        let view_name = format_ident!("{}View", class.name.to_case(Case::UpperCamel));
+
         let params: Vec<_> = v.borrow().paramid.iter().map(|(name, id)| {
             (name.to_owned(), *id, v.borrow().paramoption.iter().find(|p| &p.0 == name).map(|s| s.1.to_owned()))
-        }).collect();
-
-        let param_copy_section: Vec<_> = params.iter()
-        .filter(|(name, _, _)| v.borrow().param_is_owned(name))
-        .map(|(name, _id, _options)| {
-            quote!{ 
-                if let Some(param) = self.as_anyclass().get_param(#name) {
-                    new_class.set_param(#name, param.clone()); 
-                }
-            }
-        }).collect();
-
-        let default_setters: Vec<_> = params.iter()
-        .filter(|(name, _, _)| v.borrow().param_is_owned(name))
-        .map(|(name, _, options)| {
-            let field_name = Converter::new()
-            .set_boundaries(&[Boundary::Hyphen, Boundary::Underscore, Boundary::Space, Boundary::LowerUpper])
-            .set_pattern(Pattern::Lowercase)
-            .set_delim("_")
-            .convert(name);
-
-            let set_field_name = format_ident!("set_{}", field_name);
-
-            match options.clone().map(|v| v.default_literal).flatten() {
-                Some(literal) => {
-                    let allow_deprecated = if let Some(options) = options {
-                        if options.flags.contains(&ParamFlag::Deprecated) {
-                            quote!{#[allow(deprecated)]}
-                        } else {
-                            quote!()
-                        }
-                    } else {
-                        quote!()
-                    };
-
-                    quote!{
-                        #allow_deprecated
-                        instance.#set_field_name(#literal);
-                    }
-                },
-                None => {
-                    quote!()
-                }
-            }
         }).collect();
 
         let getter_setter: Vec<_> = params.iter()
@@ -489,7 +691,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             .set_boundaries(&[Boundary::Hyphen, Boundary::Underscore, Boundary::Space, Boundary::LowerUpper])
             .set_pattern(Pattern::Lowercase)
             .set_delim("_")
-            .convert(name);
+            .convert(name.clone());
 
             let field_name_ident = format_ident!("{}", match field_name.as_str() {
                 "static" => "r#static",
@@ -507,167 +709,98 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     }
                     match options.param_type {
                         ParamType::Any => tokens.push(quote! { 
-                                fn #field_name_ident<'a, T>(&'a self) -> Option<&T> {
-                                    todo!()
-                                }
+                                fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Param>>;
                             }),
                         ParamType::AvatarID => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a AvatarId> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident(&self) -> Option<AvatarId>;
                         }),
                         ParamType::AvatarIDSet => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a HashSet<AvatarId>> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, HashSet<AvatarId>>>;
                         }),
                         ParamType::AvatarIDVector => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Vec<AvatarId>> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [AvatarId]>>;
                         }),
                         ParamType::BitSetFilter => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a u32> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident(&self) -> Option<u32>;
                         }),
                         ParamType::Bool => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a bool> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<bool>;
                         }),
                         ParamType::ClassRefPowerRangeList => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<()> {
-                                todo!()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<()>;
                         }),
                         ParamType::ContentRef => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Uuid> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Uuid>>;
                         }),
                         ParamType::ContentRefAndInt => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<()> {
-                                todo!()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<()>;
                         }),
                         ParamType::ContentRefList => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<()> {
-                                todo!()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<()>;
                         }),
                         ParamType::Float => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a f32> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident(&self) -> Option<f32>;
                         }),
                         ParamType::FloatRange => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a (f32, f32)> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, (f32, f32)>>;
                         }),
                         ParamType::FloatVector => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Vec<f32>> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [f32]>>;
                         }),
                         ParamType::Guid => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Uuid> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Uuid>>;
                         }),
                         ParamType::GuidPair => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a (Uuid, Uuid)> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, (Uuid, Uuid)>>;
                         }),
                         ParamType::Int => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<i32> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<i32>;
                         }),
                         ParamType::Int64 => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<i64> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<i64>;
                         }),
                         ParamType::Int64Vector => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Vec<i64>> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [i64]>>;
                         }),
                         ParamType::IntVector => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Vec<i32>> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [i32]>>;
                         }),
                         ParamType::JSON => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Value> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Value>>;
                         }),
                         ParamType::LocalizedString => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Uuid> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Uuid>>;
                         }),
                         ParamType::OAInstanceGroup => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<()> {
-                                todo!()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<()>;
                         }),
                         ParamType::OASetGuid => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<()> {
-                                todo!()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<()>;
                         }),
                         ParamType::OAVactorLocalizedString => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<()> {
-                                todo!()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<()>;
                         }),
                         ParamType::OAVectorGuid => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Vec<Uuid>> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [Uuid]>>;
                         }),
                         ParamType::String => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a str> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, str>>;
                         }),
                         ParamType::StringFloatPair => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a (String, f32)> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, (String, f32)>>;
                         }),
                         ParamType::StringIntHashmap => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a HashMap<String, i32>> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, HashMap<String, i32>>>;
                         }),
                         ParamType::StringStringHashmap => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a HashMap<String, String>> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, HashMap<String, String>>>;
                         }),
                         ParamType::StringVector => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Vec<String>> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [String]>>;
                         }),
                         ParamType::Vector3 => tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<&'a Vec3> {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
+                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Vec3>>;
                         })
-                        /*_ => tokens.push(quote! { 
-                            fn #field_name_ident<'a, T>(&'a self) -> Option<&'a T> 
-                                where &'a Param: TryInto<&'a T, Error = ParamError>, 
-                            {
-                                self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                            }
-                        })*/
                     }
 
                     //if options.flags.contains(&ParamFlag::NodeOwn) || options.flags.contains(&ParamFlag::ServerOwn) {
@@ -676,418 +809,608 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     }
                     match options.param_type {
                         ParamType::Any => tokens.push(quote! { 
-                                fn #set_field_name<T>(&mut self, _val: T) {
-                                    todo!()
-                                }
+                                fn #set_field_name(&mut self, val: Param);
                             }),
                         ParamType::AvatarID => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: AvatarId) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: AvatarId);
                         }),
                         ParamType::AvatarIDSet => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: HashSet<AvatarId>) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: HashSet<AvatarId>);
                         }),
                         ParamType::AvatarIDVector => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Vec<AvatarId>) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: Vec<AvatarId>);
                         }),
                         ParamType::BitSetFilter => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: u32) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: u32);
                         }),
                         ParamType::Bool => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: bool) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: bool);
                         }),
                         ParamType::ClassRefPowerRangeList => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ()) {
-                                todo!()
-                            }
+                            fn #set_field_name(&mut self, _val: ());
                         }),
                         ParamType::ContentRef => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Uuid) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: Uuid);
                         }),
                         ParamType::ContentRefAndInt => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ()) {
-                                todo!()
-                            }
+                            fn #set_field_name(&mut self, _val: ());
                         }),
                         ParamType::ContentRefList => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ()) {
-                                todo!()
-                            }
+                            fn #set_field_name(&mut self, _val: ());
                         }),
                         ParamType::Float => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: f32) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: f32);
                         }),
                         ParamType::FloatRange => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: (f32, f32)) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: (f32, f32));
                         }),
                         ParamType::FloatVector => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Vec<f32>) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: Vec<f32>);
                         }),
                         ParamType::Guid => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Uuid) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: Uuid);
                         }),
                         ParamType::GuidPair => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: (Uuid, Uuid)) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: (Uuid, Uuid));
                         }),
                         ParamType::Int => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: i32) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: i32);
                         }),
                         ParamType::Int64 => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: i64) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: i64);
                         }),
                         ParamType::Int64Vector => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Vec<i64>) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: Vec<i64>);
                         }),
                         ParamType::IntVector => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Vec<i32>) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: Vec<i32>);
                         }),
                         ParamType::JSON => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Value) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: Value);
                         }),
                         ParamType::LocalizedString => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Uuid) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: Uuid);
                         }),
                         ParamType::OAInstanceGroup => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ()) {
-                                todo!()
-                            }
+                            fn #set_field_name(&mut self, _val: ());
                         }),
                         ParamType::OASetGuid => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ()) {
-                                todo!()
-                            }
+                            fn #set_field_name(&mut self, _val: ());
                         }),
                         ParamType::OAVactorLocalizedString => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ()) {
-                                todo!()
-                            }
+                            fn #set_field_name(&mut self, _val: ());
                         }),
                         ParamType::OAVectorGuid => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Vec<Uuid>) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: Vec<Uuid>);
                         }),
                         ParamType::String => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: &str) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: &str);
                         }),
                         ParamType::StringFloatPair => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: (String, f32)) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: (String, f32));
                         }),
                         ParamType::StringIntHashmap => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: HashMap<String, i32>) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: HashMap<String, i32>);
                         }),
                         ParamType::StringStringHashmap => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: HashMap<String, String>) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: HashMap<String, String>);
                         }),
                         ParamType::StringVector => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Vec<String>) {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
+                            fn #set_field_name(&mut self, val: Vec<String>);
                         }),
                         ParamType::Vector3 => {
                             if options.flags.contains(&ParamFlag::Uts) {
                                 tokens.push(quote! {
-                                    fn #set_field_name(&mut self, val: Vec3) {
-                                        self.as_anyclass_mut().set_param(#name, Param::Vector3Uts(0, val))
-                                    }
+                                    fn #set_field_name(&mut self, val: Vec3);
                                 })
                             } else {
                                 tokens.push(quote! {
-                                    fn #set_field_name(&mut self, val: Vec3) {
-                                        self.as_anyclass_mut().set_param(#name, val.into())
-                                    }
+                                    fn #set_field_name(&mut self, val: Vec3);
                                 })
                             }
                         },
-                        /*_ => tokens.push(quote! { 
-                            fn #set_field_name<T>(&mut self, val: T) where T: Into<Param> {
-                                self.as_anyclass_mut().set_param(#name, val.into())
-                            }
-                        })*/
                     }
-                    //}
 
                     quote! {
                         #(#tokens)*
                     }
                 },
                 None => {
-                    quote! { 
-                        fn #field_name_ident<'a, T>(&'a self) -> Option<&'a T> 
-                            where &'a Param: TryInto<&'a T, Error = ParamError>,
-                        {
-                            self.as_anyclass().get_param(#name).map(|v| v.try_into().ok()).flatten()
-                        }
-
-                        fn #set_field_name<T>(&mut self, val: T) where T: Into<Param> {
-                            self.as_anyclass_mut().set_param(#name, val.into())
-                        }
-                    }
+                    panic!("No type information for owned attribute!");
                 }
             }
         }).collect();
-
-        let attrib_names: Vec<_> = params.iter().map(|(name, id, _)| {
-            let literal = format!("{}", name);
-            let id = *id;
-
-            quote!{ #id => #literal, }
-        }).collect();
-
-        /*let attrib_is_persistent: Vec<_> = params.iter().map(|(name, id, options)| {
-            let literal = format!("{}", name);
-            let id = *id;
-
-            match options {
-                Some(options) => {
-                    if options.flags.contains(&ParamFlag::Persistent) {
-                        quote!{ #id => true, }
-                    } else {
-                        quote!{ #id => false, }
-                    }
-                }
-                None => quote!{ #id => true, }
-            }
-        }).collect();*/
-
-        let attrib_lookup: Vec<_> = params.iter().map(|(name, id, _)| {
-            let literal = format!("{}", name);
-            let id = *id;
-
-            quote!{ #literal => Some(#id), }
-        }).collect();
-
-        let attrib_flags: Vec<_> = params.iter()
-            .filter(|(_, _, options)| options.is_some() && !options.as_ref().unwrap().flags.is_empty())
-            .map(|(name, _, options)| {
-
-            let flags = match options {
-                Some(options) => {
-                    let flag_idents: Vec<_> = options.flags.iter().map(|f| {
-                        match f {
-                            ParamFlag::NodeOwn => quote!(ParamFlag::NodeOwn),
-                            ParamFlag::ServerOwn => quote!(ParamFlag::ServerOwn),
-                            ParamFlag::ClientOwn => quote!(ParamFlag::ClientOwn),
-                            ParamFlag::ClientUnknown => quote!(ParamFlag::ClientUnknown),
-                            ParamFlag::ClientPrivileged =>quote!(ParamFlag::ClientPrivileged),
-                            ParamFlag::ClientInit => quote!(ParamFlag::ClientInit),
-                            ParamFlag::Persistent => quote!(ParamFlag::Persistent),
-                            ParamFlag::ExcludeFromClient => quote!(ParamFlag::ExcludeFromClient),
-                            ParamFlag::Content => quote!(ParamFlag::Content),
-                            ParamFlag::PerInstanceSetting => quote!(ParamFlag::PerInstanceSetting),
-                            ParamFlag::DupeSetOk => quote!(ParamFlag::DupeSetOk),
-                            ParamFlag::Deprecated => quote!(ParamFlag::Deprecated),
-                            ParamFlag::Metric => quote!(ParamFlag::Metric),
-                            ParamFlag::EquipSlot => quote!(ParamFlag::EquipSlot),
-                            ParamFlag::Uts => quote!(ParamFlag::Uts),
-                        }
-                    }).collect();
-
-                    quote!{&[#(#flag_idents),*]}
-                },
-                None => quote!{&[]},
-            };
-
-            quote!{ #name => #flags, }
-        }).collect();
-
-        let mut traits = Vec::new();
-        let mut parents = Vec::new();
-        parents.push(v.clone());
-
-        let mut next_parent = v.borrow().extends_ref.clone();
-        while next_parent.is_some() {
-            let trait_name = format_ident!("{}", formatted_class_name(next_parent.clone().unwrap().borrow().name.as_str()));
-
-            traits.push(quote!{ impl #trait_name for #class_name {} });
-            parents.push(next_parent.as_ref().unwrap().clone());
-            next_parent = next_parent.unwrap().borrow().extends_ref.clone();
-        }
-
-        // todo: Find a better way than hardcoding those
-        let component = if v.borrow().is_child_of("nonClientBase") || 
-                v.borrow().is_child_of("player") || 
-                v.borrow().is_child_of("NonSpawnPlacement") || 
-                v.borrow().name == "NonSpawnPlacement" 
-        {
-            let component_name = format_ident!("{}Component", formatted_class_name(&v.borrow().name));
-            
-            let to_components_return_types: Vec<_> = 
-                parents
-                    .iter()
-                    .map(|c| format_ident!("{}Component", formatted_class_name(&c.borrow().name)))
-                    .collect();
-
-            let to_components_extract: Vec<_> = 
-            parents
-                .iter()
-                .map(|c| {
-                    let component_ident = format_ident!("{}Component", formatted_class_name(&c.borrow().name));
-                    let trait_ident = format_ident!("{}", formatted_class_name(&c.borrow().name));
-                    quote!{ #component_ident(<#class_name as #trait_ident>::extract_param_section(&self)) }
-                })
-                .collect();
-
-            let from_component_extract: Vec<_> = 
-            parents
-                .iter()
-                .map(|c| {
-                    let component_ident = format_ident!("{}Component", formatted_class_name(&c.borrow().name));
-                    quote!{ param_class.as_anyclass_mut().apply(entry.get_component::<#component_ident>().map_err(|_|ParamError(()))?.clone().to_anyclass()); }
-                    //quote!{ #component_ident(<#class_name as #trait_ident>::extract_param_section(&self)) }
-                })
-                .collect();
-
-            quote!{ 
-                #[derive(Clone)]
-                pub struct #component_name(AnyClass); 
-                impl #unprefixed_class_name for #component_name {}
-
-                impl ParamClass for #component_name {
-                    fn as_anyclass(&self) -> &AnyClass { &self.0 }
-                    fn as_anyclass_mut(&mut self) -> &mut AnyClass { &mut self.0 }
-                    fn to_anyclass(self) -> AnyClass { self.0.clone() }
-                
-                    fn attribute_flags_static(_attribute: &str) -> &'static [ParamFlag] {
-                        &[]
-                    }
-                }
-
-                impl ParamEntity for #class_name {
-                    type EntityType = (#(#to_components_return_types),*,);
-                    type ParamClassType = #class_name;
-
-                    fn to_entity(self) -> Self::EntityType {
-                        (#(#to_components_extract),*,)
-                    }
-
-                    fn from_component(world: &World, entity: Entity) -> Result<Self::ParamClassType, ParamError> {
-                        let entry = world.entry_ref(entity).map_err(|_| ParamError(()))?;
-                        let mut param_class = #class_name::default();
-
-                        #(#from_component_extract)*
-
-                        Ok(param_class)
-                    }
-                }
-            }
-        } else {
-            quote!()
-        };
 
         quote! {
-            #[derive(Clone)]
-            pub struct #class_name(AnyClass);
-
-            impl #unprefixed_class_name for #class_name {}
-
-            #(#traits)*
-
-            #component
-
-            pub trait #unprefixed_class_name: ParamClass {
+            pub trait #trait_name {
                 #(#getter_setter)*
+            }
 
-                fn extract_param_section(&self) -> AnyClass {
-                    #[allow(unused_mut)]
-                    let mut new_class = AnyClass::new();
+            pub struct #view_name<P>(P) where P: ParamClass + #trait_name;
 
-                    #(#param_copy_section)*
-
-                    new_class
+            impl <P: ParamClass + #trait_name> #view_name<P> {
+                pub fn new(params: &P) -> Self 
+                where P: ParamClass + #trait_name
+                {
+                    Self(params.clone_ref())
                 }
             }
 
-            impl #class_name {
-                pub fn new() -> Self {
-                    Self(AnyClass::new())
+            impl <P: ParamClass + #trait_name> Deref for #view_name<P> {
+                type Target = dyn #trait_name;
+
+                fn deref(&self) -> &Self::Target {
+                    &self.0
+                }
+            }
+        }
+    }).collect();
+
+    // generate enum for fields
+    let param_classes: Vec<_> = final_classes.iter().map(|v| {
+        let class = v.borrow();
+
+        let class_name = format_ident!("{}Class", class.name.to_case(Case::UpperCamel));
+        let attrib_name = format_ident!("{}Attribute", class.name.to_case(Case::UpperCamel));
+
+        // generate trait implementations
+        let trait_implementations = {
+            let mut traits = Vec::new();
+
+            let mut current_class = Some(v.to_owned().to_owned());
+            while let Some(parent_class_ref) = current_class {
+                current_class = parent_class_ref.borrow().extends_ref.clone();
+
+                let view_name = format_ident!("{}Params", parent_class_ref.borrow().name.to_case(Case::UpperCamel));
+
+                let params: Vec<_> = parent_class_ref.borrow().paramid.iter().map(|(name, id)| {
+                    (name.to_owned(), *id, parent_class_ref.borrow().paramoption.iter().find(|p| &p.0 == name).map(|s| s.1.to_owned()))
+                }).collect();
+    
+                let getter_setter: Vec<_> = params.iter()
+                .filter(|(name, _, _)| parent_class_ref.borrow().param_is_owned(name))
+                .map(|(name, _, options)| {
+                    let field_name = Converter::new()
+                    .set_boundaries(&[Boundary::Hyphen, Boundary::Underscore, Boundary::Space, Boundary::LowerUpper])
+                    .set_pattern(Pattern::Lowercase)
+                    .set_delim("_")
+                    .convert(name.clone());
+    
+                    let field_name_ident = format_ident!("{}", match field_name.as_str() {
+                        "static" => "r#static",
+                        "type" => "r#type",
+                        _ => field_name.as_str(),
+                    });
+                    let set_field_name = format_ident!("set_{}", field_name);
+
+                    let attrib_enum_name = format_ident!("{}", name.to_case(Case::UpperCamel));
+    
+                    match options {
+                        Some(options) => {
+                            let mut tokens = Vec::new();
+
+                            match options.param_type {
+                                ParamType::Any => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Param>> {
+                                        RwLockReadGuard::try_map::<Param, _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::AvatarID => tokens.push(quote! { 
+                                    fn #field_name_ident(&self) -> Option<AvatarId> { 
+                                        self.0.read().get(&#attrib_name::#attrib_enum_name).map(|v| v.try_into().ok()).flatten()
+                                    }
+                                }),
+                                ParamType::AvatarIDSet => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, HashSet<AvatarId>>> {
+                                        RwLockReadGuard::try_map::<HashSet<AvatarId>, _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::AvatarIDVector => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [AvatarId]>> {
+                                        RwLockReadGuard::try_map::<[AvatarId], _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::BitSetFilter => tokens.push(quote! { 
+                                    fn #field_name_ident(&self) -> Option<u32> { todo!() }
+                                }),
+                                ParamType::Bool => tokens.push(quote! { 
+                                    fn #field_name_ident(&self) -> Option<bool> {
+                                        self.0.read().get(&#attrib_name::#attrib_enum_name).map(|v| v.try_into().ok()).flatten()
+                                    }
+                                }),
+                                ParamType::ClassRefPowerRangeList => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<()> { todo!() }
+                                }),
+                                ParamType::ContentRef => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Uuid>> {
+                                        RwLockReadGuard::try_map::<Uuid, _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::ContentRefAndInt => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<()> { todo!() }
+                                }),
+                                ParamType::ContentRefList => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<()> { todo!() }
+                                }),
+                                ParamType::Float => tokens.push(quote! { 
+                                    fn #field_name_ident(&self) -> Option<f32> { 
+                                        self.0.read().get(&#attrib_name::#attrib_enum_name).map(|v| v.try_into().ok()).flatten()
+                                    }
+                                }),
+                                ParamType::FloatRange => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, (f32, f32)>> {
+                                        RwLockReadGuard::try_map::<(f32, f32), _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::FloatVector => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [f32]>> {
+                                        RwLockReadGuard::try_map::<[f32], _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::Guid => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Uuid>> {
+                                        RwLockReadGuard::try_map::<Uuid, _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::GuidPair => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, (Uuid, Uuid)>> {
+                                        RwLockReadGuard::try_map::<(Uuid, Uuid), _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::Int => tokens.push(quote! { 
+                                    fn #field_name_ident(&self) -> Option<i32> {
+                                        self.0.read().get(&#attrib_name::#attrib_enum_name).map(|v| v.try_into().ok()).flatten()
+                                    }
+                                }),
+                                ParamType::Int64 => tokens.push(quote! { 
+                                    fn #field_name_ident(&self) -> Option<i64> {
+                                        self.0.read().get(&#attrib_name::#attrib_enum_name).map(|v| v.try_into().ok()).flatten()
+                                    }
+                                }),
+                                ParamType::Int64Vector => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [i64]>> {
+                                        RwLockReadGuard::try_map::<[i64], _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::IntVector => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [i32]>> {
+                                        RwLockReadGuard::try_map::<[i32], _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::JSON => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Value>> {
+                                        RwLockReadGuard::try_map::<Value, _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::LocalizedString => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Uuid>> {
+                                        RwLockReadGuard::try_map::<Uuid, _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::OAInstanceGroup => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<()> { todo!() }
+                                }),
+                                ParamType::OASetGuid => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<()> { todo!() }
+                                }),
+                                ParamType::OAVactorLocalizedString => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<()> { todo!() }
+                                }),
+                                ParamType::OAVectorGuid => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [Uuid]>> {
+                                        RwLockReadGuard::try_map::<[Uuid], _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::String => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, str>> {
+                                        RwLockReadGuard::try_map::<str, _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::StringFloatPair => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, (String, f32)>> {
+                                        RwLockReadGuard::try_map::<(String, f32), _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::StringIntHashmap => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, HashMap<String, i32>>> {
+                                        RwLockReadGuard::try_map::<HashMap<String, i32>, _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::StringStringHashmap => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, HashMap<String, String>>> {
+                                        RwLockReadGuard::try_map::<HashMap<String, String>, _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::StringVector => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, [String]>> {
+                                        RwLockReadGuard::try_map::<[String], _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                }),
+                                ParamType::Vector3 => tokens.push(quote! { 
+                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, Vec3>> {
+                                        RwLockReadGuard::try_map::<Vec3, _>(self.0.read(), 
+                                        |v| 
+                                            v.get(&#attrib_name::#attrib_enum_name)
+                                            .map(|v| v.try_into().ok())
+                                            .flatten()
+                                        )
+                                        .ok()
+                                    }
+                                })
+                            }
+    
+                            match options.param_type {
+                                ParamType::Any => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Param)
+                                    { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                }),
+                                ParamType::AvatarID => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: AvatarId) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::AvatarIDSet => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: HashSet<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::AvatarIDVector => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Vec<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::BitSetFilter => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: u32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::Bool => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: bool) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::ClassRefPowerRangeList => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                }),
+                                ParamType::ContentRef => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::ContentRefAndInt => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                }),
+                                ParamType::ContentRefList => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                }),
+                                ParamType::Float => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: f32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::FloatRange => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: (f32, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::FloatVector => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Vec<f32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::Guid => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::GuidPair => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: (Uuid, Uuid)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::Int => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: i32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::Int64 => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: i64) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::Int64Vector => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Vec<i64>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::IntVector => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Vec<i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::JSON => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Value) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::LocalizedString => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::OAInstanceGroup => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                }),
+                                ParamType::OASetGuid => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                }),
+                                ParamType::OAVactorLocalizedString => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                }),
+                                ParamType::OAVectorGuid => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Vec<Uuid>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::String => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::StringFloatPair => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: (String, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::StringIntHashmap => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: HashMap<String, i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::StringStringHashmap => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: HashMap<String, String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::StringVector => tokens.push(quote! { 
+                                    fn #set_field_name(&mut self, val: Vec<String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                }),
+                                ParamType::Vector3 => {
+                                    if options.flags.contains(&ParamFlag::Uts) {
+                                        tokens.push(quote! {
+                                            fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                        })
+                                    } else {
+                                        tokens.push(quote! {
+                                            fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                        })
+                                    }
+                                },
+                            }
+    
+                            quote! {
+                                #(#tokens)*
+                            }
+                        },
+                        None => {
+                            panic!("No type information for owned attribute!");
+                        }
+                    }
+                }).collect();
+
+                traits.push(quote!{
+                    impl #view_name for #class_name {
+                        #(#getter_setter)*
+                    }
+                });
+            }
+
+            traits
+        };
+
+        quote!{
+            pub struct #class_name(Arc<RwLock<ParamSet<#attrib_name>>>);
+
+            impl ParamClass for #class_name {
+                type Attributes = #attrib_name;
+
+                fn new() -> Self {
+                    Self(Arc::new(RwLock::new(ParamSet::<Self::Attributes>::new())))
+                }
+
+                fn from_set(set: ParamSet<Self::Attributes>) -> Self {
+                    Self(Arc::new(RwLock::new(set)))
+                }
+
+                fn as_set<'a>(&'a self) -> RwLockReadGuard<'a, ParamSet<Self::Attributes>> {
+                    self.0.read()
+                }
+
+                fn into_set(self) -> ParamSet<Self::Attributes> {
+                    Arc::into_inner(self.0).expect("Class must be the only reference to this instance").into_inner()
+                }
+            
+                fn apply(&mut self, set: ParamSet<Self::Attributes>) {
+                    self.0.write().extend(set)
+                }
+
+                fn clone_ref(&self) -> Self {
+                    Self(self.0.clone())
                 }
             }
 
             impl Default for #class_name {
                 fn default() -> Self {
-                    #[allow(unused_mut)]
-                    let mut instance = Self(AnyClass::new());
-                    
-                    #(#default_setters)*
-                    
-                    instance
+                    let mut set = ParamSet::new();
+                    Self(Arc::new(RwLock::new(set)))
                 }
             }
 
-            impl BoundParamClass for #class_name {
-                const CLASS_ID: ParamClassId = ParamClassId::#unprefixed_class_name;
-
-                fn attribute_name(id: u16) -> &'static str {
-                    match id {
-                        #(#attrib_names)*
-                        _ => panic!(),
-                    }
-                }
-
-                fn lookup_field(name: &str) -> Option<u16> {
-                    match name {
-                        #(#attrib_lookup)*
-                        _ => None,
-                    }
-                }
-
-                fn from_anyclass(anyclass: AnyClass) -> Self { 
-                    Self(anyclass)
-                }
-            }
-
-            impl ParamClass for #class_name {
-                fn as_anyclass(&self) -> &AnyClass { &self.0 }
-                fn as_anyclass_mut(&mut self) -> &mut AnyClass { &mut self.0 }
-                fn to_anyclass(self) -> AnyClass { self.0 }
-
-                fn attribute_flags_static(name: &str) -> &'static [ParamFlag] {
-                    match name {
-                        #(#attrib_flags)*
-                        _ => &[ParamFlag::Persistent],
-                    }
+            impl Clone for #class_name {
+                fn clone(&self) -> Self {
+                    Self(Arc::new(RwLock::new(self.as_set().clone())))
                 }
             }
 
@@ -1096,12 +1419,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 where
                     S: Serializer,
                 {
-                    let json = self.clone().into_persistent_json();
+                    let json = self.into_persistent_json();
                     json.serialize(s)
                 }
             }
-    
-            impl <'de>Deserialize<'de> for #class_name {
+            
+            impl<'de> Deserialize<'de> for #class_name {
                 fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
                     where
                         D: Deserializer<'de>,
@@ -1110,289 +1433,258 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     Ok(#class_name::from_json(&json).unwrap())
                 }
             }
+            
 
-            impl <'a>TryFrom<&'a ParamClassContainer> for &'a #class_name {
-                type Error = ParamError;
-
-                fn try_from(value: &'a ParamClassContainer) -> Result<Self, Self::Error> {
-                    match value {
-                        ParamClassContainer::#unprefixed_class_name(val) => Ok(val),
-                        _ => Err(ParamError(()))
-                    }
-                }
-            }
-
-            impl TryFrom<ParamClassContainer> for #class_name {
-                type Error = ParamError;
-
-                fn try_from(value: ParamClassContainer) -> Result<Self, Self::Error> {
-                    match value {
-                        ParamClassContainer::#unprefixed_class_name(val) => Ok(val),
-                        _ => Err(ParamError(()))
-                    }
-                }
-            }
-
-            impl Into<ParamClassContainer> for #class_name {
-                fn into(self) -> ParamClassContainer {
-                    ParamClassContainer::#unprefixed_class_name(self)
-                }
-            }
+            #(#trait_implementations)*
         }
     }).collect();
+    
+    let param_class_enum: Vec<_> = final_classes.iter().map(|v| {
+        let class = v.borrow();
+        let class_name = format_ident!("{}Class", class.name.to_case(Case::UpperCamel));
 
-    let unique_id_enum: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
         quote!(#class_name)
     }).collect();
 
-    let unique_id_from: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-        let class_id = v.borrow().unique_id;
+    let param_class_display: Vec<_> = final_classes.iter().map(|v| {
+        let class = v.borrow();
+        let class_name = format_ident!("{}Class", class.name.to_case(Case::UpperCamel));
+        let name_literal = class.name.as_str();
 
-        quote!(#class_id => Ok(ParamClassId::#class_name))
+        quote!(ClassId::#class_name => #name_literal)
     }).collect();
 
-    let unique_id_into: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-        let class_id = v.borrow().unique_id;
+    let param_class_string_map: Vec<_> = final_classes.iter().map(|v| {
+        let class = v.borrow();
+        let name_literal = class.name.as_str();
+        let class_name = format_ident!("{}Class", class.name.to_case(Case::UpperCamel));
 
-        quote!(ParamClassId::#class_name => #class_id )
+        quote!(#name_literal => Ok(ClassId::#class_name),)
     }).collect();
 
-    let class_container_entries: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
+    let param_class_int_map: Vec<_> = final_classes.iter().map(|v| {
+        let class = v.borrow();
+        let id_literal = class.unique_id;
+        let class_name = format_ident!("{}Class", class.name.to_case(Case::UpperCamel));
 
-        quote! { #unprefixed_class_name(#class_name) }
+        quote!(#id_literal => Ok(ClassId::#class_name),)
     }).collect();
 
-    let class_container_id: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-
-        quote! { ParamClassContainer::#unprefixed_class_name(_) => #class_name::class_id() }
+    let class_from_json: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => Ok(Box::new(#class_name::from_json(value)?)), }
     }).collect();
 
-    let class_container_read: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-        let class_id = v.borrow().unique_id;
+    let class_into_json: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => value.downcast_ref::<#class_name>().expect("class id mismatch").into_persistent_json(), }
+    }).collect();
 
-        quote! { 
-            #class_id => {
+    let class_read: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => {
                 let (i, class) = #class_name::read(i)?;
-                Ok((i, ParamClassContainer::#unprefixed_class_name(class)))
-            },
+                Ok((i, Box::new(class)))
+            }, 
         }
     }).collect();
 
-    let class_container_write: Vec<_> = paramlist.classes.iter().map(|v| {
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-
-        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.write(writer)? }
+    let class_write: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => value.downcast_ref::<#class_name>().expect("class id mismatch").write(writer), }
     }).collect();
 
-    let class_container_write_to_client: Vec<_> = paramlist.classes.iter().map(|v| {
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-
-        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.write_to_client(writer)? }
+    let class_write_to_client: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => value.downcast_ref::<#class_name>().expect("class id mismatch").write_to_client(writer), }
     }).collect();
 
-    let class_container_to_persistent_json: Vec<_> = paramlist.classes.iter().map(|v| {
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-        let class_name_literal = v.borrow().name.to_owned();
-
-        quote! { ParamClassContainer::#unprefixed_class_name(class) => (#class_name_literal, class.into_persistent_json()), }
+    let class_from_json_set: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => Ok(Box::new(#attribute_name::deserialize_json_set(value)?)), }
     }).collect();
 
-    let class_container_from_json: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-        let class_name_literal = v.borrow().name.to_owned();
-
-        quote! { #class_name_literal => 
-            Ok(ParamClassContainer::#unprefixed_class_name(#class_name::from_json(value)?)), }
+    let class_into_json_set: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => #attribute_name::serialize_json_set(value.downcast_ref::<ParamSet<#attribute_name>>().expect("class id mismatch")), }
     }).collect();
 
-
-    let class_container_as_anyclass: Vec<_> = paramlist.classes.iter().map(|v| {
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-
-        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.as_anyclass() }
+    let class_read_set: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => {
+                let (i, class) = #class_name::read(i)?;
+                Ok((i, Box::new(class)))
+            }, 
+        }
     }).collect();
 
-    let class_container_as_anyclass_mut: Vec<_> = paramlist.classes.iter().map(|v| {
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-
-        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.as_anyclass_mut() }
+    let class_write_set: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => value.downcast_ref::<ParamSet<#attribute_name>>().expect("class id mismatch").write(writer), }
     }).collect();
 
-    let class_container_to_anyclass: Vec<_> = paramlist.classes.iter().map(|v| {
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-
-        quote! { ParamClassContainer::#unprefixed_class_name(class) => class.to_anyclass() }
+    let class_write_set_to_client: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => value.downcast_ref::<ParamSet<#attribute_name>>().expect("class id mismatch").write_to_client(writer), }
     }).collect();
-
-    let class_container_attribute_flags: Vec<_> = paramlist.classes.iter().map(|v| {
-        let unprefixed_class_name = format_ident!("{}", formatted_class_name(&v.borrow().name));
-        let class_name = format_ident!("{}Param", formatted_class_name(&v.borrow().name));
-
-        quote! { ParamClassContainer::#unprefixed_class_name(_) => #class_name::attribute_flags_static(attribute) }
+    
+    let class_clone: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => Box::new(value.downcast_ref::<#class_name>().expect("class id mismatch").clone()), }
     }).collect();
 
     write_source("generated_params.rs", quote! {
-        pub enum ParamClassId {
-            #(#unique_id_enum),*
+        use glam::Vec3;
+        use std::sync::Arc;
+        use std::cell::RefCell;
+        use std::cell::Ref;
+        use std::collections::HashSet;
+        use std::collections::HashMap;
+        use serde_json::Value;
+        use std::any::Any;
+        use std::str::FromStr;
+        use std::io;
+        use std::fmt::Display;
+        use std::fmt::Formatter;
+        use std::ops::Deref;
+        use parking_lot::RwLock;
+        use parking_lot::RwLockReadGuard;
+        use parking_lot::MappedRwLockReadGuard;
+        use nom::IResult;
+        use nom::error::VerboseError;
+        use bitstream_io::ByteWrite;
+        use serde::Serialize;
+        use serde::Serializer;
+        use serde::Deserialize;
+        use serde::Deserializer;
+
+        use crate::AvatarId;
+        use crate::Uuid;
+        use crate::param::ParamAttrib;
+        use crate::param::ParamType;
+        use crate::param::ParamFlag;
+        use crate::param::ParamClass;
+        use crate::param::ParamSet;
+        use crate::param::ParamError;
+        use crate::param::Param;
+
+        #(#param_name_enums)*
+
+        #(#param_view_traits)*
+
+        #(#param_classes)*
+        
+        #[derive(Clone, Copy)]
+        pub enum ClassId {
+            #(#param_class_enum),*
         }
 
-        #[derive(Clone)]
-        pub enum ParamClassContainer {
-            #(#class_container_entries),*
+        impl ClassId {
+            pub(crate) fn class_from_json(&self, value: &Value) -> Result<Box<dyn Any>, io::Error> {
+                match self {
+                    #(#class_from_json)*
+                }
+            }
+
+            pub(crate) fn class_into_json(&self, value: &dyn Any) -> Value {
+                match self {
+                    #(#class_into_json)*
+                }
+            }
+
+            pub(crate) fn set_from_json(&self, value: &Value) -> Result<Box<dyn Any + Send + Sync>, io::Error> {
+                match self {
+                    #(#class_from_json_set)*
+                }
+            }
+
+            pub(crate) fn set_into_json(&self, value: &dyn Any) -> Value {
+                match self {
+                    #(#class_into_json_set)*
+                }
+            }
+
+            pub(crate) fn read<'a>(&self, i: &'a [u8]) -> IResult<&'a [u8], Box<dyn Any>, VerboseError<&'a [u8]>> {
+                match self {
+                    #(#class_read)*
+                }
+            }
+
+            pub(crate) fn write<'a, T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
+            where T: ByteWrite {
+                match self {
+                    #(#class_write)*
+                }
+            }
+
+            pub(crate) fn write_to_client<'a, T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
+            where T: ByteWrite {
+                match self {
+                    #(#class_write_to_client)*
+                }
+            }
+
+            pub(crate) fn read_set<'a>(&self, i: &'a [u8]) -> IResult<&'a [u8], Box<dyn Any + Send + Sync>, VerboseError<&'a [u8]>> {
+                match self {
+                    #(#class_read_set)*
+                }
+            }
+
+            pub(crate) fn write_set<'a, T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
+            where T: ByteWrite {
+                match self {
+                    #(#class_write_set)*
+                }
+            }
+
+            pub(crate) fn write_set_to_client<'a, T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
+            where T: ByteWrite {
+                match self {
+                    #(#class_write_set_to_client)*
+                }
+            }
+
+            pub(crate) fn clone_class(&self, value: &dyn Any) -> Box<dyn Any> {
+                match self {
+                    #(#class_clone)*
+                }
+            }
         }
 
-        impl ParamClassContainer {
-            pub fn class_id(&self) -> ParamClassId {
-                match self {
-                    #(#class_container_id),*
-                }
-            }
-
-            pub fn read<'a>(class_id: u16, i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
-                match class_id {
-                    #(#class_container_read)*
-                    _ => panic!("Unknown class id {}", class_id)
-                }
-            }
-
-            pub fn write<T>(&self, writer: &mut T) -> Result<(), io::Error> 
-            where T: ByteWrite
-            {
-                match self {
-                    #(#class_container_write),*
-                }
-
-                Ok(())
-            }
-
-            pub fn write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> 
-            where T: ByteWrite
-            {
-                match self {
-                    #(#class_container_write_to_client),*
-                }
-
-                Ok(())
-            }
-
-            pub fn into_persistent_json(&self) -> Value {
-                let (class_name, values) = match self {
-                    #(#class_container_to_persistent_json)*
+        impl Display for ClassId {
+            fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+                let name = match self {
+                    #(#param_class_display),*
                 };
 
-                json!({ class_name: values })
-            }
-
-            pub fn from_json(value: &Value) -> Result<Self, io::Error> {
-                let (class_name, value) = value.as_object()
-                    .map(|v| v.iter().next())
-                    .flatten()
-                    .ok_or(io::Error::new(io::ErrorKind::InvalidData, ""))?;
-
-                match class_name.as_str() {
-                    #(#class_container_from_json)*
-                    _ => Err(io::Error::new(io::ErrorKind::InvalidData, ""))
-                }
-            }
-
-            pub fn strip_original_data(&mut self) {
-                self.as_anyclass_mut().strip_original_data();
+                write!(f, "{}", name)
             }
         }
 
-        impl ParamClass for ParamClassContainer {
-            fn as_anyclass(&self) -> &AnyClass {
-                match self {
-                    #(#class_container_as_anyclass),*
-                }
-            }
+        impl FromStr for ClassId {
+            type Err = ParamError;
 
-            fn as_anyclass_mut(&mut self) -> &mut AnyClass {
-                match self {
-                    #(#class_container_as_anyclass_mut),*
-                }
-            }
-
-            fn to_anyclass(self) -> AnyClass {
-                match self {
-                    #(#class_container_to_anyclass),*
-                }
-            }
-        
-            fn attribute_flags(&self, attribute: &str) -> &'static [ParamFlag] {
-                match self {
-                    #(#class_container_attribute_flags),*
-                }
-            }
-
-            fn attribute_flags_static(_attribute: &str) -> &'static [ParamFlag] {
-                panic!("Can't call attribute_flags_static on ParamClassContainer")
-            }
-        }
-
-        impl Serialize for ParamClassContainer {
-            fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
-            where
-                S: Serializer,
-            {
-                let json = self.clone().into_persistent_json();
-                json.serialize(s)
-            }
-        }
-
-        impl <'de>Deserialize<'de> for ParamClassContainer {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-                where
-                    D: Deserializer<'de>,
-            {
-                let json = Value::deserialize(deserializer)?;
-                Ok(ParamClassContainer::from_json(&json).unwrap())
-            }
-        }
-
-        impl ParamClassId {
-            pub fn as_u16(&self) -> u16 {
-                self.into()
-            }
-
-            pub fn as_u32(&self) -> u32 {
-                self.as_u16() as u32
-            }
-        }
-
-        impl TryFrom<u16> for ParamClassId {
-            type Error = ParamError;
-
-            fn try_from(value: u16) -> Result<Self, Self::Error> {
-                match value.into() {
-                    #(#unique_id_from),*,
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    #(#param_class_string_map)*
                     _ => Err(ParamError(())),
                 }
             }
         }
 
-        impl Into<u16> for &ParamClassId {
-            fn into(self) -> u16 {
-                match self {
-                    #(#unique_id_into),*
+        impl TryFrom<u16> for ClassId {
+            type Error = ParamError;
+
+            fn try_from(val: u16) -> Result<Self, Self::Error> {
+                match val {
+                    #(#param_class_int_map)*
+                    _ => Err(ParamError(())),
                 }
             }
         }
-
-        #(#classes_src)*
     })
-}
-
-fn formatted_class_name(name: &str) -> String {
-    name.to_case(Case::UpperCamel)
 }

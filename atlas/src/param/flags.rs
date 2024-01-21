@@ -13,4 +13,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-include!(concat!(env!("OUT_DIR"), "/generated_params.rs"));
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParamFlag {
+    NodeOwn,
+    ServerOwn,
+    ClientOwn,
+    ClientUnknown,
+    ClientPrivileged,
+    ClientInit,
+    Persistent,
+    ExcludeFromClient,
+    Content,
+    PerInstanceSetting,
+    DupeSetOk,
+    Deprecated,
+    Metric,
+    EquipSlot,
+    Uts,
+}

@@ -13,4 +13,40 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-include!(concat!(env!("OUT_DIR"), "/generated_params.rs"));
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ParamType {
+    Any,
+    String,
+    Int64,
+    Bool,
+    AvatarId,
+    Uuid,
+    LocalizedString,
+    ContentRef,
+    ContentRefArray,
+    Positionable,
+    Vector3,
+    Vector3Uts,
+    Vector4,
+    FloatPair,
+    IntArray4,
+    JsonValue,
+    Quarternion,
+    Bitset,
+    AvatarIdSet,
+    UuidSet,
+    StringSet,
+    Int64Array,
+    AvatarIdArray,
+    UuidArray,
+    StringArray,
+    FloatArray,
+    IntArray,
+    StringMap,
+    IntMap,
+    Float,
+    Int32,
+    UuidPair,
+    StringPair,
+    StringFloatPair,
+}

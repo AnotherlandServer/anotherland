@@ -13,4 +13,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-include!(concat!(env!("OUT_DIR"), "/generated_params.rs"));
+use std::{fmt, error::Error};
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ParamError(pub ());
+
+impl fmt::Display for ParamError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("param error")
+    }
+}
+
+impl Error for ParamError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        None
+    }
+}

@@ -13,172 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core::fmt;
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::error::Error;
-use std::io;
+use std::{collections::{HashSet, HashMap}, io};
 
 use bitstream_io::ByteWrite;
-use glam::Quat;
-use legion::Entity;
-use legion::World;
-use nom::IResult;
-use nom::bytes::complete::take;
-use nom::combinator::map;
-use nom::error::VerboseError;
-use nom::error::context;
-use nom::multi;
-use nom::multi::count;
-use nom::number;
-use nom::combinator::fail;
-use nom::number::complete::le_i32;
-
-use glam::f32::{Vec3, Vec4};
-use serde::Deserialize;
-use serde::Serialize;
+use glam::{Vec4, Vec3, Quat};
+use nom::{IResult, error::{VerboseError, context}, number::{self, complete::le_i32}, bytes::complete::take, combinator::{fail, map}, multi::{count, self}};
+use serde::{Serialize, Deserialize};
 use serde_json::Value;
-use crate::Uuid;
-use crate::avatarid::AvatarId;
 
-use super::generated::*;
-use super::serialize::*;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ParamFlag {
-    NodeOwn,
-    ServerOwn,
-    ClientOwn,
-    ClientUnknown,
-    ClientPrivileged,
-    ClientInit,
-    Persistent,
-    ExcludeFromClient,
-    Content,
-    PerInstanceSetting,
-    DupeSetOk,
-    Deprecated,
-    Metric,
-    EquipSlot,
-    Uts,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct ParamError(pub ());
-
-impl fmt::Display for ParamError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("param error")
-    }
-}
-
-impl Error for ParamError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        None
-    }
-}
-
-pub trait ParamEntity: BoundParamClass {
-    type EntityType;
-    type ParamClassType;
-
-    fn to_entity(self) -> Self::EntityType;
-    fn from_component(world: &World, entity: Entity) -> Result<Self::ParamClassType, ParamError>;
-}
-
-pub trait BoundParamClass: ParamClass + Default {
-    const CLASS_ID: ParamClassId;
-
-    fn class_id() -> ParamClassId { Self::CLASS_ID }
-    fn attribute_name(id: u16) -> &'static str;
-    fn lookup_field(name: &str) -> Option<u16>;
-
-    fn from_anyclass(anyclass: AnyClass) -> Self;
-
-    fn into_persistent_json(&self) -> Value {
-        let mut attribute_map = HashMap::<&'static str, Value>::new();
-
-        for (name, param) in &self.as_anyclass().0 {
-            if Self::attribute_has_flag_static(name, &ParamFlag::Persistent) {
-                //let name = Self::attribute_name(a.0);
-                let attrib = serde_json::to_value(&param).unwrap();
-                attribute_map.insert(name, attrib);
-            }
-        }
-
-        serde_json::to_value(attribute_map).unwrap()
-    }
-
-    fn from_json(value: &Value) -> Result<Self, io::Error> {
-        if !value.is_object() {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "expected object"));
-        }
-
-        let obj = value.as_object().unwrap();
-        let mut anyclass = Self::default().to_anyclass();
-
-        for (name, value) in obj {
-            match Self::lookup_field(name.as_str()) {
-                Some(id) => {
-                    let param = serde_json::from_value(value.clone())?;
-                    anyclass.0.insert(Self::attribute_name(id).to_owned(), param);
-                },
-                None => {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "unknown attribute"));
-                }
-            }
-        }
-
-        Ok(Self::from_anyclass(anyclass))
-    }
-
-    fn read<'a>(i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
-        context(std::any::type_name::<Self>(), |i| -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
-            let (i, anyclass) = AnyClass::raw_read::<Self>(i)?;
-            Ok((i, Self::from_anyclass(anyclass)))
-        })(i)
-    }
-
-    fn write<T>(&self, writer: &mut T) -> Result<(), io::Error> 
-        where T: ByteWrite
-    {
-        let anyclass = self.as_anyclass();
-        anyclass.raw_write::<_, Self>(writer)
-    }
-
-    fn write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> 
-        where T: ByteWrite
-    {
-        let anyclass = self.as_anyclass();
-        anyclass.raw_write_to_client(self, writer)
-    }
-}
-
-pub trait ParamClass: Sized {
-    fn apply(&mut self, other: Self) {
-        let anyclass = self.as_anyclass_mut();
-        anyclass.apply(other.to_anyclass());
-    }
-
-    fn as_anyclass(&self) -> &AnyClass;
-    fn as_anyclass_mut(&mut self) -> &mut AnyClass;
-    fn to_anyclass(self) -> AnyClass;
-
-    fn attribute_flags(&self, attribute: &str) -> &'static [ParamFlag] {
-        Self::attribute_flags_static(attribute)
-    }
-
-    fn attribute_flags_static(attribute: &str) -> &'static [ParamFlag];
-
-    fn attribute_has_flag_static(attribute: &str, flag: &ParamFlag) -> bool {
-        Self::attribute_flags_static(attribute).contains(flag)
-    }
-
-    fn attribute_has_flag(&self, attribute: &str, flag: &ParamFlag) -> bool {
-        self.attribute_flags(attribute).contains(flag)
-    }
-}
+use crate::{serialize::{serialize_string, deserialize_string, serialize_json, deserialize_json, serialize_vec_uuid, deserialize_vec_uuid, serialize_i32, deserialize_i32}, AvatarId, Uuid, ParamFlag, ParamError};
 
 
 #[allow(dead_code)]
@@ -540,7 +383,7 @@ impl Param {
         Ok(())
     }
 
-    fn should_skip(&self) -> bool {
+    pub(super) fn should_skip(&self) -> bool {
         match self {
             Self::Int64Array(val) => val.is_empty(),
             Self::AvatarIdArray(val) => val.is_empty(),
@@ -755,12 +598,24 @@ impl <'a>TryInto<&'a Uuid> for &'a Param {
     }
 }
 
+
 impl <'a>TryInto<&'a f32> for &'a Param {
     type Error = ParamError;
 
     fn try_into(self) -> Result<&'a f32, Self::Error> {
         match self {
             Param::Float(val) => Ok(val),
+            _ => Err(ParamError(()))
+        }
+    }
+}
+
+impl TryInto<f32> for &Param {
+    type Error = ParamError;
+
+    fn try_into(self) -> Result<f32, Self::Error> {
+        match self {
+            Param::Float(val) => Ok(*val),
             _ => Err(ParamError(()))
         }
     }
@@ -777,12 +632,34 @@ impl <'a>TryInto<&'a bool> for &'a Param {
     }
 }
 
+impl TryInto<bool> for &Param {
+    type Error = ParamError;
+
+    fn try_into(self) -> Result<bool, Self::Error> {
+        match self {
+            Param::Bool(val) => Ok(*val),
+            _ => Err(ParamError(()))
+        }
+    }
+}
+
 impl <'a>TryInto<&'a AvatarId> for &'a Param {
     type Error = ParamError;
 
     fn try_into(self) -> Result<&'a AvatarId, Self::Error> {
         match self {
             Param::AvatarId(val) => Ok(val),
+            _ => Err(ParamError(()))
+        }
+    }
+}
+
+impl TryInto<AvatarId> for &Param {
+    type Error = ParamError;
+
+    fn try_into(self) -> Result<AvatarId, Self::Error> {
+        match self {
+            Param::AvatarId(val) => Ok(val.to_owned()),
             _ => Err(ParamError(()))
         }
     }
@@ -799,23 +676,23 @@ impl <'a>TryInto<&'a Value> for &'a Param {
     }
 }
 
-impl <'a>TryInto<&'a Vec<AvatarId>> for &'a Param {
+impl <'a>TryInto<&'a [AvatarId]> for &'a Param {
     type Error = ParamError;
 
-    fn try_into(self) -> Result<&'a Vec<AvatarId>, Self::Error> {
+    fn try_into(self) -> Result<&'a [AvatarId], Self::Error> {
         match self {
-            Param::AvatarIdArray(val) => Ok(val),
+            Param::AvatarIdArray(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
 }
 
-impl <'a>TryInto<&'a Vec<i32>> for &'a Param {
+impl <'a>TryInto<&'a [i32]> for &'a Param {
     type Error = ParamError;
 
-    fn try_into(self) -> Result<&'a Vec<i32>, Self::Error> {
+    fn try_into(self) -> Result<&'a [i32], Self::Error> {
         match self {
-            Param::IntArray(val) => Ok(val),
+            Param::IntArray(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
@@ -832,18 +709,29 @@ impl <'a>TryInto<&'a str> for &'a Param {
     }
 }
 
-impl <'a>TryInto<&'a Vec<String>> for &'a Param {
+impl <'a>TryInto<&'a [String]> for &'a Param {
     type Error = ParamError;
 
-    fn try_into(self) -> Result<&'a Vec<String>, Self::Error> {
+    fn try_into(self) -> Result<&'a [String], Self::Error> {
         match self {
-            Param::StringArray(val) => Ok(val),
+            Param::StringArray(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
 }
 
-impl <'a>TryInto<i32> for &'a Param {
+impl <'a>TryInto<&'a i32> for &'a Param {
+    type Error = ParamError;
+
+    fn try_into(self) -> Result<&'a i32, Self::Error> {
+        match self {
+            Param::Int32(val, _) => Ok(val),
+            _ => Err(ParamError(()))
+        }
+    }
+}
+
+impl TryInto<i32> for &Param {
     type Error = ParamError;
 
     fn try_into(self) -> Result<i32, Self::Error> {
@@ -854,7 +742,18 @@ impl <'a>TryInto<i32> for &'a Param {
     }
 }
 
-impl <'a>TryInto<i64> for &'a Param {
+impl <'a>TryInto<&'a i64> for &'a Param {
+    type Error = ParamError;
+
+    fn try_into(self) -> Result<&'a i64, Self::Error> {
+        match self {
+            Param::Int64(val) => Ok(val),
+            _ => Err(ParamError(()))
+        }
+    }
+}
+
+impl TryInto<i64> for &Param {
     type Error = ParamError;
 
     fn try_into(self) -> Result<i64, Self::Error> {
@@ -889,12 +788,12 @@ impl <'a>TryInto<&'a (Uuid, Uuid)> for &'a Param {
     }
 }
 
-impl <'a>TryInto<&'a Vec<Uuid>> for &'a Param {
+impl <'a>TryInto<&'a [Uuid]> for &'a Param {
     type Error = ParamError;
 
-    fn try_into(self) -> Result<&'a  Vec<Uuid>, Self::Error> {
+    fn try_into(self) -> Result<&'a  [Uuid], Self::Error> {
         match self {
-            Param::GuidArray(val, _) => Ok(val),
+            Param::GuidArray(val, _) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
@@ -933,12 +832,23 @@ impl <'a>TryInto<&'a u32> for &'a Param {
     }
 }
 
-impl <'a>TryInto<&'a Vec<i64>> for &'a Param {
+impl TryInto<u32> for &Param {
     type Error = ParamError;
 
-    fn try_into(self) -> Result<&'a Vec<i64>, Self::Error> {
+    fn try_into(self) -> Result<u32, Self::Error> {
         match self {
-            Param::Int64Array(val) => Ok(val),
+            Param::Bitset(val) => Ok(*val),
+            _ => Err(ParamError(()))
+        }
+    }
+}
+
+impl <'a>TryInto<&'a [i64]> for &'a Param {
+    type Error = ParamError;
+
+    fn try_into(self) -> Result<&'a [i64], Self::Error> {
+        match self {
+            Param::Int64Array(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
@@ -955,271 +865,13 @@ impl <'a>TryInto<&'a (f32, f32)> for &'a Param {
     }
 }
 
-impl <'a>TryInto<&'a Vec<f32>> for &'a Param {
+impl <'a>TryInto<&'a [f32]> for &'a Param {
     type Error = ParamError;
 
-    fn try_into(self) -> Result<&'a Vec<f32>, Self::Error> {
+    fn try_into(self) -> Result<&'a [f32], Self::Error> {
         match self {
-            Param::FloatArray(val) => Ok(val),
+            Param::FloatArray(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
 }
-
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-pub struct ClassAttrib(u16, Param);
-
-impl ClassAttrib {
-    pub fn read<'a, T>(i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> 
-        where T: BoundParamClass
-    {
-        let (i, attribute_id) = context("Attribute Id", number::complete::le_u16)(i)?;
-        let attribute_name = T::attribute_name(attribute_id);
-        let (i, param) = Param::read(i, T::attribute_flags_static(attribute_name))?;
-        Ok((i, Self(attribute_id, param)))
-    }
-
-    pub fn write<T, C>(&self, writer: &mut T) -> Result<(), io::Error> 
-        where 
-            T: ByteWrite,
-            C: BoundParamClass
-    {
-        writer.write(self.0)?;
-        self.1.write(writer)?;
-
-        Ok(())
-    }
-
-    pub fn id(&self) -> u16 { self.0 }
-    pub fn get(&self) -> &Param { &self.1 }
-    pub fn set(&mut self, param: Param) { self.1 = param; }
-    pub fn take(self) -> Param { self.1 }
-
-    pub fn is_set(&self) -> bool { self.1.is_set() }
-}
-
-#[derive(Clone, Serialize, Deserialize, Default, Debug)]
-pub struct AnyClass(HashMap<String, Param>);
-
-impl AnyClass {
-    pub fn new() -> Self {
-        Self(HashMap::new())
-    }
-
-    fn raw_read<'a, T>(i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> 
-        where T: BoundParamClass
-    {
-        context("AnyClass", |i| -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
-            let (i, _) = context("Version", number::complete::le_u8)(i)?;
-            let (i, count) = context("Param Count", number::complete::le_u16)(i)?;
-            let (i, attribs) = context("Attributes", multi::count(ClassAttrib::read::<T>, count as usize))(i)?;
-
-            Ok((i, Self(attribs
-                .into_iter()
-                .map(|a| (T::attribute_name(a.0).to_owned(), a.1))
-                .collect())
-            ))
-        })(i)
-    }
-
-    fn raw_write<T, C>(&self, writer: &mut T) -> Result<(), io::Error> 
-        where T: ByteWrite,
-        C: BoundParamClass
-    {
-        writer.write(1u8)?;
-
-        let mut filtered_params: Vec<_> = self.0.iter().filter(|(_, a)| !a.should_skip())
-            .map(|(name, param)| {
-                (C::lookup_field(name).unwrap(), name, param)
-            })
-            .collect();
-        writer.write(filtered_params.len() as u16)?;
-
-        filtered_params.sort_by(|(_, a, _), (_, b, _)| {
-            let cmp_a = a.to_lowercase();
-            let cmp_b = b.to_lowercase();
-
-            if cmp_a == cmp_b { 
-                Ordering::Equal 
-            } else if cmp_a < cmp_b {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            }
-        });
-        
-        for (id, _name, a) in filtered_params {
-            writer.write(id)?;
-            a.write(writer)?;
-        }
-
-        Ok(())
-    }
-
-    fn raw_write_to_client<T, C>(&self, _outer: &C, writer: &mut T) -> Result<(), io::Error> 
-        where T: ByteWrite,
-        C: BoundParamClass
-    {
-        let mut filtered_params: Vec<_> = self.0.iter()
-        .filter(|(name, a)| !a.should_skip() && !C::attribute_has_flag_static(name, &ParamFlag::ExcludeFromClient))
-        .map(|(name, param)| {
-            (C::lookup_field(name).unwrap(), name, param)
-        })
-        .collect();
-    
-        filtered_params.sort_by(|(_, a, _), (_, b, _)| {
-            let cmp_a = a.to_lowercase();
-            let cmp_b = b.to_lowercase();
-
-            if cmp_a == cmp_b { 
-                Ordering::Equal 
-            } else if cmp_a < cmp_b {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            }
-        });
-
-        writer.write(1u8)?;
-        writer.write(filtered_params.len() as u16)?;
-
-        for (id, _name, a) in filtered_params {
-            writer.write(id)?;
-            a.write(writer)?;
-        }
-
-        Ok(())
-    }
-
-    pub(crate) fn get_param(&self, name: &str) -> Option<&Param> {
-        /*for a in &self.0 {
-            if a.0 == id { return Some(&a.1); }
-        }
-
-        None*/
-        self.0.get(name).map(|a| a)
-    }
-
-    pub(crate) fn set_param(&mut self, name: &str, param: Param) {
-        self.0.insert(name.to_owned(), param);
-    }
-
-    pub fn strip_original_data(&mut self) {
-        self.0 = self.0.drain().into_iter().map(|mut a| {
-            a.1 = a.1.strip_original_data();
-            a
-        }).collect();
-    }
-
-    pub fn as_hashmap(&self) -> &HashMap<String, Param> { &self.0 }
-}
-
-impl ParamClass for AnyClass {
-    fn apply(&mut self, other: Self) {
-        for (name, param) in other {
-            /*match self.0.iter_mut().find(|a| a.0 == o.0) {
-                Some(attrib) => attrib.set(o.take()),
-                None => self.0.push(o),
-            }*/
-
-            self.0.insert(name, param);
-        }
-    }
-
-    fn as_anyclass(&self) -> &AnyClass {
-        self
-    }
-
-    fn as_anyclass_mut(&mut self) -> &mut AnyClass {
-        self
-    }
-
-    fn to_anyclass(self) -> AnyClass { self }
-
-    fn attribute_flags_static(_name: &str) -> &'static [ParamFlag] {
-        &[]
-    }
-}
-
-impl IntoIterator for AnyClass {
-    type Item = (String, Param);
-    type IntoIter = std::collections::hash_map::IntoIter<String, Param>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-/*#[cfg(test)]
-mod tests {
-    use std::{io, path::Path, env, collections::HashSet};
-    use bitstream_io::{ByteWriter, LittleEndian};
-    use nom::{number, multi, IResult, error::VerboseError};
-    use test_case::test_case;
-
-    use crate::{param::{AnyClass, ParamClass}, ParamClassContainer, Param, ClassAttrib};
-
-    fn read_ordered_params<'a>(i: &'a [u8]) ->  IResult<&'a [u8], Vec<ClassAttrib>, VerboseError<&'a [u8]>> {
-        let (i, _) = number::complete::le_u8(i)?;
-        let (i, count) = number::complete::le_u16(i)?;
-        let (i, attribs) = multi::count(ClassAttrib::read, count as usize)(i)?;
-
-        Ok((i, attribs))
-    }
-
-    fn test_content(client_path: &Path, table: &str) -> io::Result<()> {
-        let db = sqlite::open(
-            client_path
-            .join("Atlas/data/otherlandgame/content/dbbba21e-2342-4357-a777-302ed11b978b/content.db")
-        ).unwrap();
-    
-        let result = db
-            .prepare(format!("SELECT * FROM {}", table))
-            .unwrap()
-            .into_iter()
-            .map(|row| row.unwrap());
-    
-        // dump data
-        for row in result {
-            let original_data = row.read::<&[u8], _>("data");
-            let guid = row.read::<&str,_>("guid");
-            let name: String = row.read::<&str,_>("name").chars().into_iter().filter(|c| c.is_ascii_graphic()).collect();
-            let class_id = row.read::<i64,_>("ixClass") as u16;
-
-            println!("Testing {} - {}", guid.to_string(), name);
-
-            let (_, class) = ParamClassContainer::read(class_id, original_data).expect("Parse failed");
-            let mut serialized_data = Vec::new();
-            let mut writer = ByteWriter::endian(&mut serialized_data, LittleEndian);
-            class.write(&mut writer)?;
-
-            assert_eq!(serialized_data, original_data);
-        }
-    
-        Ok(())
-    }
-    
-    #[test_case("NoBinding")]
-    #[test_case("buffs")]
-    #[test_case("drops")]
-    #[test_case("enemies")]
-    #[test_case("factions")]
-    #[test_case("items")]
-    #[test_case("metagame")]
-    #[test_case("misc")]
-    #[test_case("npcs")]
-    #[test_case("projectiles")]
-    #[test_case("quests")]
-    #[test_case("recipes")]
-    #[test_case("skills")]
-    #[test_case("spawners")]
-    #[test_case("structures")]
-    fn item_param_test(table: &str) -> io::Result<()>{ 
-        let client_env = env::var_os("OTHERLAND_CLIENT_PATH").expect("OTHERLAND_CLIENT_PATH not set");
-        let client_path = Path::new(&client_env);
-
-        test_content(client_path, table)?;
-
-        Ok(())
-    }
-}*/
