@@ -46,7 +46,7 @@ enum RemoteActorNode {
     Local(ActorEntry),
 }
 
-enum RemoteActorConnection<T: 'static + ActorHandler> {
+enum RemoteActorConnection<T: ActorHandler + ?Sized> {
     Remote(()),
     Local(mpsc::Sender<T::MessageType>),
 }
@@ -120,9 +120,11 @@ impl ClusterNode {
 
         data.subtasks.get_mut().unwrap().spawn({
             let actor_ref = actor_ref.clone();
+            let name = name.clone();
 
             async move {
                 let mut stopping = false;
+                let mut stopped = false;
 
                 // Wait for node start
                 let _ = state_signal_wait.wait_for(|v| *v >= ClusterNodeState::Starting).await;
@@ -135,31 +137,29 @@ impl ClusterNode {
 
                 let _ = state_signal_wait.wait_for(|v| *v >= ClusterNodeState::ActorsStarted).await;
 
-                actor.started(actor_ref.clone()).await?;
+                actor.started(actor_ref).await?;
 
                 'event_loop: loop {
                     tokio::select! {
                         msg = rx.recv() => { 
                             if let Some(msg) = msg {
+                                //debug!("Got message: {:#?}", msg);
                                 let _ = actor.handle_message(msg).await; 
                             } else {
                                 // all messages are handled, stop actor task
                                 break 'event_loop;
                             }
                         },
-                        _ = actor.stopping(), if stopping => {
-                                // close channel to forbid new messages once Actor::stopping returns
-                                //rx.close();
-
+                        _ = actor.stopping(), if stopping && !stopped => {
                                 // we are now done "stopping"
-                                stopping = false;
+                                stopped = true;
                         },
-                        _ = actor_token.cancelled() => {
+                        _ = actor_token.cancelled(), if !stopping => {
                             stopping = true;
                         },
                         _ = state_signal_wait.changed() => {
                             if *state_signal_wait.borrow() == ClusterNodeState::Stopping {
-                                stopping = true;
+                                actor_token.cancel();
                             }
                         },
                     }
@@ -243,14 +243,14 @@ impl ClusterNode {
             });
 
             // wait for frontend to stop
-            loop {
+            'stop_wait: loop {
                 select! {
                     _ = rx.recv() => token.cancel(),
                     Ok(mut frontend) = &mut task => {
                         frontend.stopped().await?;
 
                         trace!("Stopped frontend {}", frontend.name());
-                        break;
+                        break 'stop_wait;
                     },
                 }
             }
@@ -341,14 +341,18 @@ impl ClusterNode {
     }
 
     pub async fn stop(&self) {
-        let _ = self.0.lock().unwrap().state_signal.send(ClusterNodeState::Stopping);
+        let mut self_s = self.0.lock().unwrap();
+
+        let _ = self_s.state_signal.send(ClusterNodeState::Stopping);
     
         // clear local actor references
-        self.0.lock().unwrap().actors.clear();
-        self.0.lock().unwrap().remote_actors.clear();
+        self_s.actors.clear();
+        self_s.remote_actors.clear();
 
         // Wait for all subtasks to stop
-        if let Some(subtasks) =  self.0.lock().unwrap().subtasks.take() {
+        if let Some(subtasks) = self_s.subtasks.take() {
+            drop(self_s);
+
             subtasks.close();
             subtasks.wait().await;
         }
@@ -381,12 +385,12 @@ impl<T: ActorHandler + Send + Sync> Clone for ActorRef<T> {
     }
 }
 
-pub struct RemoteActorRef<T: 'static + ActorHandler + Send + Sync> {
+pub struct RemoteActorRef<T: ActorHandler + Send + Sync + 'static> {
     node: RemoteActorConnection<T>,
     pub(crate) phantom: PhantomData<T>,
 }
 
-impl<T: 'static + ActorHandler + Send + Sync> RemoteActorRef<T> {
+impl<T: ActorHandler + Send + Sync> RemoteActorRef<T> {
     pub async fn send_message(&self, msg: T::MessageType) -> ActorResult<()> {
         match &self.node {
             RemoteActorConnection::Local(channel) => {
@@ -399,7 +403,7 @@ impl<T: 'static + ActorHandler + Send + Sync> RemoteActorRef<T> {
     }
 }
 
-impl<T: 'static + ActorHandler + Send + Sync> Clone for RemoteActorRef<T> {
+impl<T: ActorHandler + Send + Sync> Clone for RemoteActorRef<T> {
     fn clone(&self) -> Self {
         Self { node: self.node.clone(), phantom: self.phantom.clone() }
     }

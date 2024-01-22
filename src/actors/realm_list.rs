@@ -63,14 +63,14 @@ impl Actor for RealmList {
         self.subtasks.spawn(async move {
             let (_, mut cluster_channel) = connect_queue(MessageChannel::ClusterChannel).await.unwrap();
 
-            loop {
+            'message_loop: loop {
                 tokio::select! {
-                    _ = cancellation_token.cancelled() => { break; },
+                    _ = cancellation_token.cancelled() => { break 'message_loop; },
                     Ok(msg) = cluster_channel.recv() => {
                         match msg {
                             ClusterMessage::RealmServerHearthbeat{realm_id, name, channels, address} => {
                                 handle.update_realm(realm_id, name, channels, address).await;
-                            }
+                            },
                             _ => (),
                         }
                     },
@@ -83,6 +83,7 @@ impl Actor for RealmList {
 
     async fn stopping(&mut self) -> AnotherlandResult<()> { 
         self.cancellation_token.cancel();
+
         self.subtasks.close();
         self.subtasks.wait().await;
 
