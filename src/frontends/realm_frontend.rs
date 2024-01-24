@@ -290,7 +290,6 @@ impl RealmFrontendSession {
                             session_ref.select_character(character.id).await?;
                             session_ref.select_zone(character.data
                                 .zone_guid()
-                                .unwrap()
                                 .clone()
                             ).await?;
 

@@ -28,6 +28,15 @@ pub struct ParamSetBox {
 }
 
 impl ParamSetBox {
+    pub(crate) fn new<T>(set: ParamSet<T>) -> Self 
+        where T: ParamAttrib + Any + Send + Sync
+    {
+        Self {
+            class_id: T::class_id(),
+            set: Box::new(set),
+        }
+    }
+
     pub fn class_id(&self) -> ClassId { self.class_id }
 
     pub fn is<T>(&self) -> bool where T: ParamAttrib + 'static {

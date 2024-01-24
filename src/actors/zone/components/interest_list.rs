@@ -16,13 +16,16 @@
 use atlas::{AvatarId, ParamClass};
 use glam::Vec3;
 use tokio::sync::mpsc;
+use specs::{prelude::*, Component};
+
 
 pub enum InterestEvent {
     InterestAdded { ids: Vec<AvatarId> },
     InterestRemoved { ids: Vec<AvatarId> },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Component)]
+#[storage(VecStorage)]
 pub(in crate::actors::zone) struct InterestList {
     pub interests: Vec<AvatarId>,
     pub update_sender: mpsc::Sender<InterestEvent>,

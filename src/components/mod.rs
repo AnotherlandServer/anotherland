@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod session_handler;
-//mod zone_factory;
+mod zone_factory;
 
 pub use session_handler::*;
-//pub use zone_factory::*;
+pub use zone_factory::*;

@@ -13,15 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{AvatarId, ParamClassContainer, Physics};
+use atlas::{AvatarId, ParamBox, ParamSetBox, Physics};
 use glam::{Quat, Vec3};
 
 use super::ProximityChatRange;
 
 pub enum ZoneEvent {
     // avatar events
-    AvatarSpawned { avatar_id: AvatarId, params: ParamClassContainer },
-    AvatarUpdated { avatar_id: AvatarId, params: ParamClassContainer },
+    AvatarSpawned { avatar_id: AvatarId, params: ParamBox },
+    AvatarUpdated { avatar_id: AvatarId, params: ParamSetBox },
     AvatarMoved { avatar_id: AvatarId, movement: Movement },
     AvatarDespawned { avatar_id: AvatarId },
 

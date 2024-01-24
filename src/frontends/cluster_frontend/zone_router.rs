@@ -27,9 +27,10 @@ use tokio::select;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
+use crate::actors::ZoneRegistry;
 use crate::cluster::RemoteActorRef;
 use crate::util::{AnotherlandErrorKind, AnotherlandError};
-use crate::{util::AnotherlandResult, actors::ZoneRegistry, NODE};
+use crate::{util::AnotherlandResult, NODE};
 use crate::frontends::{ZoneServerClient, ZoneMessage};
 
 enum ZoneRouterCommand {

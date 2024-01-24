@@ -13,39 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use specs::{prelude::*, Component};
+use specs::{World, WorldExt};
 
-#[derive(PartialEq, Eq, Clone, Copy, Component)]
-#[storage(VecStorage)]
-pub enum EntityType {
-    Player,
-    Spawner,
-    NpcOtherland,
-    Structure,
-    Portal,
-    StartingPoint,
-    Trigger,
-    ChessPiece,
-    Ship,
-    Planet,
-    InteractObject,
-    PatrolNode,
-    SpawnNode,
-    MinigameInfo,
-    ChessMetaGameLogic,
-    EDNAContainer,
-    BilliardBall,
-    OtherlandStructure,
-    MinigameScoreBoard,
-    PresetPoint,
-    Door,
-    CTFGameFlag,
-    ServerGateway,
-    ServerGatewayExitPhase,
-    NonSpawnPlacement,
-    MyLandSettings,
-    WorldDisplay,
-    MypadRoomDoor,
-    QuestBeacon,
-    CustomTrigger,
+use crate::{setup_components, ParamBox};
+
+pub fn setup_atlas(world: &mut World) {
+    world.register::<ParamBox>();
+
+    setup_components(world);
 }

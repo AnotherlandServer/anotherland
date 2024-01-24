@@ -27,10 +27,10 @@ use std::net::Ipv4Addr;
 use atlas::{CommonConfigClass, OaCommonConfigParams};
 use clap::{Parser, Subcommand};
 use cluster::ClusterNode;
-use actors::{RealmList, Realm};
+use actors::{Realm, RealmList, ZoneRegistry};
 use ::config::File;
 use db::WorldDef;
-use frontends::{LoginQueueFrontend, RealmFrontend, ApiFrontend};
+use frontends::{ApiFrontend, ClusterFrontend, LoginQueueFrontend, RealmFrontend, ZoneFrontend};
 use log::{LevelFilter, info, warn, error};
 use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, Root}};
 use glob::glob;
@@ -201,14 +201,14 @@ async fn initialize_realm_server() -> AnotherlandResult<()> {
 }
 
 async fn initialize_cluster_frontend_server() -> AnotherlandResult<()> {
-    //NODE.add_actor(ZoneRegistry::initialize().await?);
-    //NODE.add_frontend(ClusterFrontend::initialize().await?);
+    NODE.add_actor(ZoneRegistry::initialize().await?);
+    NODE.add_frontend(ClusterFrontend::initialize().await?);
 
     Ok(())
 }
 
 async fn initialize_zone_server(world_def: WorldDef, zone_def: ZoneDef) -> AnotherlandResult<()> {
-    //NODE.add_frontend(ZoneFrontend::initialize(world_def, zone_def).await?);
+    NODE.add_frontend(ZoneFrontend::initialize(world_def, zone_def).await?);
 
     Ok(())
 }

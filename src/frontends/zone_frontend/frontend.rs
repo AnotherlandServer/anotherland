@@ -16,7 +16,7 @@
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, IpAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}, thread};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, CPktBlob, PlayerParam, BoundParamClass, Player, NetworkVec3, CPktAvatarClientNotify, CPktStackedAvatarUpdate, NativeParam, ParamClassContainer, CPktAvatarUpdate, NonClientBase, ParamClass, oaPktS2XConnectionState, CPktServerNotify, oaPktServerAction, oaPktMoveManagerPosUpdate, CpktServerNotifyNotifyType, Uuid, MoveManagerInit, oaPktDialogEnd, oaPktAvatarTellBehaviorBinary, oaPkt_SplineSurfing_Acknowledge, OaZoneConfig};
+use atlas::{oaPktAvatarTellBehaviorBinary, oaPktDialogEnd, oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPktServerAction, oaPkt_SplineSurfing_Acknowledge, raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktResourceNotify, CPktServerNotify, CPktStackedAvatarUpdate, ClassId, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, NetworkVec3, OaZoneConfigParams, ParamAttrib, ParamBox, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use glam::Vec3;
 use log::{debug, error, trace, warn, info};
@@ -25,7 +25,7 @@ use quinn::{ServerConfig, Endpoint};
 use tokio::{sync::{Mutex, OnceCell, mpsc::{self, Sender}, RwLock}, net::{TcpListener, TcpStream, UdpSocket}, time::{Interval, self}, select, task};
 use tokio_util::{task::TaskTracker, sync::CancellationToken, udp::UdpFramed};
 
-use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, actors::{Zone, ZoneRegistry, ZoneEvent, InterestEvent, Movement, PhysicsState, SessionManager, PlayerSpawnMode}, NODE, CLUSTER_CERT, components::{SessionHandler, SessionRef, ZoneFactory}};
+use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, actors::{InterestEvent, Movement, PhysicsState, PlayerSpawnMode, SessionManager, Zone, ZoneEvent, ZoneRegistry}, NODE, CLUSTER_CERT, components::{SessionHandler, SessionRef, ZoneFactory}};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneServerListener, ZoneMessage, load_state::ClientLoadState};
@@ -114,7 +114,7 @@ impl Frontend for ZoneFrontend {
 
                                                 // if this zone is instanced, spin up a new zone and move the player to that
                                                 // use the primary zone otherwise.
-                                                let zone = if *factory.config().is_instance().unwrap() {
+                                                let zone = if factory.config().is_instance() {
                                                     debug!("Spinning up new instance of zone {}", factory.zone_def().guid);
 
                                                     ZoneInstance::Instance(factory.spawn_zone().await)
@@ -395,7 +395,7 @@ impl ZoneSession {
         avatar_update.avatar_id = Some(self.avatar_id.as_u64());
         avatar_update.field_2 = Some(false);
         avatar_update.name = Some(player.name);
-        avatar_update.class_id = Some(PlayerParam::CLASS_ID.as_u32());
+        avatar_update.class_id = Some(PlayerAttribute::class_id().into());
         avatar_update.field_6 = Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap());
         avatar_update.params = data.into();
         
@@ -516,7 +516,7 @@ impl ZoneSession {
                 let mut avatar_blob = CPktBlob::default();
                 avatar_blob.avatar_id = self.avatar_id.as_u64();
                 avatar_blob.avatar_name = player.name;
-                avatar_blob.class_id = PlayerParam::CLASS_ID.as_u32();
+                avatar_blob.class_id = PlayerAttribute::class_id().into();
                 avatar_blob.params = param_buffer.into();
                 avatar_blob.movement = mm_init.to_bytes().into();
                 avatar_blob.has_guid = true;
@@ -580,69 +580,66 @@ impl ZoneSession {
                     "doVendorExecute" => {
                         match &pkt.field_4 {
                             NativeParam::Struct(attrib) => {
-                                let (_, mut params) = self.instance.zone().get_avatar_params(self.avatar_id.clone()).await.unwrap();
+                                let (_, params) = self.instance.zone().get_avatar_params(self.avatar_id.clone()).await.unwrap();
                                 let db: mongodb::Database = realm_database().await;
 
-                                match &mut params {
-                                    ParamClassContainer::Player(player_params) => {
-                                        player_params.set_customization_gender(attrib[0].to_f32()?);
-                                        player_params.set_customization_height(attrib[1].to_f32()?);
-                                        player_params.set_customization_fat(attrib[2].to_f32()?);
-                                        player_params.set_customization_skinny(attrib[3].to_f32()?);
-                                        player_params.set_customization_muscular(attrib[4].to_f32()?);
-                                        player_params.set_customization_bust_size(attrib[5].to_f32()?);
-                                        player_params.set_race(attrib[6].to_i32()?);
-                                        player_params.set_customization_brow_angle(attrib[7].to_f32()?);
-                                        player_params.set_customization_eye_brow_pos(attrib[8].to_f32()?);
-                                        player_params.set_customization_eye_pos_spacing(attrib[9].to_f32()?);
-                                        player_params.set_customization_eye_pos(attrib[10].to_f32()?);
-                                        player_params.set_customization_eye_size_length(attrib[11].to_f32()?);
-                                        player_params.set_customization_eye_size_width(attrib[12].to_f32()?);
-                                        player_params.set_customization_eyes_pretty(attrib[13].to_f32()?);
-                                        player_params.set_customization_mouth_pos(attrib[14].to_f32()?);
-                                        player_params.set_customization_mouth_width(attrib[15].to_f32()?);
-                                        player_params.set_customization_mouth_lower_lip_thic(attrib[16].to_f32()?);
-                                        player_params.set_customization_mouth_upper_lip_thic(attrib[17].to_f32()?);
-                                        player_params.set_customization_mouth_expression(attrib[18].to_f32()?);
-                                        player_params.set_customization_nose_pos_length(attrib[19].to_f32()?);
-                                        player_params.set_customization_nose_pos_width(attrib[20].to_f32()?);
-                                        player_params.set_customization_nose_portude(attrib[21].to_f32()?);
-                                        player_params.set_customization_ear_size(attrib[22].to_f32()?);
-                                        player_params.set_customization_ear_elf(attrib[23].to_f32()?);
-                                        player_params.set_customization_cheek_bone(attrib[24].to_f32()?);
-                                        player_params.set_customization_cheek(attrib[25].to_f32()?);
-                                        player_params.set_customization_chin_portude(attrib[26].to_f32()?);
-                                        player_params.set_customization_jaw_chubby(attrib[27].to_f32()?);
-                                        debug!("Attrib 28: {}", attrib[28].to_string()?);
-                                        debug!("Attrib 29: {:#?}", attrib[29]);
+                                let mut player_params = params.take::<PlayerClass>().unwrap();
 
-                                        let mut visible_items = Vec::new();
-                                        for a in attrib[30..].iter() {
-                                            let item_uuid = a.to_uuid()?;
-                                            debug!("Load item {}", item_uuid.to_string());
-                                        let db: mongodb::Database = realm_database().await;
-                                        let item = ItemContent::get(db.clone(), &item_uuid.into()).await?;
-                                            visible_items.push(item.unwrap().id as i32);
-                                        }
-            
-                                        if !visible_items.is_empty() {
-                                            debug!("set visible item info");
-                                            player_params.set_visible_item_info(visible_items);
-                                        } else {
-                                            debug!("received empty visible item info after metamorph");
-                                        }
+                                player_params.set_customization_gender(attrib[0].to_f32()?);
+                                player_params.set_customization_height(attrib[1].to_f32()?);
+                                player_params.set_customization_fat(attrib[2].to_f32()?);
+                                player_params.set_customization_skinny(attrib[3].to_f32()?);
+                                player_params.set_customization_muscular(attrib[4].to_f32()?);
+                                player_params.set_customization_bust_size(attrib[5].to_f32()?);
+                                player_params.set_race(attrib[6].to_i32()?);
+                                player_params.set_customization_brow_angle(attrib[7].to_f32()?);
+                                player_params.set_customization_eye_brow_pos(attrib[8].to_f32()?);
+                                player_params.set_customization_eye_pos_spacing(attrib[9].to_f32()?);
+                                player_params.set_customization_eye_pos(attrib[10].to_f32()?);
+                                player_params.set_customization_eye_size_length(attrib[11].to_f32()?);
+                                player_params.set_customization_eye_size_width(attrib[12].to_f32()?);
+                                player_params.set_customization_eyes_pretty(attrib[13].to_f32()?);
+                                player_params.set_customization_mouth_pos(attrib[14].to_f32()?);
+                                player_params.set_customization_mouth_width(attrib[15].to_f32()?);
+                                player_params.set_customization_mouth_lower_lip_thic(attrib[16].to_f32()?);
+                                player_params.set_customization_mouth_upper_lip_thic(attrib[17].to_f32()?);
+                                player_params.set_customization_mouth_expression(attrib[18].to_f32()?);
+                                player_params.set_customization_nose_pos_length(attrib[19].to_f32()?);
+                                player_params.set_customization_nose_pos_width(attrib[20].to_f32()?);
+                                player_params.set_customization_nose_portude(attrib[21].to_f32()?);
+                                player_params.set_customization_ear_size(attrib[22].to_f32()?);
+                                player_params.set_customization_ear_elf(attrib[23].to_f32()?);
+                                player_params.set_customization_cheek_bone(attrib[24].to_f32()?);
+                                player_params.set_customization_cheek(attrib[25].to_f32()?);
+                                player_params.set_customization_chin_portude(attrib[26].to_f32()?);
+                                player_params.set_customization_jaw_chubby(attrib[27].to_f32()?);
+                                debug!("Attrib 28: {}", attrib[28].to_string()?);
+                                debug!("Attrib 29: {:#?}", attrib[29]);
 
-                                        // Save changes
-                                        debug!("Save avatar change");
-           
-                                        let mut character = Character::get(db.clone(), self.session_ref.lock().await.session().character_id.as_ref().unwrap()).await.unwrap().unwrap();
-                                        character.data = player_params.clone();
-                                        character.save(db.clone()).await?;
-                                    },
-                                    _ => unreachable!(),
+                                let mut visible_items = Vec::new();
+                                for a in attrib[30..].iter() {
+                                    let item_uuid = a.to_uuid()?;
+                                    debug!("Load item {}", item_uuid.to_string());
+                                let db: mongodb::Database = realm_database().await;
+                                let item = ItemContent::get(db.clone(), &item_uuid.into()).await?;
+                                    visible_items.push(item.unwrap().id as i32);
                                 }
+    
+                                if !visible_items.is_empty() {
+                                    debug!("set visible item info");
+                                    player_params.set_visible_item_info(visible_items);
+                                } else {
+                                    debug!("received empty visible item info after metamorph");
+                                }
+
+                                // Save changes
+                                debug!("Save avatar change");
+   
+                                let mut character = Character::get(db.clone(), self.session_ref.lock().await.session().character_id.as_ref().unwrap()).await.unwrap().unwrap();
+                                character.data = player_params.clone();
+                                character.save(db.clone()).await?;
         
-                                self.instance.zone().update_avatar(self.avatar_id.clone(), params).await;
+                                self.instance.zone().update_avatar(self.avatar_id.clone(), player_params.into_set().into_box()).await;
                             },
                             _ => panic!(),
                         }
@@ -655,8 +652,8 @@ impl ZoneSession {
             },
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
                 if pkt.avatar_id.unwrap_or_default() == self.avatar_id.as_u64() {
-                    if let Ok((_, params)) = ParamClassContainer::read(PlayerParam::CLASS_ID.as_u16(), pkt.params.as_slice()) {
-                        self.instance.zone().update_avatar(self.avatar_id.clone(), params).await;
+                    if let Ok((_, params)) = ParamSet::<PlayerAttribute>::read(pkt.params.as_slice()) {
+                        self.instance.zone().update_avatar(self.avatar_id.clone(), params.into_box()).await;
                     } else {
                         error!(
                             session = self.session_id.to_string(), 
@@ -769,7 +766,7 @@ impl ZoneSession {
                         avatar_update.avatar_id = Some(avatar_id.as_u64());
                         avatar_update.field_2 = Some(false);
                         avatar_update.name = Some(name);
-                        avatar_update.class_id = Some(params.class_id().as_u32());
+                        avatar_update.class_id = Some(params.class_id().into());
                         avatar_update.field_6 = Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap());
                         //avatar_update.flags = Some(2);
                         //avatar_update.flag_2_uuid = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());

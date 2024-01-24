@@ -13,10 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{SpawnerParam, ParamClass, NpcOtherlandParam, StructureParam, PortalParam, StartingPointParam, TriggerParam, ChessPieceParam, ShipParam, PlanetParam, InteractObjectParam, PatrolNodeParam, SpawnNodeParam, MinigameInfoParam, ChessMetaGameLogicParam, EdnaContainerParam, OtherlandStructureParam, MinigameScoreBoardParam, PresetPointParam, DoorParam, ServerGatewayParam, ServerGatewayExitPhaseParam, NonSpawnPlacementParam, MyLandSettingsParam, QuestBeaconParam, ParamEntity, MypadRoomDoorParam, BilliardBallParam, WorldDisplayParam, CustomTriggerParam, CtfGameFlagParam};
-use log::{warn, debug};
+use atlas::{BilliardBallClass, ChessMetaGameLogicClass, ChessPieceClass, CtfGameFlagClass, CustomTriggerClass, DoorClass, EdnaContainerClass, InteractObjectClass, MinigameInfoClass, MinigameScoreBoardClass, MyLandSettingsClass, MypadRoomDoorClass, NonSpawnPlacementClass, NpcOtherlandClass, OtherlandStructureClass, ParamClass, PatrolNodeClass, PlanetClass, PortalClass, PresetPointClass, QuestBeaconClass, ServerGatewayClass, ServerGatewayExitPhaseClass, ShipClass, SpawnNodeClass, SpawnerClass, StartingPointClass, StructureClass, TriggerClass, WorldDisplayClass};
 
-use crate::{util::AnotherlandResult, db::{Instance, SpawnerContent, NpcContent, StructureContent}};
+use crate::{util::AnotherlandResult, db::Instance};
 
 use super::{Zone, components::EntityType};
 
@@ -25,183 +24,181 @@ impl Zone {
         let factory = self.factory.clone();
 
         for (instance, id) in factory.instances() {
-            if instance.is_enabled() {
-                let id = match &instance {
-                    Instance::Spawner { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<SpawnerParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::Spawner, name, phase_tag, params.to_entity())
-                    },
-                    Instance::Npc { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<NpcOtherlandParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::NpcOtherland, name, phase_tag, params.to_entity())
-                    },
-                    Instance::Structure { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<StructureParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::Structure, name, phase_tag, params.to_entity())
-                    },
-                    Instance::Portal { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<PortalParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::Portal, name, phase_tag, params.to_entity())
-                    },
-                    Instance::StartingPoint { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<StartingPointParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::StartingPoint, name, phase_tag, params.to_entity())
-                    },
-                    Instance::Trigger { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<TriggerParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::Trigger, name, phase_tag, params.to_entity())
-                    },
-                    Instance::ChessPiece { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<ChessPieceParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::ChessPiece, name, phase_tag, params.to_entity())
-                    },
-                    Instance::Ship { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<ShipParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::Ship, name, phase_tag, params.to_entity())
-                    },
-                    Instance::Planet { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<PlanetParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::Planet, name, phase_tag, params.to_entity())
-                    },
-                    Instance::InteractObject { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<InteractObjectParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::InteractObject, name, phase_tag, params.to_entity())
-                    },
-                    Instance::PatrolNode { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<PatrolNodeParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::PatrolNode, name, phase_tag, params.to_entity())
-                    },
-                    Instance::SpawnNode { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<SpawnNodeParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::SpawnNode, name, phase_tag, params.to_entity())
-                    },
-                    Instance::MinigameInfo { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<MinigameInfoParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::MinigameInfo, name, phase_tag, params.to_entity())
-                    },
-                    Instance::ChessMetaGameLogic { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<ChessMetaGameLogicParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::ChessMetaGameLogic, name, phase_tag, params.to_entity())
-                    },
-                    Instance::EDNAContainer { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<EdnaContainerParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::EDNAContainer, name, phase_tag, params.to_entity())
-                    },
-                    Instance::BilliardBall { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<BilliardBallParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::BilliardBall, name, phase_tag, params.to_entity())
-                    },
-                    Instance::OtherlandStructure { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<OtherlandStructureParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::OtherlandStructure, name, phase_tag, params.to_entity())
-                    },
-                    Instance::MinigameScoreBoard { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<MinigameScoreBoardParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::MinigameScoreBoard, name, phase_tag, params.to_entity())
-                    },
-                    Instance::PresetPoint { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<PresetPointParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::PresetPoint, name, phase_tag, params.to_entity())
-                    },
-                    Instance::Door { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<DoorParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::Door, name, phase_tag, params.to_entity())
-                    },
-                    Instance::CTFGameFlag { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<CtfGameFlagParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::CTFGameFlag, name, phase_tag, params.to_entity())
-                    },
-                    Instance::ServerGateway { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<ServerGatewayParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::ServerGateway, name, phase_tag, params.to_entity())
-                    },
-                    Instance::ServerGatewayExitPhase { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<ServerGatewayExitPhaseParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::ServerGatewayExitPhase, name, phase_tag, params.to_entity())
-                    },
-                    Instance::NonSpawnPlacement { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<NonSpawnPlacementParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::NonSpawnPlacement, name, phase_tag, params.to_entity())
-                    },
-                    Instance::MyLandSettings { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<MyLandSettingsParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::MyLandSettings, name, phase_tag, params.to_entity())
-                    },
-                    Instance::WorldDisplay { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<WorldDisplayParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::WorldDisplay, name, phase_tag, params.to_entity())
-                    },
-                    Instance::MypadRoomDoor { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<MypadRoomDoorParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::MypadRoomDoor, name, phase_tag, params.to_entity())
-                    },
-                    Instance::QuestBeacon { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<QuestBeaconParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::QuestBeacon, name, phase_tag, params.to_entity())
-                    },
-                    Instance::CustomTrigger { name, data, phase_tag, content, .. } => {
-                        let mut params = content.to_owned().into_param::<CustomTriggerParam>().unwrap();
-                        params.apply(data.to_owned());
-                        
-                        self.spawn_non_player_avatar(id.to_owned(), EntityType::CustomTrigger, name, phase_tag, params.to_entity())
-                    },
-                };
+            match &instance {
+                Instance::Spawner { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<SpawnerClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::Spawner, name, phase_tag, params);
+                },
+                Instance::Npc { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<NpcOtherlandClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::NpcOtherland, name, phase_tag, params);
+                },
+                Instance::Structure { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<StructureClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::Structure, name, phase_tag, params);
+                },
+                Instance::Portal { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<PortalClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::Portal, name, phase_tag, params);
+                },
+                Instance::StartingPoint { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<StartingPointClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::StartingPoint, name, phase_tag, params);
+                },
+                Instance::Trigger { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<TriggerClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::Trigger, name, phase_tag, params);
+                },
+                Instance::ChessPiece { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<ChessPieceClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::ChessPiece, name, phase_tag, params);
+                },
+                Instance::Ship { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<ShipClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::Ship, name, phase_tag, params);
+                },
+                Instance::Planet { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<PlanetClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::Planet, name, phase_tag, params);
+                },
+                Instance::InteractObject { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<InteractObjectClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::InteractObject, name, phase_tag, params);
+                },
+                Instance::PatrolNode { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<PatrolNodeClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::PatrolNode, name, phase_tag, params);
+                },
+                Instance::SpawnNode { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<SpawnNodeClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::SpawnNode, name, phase_tag, params);
+                },
+                Instance::MinigameInfo { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<MinigameInfoClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::MinigameInfo, name, phase_tag, params);
+                },
+                Instance::ChessMetaGameLogic { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<ChessMetaGameLogicClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::ChessMetaGameLogic, name, phase_tag, params);
+                },
+                Instance::EDNAContainer { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<EdnaContainerClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::EDNAContainer, name, phase_tag, params);
+                },
+                Instance::BilliardBall { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<BilliardBallClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::BilliardBall, name, phase_tag, params);
+                },
+                Instance::OtherlandStructure { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<OtherlandStructureClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::OtherlandStructure, name, phase_tag, params);
+                },
+                Instance::MinigameScoreBoard { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<MinigameScoreBoardClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::MinigameScoreBoard, name, phase_tag, params);
+                },
+                Instance::PresetPoint { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<PresetPointClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::PresetPoint, name, phase_tag, params);
+                },
+                Instance::Door { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<DoorClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::Door, name, phase_tag, params);
+                },
+                Instance::CTFGameFlag { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<CtfGameFlagClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::CTFGameFlag, name, phase_tag, params);
+                },
+                Instance::ServerGateway { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<ServerGatewayClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::ServerGateway, name, phase_tag, params);
+                },
+                Instance::ServerGatewayExitPhase { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<ServerGatewayExitPhaseClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::ServerGatewayExitPhase, name, phase_tag, params);
+                },
+                Instance::NonSpawnPlacement { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<NonSpawnPlacementClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::NonSpawnPlacement, name, phase_tag, params);
+                },
+                Instance::MyLandSettings { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<MyLandSettingsClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::MyLandSettings, name, phase_tag, params);
+                },
+                Instance::WorldDisplay { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<WorldDisplayClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::WorldDisplay, name, phase_tag, params);
+                },
+                Instance::MypadRoomDoor { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<MypadRoomDoorClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::MypadRoomDoor, name, phase_tag, params);
+                },
+                Instance::QuestBeacon { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<QuestBeaconClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::QuestBeacon, name, phase_tag, params);
+                },
+                Instance::CustomTrigger { name, data, phase_tag, content, .. } => {
+                    let mut params = content.to_owned().into_param::<CustomTriggerClass>().unwrap();
+                    params.apply(data.to_owned());
+                    
+                    self.spawn_non_player_avatar(id.to_owned(), EntityType::CustomTrigger, name, phase_tag, params);
+                },
             }
         }
 

@@ -15,8 +15,10 @@
 
 use atlas::AvatarId;
 use glam::Vec3;
+use specs::{prelude::*, Component};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Component)]
+#[storage(VecStorage)]
 pub(in crate::actors::zone) struct AvatarComponent {
     pub id: AvatarId,
     pub name: String,

@@ -14,8 +14,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use glam::{Quat, Vec3};
+use specs::{prelude::*, Component};
 
-#[derive(Clone)]
+#[derive(Clone, Component)]
+#[storage(VecStorage)]
 pub struct Position {
     pub position: Vec3,
     pub rotation: Quat,

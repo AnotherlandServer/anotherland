@@ -14,15 +14,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod zone;
-mod events;
 mod components;
-mod systems;
-mod loader;
+mod events;
 mod player;
 mod social;
+mod loader;
+mod systems;
 
 pub use zone::*;
 pub use events::*;
 pub use player::*;
-pub use components::InterestEvent;
 pub use social::*;
+pub use components::*;

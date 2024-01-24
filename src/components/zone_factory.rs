@@ -15,7 +15,7 @@
 
 use std::{collections::{HashMap, HashSet}, sync::Arc};
 
-use atlas::{Uuid, AvatarId, AvatarType};
+use atlas::{AvatarId, AvatarType, OaZoneConfigClass, Uuid};
 use log::debug;
 use mongodb::Database;
 use rand::{thread_rng, Rng};
@@ -27,7 +27,7 @@ struct ZoneFactoryData {
     db: Database,
     zone_def: ZoneDef,
     world_def: WorldDef,
-    config: OaZoneConfigParam,
+    config: OaZoneConfigClass,
 
     instance_template: OnceCell<Vec<(Instance, AvatarId)>>,
 }
@@ -38,19 +38,17 @@ pub struct ZoneFactory(Arc<ZoneFactoryData>);
 impl ZoneFactory {
     pub async fn new(db: Database, world_def: WorldDef, zone_def: ZoneDef) -> AnotherlandResult<ZoneFactory> {
         let config = if zone_def.realu_zone_type.is_empty() {
-            OaZoneConfigParam::default()
+            OaZoneConfigClass::default()
         } else {
             debug!("Loading zoneconfig: {}", &zone_def.realu_zone_type);
 
             MiscContent::get_by_name(db.clone(), &zone_def.realu_zone_type)
                 .await?
                 .map(|mut v| {
-                    v.data.take().map(|v| match v {
-                        ParamClassContainer::OaZoneConfig(config) => Some(config),
-                        _ => None
-                    })
+                    v.data.take().map(|v| v.take::<OaZoneConfigClass>().ok())
                 })
-                .flatten().flatten()
+                .flatten()
+                .flatten()
                 .ok_or(AnotherlandError::app_err("zoneconfig not found"))?
         };
 
@@ -99,6 +97,6 @@ impl ZoneFactory {
     pub fn db(&self) -> &Database { &self.0.db }
     pub fn zone_def(&self) -> &ZoneDef { &self.0.zone_def }
     pub fn world_def(&self) -> &WorldDef { &self.0.world_def }
-    pub fn config(&self) -> &OaZoneConfigParam { &self.0.config }
+    pub fn config(&self) -> &OaZoneConfigClass { &self.0.config }
     pub fn instances(&self) -> &[(Instance, AvatarId)] { self.0.instance_template.get().unwrap().as_slice() }
 }

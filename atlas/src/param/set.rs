@@ -19,7 +19,7 @@ use bitstream_io::ByteWrite;
 use nom::{IResult, error::{VerboseError, context}, number, multi};
 use serde::Serialize;
 
-use crate::{Param, ParamAttrib, ParamClass, ParamFlag};
+use crate::{Param, ParamAttrib, ParamClass, ParamFlag, ParamSetBox};
 
 #[derive(Clone)]
 pub struct ParamSet<T: ParamAttrib> {
@@ -116,5 +116,9 @@ impl <T: ParamAttrib>ParamSet<T> {
         }
 
         Ok(())
+    }
+
+    pub fn into_box(self) -> ParamSetBox {
+        ParamSetBox::new(self)
     }
 }

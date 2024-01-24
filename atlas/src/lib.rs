@@ -23,6 +23,7 @@ mod serialize;
 mod avatarid;
 mod buffer;
 mod uuid;
+mod world;
 pub mod raknet;
 
 pub use param::*;
@@ -31,6 +32,7 @@ pub use generated::*;
 pub use avatarid::*;
 pub use buffer::*;
 pub use uuid::*;
+pub use world::*;
 
 #[cfg(test)]
 mod tests {

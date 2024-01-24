@@ -15,68 +15,72 @@
 
 use std::collections::HashSet;
 
-use atlas::{NonClientBaseComponent, NonClientBase, PlayerComponent, Player, AvatarId};
-use glam::Vec3;
-use legion::{system, Query, SystemBuilder, world::SubWorld, Entity};
+use atlas::{PlayerClass, PlayerParams};
+use specs::{Join, ReadExpect, ReadStorage, System, WriteStorage};
 use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 
-use crate::actors::zone::components::{InterestList, Position, AvatarComponent, EntityType, InterestEvent};
+use crate::actors::zone::components::{InterestList, Position, AvatarComponent, InterestEvent};
 
-#[system]
-pub fn update_interests(
-    world: &mut SubWorld,
-    players: &mut Query<(&AvatarComponent, &mut InterestList, &Position, &PlayerComponent)>, 
-    avatars: &mut Query<(&EntityType, &AvatarComponent, &Position)>,
-    #[resource] handle: &Handle,
-    #[resource] tasks: &TaskTracker) 
-{
-    let mut avatar_positions = Vec::new();
+pub(in crate::actors::zone) struct UpdateInterests;
 
-    // collect avatar positions
-    avatars.for_each(world, |(entity_type, avatar, position)| {
-        avatar_positions.push((avatar.id.clone(), position.position));
-    });
+impl<'a> System<'a> for UpdateInterests {
+    type SystemData = (
+        ReadExpect<'a, Handle>,
+        ReadExpect<'a, TaskTracker>,
+        ReadStorage<'a, AvatarComponent>,
+        ReadStorage<'a, Position>,
+        ReadStorage<'a, PlayerClass>,
+        WriteStorage<'a, InterestList>
+    );
 
-    // check for avatars in range
-    players.for_each_mut(world, |(avatar, interests, position, player)| {
-        let awareness_range = *player.aware_dist().unwrap_or(&0f32);
-        let mut new_interests = HashSet::new();
-
-        // determine interests
-        for (other_avatar, other_pos) in avatar_positions.iter() {
-            if *other_avatar == avatar.id {
-                continue;
+    fn run(&mut self, (
+        handle, 
+        tasks, 
+        avatar_storage,
+        position_storage, 
+        player, 
+        mut interests
+    ): Self::SystemData) {
+        //let mut avatar_positions = Vec::new();
+        
+        for (avatar, interests, position, player) in (&avatar_storage, &mut interests, &position_storage, &player).join() {
+            let mut new_interests = HashSet::new();
+    
+            // determine interests
+            for (other_avatar, other_pos) in (&avatar_storage, &position_storage).join() {
+                if other_avatar.id == avatar.id {
+                    continue;
+                }
+    
+                if position.position.distance(other_pos.position) <= player.aware_dist() {
+                    new_interests.insert(other_avatar.id.to_owned());
+                }
             }
-
-            if position.position.distance(*other_pos) <= awareness_range {
-                new_interests.insert(other_avatar.to_owned());
+    
+            // check for changes
+            let added_interests: Vec<_> = new_interests.iter().filter(|v| !interests.interests.contains(v)).map(|v| v.to_owned()).collect();
+            let removed_interests: Vec<_> = interests.interests.iter().filter(|v| !new_interests.contains(v)).map(|v| v.to_owned()).collect();
+    
+            // send updates
+            if !added_interests.is_empty() || !removed_interests.is_empty() {
+                interests.interests = new_interests.into_iter().collect();
+    
+                let sender = interests.update_sender.clone();
+                let _guard = handle.enter();
+    
+                tasks.spawn(async move {
+                    if !added_interests.is_empty() {
+                        let _ = sender.send(InterestEvent::InterestAdded { ids: added_interests }).await;
+                    }
+    
+                    if !removed_interests.is_empty() {
+                        let _ = sender.send(InterestEvent::InterestRemoved { ids: removed_interests }).await;
+                    }
+                });
+    
+                drop(_guard);
             }
         }
-
-        // check for changes
-        let added_interests: Vec<_> = new_interests.iter().filter(|v| !interests.interests.contains(v)).map(|v| v.to_owned()).collect();
-        let removed_interests: Vec<_> = interests.interests.iter().filter(|v| !new_interests.contains(v)).map(|v| v.to_owned()).collect();
-
-        // send updates
-        if !added_interests.is_empty() || !removed_interests.is_empty() {
-            interests.interests = new_interests.into_iter().collect();
-
-            let sender = interests.update_sender.clone();
-            let _guard = handle.enter();
-
-            tasks.spawn(async move {
-                if !added_interests.is_empty() {
-                    let _ = sender.send(InterestEvent::InterestAdded { ids: added_interests }).await;
-                }
-
-                if !removed_interests.is_empty() {
-                    let _ = sender.send(InterestEvent::InterestRemoved { ids: removed_interests }).await;
-                }
-            });
-
-            drop(_guard);
-        }
-
-    });
+    }    
 }

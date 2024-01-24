@@ -39,7 +39,7 @@ impl Into<Quat> for NetworkVec4 {
 
 impl From<Quat> for NetworkVec4 {
     fn from(value: Quat) -> Self {
-        Self { x: value.x, y: value.y, z: value.z, w: value.w }
+        Self { x: value.x / PI, y: value.y / PI, z: value.z / PI, w: value.w / PI }
     }
 }
 

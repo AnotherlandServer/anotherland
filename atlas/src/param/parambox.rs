@@ -20,9 +20,12 @@ use log::debug;
 use nom::{error::VerboseError, IResult};
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde_json::{Value, json};
+use specs::{Component, EntityBuilder, VecStorage};
 
 use crate::{ClassId, ParamClass, ParamError};
 
+#[derive(Component)]
+#[storage(VecStorage)]
 pub struct ParamBox {
     class_id: ClassId,
     class: Box<dyn Any>,
@@ -32,6 +35,10 @@ unsafe impl Send for ParamBox {}
 unsafe impl Sync for ParamBox {}
 
 impl ParamBox {
+    pub(crate) fn new(class_id: ClassId, class: Box<dyn Any>) -> Self {
+        Self { class_id, class }
+    }
+
     pub fn class_id(&self) -> ClassId { self.class_id }
 
     pub fn is<T>(&self) -> bool where T: ParamClass {
@@ -97,6 +104,10 @@ impl ParamBox {
 
     pub fn strip_original_data(&mut self) {
 
+    }
+
+    pub fn append_to_entity<'a>(&self, builder: EntityBuilder<'a>) -> EntityBuilder<'a> {
+        self.class_id.append_to_entity(self.class.as_ref(), builder)
     }
 }
 
