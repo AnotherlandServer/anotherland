@@ -18,7 +18,7 @@ use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr
 use async_trait::async_trait;
 use atlas::{oaPktAvatarTellBehaviorBinary, oaPktDialogEnd, oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPktServerAction, oaPkt_SplineSurfing_Acknowledge, raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktResourceNotify, CPktServerNotify, CPktStackedAvatarUpdate, ClassId, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, NetworkVec3, OaZoneConfigParams, ParamAttrib, ParamBox, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
-use glam::Vec3;
+use glam::{Quat, Vec3};
 use log::{debug, error, trace, warn, info};
 use mongodb::change_stream::session;
 use quinn::{ServerConfig, Endpoint};
@@ -556,7 +556,10 @@ impl ZoneSession {
             AtlasPkt(CPkt::CPktRouted(pkt)) => {
                 match Message::from_bytes(&pkt.field_4).unwrap().1 {
                     AtlasPkt(CPkt::oaPktMoveManagerPosUpdate(pkt)) => {
-                        debug!("Movement: {:#?}", pkt);
+                        //debug!("Movement: {:#?}", pkt);
+
+                        let quat: Quat = pkt.rot.clone().into();
+                        debug!("Rot: {:?}", quat.to_euler(glam::EulerRot::XYZ));
 
                         self.instance.zone().move_player_avatar(
                             self.avatar_id.clone(), 

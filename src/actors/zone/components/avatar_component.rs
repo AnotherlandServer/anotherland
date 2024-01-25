@@ -19,7 +19,7 @@ use specs::{prelude::*, Component};
 
 #[derive(Clone, Debug, Component)]
 #[storage(VecStorage)]
-pub(in crate::actors::zone) struct AvatarComponent {
+pub struct AvatarComponent {
     pub id: AvatarId,
     pub name: String,
     pub phase_tag: String,

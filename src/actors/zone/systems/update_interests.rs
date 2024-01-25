@@ -20,14 +20,15 @@ use specs::{Join, ReadExpect, ReadStorage, System, WriteStorage};
 use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 
-use crate::actors::zone::components::{InterestList, Position, AvatarComponent, InterestEvent};
+use crate::actors::{zone::components::{InterestList, Position, AvatarComponent, InterestEvent}, Spawned};
 
-pub(in crate::actors::zone) struct UpdateInterests;
+pub struct UpdateInterests;
 
 impl<'a> System<'a> for UpdateInterests {
     type SystemData = (
         ReadExpect<'a, Handle>,
         ReadExpect<'a, TaskTracker>,
+        ReadStorage<'a, Spawned>,
         ReadStorage<'a, AvatarComponent>,
         ReadStorage<'a, Position>,
         ReadStorage<'a, PlayerClass>,
@@ -37,6 +38,7 @@ impl<'a> System<'a> for UpdateInterests {
     fn run(&mut self, (
         handle, 
         tasks, 
+        spawned,
         avatar_storage,
         position_storage, 
         player, 
@@ -44,11 +46,11 @@ impl<'a> System<'a> for UpdateInterests {
     ): Self::SystemData) {
         //let mut avatar_positions = Vec::new();
         
-        for (avatar, interests, position, player) in (&avatar_storage, &mut interests, &position_storage, &player).join() {
+        for (avatar, interests, position, player, _) in (&avatar_storage, &mut interests, &position_storage, &player, &spawned).join() {
             let mut new_interests = HashSet::new();
     
             // determine interests
-            for (other_avatar, other_pos) in (&avatar_storage, &position_storage).join() {
+            for (other_avatar, other_pos, _) in (&avatar_storage, &position_storage, &spawned).join() {
                 if other_avatar.id == avatar.id {
                     continue;
                 }

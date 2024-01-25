@@ -13,8 +13,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod update_interests;
-mod respawn;
+use std::f32::consts::PI;
 
-pub(super) use update_interests::*;
-pub(super) use respawn::*;
+use glam::{Quat, Vec3};
+
+pub trait OtherlandQuatExt {
+    fn from_unit_vector(val: Vec3) -> Quat;
+}
+
+impl OtherlandQuatExt for Quat {
+    fn from_unit_vector(val: Vec3) -> Quat {
+        let a = val.x.atan2(val.y);
+        let b = (-val.z).asin();
+    
+        Quat::from_euler(glam::EulerRot::XYZ, PI / 2.0, 0.0, 0.0)
+            .mul_quat(Quat::from_euler(glam::EulerRot::XYZ, a, b, 0.0))
+    }
+}

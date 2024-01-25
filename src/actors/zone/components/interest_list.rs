@@ -25,8 +25,8 @@ pub enum InterestEvent {
 }
 
 #[derive(Clone, Debug, Component)]
-#[storage(VecStorage)]
-pub(in crate::actors::zone) struct InterestList {
+#[storage(DenseVecStorage)]
+pub struct InterestList {
     pub interests: Vec<AvatarId>,
     pub update_sender: mpsc::Sender<InterestEvent>,
 }

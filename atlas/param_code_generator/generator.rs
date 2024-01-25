@@ -534,7 +534,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 }
             };
 
-            // if not, search in parents for optrions
+            // if not, search in parents for options
             if !has_option {
                 let mut current_class = class.extends_ref.clone();
                 'parent_search: while let Some(parent) = current_class.as_ref() {
@@ -977,6 +977,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     self.0.as_ref()
                 }
             }
+
+            impl DerefMut for #component_name {
+                fn deref_mut(&mut self) -> &mut Self::Target {
+                    self.0.as_mut()
+                }
+            }
         }
     }).collect();
 
@@ -1235,11 +1241,8 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             components
         };
 
-        let default_params: Vec<_> = v.borrow().paramid.iter().map(|(name, id)| {
-            (name.to_owned(), *id, v.borrow().paramoption.iter().find(|p| &p.0 == name).map(|s| s.1.to_owned()))
-        })
-        .filter(|(name, _, options)| v.borrow().param_is_owned(name) && options.is_some())
-        .map(|(name, _, options)| {
+        let default_params: Vec<_> = v.borrow().paramoption.iter()
+        .map(|(name, options)| {
             let field_name = name.to_case(Case::UpperCamel);
 
             let attrib_name = format_ident!("{}Attribute", class.name.to_case(Case::UpperCamel));
@@ -1249,17 +1252,10 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 _ => field_name.as_str(),
             });
 
-            match options {
-                Some(options) => {
-                    if let Some(default_literal) = options.default_literal {
-                        Some(quote!(set.insert(#attrib_name::#field_name_ident, #default_literal);))
-                    } else {
-                        None
-                    }
-                },
-                None => {
-                    unreachable!()
-                }
+            if let Some(default_literal) = options.default_literal.as_ref() {
+                Some(quote!(set.insert(#attrib_name::#field_name_ident, #default_literal);))
+            } else {
+                None
             }
         })
         .filter(|v| v.is_some())
@@ -1493,6 +1489,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use std::fmt::Display;
         use std::fmt::Formatter;
         use std::ops::Deref;
+        use std::ops::DerefMut;
         use parking_lot::RwLock;
         use parking_lot::RwLockReadGuard;
         use parking_lot::MappedRwLockReadGuard;

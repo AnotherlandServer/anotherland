@@ -26,10 +26,10 @@ use tokio::{time, sync::{mpsc, broadcast}, select, task::JoinHandle, runtime::Ha
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use specs::{WorldExt, Builder};
 
-use crate::{actors::zone::systems::UpdateInterests, cluster::actor::Actor, components::ZoneFactory, db::Character, util::{AnotherlandResult, AnotherlandError}, NODE};
+use crate::{actors::Spawned, cluster::{actor::Actor, ActorRef}, components::ZoneFactory, db::Character, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}, NODE};
 use crate::db::DatabaseRecord;
 
-use super::{components::{AvatarComponent, EntityType, InterestEvent, InterestList, Position}, Movement, PlayerSpawnMode, ProximityChatRange, ZoneEvent};
+use super::{components::{AvatarComponent, EntityType, InterestEvent, InterestList, Position}, systems::{RespawnEntities, UpdateInterests}, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
 
 pub struct Zone {
     pub(super) realm_db: Database,
@@ -57,7 +57,7 @@ impl Zone {
             world: World::new(),
             cancellation_token: CancellationToken::new(),
             update_task: None,
-            event_sender: broadcast::channel(10).0,
+            event_sender: broadcast::channel(500).0,
             avatar_id_to_entity_lookup: HashMap::new(),
         }
     }
@@ -80,6 +80,8 @@ impl Actor for Zone {
         self.world.register::<EntityType>();
         self.world.register::<InterestList>();
         self.world.register::<Position>();
+        self.world.register::<Spawned>();
+        self.world.register::<SpawnerState>();
 
         self.world.insert(self.event_sender.clone());
         self.world.insert(Handle::current());
@@ -95,11 +97,12 @@ impl Actor for Zone {
     async fn started(&mut self, mut handle: ActorRef<Self>) -> AnotherlandResult<()> { 
         let token = self.cancellation_token.clone();
         self.update_task = Some(tokio::spawn(async move {
-            let mut interval = time::interval(Duration::from_millis(40)); // Aim for 25 cycles/sec
-
+            let mut update_interval = time::interval(Duration::from_millis(40)); // Aim for 25 cycles/sec
+            let mut respawn_interval = time::interval(Duration::from_secs(1));
             loop {
                 select! {
-                    _ = interval.tick() => handle.update().await,
+                    _ = update_interval.tick() => handle.update().await,
+                    _ = respawn_interval.tick() => handle.check_respawn().await,
                     _ = token.cancelled() => break,
                 }
             }
@@ -141,11 +144,21 @@ impl Zone {
         // insert position component for npcs & structures
         let base_storage = self.world.read_storage::<NonClientBaseComponent>();
         if let Some(base) = base_storage.get(entity) {
+            let _ = self.world.write_storage::<SpawnerState>().insert(entity, SpawnerState { 
+                despawn_instant: None, 
+                respawn_instant: None 
+            });
+
+            debug!("Rot: {:?}", base.rot());
+
             let _ = self.world.write_storage::<Position>().insert(entity, Position {
                 position: base.pos().to_owned(),
-                rotation: Quat::from_euler(glam::EulerRot::XYZ, base.rot().x * PI, base.rot().y * PI, base.rot().z * PI),
+                rotation: Quat::from_unit_vector(base.rot().to_owned()),
                 velocity: Vec3::default(),
             });
+        } else {
+            // assume the entity is always spawned
+            let _ = self.world.write_storage::<Spawned>().insert(entity, Spawned);
         }
 
         // update lookup map
@@ -186,6 +199,15 @@ impl Zone {
         if cycle_duration.as_millis() >= 30 {
             warn!(zone = self.factory.zone_def().guid.to_string(); "Zone update cycle can't keep up! Took {}ms", cycle_duration.as_millis());
         }
+    }
+
+    pub fn check_respawn(&mut self) {
+        let mut dispatcher = DispatcherBuilder::new()
+            .with(RespawnEntities, "respawn_entities", &[])
+            .build();
+
+        dispatcher.dispatch(&self.world);
+        self.world.maintain();
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<ZoneEvent>> {
@@ -247,7 +269,7 @@ impl Zone {
                 })
                 .with(Position {
                     position: character.data.pos().to_owned(),
-                    rotation: Quat::from_euler(glam::EulerRot::XYZ, character.data.rot().x, character.data.rot().y, character.data.rot().z),
+                    rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                     velocity: Vec3::default(),
                 })
                 .with(InterestList {
@@ -255,6 +277,7 @@ impl Zone {
                     update_sender: interest_event_sender,
                 })
                 .with(EntityType::Player)
+                .with(Spawned)
                 .build();
 
             self.avatar_id_to_entity_lookup.insert(avatar_id.clone(), entity);

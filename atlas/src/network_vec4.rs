@@ -39,45 +39,6 @@ impl Into<Quat> for NetworkVec4 {
 
 impl From<Quat> for NetworkVec4 {
     fn from(value: Quat) -> Self {
-        Self { x: value.x / PI, y: value.y / PI, z: value.z / PI, w: value.w / PI }
-    }
-}
-
-impl Into<Vec3> for NetworkVec4 {
-    fn into(self) -> Vec3 {
-        let euler = Quat::from_xyzw(self.x, self.y, self.z, self.w).to_euler(glam::EulerRot::YXZ);
-        Vec3 { x: euler.0 / PI, y: euler.1 / PI, z: euler.2 / PI }
-    }
-}
-
-#[allow(dead_code)]
-fn rad_to_otherland_angle(mut r: f32) -> f32 {
-    while r > PI {
-        r -= PI * 2.0;
-    }
-
-    while r < -PI {
-        r += PI * 2.0;
-    }
-
-    r / PI
-}
-
-#[allow(dead_code)]
-fn otherland_angle_to_rad(a: f32) -> f32 {
-    a * PI
-}
-
-impl From<&Vec3> for NetworkVec4 {
-    fn from(value: &Vec3) -> Self {
-        value.to_owned().into()
-    }
-}
-
-impl From<Vec3> for NetworkVec4 {
-    fn from(value: Vec3) -> Self {
-        //  YXZ can be used for yaw (y-axis), pitch (x-axis), roll (z-axis).
-        let quat = Quat::from_euler(glam::EulerRot::YXZ, value.x * PI, value.y * PI, value.z * PI);
-        Self { x: quat.x, y: quat.y, z: quat.z, w: quat.w }
+        Self { x: value.x, y: value.y, z: value.z, w: value.w }
     }
 }

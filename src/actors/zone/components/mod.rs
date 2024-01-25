@@ -17,8 +17,12 @@ mod avatar_component;
 mod entity_type;
 mod interest_list;
 mod position;
+mod markers;
+mod spawner_state;
 
 pub use avatar_component::*;
 pub use entity_type::*;
 pub use interest_list::*;
 pub use position::*;
+pub use markers::*;
+pub use spawner_state::*;

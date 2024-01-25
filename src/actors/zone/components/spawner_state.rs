@@ -13,8 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod update_interests;
-mod respawn;
+use std::time::Instant;
 
-pub(super) use update_interests::*;
-pub(super) use respawn::*;
+use glam::{Quat, Vec3};
+use specs::{prelude::*, Component};
+
+#[derive(Clone, Component)]
+#[storage(VecStorage)]
+pub struct SpawnerState {
+    pub despawn_instant: Option<Instant>,
+    pub respawn_instant: Option<Instant>,
+}
