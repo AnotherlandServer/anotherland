@@ -28,7 +28,7 @@ pub fn derive_actor(_item: TokenStream) -> TokenStream {
 fn extract_ident(ty: &Type) -> (Ident, TokenStream) {
     match ty {
         Type::Path(path) => {
-            for segment in path.path.segments.iter() {
+            if let Some(segment) = path.path.segments.iter().next() {
                 let template = match &segment.arguments {
                     syn::PathArguments::AngleBracketed(args) => args.to_token_stream(),
                     _ => quote!(),

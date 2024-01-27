@@ -335,14 +335,12 @@ impl RakNetPeer {
     pub fn id(&self) -> &Uuid { &self.id }
 
     pub async fn recv(&mut self) -> RakNetResult<Message> {
-        loop {
-            match self.event_receiver.recv().await {
-                Some(RakNetPeerEvent::Message(msg)) => {
-                    break Ok(msg)
-                },
-                None => {
-                    break Err(RakNetError::from_kind(RakNetErrorKind::IOError))
-                }
+        match self.event_receiver.recv().await {
+            Some(RakNetPeerEvent::Message(msg)) => {
+                Ok(msg)
+            },
+            None => {
+                Err(RakNetError::from_kind(RakNetErrorKind::IOError))
             }
         }
     }
