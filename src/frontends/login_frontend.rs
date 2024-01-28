@@ -17,12 +17,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use atlas::{raknet::{RakNetListener, Message, Priority, Reliability, RakNetPeer}, CPkt, CPktLoginResult, CpktLoginResultUiState, oaPktRealmStatusList, RealmStatus};
-use futures::future::Remote;
 use log::{error, debug};
 use tokio::{select, sync::RwLock};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, RemoteActorRef, ActorRef}, util::{AnotherlandResult, AnotherlandError}, actors::{Authenticator, LoginResult, RealmList}, CONF, NODE, db::Session, components::SessionHandler};
+use crate::{cluster::{frontend::Frontend, RemoteActorRef}, util::{AnotherlandResult, AnotherlandError}, actors::{Authenticator, LoginResult, RealmList}, CONF, NODE, components::SessionHandler};
 
 pub struct LoginFrontend {
     //listener: RakNetListener,
@@ -98,7 +97,7 @@ impl Frontend for LoginFrontend {
 
                         // cleanup connection
                         peer.disconnect().await;
-                        client_session.session_handler.write().await.forget_peer(peer.id().clone()).await;
+                        client_session.session_handler.write().await.forget_peer(*peer.id()).await;
                     });
                 },
                 _ = token.cancelled() => break Ok(()),
@@ -132,13 +131,13 @@ impl LoginFrontendSession {
                 match self.authenticator.login(pkt.username.to_owned(), pkt.password.to_owned()).await? {
                     LoginResult::Session(session) => {
                         // Assign session to peer
-                        let session_ref = self.session_handler.write().await.initiate_trusted(peer.id().clone(), session.id.into()).await?;
+                        let session_ref = self.session_handler.write().await.initiate_trusted(*peer.id(), session.id).await?;
                         let mut session_ref_s = session_ref.lock().await;
 
                         let realms = self.realm_list.get_realms().await;
                         if realms.is_empty() {
                             // immediately destroy the session
-                            let _ = self.session_handler.write().await.destroy_session(session_ref_s.session().id.into()).await;
+                            let _ = self.session_handler.write().await.destroy_session(session_ref_s.session().id).await;
 
                             Self::report_login_error(peer, "#Login.ERROR_CONNECTIONFAILED#").await
                         } else if realms.len() == 1 {
@@ -146,58 +145,56 @@ impl LoginFrontendSession {
                             session_ref_s.select_realm(realms[0].id).await?;
 
                             // Send login result with change to realm
-                            let mut result = CPktLoginResult::default();
-
-                            result.login_success = true;
-                            result.ui_state = CpktLoginResultUiState::CharacterSelection;
-                            result.user_id = Some(session_ref_s.account().numeric_id);
-                            result.username = Some(session_ref_s.account().username.clone());
-                            result.magic_bytes = Some(pkt.magic_bytes.clone());
-                            result.field_0x4 = Some(false);
-                            result.field29_0x24 = Some(realms[0].id);
-                            result.realm_ip = Some(u32::from_be(realms[0].address.ip().to_owned().into()));
-                            result.realm_port = Some(realms[0].address.port());
-                            result.field38_0x34 = Some(0);
-                            result.unknown_string = Some(String::new());
-                            result.session_id = Some(session.id.into());
-
-                            let _ = peer.send(Priority::High, Reliability::Reliable, result.into_message()).await?;
+                            peer.send(Priority::High, Reliability::Reliable, CPktLoginResult {
+                                login_success: true,
+                                ui_state: CpktLoginResultUiState::CharacterSelection,
+                                user_id: Some(session_ref_s.account().numeric_id),
+                                username: Some(session_ref_s.account().username.clone()),
+                                magic_bytes: Some(pkt.magic_bytes.clone()),
+                                field_0x4: Some(false),
+                                field29_0x24: Some(realms[0].id),
+                                realm_ip: Some(u32::from_be(realms[0].address.ip().to_owned().into())),
+                                realm_port: Some(realms[0].address.port()),
+                                field38_0x34: Some(0),
+                                unknown_string: Some(String::new()),
+                                session_id: Some(session.id),
+                                ..Default::default()
+                            }.into_message()).await?;
 
                             Ok(())
                         } else {
                             // Send login result
-                            let mut result = CPktLoginResult::default();
-
-                            result.login_success = true;
-                            result.ui_state = CpktLoginResultUiState::RealmSelection;
-                            result.user_id = Some(session_ref_s.account().numeric_id);
-                            result.username = Some(session_ref_s.account().username.clone());
-                            result.magic_bytes = Some(pkt.magic_bytes.clone());
-                            result.field_0x4 = Some(false);
-                            result.field29_0x24 = Some(0);
-                            result.realm_ip = Some(0);
-                            result.realm_port = Some(0);
-                            result.field38_0x34 = Some(0);
-                            result.unknown_string = Some(String::new());
-                            result.session_id = Some(session.id.into());
-    
-                            let _ = peer.send(Priority::High, Reliability::Reliable, result.into_message()).await?;
+                            peer.send(Priority::High, Reliability::Reliable, CPktLoginResult {
+                                login_success: true,
+                                ui_state: CpktLoginResultUiState::RealmSelection,
+                                user_id: Some(session_ref_s.account().numeric_id),
+                                username: Some(session_ref_s.account().username.clone()),
+                                magic_bytes: Some(pkt.magic_bytes.clone()),
+                                field_0x4: Some(false),
+                                field29_0x24: Some(0),
+                                realm_ip: Some(0),
+                                realm_port: Some(0),
+                                field38_0x34: Some(0),
+                                unknown_string: Some(String::new()),
+                                session_id: Some(session.id),
+                                ..Default::default()
+                            }.into_message()).await?;
 
                             // Immediately follow-up with the realm list
-                            let mut realm_status: oaPktRealmStatusList = oaPktRealmStatusList::default();
-                            realm_status.realm_count = realms.len() as u32;
-                            realm_status.realms = realms.iter().map(|realm| {
-                                RealmStatus {
-                                    id: realm.id,
-                                    name: realm.name.clone(),
-                                    channel_count: realm.channels.len() as u32,
-                                    channel_id: realm.channels.iter().map(|c| c.id).collect(),
-                                    channel_population_count: realm.channels.len() as u32,
-                                    channel_population: realm.channels.iter().map(|c| c.population).collect(),
-                                }
-                            }).collect();
-                            
-                            let _ = peer.send(Priority::High, Reliability::Reliable, realm_status.into_message()).await?;
+                            peer.send(Priority::High, Reliability::Reliable, oaPktRealmStatusList {
+                                realm_count: realms.len() as u32,
+                                realms: realms.iter().map(|realm| {
+                                    RealmStatus {
+                                        id: realm.id,
+                                        name: realm.name.clone(),
+                                        channel_count: realm.channels.len() as u32,
+                                        channel_id: realm.channels.iter().map(|c| c.id).collect(),
+                                        channel_population_count: realm.channels.len() as u32,
+                                        channel_population: realm.channels.iter().map(|c| c.population).collect(),
+                                    }
+                                }).collect(),
+                                ..Default::default()
+                            }.into_message()).await?;
 
                             Ok(())
                         }
@@ -218,16 +215,15 @@ impl LoginFrontendSession {
     }
 
     async fn report_login_error(peer: &mut RakNetPeer, message: &str) -> AnotherlandResult<()> {
-        let mut result = CPktLoginResult::default();
-        result.login_success = false;
-        result.ui_state = CpktLoginResultUiState::RealmSelection;
-        
         let message = message.as_bytes();
 
-        result.message_len = Some(message.len() as u8);
-        result.message = Some(message.to_vec());
-
-        let _ = peer.send(Priority::High, Reliability::Reliable, result.into_message()).await?;
+        peer.send(Priority::High, Reliability::Reliable, CPktLoginResult {
+            login_success: false,
+            ui_state: CpktLoginResultUiState::RealmSelection,
+            message_len: Some(message.len() as u8),
+            message: Some(message.to_vec()),
+            ..Default::default()
+        }.into_message()).await?;
         Ok(())
     }
 }

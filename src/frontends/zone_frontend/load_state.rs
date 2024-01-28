@@ -22,9 +22,9 @@ pub(super) enum ClientLoadState {
     Spawned
 }
 
-impl Into<u32> for ClientLoadState {
-    fn into(self) -> u32 {
-        match self {
+impl From<ClientLoadState> for u32 {
+    fn from(val: ClientLoadState) -> u32 {
+        match val {
             ClientLoadState::EarlyLoadSequence => 0,
             ClientLoadState::RequestAvatarStream => 5,
             ClientLoadState::StreamedAvatars => 6,

@@ -13,17 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, Message, Priority, Reliability}, CPkt, CPktLoginResult, CpktLoginResultUiState};
-use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
-use futures::future::Remote;
-use log::{error, debug};
-use tokio::{net::TcpListener, io::{Interest, AsyncWriteExt}, time, select};
+use tokio::{net::TcpListener, io::AsyncWriteExt, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::frontend::Frontend, util::{AnotherlandResult, AnotherlandError}, actors::{Authenticator, LoginResult}, CONF, NODE, db::Session};
+use crate::{cluster::frontend::Frontend, util::AnotherlandResult, CONF};
 
 pub struct LoginQueueFrontend {
     tasks: TaskTracker,
@@ -46,12 +40,12 @@ impl Frontend for LoginQueueFrontend {
     }
 
     async fn run(&mut self, token: CancellationToken) -> AnotherlandResult<()> {
-        let mut listener = TcpListener::bind(CONF.login_server.queue_listen_address).await?;
+        let listener = TcpListener::bind(CONF.login_server.queue_listen_address).await?;
 
         loop {
             select! { 
                 res = listener.accept() => {
-                    let (mut connection, address) = res?;
+                    let (mut connection, _address) = res?;
 
                     self.tasks.spawn(async move {
                         // These two messages where captured from a real server back in the days.

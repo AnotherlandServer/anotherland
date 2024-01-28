@@ -120,7 +120,7 @@ impl ZoneRouter {
                                             let _ = retval.send(connection.send(ZoneUpstreamMessage::Message { 
                                                 session_id, 
                                                 message
-                                            }).await.map_err(|_| AnotherlandErrorKind::IOError.into()));
+                                            }).await.map_err(|_| AnotherlandErrorKind::IO.into()));
                                         },
                                         Err(e) => {
                                             let _ = retval.send(Err(e));
@@ -147,7 +147,7 @@ impl ZoneRouter {
                                             let _ = retval.send(connection.send(ZoneUpstreamMessage::Travel {
                                                 session_id,
                                                 destination
-                                            }).await.map_err(|_| AnotherlandErrorKind::IOError.into()));
+                                            }).await.map_err(|_| AnotherlandErrorKind::IO.into()));
                                         },
                                         Err(e) => {
                                             let _ = retval.send(Err(e));
@@ -211,9 +211,9 @@ impl ZoneRouter {
             session_id: session_id.clone(), 
             avatar_id: avatar_id.clone(), 
             retval: retval_sender 
-        }).await.map_err(|_| AnotherlandErrorKind::IOError)?;
+        }).await.map_err(|_| AnotherlandErrorKind::IO)?;
 
-        retval_receiver.await.map_err(|_| AnotherlandErrorKind::IOError)?
+        retval_receiver.await.map_err(|_| AnotherlandErrorKind::IO)?
     }
 }
 
@@ -344,9 +344,9 @@ impl ZoneRouterConnection {
             session_id: self.session_id.clone(), 
             message: message.to_bytes(), 
             retval: retval_sender,
-        }).await.map_err(|_| AnotherlandErrorKind::IOError)?;
+        }).await.map_err(|_| AnotherlandErrorKind::IO)?;
 
-        retval_receiver.await.map_err(|_| AnotherlandErrorKind::IOError)?
+        retval_receiver.await.map_err(|_| AnotherlandErrorKind::IO)?
     }
 
     pub async fn receive(&self) -> Option<ZoneRouterMessage> {
@@ -362,9 +362,9 @@ impl ZoneRouterConnection {
             session_id: self.session_id.clone(), 
             destination,
             retval: retval_sender 
-        }).await.map_err(|_| AnotherlandErrorKind::IOError)?;
+        }).await.map_err(|_| AnotherlandErrorKind::IO)?;
 
-        retval_receiver.await.map_err(|_| AnotherlandErrorKind::IOError)?
+        retval_receiver.await.map_err(|_| AnotherlandErrorKind::IO)?
     }
 }
 

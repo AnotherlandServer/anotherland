@@ -13,19 +13,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, IpAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}, thread};
+use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use async_trait::async_trait;
-use atlas::{oaPktAvatarTellBehaviorBinary, oaPktConfirmTravel, oaPktDialogEnd, oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPktServerAction, oaPkt_SplineSurfing_Acknowledge, raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktResourceNotify, CPktServerNotify, CPktStackedAvatarUpdate, ClassId, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, NetworkVec3, OaZoneConfigParams, ParamAttrib, ParamBox, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
-use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
+use atlas::{oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktResourceNotify, CPktServerNotify, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
+use bitstream_io::{ByteWriter, LittleEndian};
 use glam::{Quat, Vec3};
 use log::{debug, error, trace, warn, info};
-use mongodb::change_stream::session;
-use quinn::{ServerConfig, Endpoint};
-use tokio::{sync::{Mutex, OnceCell, mpsc::{self, Sender}, RwLock}, net::{TcpListener, TcpStream, UdpSocket}, time::{Interval, self}, select, task};
-use tokio_util::{task::TaskTracker, sync::CancellationToken, udp::UdpFramed};
+use quinn::ServerConfig;
+use tokio::{sync::{Mutex, mpsc::{self, Sender}, RwLock}, time, select};
+use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ServerAction, SessionManager, Zone, ZoneEvent, ZoneRegistry}, NODE, CLUSTER_CERT, components::{SessionHandler, SessionRef, ZoneFactory}};
+use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ServerAction, Zone, ZoneEvent, ZoneRegistry}, NODE, CLUSTER_CERT, components::{SessionHandler, SessionRef, ZoneFactory}};
 use crate::db::DatabaseRecord;
 
 use super::{load_state::ClientLoadState, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
@@ -84,7 +83,7 @@ impl Frontend for ZoneFrontend {
             ServerConfig::with_single_cert(cert_chain, priv_key).unwrap(), 
             SocketAddr::new(Ipv6Addr::LOCALHOST.into(), 0)).await.unwrap();
 
-        let mut zone_registry = NODE.get_remote_actor::<ZoneRegistry>("zone_registry").ok_or(AnotherlandErrorKind::ApplicationError)?;
+        let mut zone_registry = NODE.get_remote_actor::<ZoneRegistry>("zone_registry").ok_or(AnotherlandErrorKind::Application)?;
         let mut registration_update_interval = time::interval(Duration::from_secs(1));
 
         let session_handler = SessionHandler::new();
@@ -133,7 +132,7 @@ impl Frontend for ZoneFrontend {
                                                     }
                                                 };
 
-                                                sessions.insert(session_id.clone(), ZoneSession::spawn(
+                                                sessions.insert(*session_id, ZoneSession::spawn(
                                                     tasks.clone(), 
                                                     connection_token.clone(), 
                                                     session_id, 
@@ -230,7 +229,7 @@ impl ZoneSession {
 
         // todo: handle errors here, as this might be a race when the session
         // invalidates during the zone enter stage.
-        let session_ref = session_handler.write().await.initiate_trusted(session_id.clone(), session_id.clone()).await.unwrap();
+        let session_ref = session_handler.write().await.initiate_trusted(*session_id, *session_id).await.unwrap();
 
         let (avatar_event_sender, avatar_event_receiver) = mpsc::channel(10);
 
@@ -341,14 +340,11 @@ impl ZoneSession {
             }
 
             // despawn avatar
-            self.instance.zone().despawn_avatar(self.avatar_id.clone()).await;
+            self.instance.zone().despawn_avatar(self.avatar_id).await;
 
             // stop instance
-            match self.instance {
-                ZoneInstance::Instance(zone) => {
-                    zone.stop();
-                },
-                _ => {}
+            if let ZoneInstance::Instance(zone) = self.instance {
+                zone.stop();
             }
             
             trace!(
@@ -373,27 +369,20 @@ impl ZoneSession {
                 TravelType::Portal { uuid } => PlayerSpawnMode::TravelPortal(uuid),
                 _ => unimplemented!(),
             }, 
-            self.avatar_id.clone(), 
+            self.avatar_id, 
             session_s.session().character_id.unwrap(), 
             self.avatar_event_sender.clone()).await?;
 
         self.server_actions.push_back(server_action);
 
-        let _ = player.data.write_to_client(&mut writer)?;
+        player.data.write_to_client(&mut writer)?;
 
         info!(
             session = self.session_id.to_string(), 
             avatar = self.avatar_id.to_string(); 
             "Spawning player: {}", player.name);
 
-        let movement = self.instance.zone().get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
-
-        let mut mm_init: MoveManagerInit = MoveManagerInit::default();
-        mm_init.pos = movement.position.into();
-        mm_init.rot = movement.rotation.into();
-        mm_init.vel = movement.velocity.into();
-
-        mm_init.physics = PhysicsState::Walking.into();
+        let movement = self.instance.zone().get_avatar_move_state(self.avatar_id).await.unwrap();
 
         let mut data = Vec::new();
         {
@@ -402,19 +391,24 @@ impl ZoneSession {
         }
 
         // Update player character on client
-        let mut avatar_update = CPktAvatarUpdate::default();
-        avatar_update.full_update = true;
-        avatar_update.avatar_id = Some(self.avatar_id.as_u64());
-        avatar_update.field_2 = Some(false);
-        avatar_update.name = Some(player.name);
-        avatar_update.class_id = Some(PlayerAttribute::class_id().into());
-        avatar_update.field_6 = Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap());
-        avatar_update.params = data.into();
-        
-        avatar_update.update_source = 0;
-        avatar_update.movement = Some(mm_init.to_bytes().into());
-
-        self.send(avatar_update.into_message()).await?;
+        self.send(CPktAvatarUpdate {
+            full_update: true,
+            avatar_id: Some(self.avatar_id.as_u64()),
+            field_2: Some(false),
+            name: Some(player.name),
+            class_id: Some(PlayerAttribute::class_id().into()),
+            field_6: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+            params: data.into(),
+            update_source: 0,
+            movement: Some(MoveManagerInit {
+                pos: movement.position.into(),
+                rot: movement.rotation.into(),
+                vel: movement.velocity.into(),
+                physics: PhysicsState::Walking.into(),
+                ..Default::default()
+            }.to_bytes().into()),
+            ..Default::default()
+        }.into_message()).await?;
 
         Ok(())
     }
@@ -445,7 +439,7 @@ impl ZoneSession {
 
     async fn handle_zone_event(&mut self, event: Arc<ZoneEvent>) -> AnotherlandResult<()> {
         match event.as_ref() {
-            ZoneEvent::AvatarSpawned { avatar_id, params } => {
+            ZoneEvent::AvatarSpawned { avatar_id, .. } => {
                 if *avatar_id != self.avatar_id {
                     // todo: check if we need to add the character to our interest list
                 }
@@ -457,39 +451,39 @@ impl ZoneSession {
 
                     params.write_to_client(&mut writer)?;
     
-                    let mut avatar_update = CPktAvatarUpdate::default();
-                    avatar_update.full_update = false;
-                    avatar_update.avatar_id = Some(avatar_id.as_u64());
-                    avatar_update.update_source = 0;
-                    avatar_update.params = param_buffer.into();
-
-                    let _ = self.send(avatar_update.into_message()).await?;
+                    self.send(CPktAvatarUpdate {
+                        full_update: false,
+                        avatar_id: Some(avatar_id.as_u64()),
+                        update_source: 0,
+                        params: param_buffer.into(),
+                        ..Default::default()
+                    }.into_message()).await?;
                 }
             },
             ZoneEvent::AvatarMoved { avatar_id, movement } => {
                 if self.interest_list.contains(avatar_id) {
-                    let mut pos_update = oaPktMoveManagerPosUpdate::default();
-                    pos_update.pos = movement.position.into();
-                    pos_update.rot = movement.rotation.into();
-                    pos_update.vel = movement.velocity.into();
-                    pos_update.physics = movement.physics_state.into();
-                    pos_update.mover_key = movement.mover_key;
-                    pos_update.avatar_id = avatar_id.as_u64();
-                    pos_update.seconds = movement.seconds;
-
-                    let _ = self.send(pos_update.into_message()).await?;
+                    self.send(oaPktMoveManagerPosUpdate {
+                        pos: movement.position.into(),
+                        rot: movement.rotation.into(),
+                        vel: movement.velocity.into(),
+                        physics: movement.physics_state.into(),
+                        mover_key: movement.mover_key,
+                        avatar_id: avatar_id.as_u64(),
+                        seconds: movement.seconds,
+                        ..Default::default()
+                    }.into_message()).await?;
                 }
             },
             ZoneEvent::AvatarDespawned { avatar_id } => {
                 if self.interest_list.remove(avatar_id) {
                     // tell client the avatar despawned
-                    let mut avatar_notify = CPktAvatarClientNotify::default();
-                    avatar_notify.avatar_id = avatar_id.clone().as_u64();
-
-                    self.send(avatar_notify.into_message()).await?;
+                    self.send(CPktAvatarClientNotify {
+                        avatar_id: avatar_id.clone().as_u64(),
+                        ..Default::default()
+                    }.into_message()).await?;
                 }
             },
-            ZoneEvent::ChatMessage { range, sender, message } => {
+            ZoneEvent::ChatMessage { range: _, sender: _, message: _ } => {
                 todo!()
             }
         }
@@ -505,47 +499,45 @@ impl ZoneSession {
                 let session_s = self.session_ref.lock().await;
 
                 // Send resource notification 
-                let mut worlddef = CPktResourceNotify::default();
-                worlddef.resource_type = CpktResourceNotifyResourceType::WorldDef;
-                worlddef.field_2 = self.zone_factory.world_def().guid.clone();
-                worlddef.field_3 = "".to_owned();
-
-                let _ = self.send(worlddef.into_message()).await;
+                let _ = self.send(CPktResourceNotify {
+                    resource_type: CpktResourceNotifyResourceType::WorldDef,
+                    field_2: self.zone_factory.world_def().guid,
+                    field_3: "".to_owned(),
+                    ..Default::default()
+                }.into_message()).await;
 
                 // Spawn player character
                 let mut param_buffer = Vec::new();
                 let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
-                let (player, server_action) = self.instance.zone().spawn_player(PlayerSpawnMode::LoginNormal, self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.avatar_event_sender.clone()).await?;
+                let (player, server_action) = self.instance.zone().spawn_player(PlayerSpawnMode::LoginNormal, self.avatar_id, session_s.session().character_id.unwrap(), self.avatar_event_sender.clone()).await?;
                 self.server_actions.push_back(server_action);
 
-                let _ = player.data.write_to_client(&mut writer)?;
+                player.data.write_to_client(&mut writer)?;
 
-                let movement = self.instance.zone().get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
-
-                let mut mm_init: MoveManagerInit = MoveManagerInit::default();
-                mm_init.pos = movement.position.into();
-                mm_init.rot = movement.rotation.into();
-                mm_init.vel = movement.velocity.into();
-
-                mm_init.physics = PhysicsState::Walking.into();   
+                let movement = self.instance.zone().get_avatar_move_state(self.avatar_id).await.unwrap();
 
                 info!(
                     session = self.session_id.to_string(), 
                     avatar = self.avatar_id.to_string(); 
                     "Spawning player: {}", player.name);
 
-                // Transfer player character to client
-                let mut avatar_blob = CPktBlob::default();
-                avatar_blob.avatar_id = self.avatar_id.as_u64();
-                avatar_blob.avatar_name = player.name;
-                avatar_blob.class_id = PlayerAttribute::class_id().into();
-                avatar_blob.params = param_buffer.into();
-                avatar_blob.movement = mm_init.to_bytes().into();
-                avatar_blob.has_guid = true;
-                avatar_blob.field_7 = Some(self.session_id.clone());
-
-                self.send(avatar_blob.into_message()).await?;
+                self.send(CPktBlob {
+                    avatar_id: self.avatar_id.as_u64(),
+                    avatar_name: player.name,
+                    class_id: PlayerAttribute::class_id().into(),
+                    params: param_buffer.into(),
+                    movement: MoveManagerInit {
+                        pos: movement.position.into(),
+                        rot: movement.rotation.into(),
+                        vel: movement.velocity.into(),
+                        physics: PhysicsState::Walking.into(),
+                        ..Default::default()
+                    }.to_bytes().into(),
+                    has_guid: true,
+                    field_7: Some(self.session_id),
+                    ..Default::default()
+                }.into_message()).await?;
             },
             AtlasPkt(CPkt::oaPktServerAction(pkt)) => {
                 // Until we have to means to verify this request, we just clone the message
@@ -585,7 +577,7 @@ impl ZoneSession {
                         debug!("Rot: {:?}", quat.to_euler(glam::EulerRot::XYZ));
 
                         self.instance.zone().move_player_avatar(
-                            self.avatar_id.clone(), 
+                            self.avatar_id, 
                             Movement {
                                 position: pkt.pos.into(),
                                 rotation: pkt.rot.into(),
@@ -606,7 +598,7 @@ impl ZoneSession {
                     "doVendorExecute" => {
                         match &pkt.field_4 {
                             NativeParam::Struct(attrib) => {
-                                let (_, params) = self.instance.zone().get_avatar_params(self.avatar_id.clone()).await.unwrap();
+                                let (_, params) = self.instance.zone().get_avatar_params(self.avatar_id).await.unwrap();
                                 let db: mongodb::Database = realm_database().await;
 
                                 let mut player_params = params.take::<PlayerClass>().unwrap();
@@ -647,7 +639,7 @@ impl ZoneSession {
                                     let item_uuid = a.to_uuid()?;
                                     debug!("Load item {}", item_uuid.to_string());
                                 let db: mongodb::Database = realm_database().await;
-                                let item = ItemContent::get(db.clone(), &item_uuid.into()).await?;
+                                let item = ItemContent::get(db.clone(), &item_uuid).await?;
                                     visible_items.push(item.unwrap().id as i32);
                                 }
     
@@ -665,7 +657,7 @@ impl ZoneSession {
                                 character.data = player_params.clone();
                                 character.save(db.clone()).await?;
         
-                                self.instance.zone().update_avatar(self.avatar_id.clone(), player_params.into_set().into_box()).await;
+                                self.instance.zone().update_avatar(self.avatar_id, player_params.into_set().into_box()).await;
                             },
                             _ => panic!(),
                         }
@@ -679,7 +671,7 @@ impl ZoneSession {
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
                 if pkt.avatar_id.unwrap_or_default() == self.avatar_id.as_u64() {
                     if let Ok((_, params)) = ParamSet::<PlayerAttribute>::read(pkt.params.as_slice()) {
-                        self.instance.zone().update_avatar(self.avatar_id.clone(), params.into_box()).await;
+                        self.instance.zone().update_avatar(self.avatar_id, params.into_box()).await;
                     } else {
                         error!(
                             session = self.session_id.to_string(), 
@@ -712,22 +704,13 @@ impl ZoneSession {
             },
             AtlasPkt(CPkt::CPktRequestAvatarBehaviors(pkt)) => {
                 if pkt.behaviour == "FlightTube" {
-                    /*let mut response = oaPktAvatarTellBehaviorBinary::default();
-                    response.field_1 = self.avatar_id.as_u64();
-                    response.field_3 = "FlightTube".into();
-                    response.field_4 = NativeParam::Struct(vec![
-                        NativeParam::Guid(Uuid::parse_str("2851e8fe-6810-4281-b296-52b10cbb307d").unwrap()),
-                        NativeParam::Bool(false),
-                        NativeParam::Vector3(Vec3::new(1199.960693, -397.063202, 33.211296)),
-                    ]);*/
-
-                    let mut response = oaPkt_SplineSurfing_Acknowledge::default();
-                    response.avatar_id = self.avatar_id.as_u64();
-                    response.spline_id = Uuid::parse_str("2851e8fe-6810-4281-b296-52b10cbb307d").unwrap();
-                    response.acknowledged = true;
-                    response.loc = Vec3::new(1199.960693, -397.063202, 33.211296).into();
-
-                    self.send(response.into_message()).await?;
+                    self.send(oaPkt_SplineSurfing_Acknowledge {
+                        avatar_id: self.avatar_id.as_u64(),
+                        spline_id: Uuid::parse_str("2851e8fe-6810-4281-b296-52b10cbb307d").unwrap(),
+                        acknowledged: true,
+                        loc: Vec3::new(1199.960693, -397.063202, 33.211296).into(),
+                        ..Default::default()
+                    }.into_message()).await?;
                 }
             },
             AtlasPkt(CPkt::oaPktAvatarTellBehavior(pkt)) => {
@@ -750,9 +733,9 @@ impl ZoneSession {
 
     async fn send(&self, message: Message) -> AnotherlandResult<()> {
         self.downstream.send(ZoneDownstreamMessage::Message { 
-            session_id: self.session_id.clone(),
+            session_id: self.session_id,
             message: message.to_bytes(), 
-        }).await.map_err(|_| AnotherlandErrorKind::IOError)?;
+        }).await.map_err(|_| AnotherlandErrorKind::IO)?;
 
         Ok(())
     }
@@ -766,7 +749,7 @@ impl ZoneSession {
             travel: destination
         })
         .await
-        .map_err(|_| AnotherlandErrorKind::IOError)?;
+        .map_err(|_| AnotherlandErrorKind::IO)?;
 
         Ok(())
     }
@@ -777,9 +760,10 @@ impl ZoneSession {
         if self.load_state != ClientLoadState::EarlyLoadSequence {
             // remove avatars we are not interested in anymore
             while let Some(avatar_id) = self.interest_removed_queue.pop_front() {
-                let mut avatar_notify = CPktAvatarClientNotify::default();
-                avatar_notify.avatar_id = avatar_id.as_u64();
-                self.send(avatar_notify.into_message()).await?;
+                self.send(CPktAvatarClientNotify {
+                    avatar_id: avatar_id.as_u64(),
+                    ..Default::default()
+                }.into_message()).await?;
 
                 // remove from interest list
                 self.interest_list.remove(&avatar_id);
@@ -788,19 +772,12 @@ impl ZoneSession {
             // limit to push up to 10 avatars per tick
             for _ in 0..10 {
                 if let Some(avatar_id) = self.interest_added_queue.pop_front() {
-                    if let Some((name, params)) = self.instance.zone().get_avatar_params(avatar_id.clone()).await {
-                        let movement = self.instance.zone().get_avatar_move_state(avatar_id.clone()).await.unwrap();
+                    if let Some((name, params)) = self.instance.zone().get_avatar_params(avatar_id).await {
+                        let movement = self.instance.zone().get_avatar_move_state(avatar_id).await.unwrap();
 
                         // add to interest list, so the client will receive updates
                         // for this avatar.
-                        self.interest_list.insert(avatar_id.clone());
-
-                        let mut mm_init: MoveManagerInit = MoveManagerInit::default();
-                        mm_init.pos = movement.position.into();
-                        mm_init.rot = movement.rotation.into();
-                        mm_init.vel = movement.velocity.into();
-
-                        mm_init.physics = PhysicsState::Walking.into();  
+                        self.interest_list.insert(avatar_id);
 
                         let mut data = Vec::new();
                         {
@@ -808,31 +785,34 @@ impl ZoneSession {
                             params.write_to_client(&mut writer)?;
                         }
 
-                        let mut avatar_update = CPktAvatarUpdate::default();
-                        avatar_update.full_update = true;
-                        avatar_update.avatar_id = Some(avatar_id.as_u64());
-                        avatar_update.field_2 = Some(false);
-                        avatar_update.name = Some(name);
-                        avatar_update.class_id = Some(params.class_id().into());
-                        avatar_update.field_6 = Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap());
-                        //avatar_update.flags = Some(2);
-                        //avatar_update.flag_2_uuid = Some(Uuid::from_str("00000000-0000-0000-0000-000000000000").unwrap());
-                        avatar_update.params = data.into();
-                        
-                        avatar_update.update_source = 0;
-                        avatar_update.movement = Some(mm_init.to_bytes().into());
-
-                        let _ = self.send(avatar_update.into_message()).await?;
+                        self.send(CPktAvatarUpdate {
+                            full_update: true,
+                            avatar_id: Some(avatar_id.as_u64()),
+                            field_2: Some(false),
+                            name: Some(name),
+                            class_id: Some(params.class_id().into()),
+                            field_6: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+                            params: data.into(),
+                            update_source: 0,
+                            movement: Some(MoveManagerInit {
+                                pos: movement.position.into(),
+                                rot: movement.rotation.into(),
+                                vel: movement.velocity.into(),
+                                physics: PhysicsState::Walking.into(),
+                                ..Default::default()
+                            }.to_bytes().into()),
+                            ..Default::default()
+                        }.into_message()).await?;
                     }
                 } else if self.load_state == ClientLoadState::RequestAvatarStream {
                     // Update client loading state if we are in the initial streaming phase
                     self.load_state = ClientLoadState::StreamedAvatars;
 
-                    let mut connectionstate = oaPktS2XConnectionState::default();
-                    connectionstate.field_1 = ClientLoadState::StreamedAvatars.into();
-                    connectionstate.field_2 = 0;
-
-                    self.send(connectionstate.into_message()).await?;
+                    self.send(oaPktS2XConnectionState {
+                        field_1: ClientLoadState::StreamedAvatars.into(),
+                        field_2: 0,
+                        ..Default::default()
+                    }.into_message()).await?;
                 }
             }
         }
@@ -840,29 +820,30 @@ impl ZoneSession {
         if self.load_state == ClientLoadState::RequestSpawn {
             // Synchronize time
             {
-                let mut game_time_sync = CPktServerNotify::default();
-                game_time_sync.notify_type = CpktServerNotifyNotifyType::SyncGameClock;
-                game_time_sync.field_2 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
-
-                self.send(game_time_sync.into_message()).await?;
+                self.send(CPktServerNotify {
+                    notify_type: CpktServerNotifyNotifyType::SyncGameClock,
+                    field_2: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+                    ..Default::default()
+                }.into_message()).await?;
             }
 
             {
-                let mut realm_time_sync = CPktServerNotify::default();
-                realm_time_sync.notify_type = CpktServerNotifyNotifyType::SyncRealmTime;
-                realm_time_sync.field_4 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
-                self.send(realm_time_sync.into_message()).await?;
+                self.send(CPktServerNotify {
+                    notify_type: CpktServerNotifyNotifyType::SyncRealmTime,
+                    field_4: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+                    ..Default::default()
+                }.into_message()).await?;
             }
 
             // Update loadstate
             {
                 self.load_state = ClientLoadState::Spawned;
                 
-                let mut connectionstate = oaPktS2XConnectionState::default();
-                connectionstate.field_1 = ClientLoadState::Spawned.into();
-                connectionstate.field_2 = 0;
-
-                self.send(connectionstate.into_message()).await?;
+                self.send(oaPktS2XConnectionState {
+                    field_1: ClientLoadState::Spawned.into(),
+                    field_2: 0,
+                    ..Default::default()
+                }.into_message()).await?;
             }
         }
 

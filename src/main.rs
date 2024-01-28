@@ -226,7 +226,7 @@ async fn main() -> AnotherlandResult<()> {
     let _ = dotenvy::dotenv();
 
     // Setup logging
-    if let Err(_) = log4rs::init_file("log4rs.yaml", Default::default()) {
+    if log4rs::init_file("log4rs.yaml", Default::default()).is_err() {
         let stdout = ConsoleAppender::builder().build();
         let config = Config::builder()
             .appender(Appender::builder().build("stdout", Box::new(stdout)))
@@ -281,21 +281,20 @@ async fn main() -> AnotherlandResult<()> {
 
             init_database().await?;
 
-            let _ = initialize_login_server().await?;
-            let _ = initialize_realm_server().await?;
-            let _ = initialize_cluster_frontend_server().await?;
-            let _ = initialize_api_server().await?;
+            initialize_login_server().await?;
+            initialize_realm_server().await?;
+            initialize_cluster_frontend_server().await?;
+            initialize_api_server().await?;
 
             // load all active maps
             {
                 let db = realm_database().await;
 
-                if let Some(config) = MiscContent::get_by_name(db.clone(), &"ActiveMaps").await?
+                if let Some(config) = MiscContent::get_by_name(db.clone(), "ActiveMaps").await?
                     .as_ref()
-                    .map(|v| v.data.as_ref().map(|v| v.get::<CommonConfigClass>().ok().map(|v| v.value())))
-                    .flatten()
-                    .flatten()
-                    .flatten()
+                    .and_then(|v| v.data.as_ref())
+                    .and_then(|v| v.get::<CommonConfigClass>().ok())
+                    .and_then(|v| v.value())
                 {
                     if let Some(active_maps) = config.get("activeMaps") {
                         for map in active_maps.as_array().unwrap() {
@@ -303,7 +302,7 @@ async fn main() -> AnotherlandResult<()> {
                             if let Some(world_def) = WorldDef::get_by_name(db.clone(), map["map"].as_str().unwrap()).await? {
                                 // load and spawn world zones
                                 for zone in ZoneDef::load_for_world(db.clone(), &world_def.guid).await? {
-                                    let _ = initialize_zone_server(world_def.clone(), zone).await?;
+                                    initialize_zone_server(world_def.clone(), zone).await?;
                                 }
                             } else {
                                 error!("World {} not found!", map["map"].as_str().unwrap());
@@ -339,7 +338,7 @@ async fn main() -> AnotherlandResult<()> {
 
                 while let Some(zone) = zones.try_next().await? {
                     if let Some(world_def) = WorldDef::get_by_guid(db.clone(), &zone.worlddef_guid).await? {
-                        let _ = initialize_zone_server(world_def, zone).await?;
+                        initialize_zone_server(world_def, zone).await?;
                     } else {
                         warn!("Skipping zone {} - {}, world not found", zone.zone, zone.guid);
                     }

@@ -16,15 +16,14 @@
 use std::{time::Duration, net::{SocketAddrV4, SocketAddr}, sync::Arc};
 
 use async_trait::async_trait;
-use atlas::{oaCharacter, oaPktCharacterDeleteSuccess, oaPktCharacterFailure, oaPktCharacterSelectSuccess, oaPktRealmStatusList, oaPktResponseSelectWorld, raknet::{RakNetListener, Message, Priority, Reliability, RakNetPeer}, CPkt, CPktLoginResult, CPktStream_126_1, CPktStream_126_5, CpktLoginResultUiState, OaPktCharacterFailureErrorCode, OaPktResponseSelectWorldErrorCode, ParamClass, PlayerParams, RealmStatus};
+use atlas::{oaCharacter, oaPktCharacterDeleteSuccess, oaPktCharacterFailure, oaPktCharacterSelectSuccess,  oaPktResponseSelectWorld, raknet::{RakNetListener, Message, Priority, Reliability, RakNetPeer}, CPkt, CPktStream_126_1, CPktStream_126_5, OaPktCharacterFailureErrorCode, OaPktResponseSelectWorldErrorCode, ParamClass, PlayerParams};
 use bitstream_io::{ByteWriter, LittleEndian};
-use futures::future::Remote;
 use log::{error, debug, warn};
 use mongodb::Database;
 use tokio::{time::{self, Interval}, select, sync::RwLock};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, MessageQueueProducer, connect_queue, MessageChannel, ClusterMessage, RemoteActorRef, ActorRef}, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}, actors::{Authenticator, LoginResult, RealmList, Realm}, CONF, NODE, db::{Session, Character, WorldDef, realm_database, DatabaseRecord}, ARGS, components::SessionHandler};
+use crate::{cluster::{frontend::Frontend, MessageQueueProducer, connect_queue, MessageChannel, ClusterMessage, RemoteActorRef}, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}, actors::Realm, CONF, NODE, db::{WorldDef, realm_database, DatabaseRecord}, ARGS, components::SessionHandler};
 
 
 pub struct RealmFrontend {
@@ -104,7 +103,7 @@ impl Frontend for RealmFrontend {
 
                         let mut session_handler_s = client_session.session_handler.write().await;
         
-                        if let Ok(session_ref_s) = session_handler_s.get(peer.id().clone()) {
+                        if let Ok(session_ref_s) = session_handler_s.get(*peer.id()) {
                             let session_ref = session_ref_s.lock().await;
 
                             // destroy session if the client disconnects without selecting a zone,
@@ -113,9 +112,9 @@ impl Frontend for RealmFrontend {
                             if session_ref.session().zone_guid.is_some() {
                                 drop(session_ref); // explicitly drop session_ref to avoid a deadlock
 
-                                session_handler_s.forget_peer(peer.id().clone()).await;
+                                session_handler_s.forget_peer(*peer.id()).await;
                             } else {
-                                let _ = session_handler_s.destroy_session(session_ref.session().id.into()).await;
+                                let _ = session_handler_s.destroy_session(session_ref.session().id).await;
                             }
                         } else {
                             debug!("Client session not found during disconnect!");
@@ -157,7 +156,7 @@ impl RealmFrontendSession {
 
         match message {
             AtlasPkt(CPkt::oaPktRequestCharacterList(pkt)) => {
-                let session_ref_s = self.session_handler.write().await.initiate(peer.id().clone(), pkt.session_id, pkt.magic_bytes).await?;
+                let session_ref_s = self.session_handler.write().await.initiate(*peer.id(), pkt.session_id, pkt.magic_bytes).await?;
                 let session_ref = session_ref_s.lock().await;
 
                 let characters: Vec<_> = self.realm.get_characters(session_ref.session().clone()).await?.into_iter().map(|c| {
@@ -174,16 +173,16 @@ impl RealmFrontendSession {
                     }
                 }).collect();
 
-                let mut character_list = CPktStream_126_1::default();
-                character_list.count = characters.len() as u32;
-                character_list.characters = characters;
-
-                peer.send(Priority::High, Reliability::Reliable, character_list.into_message()).await?;
+                peer.send(Priority::High, Reliability::Reliable, CPktStream_126_1 {
+                    count: characters.len() as u32,
+                    characters,
+                    ..Default::default()
+                }.into_message()).await?;
 
                 Ok(())
             },
             AtlasPkt(CPkt::oaPktCharacterCreate(pkt)) => {
-                let session_ref_s = self.session_handler.read().await.get(peer.id().clone())?;
+                let session_ref_s = self.session_handler.read().await.get(*peer.id())?;
                 let session_ref = session_ref_s.lock().await;
 
                 match self.realm.create_character(session_ref.session().clone(), pkt.character_name).await {
@@ -192,30 +191,30 @@ impl RealmFrontendSession {
                         let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
                         character.data.write(&mut writer).expect("Serialization failed");
 
-                        let mut character_create_successful = CPktStream_126_5::default();
-                        character_create_successful.character = oaCharacter {
-                            id: character.id,
-                            name: character.name.to_owned(),
-                            world_id: character.world_id,
-                            params: serialized.into(),
-                            field_4: 0,
-                        };
-
-                        let _ = peer.send(Priority::High, Reliability::Reliable, character_create_successful.into_message()).await?;
+                        peer.send(Priority::High, Reliability::Reliable, CPktStream_126_5 {
+                            character: oaCharacter {
+                                id: character.id,
+                                name: character.name.to_owned(),
+                                world_id: character.world_id,
+                                params: serialized.into(),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }.into_message()).await?;
                     },
                     Err(e) => match e.kind() {
-                        AnotherlandErrorKind::DBError => {
+                        AnotherlandErrorKind::DB => {
                             // Todo: Check for duplicated key errors
-                            let mut failure = oaPktCharacterFailure::default();
-                            failure.error_code = OaPktCharacterFailureErrorCode::NameExists;
-
-                            peer.send(Priority::High, Reliability::Reliable, failure.into_message()).await?;
+                            peer.send(Priority::High, Reliability::Reliable, oaPktCharacterFailure {
+                                error_code: OaPktCharacterFailureErrorCode::NameExists,
+                                ..Default::default()
+                            }.into_message()).await?;
                         },
                         _ => {
-                            let mut failure = oaPktCharacterFailure::default();
-                            failure.error_code = OaPktCharacterFailureErrorCode::DatabaseError;
-
-                            peer.send(Priority::High, Reliability::Reliable, failure.into_message()).await?;
+                            peer.send(Priority::High, Reliability::Reliable, oaPktCharacterFailure {
+                                error_code: OaPktCharacterFailureErrorCode::DatabaseError,
+                                ..Default::default()
+                            }.into_message()).await?;
                         }
                     }
                 }
@@ -223,62 +222,63 @@ impl RealmFrontendSession {
                 Ok(())
             },
             AtlasPkt(CPkt::oaPktCharacterDelete(pkt)) => {
-                let session_ref_s = self.session_handler.read().await.get(peer.id().clone())?;
+                let session_ref_s = self.session_handler.read().await.get(*peer.id())?;
                 let session_ref = session_ref_s.lock().await;
 
-                if let Ok(_) = self.realm.delete_character(session_ref.session().clone(), pkt.character_id).await {
-                    let mut response_character_delete = oaPktCharacterDeleteSuccess::default();
-                    response_character_delete.character_id = pkt.character_id;
-
-                    peer.send(Priority::High, Reliability::Reliable, response_character_delete.into_message()).await?;
+                if self.realm.delete_character(session_ref.session().clone(), pkt.character_id).await.is_ok() {
+                    peer.send(Priority::High, Reliability::Reliable, oaPktCharacterDeleteSuccess {
+                        character_id: pkt.character_id,
+                        ..Default::default()
+                    }.into_message()).await?;
                 } else {
-                    let mut failure = oaPktCharacterFailure::default();
-                    failure.error_code = OaPktCharacterFailureErrorCode::DatabaseError;
-    
-                    peer.send(Priority::High, Reliability::Reliable, failure.into_message()).await?;
+                    peer.send(Priority::High, Reliability::Reliable, oaPktCharacterFailure {
+                        error_code: OaPktCharacterFailureErrorCode::DatabaseError,
+                        ..Default::default()
+                    }.into_message()).await?;
                 }
 
                 Ok(())
             },
             AtlasPkt(CPkt::oaPktRequestSelectWorld(pkt)) => {
-                let session_ref_s = self.session_handler.read().await.get(peer.id().clone())?;
+                let session_ref_s = self.session_handler.read().await.get(*peer.id())?;
                 let mut session_ref = session_ref_s.lock().await;
 
                 match WorldDef::get(self.realm_db.clone(), &pkt.world_id).await? {
                     Some(_) => {
                         if  self.realm.get_cluster_frontend_address().await.is_none() {
-                            let mut response_select_world = oaPktResponseSelectWorld::default();
-                            response_select_world.success = false;
-                            response_select_world.error_code = OaPktResponseSelectWorldErrorCode::ServerOffline;
-                            response_select_world.field_3 = pkt.field_3.clone();
-            
-                            peer.send(Priority::High, Reliability::Reliable, response_select_world.into_message()).await?;
+
+                            peer.send(Priority::High, Reliability::Reliable, oaPktResponseSelectWorld {
+                                success: false,
+                                error_code: OaPktResponseSelectWorldErrorCode::ServerOffline,
+                                field_3: pkt.field_3,
+                                ..Default::default()
+                            }.into_message()).await?;
                         } else {
                             session_ref.select_world(pkt.world_id).await?;
 
-                            let mut response_select_world = oaPktResponseSelectWorld::default();
-                            response_select_world.success = true;
-                            response_select_world.error_code = OaPktResponseSelectWorldErrorCode::NoError;
-                            response_select_world.field_3 = pkt.field_3.clone();
-
-                            peer.send(Priority::High, Reliability::Reliable, response_select_world.into_message()).await?;
+                            peer.send(Priority::High, Reliability::Reliable, oaPktResponseSelectWorld {
+                                success: true,
+                                error_code: OaPktResponseSelectWorldErrorCode::NoError,
+                                field_3: pkt.field_3,
+                                ..Default::default()
+                            }.into_message()).await?;
                         }
                     },
                     None => {
                         // world not found
-                        let mut response_select_world = oaPktResponseSelectWorld::default();
-                        response_select_world.success = false;
-                        response_select_world.error_code = OaPktResponseSelectWorldErrorCode::ServerOffline;
-                        response_select_world.field_3 = pkt.field_3.clone();
-        
-                        peer.send(Priority::High, Reliability::Reliable, response_select_world.into_message()).await?;
+                        peer.send(Priority::High, Reliability::Reliable, oaPktResponseSelectWorld {
+                            success: false,
+                            error_code: OaPktResponseSelectWorldErrorCode::ServerOffline,
+                            field_3: pkt.field_3,
+                            ..Default::default()
+                        }.into_message()).await?;
                     }
                 }
 
                 Ok(())
             },
             AtlasPkt(CPkt::oaPktCharacterSelect(pkt)) => {
-                let session_ref_s = self.session_handler.read().await.get(peer.id().clone())?;
+                let session_ref_s = self.session_handler.read().await.get(*peer.id())?;
                 let mut session_ref = session_ref_s.lock().await;
 
                 if session_ref.session().world_id.is_none() {
@@ -288,17 +288,16 @@ impl RealmFrontendSession {
                         // check if cluster server is online
                         if let Some(cluster_server) = self.realm.get_cluster_frontend_address().await {
                             session_ref.select_character(character.id).await?;
-                            session_ref.select_zone(character.data
+                            session_ref.select_zone(*character.data
                                 .zone_guid()
-                                .clone()
                             ).await?;
 
-                            let mut character_select_success = oaPktCharacterSelectSuccess::default();
-                            character_select_success.world_ip = u32::from_be(cluster_server.ip().clone().into());
-                            character_select_success.world_port = cluster_server.port();
-                            character_select_success.session_id = session_ref.session().id.into();
-    
-                            peer.send(Priority::High, Reliability::Reliable, character_select_success.into_message()).await?;
+                            peer.send(Priority::High, Reliability::Reliable, oaPktCharacterSelectSuccess {
+                                world_ip: u32::from_be((*cluster_server.ip()).into()),
+                                world_port: cluster_server.port(),
+                                session_id: session_ref.session().id,
+                                ..Default::default()
+                            }.into_message()).await?;
                         } else {
                             error!(
                                 peer = peer.id().to_string(), 

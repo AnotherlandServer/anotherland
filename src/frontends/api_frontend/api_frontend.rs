@@ -53,7 +53,7 @@ impl Frontend for ApiFrontend {
             Server::new(TcpListener::bind(CONF.api.listen_address))
                 .run_with_graceful_shutdown(app, token.cancelled(), Some(Duration::from_secs(1)))
                 .await
-        }).await?.map_err(|e| AnotherlandError::new(AnotherlandErrorKind::ApplicationError, e))
+        }).await?.map_err(|e| AnotherlandError::new(AnotherlandErrorKind::Application, e))
     }
 }
 

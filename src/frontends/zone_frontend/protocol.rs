@@ -75,20 +75,18 @@ impl ZoneServerListener {
             let res = accept.await.ok()?;
             self.pending_accept.take();
             res.ok()
-        } else {
-            if let Some(incoming) = self.endpoint.accept().await {
-                // spawn accept logic into it's own task, as this method needs to be 
-                // cancel safe.
-                self.pending_accept = Some(self.tasks.spawn(async move {
-                    ZoneServerClient::accept(incoming).await
-                }));
+        } else if let Some(incoming) = self.endpoint.accept().await {
+            // spawn accept logic into it's own task, as this method needs to be 
+            // cancel safe.
+            self.pending_accept = Some(self.tasks.spawn(async move {
+                ZoneServerClient::accept(incoming).await
+            }));
 
-                let res = self.pending_accept.as_mut().unwrap().await.ok()?;
-                self.pending_accept.take();
-                res.ok()
-            } else {
-                None
-            }
+            let res = self.pending_accept.as_mut().unwrap().await.ok()?;
+            self.pending_accept.take();
+            res.ok()
+        } else {
+            None
         }
     }
 
@@ -165,7 +163,7 @@ impl<S, R> ZoneServerClient<S, R>
             buffer[chunk.offset as usize..(chunk.offset as usize + chunk.bytes.len())].copy_from_slice(chunk.bytes.as_bytes());
         }
 
-        Ok(bson::from_slice(buffer.as_slice()).map_err(|_| AnotherlandErrorKind::ParseError)?)
+        Ok(bson::from_slice(buffer.as_slice()).map_err(|_| AnotherlandErrorKind::Parse)?)
     }
 
     async fn accept(incoming: Connecting) -> AnotherlandResult<ZoneServerClient<S,R>> {
@@ -228,15 +226,13 @@ impl<S, R> ZoneServerClient<S, R>
             .as_document().unwrap()
             .to_writer(&mut buffer).unwrap();
 
-        let res = self.tasks.spawn(async move {
+        self.tasks.spawn(async move {
             let mut channel = connection.open_uni().await?;
             channel.write_all(&buffer).await?;
             channel.finish().await?;
 
             Ok(())
-        }).await.unwrap();
-
-        res
+        }).await.unwrap()
     }
 
     pub async fn recv(&mut self) -> Option<R> {
@@ -249,7 +245,7 @@ impl<S, R> ZoneServerClient<S, R>
             self.token.cancel();
             self.connection.close(VarInt::from_u32(0), &[]);
         
-            endpoint.close(VarInt::from_u32(0), &vec![]);
+            endpoint.close(VarInt::from_u32(0), &[]);
         }
 
         self.tasks.close();

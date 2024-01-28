@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::{HashSet, HashMap}, sync::Arc, time::{Duration, Instant, UNIX_EPOCH, SystemTime}, net::SocketAddrV4};
+use std::{collections::HashSet, sync::Arc, time::{Duration, UNIX_EPOCH, SystemTime}, net::SocketAddrV4};
 
 use async_trait::async_trait;
 use atlas::{raknet::{RakNetListener, RakNetPeer, Message, Priority, Reliability}, AvatarId, CPkt, CPktStream_167_0, oaPktClusterNodeToClient, NativeParam, FactionRelation, FactionRelationList, oaPktFactionResponse, oaPktCashItemVendorSyncAcknowledge, CashItemVendorEntry, oaPktSKUBundleSyncAcknowledge, Uuid};
@@ -22,7 +22,7 @@ use rand::random;
 use tokio::{sync::{Mutex, RwLock}, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, CommunityMessage, ActorRef}, util::AnotherlandResult, CONF, NODE, actors::Realm, ARGS, db::{Session, CashShopVendor, realm_database, ZoneDef, WorldDef}, frontends::{TravelType, ZoneServerClient, ZoneUpstreamMessage}, components::{SessionHandler, SessionRef}};
+use crate::{cluster::{frontend::Frontend, CommunityMessage}, util::AnotherlandResult, CONF, NODE, actors::Realm, ARGS, db::{CashShopVendor, realm_database, ZoneDef, WorldDef}, frontends::TravelType, components::{SessionHandler, SessionRef}};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneRouter, ZoneRouterConnection, ZoneRouterMessage};
@@ -105,7 +105,7 @@ impl ClusterFrontendSession {
             if avatar_id_container.contains(&avatar_id) {
                 continue;
             } else {
-                avatar_id_container.insert(avatar_id.clone());
+                avatar_id_container.insert(avatar_id);
                 break avatar_id;
             }
         };
@@ -135,7 +135,7 @@ impl ClusterFrontendSession {
     async fn travel(&mut self, zone: &Uuid, travel: TravelType) -> AnotherlandResult<()> {
         let db = realm_database().await;
 
-        if let Some(target_zone) = ZoneDef::get(db.clone(), &zone).await? {   
+        if let Some(target_zone) = ZoneDef::get(db.clone(), zone).await? {   
             let target_world = WorldDef::get_by_guid(db.clone(), &target_zone.worlddef_guid).await?.unwrap();
 
             // disconnect current zone
@@ -144,10 +144,10 @@ impl ClusterFrontendSession {
             // update session
             let mut session_s = self.session_ref.as_ref().unwrap().lock().await;
             session_s.select_world(target_world.id).await?;
-            session_s.select_zone(target_zone.guid.clone().into()).await?;
+            session_s.select_zone(target_zone.guid).await?;
 
             // connect to new zone
-            let connection = self.zone_router.connect_zone(&target_zone.guid.into(), &session_s.session().id.into(), &self.avatar_id).await?;
+            let connection = self.zone_router.connect_zone(&target_zone.guid, &session_s.session().id, &self.avatar_id).await?;
 
             trace!(
                 peer = self.peer.id().to_string(), 
@@ -177,7 +177,7 @@ impl ClusterFrontendSession {
     fn run(mut self, tasks: &TaskTracker, token: CancellationToken) {
         tasks.spawn(async move {
             'net_loop: loop {
-                let current_zone = self.zone_connection.as_ref().map(|v| v.clone());
+                let current_zone = self.zone_connection.clone();
 
                 select! {
                     result = self.peer.recv() => {
@@ -235,12 +235,12 @@ impl ClusterFrontendSession {
 
         match &message {
             AtlasPkt(CPkt::oaPktRequestEnterGame(pkt)) => {
-                match self.session_handler.write().await.initiate(self.peer.id().clone(), pkt.session_id.clone(), pkt.magic_bytes.clone()).await {
+                match self.session_handler.write().await.initiate(*self.peer.id(), pkt.session_id, pkt.magic_bytes.clone()).await {
                     Ok(session) => {
                         self.session_ref = Some(session.clone());
 
                         let session = session.lock().await;
-                        self.session_id = Some(session.session().id.clone().into());
+                        self.session_id = Some(session.session().id);
                         
                         if let Some(zone) = session.session().zone_guid.as_ref() {
                             trace!(
@@ -249,7 +249,7 @@ impl ClusterFrontendSession {
                                 avatar_id = self.avatar_id.to_string(); 
                                 "Connecting to zone {}", zone);
 
-                            match self.zone_router.connect_zone(&zone, &session.session().id.into(), &self.avatar_id).await {
+                            match self.zone_router.connect_zone(zone, &session.session().id, &self.avatar_id).await {
                                 
                                 Ok(connection) => {
                                     trace!(
@@ -307,26 +307,22 @@ impl ClusterFrontendSession {
                 self.peer.send(Priority::High, Reliability::Reliable, pong.into_message()).await?;
             },
             AtlasPkt(CPkt::oaPktClusterClientToCommunication(pkt)) => {
-                match pkt.field_2 {
-                    _ => {
-                        info!(
-                            peer = self.peer.id().to_string(), 
-                            session = self.session_id.map(|v| v.to_string()); 
-                            "Unknown communication packet: {:#?}", pkt);
-                    }
-                }
+                info!(
+                    peer = self.peer.id().to_string(), 
+                    session = self.session_id.map(|v| v.to_string()); 
+                    "Unknown communication packet: {:#?}", pkt);
             },
             AtlasPkt(CPkt::oaPktClientToClusterNode(pkt)) => {
                 match pkt.field_2 {
                     // Some kind of ping
                     0x5 => {
-                        let mut response = oaPktClusterNodeToClient::default();
-                        response.field_1 = Uuid::new();
-                        response.field_3 = NativeParam::Struct(vec![
-                            NativeParam::Int(0xa8)
-                        ]);
-
-                        self.peer.send(Priority::High, Reliability::Reliable, response.into_message()).await?;
+                        self.peer.send(Priority::High, Reliability::Reliable, oaPktClusterNodeToClient {
+                            field_1: Uuid::new(),
+                            field_3: NativeParam::Struct(vec![
+                                NativeParam::Int(0xa8)
+                            ]),
+                            ..Default::default()
+                        }.into_message()).await?;
                     },
                     _ => {
                         info!("Unknown cluster node packet: {:#?}", pkt);
@@ -346,33 +342,33 @@ impl ClusterFrontendSession {
                     factions,
                 };
 
-                let mut faction_response = oaPktFactionResponse::default();
-                faction_response.field_1 = pkt.field_1;
-                faction_response.field_2 = pkt.field_2;
-                faction_response.field_3 = NativeParam::Struct(vec![
-                    NativeParam::Buffer(faction_list.to_bytes())
-                ]);
-
-                self.peer.send(Priority::High, Reliability::Reliable, faction_response.into_message()).await?;
+                self.peer.send(Priority::High, Reliability::Reliable, oaPktFactionResponse {
+                    field_1: pkt.field_1,
+                    field_2: pkt.field_2,
+                    field_3: NativeParam::Struct(vec![
+                        NativeParam::Buffer(faction_list.to_bytes())
+                    ]),
+                    ..Default::default()
+                }.into_message()).await?;
             },
-            AtlasPkt(CPkt::oaPktCashItemVendorSyncRequest(pkt)) => {
+            AtlasPkt(CPkt::oaPktCashItemVendorSyncRequest(_pkt)) => {
                 // todo: move into own component
                 let vendors = CashShopVendor::list(realm_database().await).await?;
 
-                let mut response = oaPktCashItemVendorSyncAcknowledge::default();
-                response.field_1 = 8;
-                response.item_count = vendors.len() as u32;
-                response.items = vendors.into_iter().map(|v| 
-                    CashItemVendorEntry {
-                        vendor_id: v.id.to_string(),
-                        vendor_name: v.name,
-                        bundle_list: v.bundle_list.into_iter().map(|u| u.to_string()).collect::<Vec<String>>().join(","),
-                        sku_list: v.sku_list.into_iter().map(|u| u.to_string()).collect::<Vec<String>>().join(","),
-                        version: v.version,
-                    }).collect();
-                response.deleted_ids = Vec::new();
-
-                self.peer.send(Priority::High, Reliability::Reliable, response.into_message()).await?;
+                self.peer.send(Priority::High, Reliability::Reliable, oaPktCashItemVendorSyncAcknowledge {
+                    field_1: 8,
+                    item_count: vendors.len() as u32,
+                    items: vendors.into_iter().map(|v| 
+                        CashItemVendorEntry {
+                            vendor_id: v.id.to_string(),
+                            vendor_name: v.name,
+                            bundle_list: v.bundle_list.into_iter().map(|u| u.to_string()).collect::<Vec<String>>().join(","),
+                            sku_list: v.sku_list.into_iter().map(|u| u.to_string()).collect::<Vec<String>>().join(","),
+                            version: v.version,
+                        }).collect(),
+                    deleted_ids: vec![],
+                    ..Default::default()
+                }.into_message()).await?;
             },
             AtlasPkt(CPkt::oaPktSKUBundleSyncRequest(_pkt)) => {
                 self.peer.send(Priority::High, Reliability::Reliable, oaPktSKUBundleSyncAcknowledge {
@@ -399,23 +395,21 @@ impl ClusterFrontendSession {
                             // what are you doing??
                             warn!("Client tried to 'send' an avatar it doesn't has onership of: {}", avatar);
                             self.peer.disconnect().await;
-                        } else {
-                            if travel {
-                                let db = realm_database().await;
+                        } else if travel {
+                            let db = realm_database().await;
 
-                                if let Some(target_zone) = ZoneDef::get_by_name(db.clone(), &map).await? {  
-                                    if let Err(e) = self.travel(&target_zone.guid, TravelType::EntryPoint).await {
-                                        let session_s = self.session_ref.as_ref().unwrap().lock().await;
-                                        
-                                        error!(
-                                            peer = self.peer.id().to_string(), 
-                                            session = session_s.session().id.to_string(); 
-                                            "Zone connection failed: {:#?}", e);
-                                        self.peer.disconnect().await;
-                                    }
-                                } else {
-                                    // todo: inform the player, that the travel destination was invalid
+                            if let Some(target_zone) = ZoneDef::get_by_name(db.clone(), &map).await? {  
+                                if let Err(e) = self.travel(&target_zone.guid, TravelType::EntryPoint).await {
+                                    let session_s = self.session_ref.as_ref().unwrap().lock().await;
+                                    
+                                    error!(
+                                        peer = self.peer.id().to_string(), 
+                                        session = session_s.session().id.to_string(); 
+                                        "Zone connection failed: {:#?}", e);
+                                    self.peer.disconnect().await;
                                 }
+                            } else {
+                                // todo: inform the player, that the travel destination was invalid
                             }
                         }
                     },
@@ -430,7 +424,7 @@ impl ClusterFrontendSession {
             AtlasPkt(_) => {
                 // forward messages to connected zone server
                 if let Some(connection) = self.zone_connection.as_ref() {
-                    if let Err(_) = connection.send(&message).await {
+                    if connection.send(&message).await.is_err() {
                         error!(
                             peer = self.peer.id().to_string(), 
                             session = self.session_id.map(|v| v.to_string()); 
