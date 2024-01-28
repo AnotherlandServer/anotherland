@@ -20,7 +20,7 @@ use specs::{Join, ReadExpect, ReadStorage, System, WriteStorage};
 use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 
-use crate::actors::{zone::components::{InterestList, Position, AvatarComponent, InterestEvent}, Spawned};
+use crate::actors::{zone::components::{InterestList, Position, AvatarComponent, AvatarEvent}, AvatarEventServer, Spawned};
 
 pub struct UpdateInterests;
 
@@ -32,6 +32,7 @@ impl<'a> System<'a> for UpdateInterests {
         ReadStorage<'a, AvatarComponent>,
         ReadStorage<'a, Position>,
         ReadStorage<'a, PlayerClass>,
+        ReadStorage<'a, AvatarEventServer>,
         WriteStorage<'a, InterestList>
     );
 
@@ -42,11 +43,12 @@ impl<'a> System<'a> for UpdateInterests {
         avatar_storage,
         position_storage, 
         player, 
+        event_sender,
         mut interests
     ): Self::SystemData) {
         //let mut avatar_positions = Vec::new();
         
-        for (avatar, interests, position, player, _) in (&avatar_storage, &mut interests, &position_storage, &player, &spawned).join() {
+        for (avatar, interests, position, player, sender, _) in (&avatar_storage, &mut interests, &position_storage, &player, &event_sender, &spawned).join() {
             let mut new_interests = HashSet::new();
     
             // determine interests
@@ -68,16 +70,16 @@ impl<'a> System<'a> for UpdateInterests {
             if !added_interests.is_empty() || !removed_interests.is_empty() {
                 interests.interests = new_interests.into_iter().collect();
     
-                let sender = interests.update_sender.clone();
+                let sender = sender.sender.clone();
                 let _guard = handle.enter();
     
                 tasks.spawn(async move {
                     if !added_interests.is_empty() {
-                        let _ = sender.send(InterestEvent::InterestAdded { ids: added_interests }).await;
+                        let _ = sender.send(AvatarEvent::InterestAdded { ids: added_interests }).await;
                     }
     
                     if !removed_interests.is_empty() {
-                        let _ = sender.send(InterestEvent::InterestRemoved { ids: removed_interests }).await;
+                        let _ = sender.send(AvatarEvent::InterestRemoved { ids: removed_interests }).await;
                     }
                 });
     

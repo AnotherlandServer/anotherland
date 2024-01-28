@@ -15,7 +15,7 @@
 
 use specs::{prelude::*, Component};
 
-#[derive(PartialEq, Eq, Clone, Copy, Component)]
+#[derive(PartialEq, Eq, Clone, Copy, Component, Debug)]
 #[storage(VecStorage)]
 pub enum EntityType {
     Player,

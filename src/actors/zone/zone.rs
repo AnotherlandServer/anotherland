@@ -17,19 +17,70 @@ use std::{cell::Cell, collections::HashMap, f32::consts::PI, io, ops::DerefMut, 
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{setup_atlas, AvatarId, NonClientBaseComponent, OaZoneConfigParams, ParamBox, ParamClass, ParamSetBox, PlayerClass, PlayerParams, StartingPointComponent, Uuid};
+use atlas::{oaPktConfirmTravel, oaPktServerAction, raknet::Message, setup_atlas, AvatarId, NonClientBaseComponent, NonClientBaseParams, OaZoneConfigParams, ParamBox, ParamClass, ParamSetBox, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointComponent, Uuid};
 use glam::{Vec3, Quat};
-use log::{info, warn, as_serde, debug, trace};
+use log::{as_serde, debug, error, info, trace, warn};
 use mongodb::Database;
-use specs::{Dispatcher, DispatcherBuilder, Entity, Join, World};
+use specs::{Dispatcher, DispatcherBuilder, Entity, Join, World, WriteStorage};
 use tokio::{time, sync::{mpsc, broadcast}, select, task::JoinHandle, runtime::Handle};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use specs::{WorldExt, Builder};
 
-use crate::{actors::Spawned, cluster::{actor::Actor, ActorRef}, components::ZoneFactory, db::Character, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}, NODE};
+use crate::{actors::Spawned, cluster::{actor::Actor, ActorRef}, components::ZoneFactory, db::{Character, Instance, RawInstance}, frontends::TravelType, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}, NODE};
 use crate::db::DatabaseRecord;
 
-use super::{components::{AvatarComponent, EntityType, InterestEvent, InterestList, Position}, systems::{RespawnEntities, UpdateInterests}, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
+use super::{components::{AvatarComponent, EntityType, AvatarEvent, InterestList, Position}, systems::{RespawnEntities, UpdateInterests}, AvatarEventServer, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
+
+pub enum ServerAction {
+    DirectTravel(AvatarId, Option<Position>),
+    NonPortalTravel(AvatarId, Option<Position>),
+    TeleportTravel(AvatarId, Option<Position>),
+}
+
+impl ServerAction {
+    pub fn into_message(self) -> Message {
+        let (instigator, action, version, teleport_override) = match self {
+            Self::DirectTravel(instigator, teleport_override) => (
+                instigator,
+                "TRAVEL:DirectTravel|DirectTravelDefault".to_owned(),
+                4,
+                teleport_override
+            ),
+            Self::NonPortalTravel(instigator, teleport_override) => (
+                instigator,
+                "TRAVEL:NonPortalTravel|NonPortalTravelDefault".to_owned(),
+                4,
+                teleport_override
+            ),
+            Self::TeleportTravel(instigator, teleport_override) => (
+                instigator,
+                "TRAVEL:TeleportTravel|TeleportTravelDefault".to_owned(),
+                4,
+                teleport_override
+            ),
+        };
+
+        if let Some(teleport_override) = teleport_override {
+            oaPktServerAction {
+                instigator: instigator.as_u64(),
+                action,
+                version,
+                override_teleport: true,
+                pos: teleport_override.position.into(),
+                rot: teleport_override.rotation.into(),
+                ..Default::default()
+            }.into_message()
+        } else {
+            oaPktServerAction {
+                instigator: instigator.as_u64(),
+                action,
+                version,
+                ..Default::default()
+            }.into_message()
+        }
+    }
+}
+
 
 pub struct Zone {
     pub(super) realm_db: Database,
@@ -45,6 +96,7 @@ pub struct Zone {
 
     event_sender: broadcast::Sender<Arc<ZoneEvent>>,
     avatar_id_to_entity_lookup: HashMap<AvatarId, Entity>,
+    uuid_to_entity_lookup: HashMap<Uuid, Entity>,
 }
 
 impl Zone {
@@ -59,6 +111,7 @@ impl Zone {
             update_task: None,
             event_sender: broadcast::channel(500).0,
             avatar_id_to_entity_lookup: HashMap::new(),
+            uuid_to_entity_lookup: HashMap::new(),
         }
     }
 }
@@ -82,6 +135,7 @@ impl Actor for Zone {
         self.world.register::<Position>();
         self.world.register::<Spawned>();
         self.world.register::<SpawnerState>();
+        self.world.register::<AvatarEventServer>();
 
         self.world.insert(self.event_sender.clone());
         self.world.insert(Handle::current());
@@ -127,7 +181,7 @@ impl Actor for Zone {
 }
 
 impl Zone {
-    pub(super) fn spawn_non_player_avatar<T>(&mut self, avatar_id: AvatarId, entity_type: EntityType, name: &str, phase_tag: &str, entity_params: T) -> AvatarId 
+    pub(super) fn spawn_non_player_avatar<T>(&mut self, avatar_id: AvatarId, entity_type: EntityType, name: &str, phase_tag: &str, id: Uuid, entity_params: T) -> AvatarId 
         where T: ParamClass + Clone + ?Sized
     {
         // spawn entity
@@ -163,6 +217,7 @@ impl Zone {
 
         // update lookup map
         self.avatar_id_to_entity_lookup.insert(avatar_id.clone(), entity.clone());
+        self.uuid_to_entity_lookup.insert(id, entity.clone());
 
         
         // notify clients
@@ -214,8 +269,9 @@ impl Zone {
         self.event_sender.subscribe()
     }
 
-    pub async fn spawn_player(&mut self, spawn_mode: PlayerSpawnMode, avatar_id: AvatarId, character_id: u32, interest_event_sender: mpsc::Sender<InterestEvent>) -> AnotherlandResult<Character> {
+    pub async fn spawn_player(&mut self, spawn_mode: PlayerSpawnMode, avatar_id: AvatarId, character_id: u32, avatar_event_sender: mpsc::Sender<AvatarEvent>) -> AnotherlandResult<(Character, ServerAction)> {
         let mut spawn_mode = spawn_mode;
+        let mut action;
         
         if let Some(mut character) = Character::get(self.realm_db.clone(), &character_id).await? {
             // do some first time spawn setup
@@ -226,31 +282,82 @@ impl Zone {
                 spawn_mode = PlayerSpawnMode::LoginFirstTime;
             }
 
+            if self.factory.config().only_spawn_to_entry_point() {
+                spawn_mode = PlayerSpawnMode::TravelDirect;
+            }
+
             // update zone if stored zone differs or we force spawn to entry point
-            if spawn_mode == PlayerSpawnMode::TravelDirect || spawn_mode == PlayerSpawnMode::LoginFirstTime || self.factory.config().only_spawn_to_entry_point() {
-                // special case if the player comes from class selection,
-                // perform some setup in that case.
-                if *character.data.zone_guid() == Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap() {
-                    character.data.set_hp_cur(character.data.hp_max());
-                }
+            match spawn_mode {
+                PlayerSpawnMode::LoginFirstTime |
+                PlayerSpawnMode::TravelDirect => {
+                    // special case if the player comes from class selection,
+                    // perform some setup in that case.
+                    if *character.data.zone_guid() == Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap() {
+                        character.data.set_hp_cur(character.data.hp_max());
+                    }
 
-                debug!("Updating player avatar zone");
+                    debug!("Updating player avatar zone");
 
-                // lookup entry point and copy position
-                let starting_point_storage = self.world.read_storage::<StartingPointComponent>();
-                let non_client_storage = self.world.read_storage::<NonClientBaseComponent>();
+                    // lookup entry point and copy position
+                    let starting_point_storage = self.world.read_storage::<StartingPointComponent>();
+                    let non_client_storage = self.world.read_storage::<NonClientBaseComponent>();
 
-                if let Some(entry_point) = (&starting_point_storage, &non_client_storage).join().next() {
-                    debug!("Found entrypoint");
+                    if let Some(entry_point) = (&starting_point_storage, &non_client_storage).join().next() {
+                        debug!("Found entrypoint");
 
-                    character.data.set_pos(entry_point.1.pos().to_owned());
-                    character.data.set_rot(entry_point.1.rot().to_owned());
-                }
+                        character.data.set_pos(entry_point.1.pos().to_owned());
+                        character.data.set_rot(entry_point.1.rot().to_owned());
+                    }
 
-                character.data.set_zone(&self.factory.zone_def().zone);
-                character.data.set_zone_guid(self.factory.zone_def().guid.clone());
-                character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
-                character.world_id = self.factory.world_def().id as u32;
+                    character.data.set_zone(&self.factory.zone_def().zone);
+                    character.data.set_zone_guid(self.factory.zone_def().guid.clone());
+                    character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
+                    character.world_id = self.factory.world_def().id as u32;
+
+                    action = ServerAction::DirectTravel(AvatarId::default(), Some(Position { 
+                        position: character.data.pos().to_owned(),
+                        rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
+                        velocity: Vec3::default(),
+                    }));
+                },
+                PlayerSpawnMode::LoginNormal => {
+                    action = ServerAction::DirectTravel(AvatarId::default(), Some(Position { 
+                        position: character.data.pos().to_owned(),
+                        rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
+                        velocity: Vec3::default(),
+                    }));
+                },
+                PlayerSpawnMode::TravelPortal(portal_uuid) => {
+                    let portal_storage = self.world.read_storage::<PortalClass>();
+                    let spawn_storage = self.world.read_storage::<SpawnNodeClass>();
+                    let avatar_storage = self.world.read_storage::<AvatarComponent>();
+
+                    // get portal node
+                    let portal_entity = self.uuid_to_entity_lookup.get(&portal_uuid).unwrap();
+                    let portal = portal_storage.get(*portal_entity).unwrap();
+                    let portal_avatar = avatar_storage.get(*portal_entity).unwrap();
+
+                    // get exit node
+                    let exit_entity = self.uuid_to_entity_lookup.get(&Uuid::parse_str(&*portal.exit_point().unwrap()).unwrap()).unwrap();
+                    let exit = spawn_storage.get(*exit_entity).unwrap();
+
+                    // move to zone
+                    character.data.set_zone(&self.factory.zone_def().zone);
+                    character.data.set_zone_guid(self.factory.zone_def().guid.clone());
+                    character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
+                    character.world_id = self.factory.world_def().id as u32;
+
+                    // position player at exit
+                    character.data.set_pos(exit.pos().to_owned());
+                    character.data.set_rot(exit.rot().to_owned());
+
+                    action = ServerAction::DirectTravel(portal_avatar.id, Some(Position { 
+                        position: character.data.pos().to_owned(),
+                        rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
+                        velocity: Vec3::default(),
+                    }));
+                },
+                _ => unimplemented!(),
             }
 
             character.data.set_spawn_mode(spawn_mode.into());
@@ -274,7 +381,9 @@ impl Zone {
                 })
                 .with(InterestList {
                     interests: Vec::new(),
-                    update_sender: interest_event_sender,
+                })
+                .with(AvatarEventServer {
+                    sender: avatar_event_sender,
                 })
                 .with(EntityType::Player)
                 .with(Spawned)
@@ -287,7 +396,7 @@ impl Zone {
                 params: character.data.clone().into_box(),
             }));
 
-            Ok(character)
+            Ok((character, action))
         } else {
             Err(AnotherlandError::app_err("character not found"))
         }
@@ -336,14 +445,16 @@ impl Zone {
 
     pub fn get_avatar_params(&mut self, avatar_id: AvatarId) -> Option<(String, ParamBox)> {
         if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) {
-            let name = {
-                if let Some(entry) = self.world.read_component::<AvatarComponent>().get(*entity) {
-                    Some(entry.name.clone())
-                } else {
-                    None
-                }
-            };
+            let name = self.world.read_component::<AvatarComponent>().get(*entity).map(|v| v.name.clone());
+            self.get_entity_params(*entity).map(|v| (name.unwrap(), v))
+        } else {
+            None
+        }
+    }
 
+    pub fn get_avatar_params_by_uuid(&mut self, uuid: Uuid) -> Option<(String, ParamBox)> {
+        if let Some(entity) = self.uuid_to_entity_lookup.get(&uuid) {
+            let name = self.world.read_component::<AvatarComponent>().get(*entity).map(|v| v.name.clone());
             self.get_entity_params(*entity).map(|v| (name.unwrap(), v))
         } else {
             None
@@ -359,6 +470,59 @@ impl Zone {
             }
         } else {
             None
+        }
+    }
+
+    pub fn tell_behavior(&mut self, instigator: AvatarId, target: AvatarId, behavior: String) {
+        // todo: move behaviors into scripts
+        if let Some(player_entity) = self.avatar_id_to_entity_lookup.get(&instigator) && 
+            let Some(target_entity) = self.avatar_id_to_entity_lookup.get(&target) {
+            let sender_storage = self.world.write_storage::<AvatarEventServer>();
+            let sender = sender_storage.get(*player_entity).unwrap().sender.clone();
+
+            // check target entity type
+            let entity_type = *self.world.read_storage::<EntityType>().get(*target_entity).unwrap();
+
+            match entity_type {
+                EntityType::Portal => {
+                    match behavior.as_str() {
+                        "ConfirmTravelRequest" => {
+                            tokio::spawn(async move {
+                                let _ = sender.send(AvatarEvent::Message(oaPktConfirmTravel {
+                                    state: 1,
+                                    ..Default::default()
+                                }.into_message())).await;
+                            });
+                        },
+                        "DoTravel" => {
+                            let portal_storage = self.world.read_storage::<PortalClass>();
+                            let portal = portal_storage.get(*target_entity).unwrap();
+                            if let Some(nodelink) = portal.nodelink().map(|v| v.to_owned()) {
+                                let db = self.realm_db.clone();
+
+                                // get the target zone based on the destination node
+                                tokio::spawn(async move {
+                                    // todo: lookup target zone during zone loading and store in entity
+                                    if let Ok(Some(node)) = RawInstance::get(db, &Uuid::parse_str(&nodelink).unwrap()).await {
+                                        let _ = sender.send(AvatarEvent::Travel { 
+                                            zone: node.zone_guid, 
+                                            destination: TravelType::Portal { 
+                                                uuid: node.guid 
+                                            }
+                                        }).await;
+                                    } else {
+                                        error!("Failed to read node {}", nodelink)
+                                    }
+                                });
+                            } else {
+                                warn!("No nodelink for portal set")
+                            }
+                        },
+                        _ => warn!("Unimplemented behavior '{}' for portal node", behavior),
+                    }
+                }
+                _ => warn!("Behavior '{}' not implemented for entity type {:?}", behavior, entity_type),
+            }
         }
     }
 

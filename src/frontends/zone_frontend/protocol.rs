@@ -13,9 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{net::{SocketAddr, Ipv6Addr}, sync::Arc, time::Duration};
+use std::{marker::PhantomData, net::{SocketAddr, Ipv6Addr}, sync::Arc, time::Duration};
 
 use atlas::{AvatarId, raknet::Message, Uuid};
+use glam::Vec3;
 use log::{trace, debug};
 use nom::AsBytes;
 use quinn::{RecvStream, SendStream, Chunk, Endpoint, ServerConfig, Connecting, VarInt, Connection, ClientConfig};
@@ -28,18 +29,32 @@ use crate::util::{AnotherlandResult, AnotherlandErrorKind};
 
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum ZoneMessage {
+pub enum ZoneUpstreamMessage {
     EnterZone { session_id: Uuid, avatar_id: AvatarId },
-    Travel { session_id: Uuid },
+    Travel { session_id: Uuid, destination: TravelType },
     Message { session_id: Uuid, message: Vec<u8> },
     LeaveZone { session_id: Uuid },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ZoneDownstreamMessage {
+    Message { session_id: Uuid, message: Vec<u8> },
+    RequestTravel { session_id: Uuid, zone: Uuid, travel: TravelType },
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum TravelType {
+    Login,
+    Portal{ uuid: Uuid },
+    Position{ pos: Vec3, rot: Vec3 },
+    EntryPoint,
 }
 
 pub struct ZoneServerListener {
     endpoint: Endpoint,
     token: CancellationToken,
     tasks: TaskTracker,
-    pending_accept: Option<JoinHandle<AnotherlandResult<ZoneServerClient>>>,
+    pending_accept: Option<JoinHandle<AnotherlandResult<ZoneServerClient<ZoneDownstreamMessage, ZoneUpstreamMessage>>>>,
 }
 
 impl ZoneServerListener {
@@ -55,7 +70,7 @@ impl ZoneServerListener {
         })
     }
 
-    pub async fn accept(&mut self) -> Option<ZoneServerClient> {
+    pub async fn accept(&mut self) -> Option<ZoneServerClient<ZoneDownstreamMessage, ZoneUpstreamMessage>> {
         if let Some(accept) = self.pending_accept.as_mut() {
             let res = accept.await.ok()?;
             self.pending_accept.take();
@@ -91,16 +106,22 @@ impl ZoneServerListener {
 }
 
 
-pub struct ZoneServerClient {
+pub struct ZoneServerClient<S, R> 
+    where S: Serialize + Send, R: for<'de> Deserialize<'de> + Send
+{
     endpoint: Option<Endpoint>,
     connection: Connection,
     token: CancellationToken,
     tasks: TaskTracker,
-    receiver: Receiver<ZoneMessage>,
+    receiver: Receiver<R>,
+    _marker_s: PhantomData<S>,
+    _marker_r: PhantomData<R>,
 }
 
-impl ZoneServerClient {
-    fn spawn_task(connection: Connection, tasks: TaskTracker, token: CancellationToken, sender: Sender<ZoneMessage>) {
+impl<S, R> ZoneServerClient<S, R> 
+    where S: Serialize + Send, R: for<'de> Deserialize<'de> + Send + 'static
+{
+    fn spawn_task(connection: Connection, tasks: TaskTracker, token: CancellationToken, sender: Sender<R>) {
         tasks.spawn({
             let tasks = tasks.clone();
             async move {
@@ -131,7 +152,7 @@ impl ZoneServerClient {
         });
     }
 
-    async fn read_message(mut stream: RecvStream) -> AnotherlandResult<ZoneMessage> {
+    async fn read_message(mut stream: RecvStream) -> AnotherlandResult<R> {
         let mut buffer = Vec::new();
 
         while let Some(chunk) = stream.read_chunk(usize::MAX, false).await? {
@@ -147,7 +168,7 @@ impl ZoneServerClient {
         Ok(bson::from_slice(buffer.as_slice()).map_err(|_| AnotherlandErrorKind::ParseError)?)
     }
 
-    async fn accept(incoming: Connecting) -> AnotherlandResult<ZoneServerClient> {
+    async fn accept(incoming: Connecting) -> AnotherlandResult<ZoneServerClient<S,R>> {
         let connection = incoming.await?;
         let (sender, receiver) = mpsc::channel(10);
 
@@ -163,6 +184,8 @@ impl ZoneServerClient {
             token: token.clone(),
             tasks,
             receiver,
+            _marker_r: PhantomData,
+            _marker_s: PhantomData,
         })
     }
 
@@ -192,10 +215,12 @@ impl ZoneServerClient {
             token: token.clone(),
             tasks,
             receiver,
+            _marker_r: PhantomData,
+            _marker_s: PhantomData,
         })
     }
 
-    pub async fn send(&self, message: &ZoneMessage) -> AnotherlandResult<()> {
+    pub async fn send(&self, message: &S) -> AnotherlandResult<()> {
         let connection = self.connection.clone();
         let mut buffer = Vec::new();
 
@@ -214,7 +239,7 @@ impl ZoneServerClient {
         res
     }
 
-    pub async fn recv(&mut self) -> Option<ZoneMessage> {
+    pub async fn recv(&mut self) -> Option<R> {
         self.receiver.recv().await
     }
 

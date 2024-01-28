@@ -13,13 +13,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{AvatarId, ParamClass};
+use atlas::{raknet::Message, AvatarId, ParamClass, Uuid};
 use glam::Vec3;
 use tokio::sync::mpsc;
 use specs::{prelude::*, Component};
 
+use crate::{actors::ServerAction, frontends::TravelType};
+
+
+pub enum AvatarEvent {
+    InterestAdded { ids: Vec<AvatarId> },
+    InterestRemoved { ids: Vec<AvatarId> },
+    Travel { zone: Uuid, destination: TravelType },
+    Message(Message),
+    ServerAction(ServerAction),
+}
+
 #[derive(Clone, Debug, Component)]
 #[storage(DenseVecStorage)]
-pub struct InterestList {
-    pub interests: Vec<AvatarId>,
+pub struct AvatarEventServer {
+    pub sender: mpsc::Sender<AvatarEvent>,
 }

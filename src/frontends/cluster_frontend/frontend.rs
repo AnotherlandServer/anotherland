@@ -22,10 +22,10 @@ use rand::random;
 use tokio::{sync::{Mutex, RwLock}, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, CommunityMessage, ActorRef}, util::AnotherlandResult, CONF, NODE, actors::Realm, ARGS, db::{Session, CashShopVendor, realm_database, ZoneDef, WorldDef}, frontends::{ZoneServerClient, ZoneMessage}, components::{SessionHandler, SessionRef}};
+use crate::{cluster::{frontend::Frontend, CommunityMessage, ActorRef}, util::AnotherlandResult, CONF, NODE, actors::Realm, ARGS, db::{Session, CashShopVendor, realm_database, ZoneDef, WorldDef}, frontends::{TravelType, ZoneServerClient, ZoneUpstreamMessage}, components::{SessionHandler, SessionRef}};
 use crate::db::DatabaseRecord;
 
-use super::{ZoneRouter, ZoneRouterConnection};
+use super::{ZoneRouter, ZoneRouterConnection, ZoneRouterMessage};
 
 pub struct ClusterFrontend {
     //listener: RakNetListener,
@@ -124,11 +124,53 @@ impl ClusterFrontendSession {
         }
     }
 
-    async fn receive_from_zone(zone: Option<Arc<ZoneRouterConnection>>) -> Option<Message> {
+    async fn receive_from_zone(zone: Option<Arc<ZoneRouterConnection>>) -> Option<ZoneRouterMessage> {
         if let Some(zone_connection) = zone.as_ref() {
             zone_connection.receive().await
         } else {
             None
+        }
+    }
+
+    async fn travel(&mut self, zone: &Uuid, travel: TravelType) -> AnotherlandResult<()> {
+        let db = realm_database().await;
+
+        if let Some(target_zone) = ZoneDef::get(db.clone(), &zone).await? {   
+            let target_world = WorldDef::get_by_guid(db.clone(), &target_zone.worlddef_guid).await?.unwrap();
+
+            // disconnect current zone
+            self.zone_connection.take();
+
+            // update session
+            let mut session_s = self.session_ref.as_ref().unwrap().lock().await;
+            session_s.select_world(target_world.id).await?;
+            session_s.select_zone(target_zone.guid.clone().into()).await?;
+
+            // connect to new zone
+            let connection = self.zone_router.connect_zone(&target_zone.guid.into(), &session_s.session().id.into(), &self.avatar_id).await?;
+
+            trace!(
+                peer = self.peer.id().to_string(), 
+                session_id = self.session_id.map(|v| v.to_string()), 
+                avatar_id = self.avatar_id.to_string(); 
+                "Connected to zone, notify travel");
+
+            if let Err(e) = connection.notify_travel(travel).await {
+                error!(
+                    peer = self.peer.id().to_string(), 
+                    session_id = self.session_id.map(|v| v.to_string()), 
+                    avatar_id = self.avatar_id.to_string(); 
+                    "Failed to travel to zone: {:#?}", e);
+                self.peer.disconnect().await;
+            }
+
+            self.zone_connection = Some(Arc::new(connection));
+
+            Ok(())
+        } else {
+            // todo: inform the player, that the travel destination was invalid
+
+            Ok(())
         }
     }
 
@@ -151,14 +193,20 @@ impl ClusterFrontendSession {
                         }
                     },
                     message = Self::receive_from_zone(current_zone), if current_zone.is_some() => {
-                        if let Some(message) = message {
-                            let _ = self.peer.send(Priority::High, Reliability::Reliable, message).await;
-                        } else {
-                            error!(
-                                peer = self.peer.id().to_string(), 
-                                avatar_id = self.avatar_id.to_string(); 
-                                "Lost connection to zone server");
-                            break 'net_loop;
+                        match message {
+                            Some(ZoneRouterMessage::Message(message)) => {
+                                let _ = self.peer.send(Priority::High, Reliability::Reliable, message).await;    
+                            },
+                            Some(ZoneRouterMessage::TravelRequest { zone, travel }) => {
+                                let _ = self.travel(&zone, travel).await;
+                            },
+                            None => {
+                                error!(
+                                    peer = self.peer.id().to_string(), 
+                                    avatar_id = self.avatar_id.to_string(); 
+                                    "Lost connection to zone server");
+                                break 'net_loop;
+                            }
                         }
                     },
                     _ = token.cancelled() => {
@@ -355,65 +403,16 @@ impl ClusterFrontendSession {
                             if travel {
                                 let db = realm_database().await;
 
-                                if let Some(target_zone) = ZoneDef::get_by_name(db.clone(), &map).await? {   
-                                    let target_world = WorldDef::get_by_guid(db.clone(), &target_zone.worlddef_guid).await?.unwrap();
-
-                                    // disconnect current zone
-                                    // todo: Gracefully terminate the zone connection, to give it some time to save the current character state
-                                    // without a data race.
-                                    self.zone_connection.take();
-
-                                    // update session
-                                    let mut session_s = self.session_ref.as_ref().unwrap().lock().await;
-                                    session_s.select_world(target_world.id).await?;
-                                    session_s.select_zone(target_zone.guid.clone().into()).await?;
-
-                                    // connect to new zone
-                                    match self.zone_router.connect_zone(&target_zone.guid.into(), &session_s.session().id.into(), &self.avatar_id).await {
-                                
-                                        Ok(connection) => {
-                                            trace!(
-                                                peer = self.peer.id().to_string(), 
-                                                session_id = self.session_id.map(|v| v.to_string()), 
-                                                avatar_id = self.avatar_id.to_string(); 
-                                                "Connected to zone, notify travel");
-
-                                            if let Err(e) = connection.notify_travel().await {
-                                                error!(
-                                                    peer = self.peer.id().to_string(), 
-                                                    session_id = self.session_id.map(|v| v.to_string()), 
-                                                    avatar_id = self.avatar_id.to_string(); 
-                                                    "Failed to travel to zone: {:#?}", e);
-                                                self.peer.disconnect().await;
-                                            }
-
-                                            self.zone_connection = Some(Arc::new(connection));
-                                        },
-                                        Err(e) => {
-                                            error!(
-                                                peer = self.peer.id().to_string(), 
-                                                session = session_s.session().id.to_string(); 
-                                                "Zone connection failed: {:#?}", e);
-                                            self.peer.disconnect().await;
-                                        }
+                                if let Some(target_zone) = ZoneDef::get_by_name(db.clone(), &map).await? {  
+                                    if let Err(e) = self.travel(&target_zone.guid, TravelType::EntryPoint).await {
+                                        let session_s = self.session_ref.as_ref().unwrap().lock().await;
+                                        
+                                        error!(
+                                            peer = self.peer.id().to_string(), 
+                                            session = session_s.session().id.to_string(); 
+                                            "Zone connection failed: {:#?}", e);
+                                        self.peer.disconnect().await;
                                     }
-
-                                    // we initiate the travel handshake. First, we inform the target zone server, that
-                                    // we'd like to initiate travel. After it has confirmed, we notify the frontend server 
-                                    // about the change and remove the client from this zone server.
-                                    /*let (dest_server, _) = connect_queue(MessageChannel::RealmChannel { 
-                                        realm_id: self.read().await.realm_id, 
-                                        channel: RealmChannel::NodeChannel { zone_guid: target_zone.guid.clone() } 
-                                    }).await?;
-        
-                                    dest_server.send(ClusterMessage::ZoneTravelRequest { 
-                                        session_id: state.session.id.clone(), 
-                                        peer_id: state.peer_id.clone(),
-                                        avatar_id: state.avatar_id.clone(),
-                                        current_zone: self.read().await.zone.read().await.zonedef().guid.clone(),
-                                        destination_zone: target_zone.guid, 
-                                        travel_type: DirectTravel
-                                    }).await?;*/
                                 } else {
                                     // todo: inform the player, that the travel destination was invalid
                                 }

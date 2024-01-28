@@ -16,7 +16,7 @@
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, IpAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}, thread};
 
 use async_trait::async_trait;
-use atlas::{oaPktAvatarTellBehaviorBinary, oaPktDialogEnd, oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPktServerAction, oaPkt_SplineSurfing_Acknowledge, raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktResourceNotify, CPktServerNotify, CPktStackedAvatarUpdate, ClassId, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, NetworkVec3, OaZoneConfigParams, ParamAttrib, ParamBox, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
+use atlas::{oaPktAvatarTellBehaviorBinary, oaPktConfirmTravel, oaPktDialogEnd, oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPktServerAction, oaPkt_SplineSurfing_Acknowledge, raknet::{RakNetListener, Message}, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktResourceNotify, CPktServerNotify, CPktStackedAvatarUpdate, ClassId, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, NetworkVec3, OaZoneConfigParams, ParamAttrib, ParamBox, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 use glam::{Quat, Vec3};
 use log::{debug, error, trace, warn, info};
@@ -25,10 +25,10 @@ use quinn::{ServerConfig, Endpoint};
 use tokio::{sync::{Mutex, OnceCell, mpsc::{self, Sender}, RwLock}, net::{TcpListener, TcpStream, UdpSocket}, time::{Interval, self}, select, task};
 use tokio_util::{task::TaskTracker, sync::CancellationToken, udp::UdpFramed};
 
-use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, actors::{InterestEvent, Movement, PhysicsState, PlayerSpawnMode, SessionManager, Zone, ZoneEvent, ZoneRegistry}, NODE, CLUSTER_CERT, components::{SessionHandler, SessionRef, ZoneFactory}};
+use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, CONF, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ServerAction, SessionManager, Zone, ZoneEvent, ZoneRegistry}, NODE, CLUSTER_CERT, components::{SessionHandler, SessionRef, ZoneFactory}};
 use crate::db::DatabaseRecord;
 
-use super::{ZoneServerListener, ZoneMessage, load_state::ClientLoadState};
+use super::{load_state::ClientLoadState, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
 
 #[derive(Clone)]
 enum ZoneInstance {
@@ -109,7 +109,7 @@ impl Frontend for ZoneFrontend {
                                 select! {
                                     message = connection.recv() => {
                                         match message.as_ref() {
-                                            Some(ZoneMessage::EnterZone { session_id, avatar_id }) => {
+                                            Some(ZoneUpstreamMessage::EnterZone { session_id, avatar_id }) => {
                                                 debug!("Session {} entering zone with avatar_id {}", session_id, avatar_id);
 
                                                 // if this zone is instanced, spin up a new zone and move the player to that
@@ -143,17 +143,17 @@ impl Frontend for ZoneFrontend {
                                                     session_handler.clone(),
                                                     downstream_sender.clone()).await);
                                             },
-                                            Some(ZoneMessage::Travel { session_id }) => {
+                                            Some(ZoneUpstreamMessage::Travel { session_id, .. }) => {
                                                 if let Some(session) = sessions.get(session_id) {
                                                     let _ = session.send(message.unwrap()).await;
                                                 }
                                             },
-                                            Some(ZoneMessage::Message { session_id, .. }) => {
+                                            Some(ZoneUpstreamMessage::Message { session_id, .. }) => {
                                                 if let Some(session) = sessions.get(session_id) {
                                                     let _ = session.send(message.unwrap()).await;
                                                 }
                                             },
-                                            Some(ZoneMessage::LeaveZone { session_id }) => {
+                                            Some(ZoneUpstreamMessage::LeaveZone { session_id }) => {
                                                 debug!("Session {} leaving zone", session_id);
 
                                                 if let Some(session) = sessions.remove(session_id) {
@@ -208,15 +208,17 @@ struct ZoneSession {
     zone_factory: ZoneFactory,
     session_handler: Arc<RwLock<SessionHandler>>,
     session_ref: SessionRef,
-    downstream: Sender<ZoneMessage>,
+    downstream: Sender<ZoneDownstreamMessage>,
     load_state: ClientLoadState,
     instance: ZoneInstance,
 
-    interest_event_sender: mpsc::Sender<InterestEvent>,
-    interest_events: Option<mpsc::Receiver<InterestEvent>>,
+    avatar_event_sender: mpsc::Sender<AvatarEvent>,
+    avatar_events: Option<mpsc::Receiver<AvatarEvent>>,
     interest_list: HashSet<AvatarId>,
     interest_added_queue: VecDeque<AvatarId>,
     interest_removed_queue: VecDeque<AvatarId>,
+
+    server_actions: VecDeque<ServerAction>,
 
     target_avatar: Option<AvatarId>,
 }
@@ -224,13 +226,13 @@ struct ZoneSession {
 impl ZoneSession {
     async fn spawn(tasks: TaskTracker, token: CancellationToken, session_id: &Uuid, avatar_id: &AvatarId, 
         instance: ZoneInstance, zone_factory: ZoneFactory, session_handler: Arc<RwLock<SessionHandler>>,
-        downstream: Sender<ZoneMessage>) -> Sender<ZoneMessage> {
+        downstream: Sender<ZoneDownstreamMessage>) -> Sender<ZoneUpstreamMessage> {
 
         // todo: handle errors here, as this might be a race when the session
         // invalidates during the zone enter stage.
         let session_ref = session_handler.write().await.initiate_trusted(session_id.clone(), session_id.clone()).await.unwrap();
 
-        let (interest_event_sender, interest_event_receiver) = mpsc::channel(10);
+        let (avatar_event_sender, avatar_event_receiver) = mpsc::channel(10);
 
         let session = ZoneSession {
             session_id: session_id.to_owned(),
@@ -241,26 +243,25 @@ impl ZoneSession {
             instance,
             downstream,
             load_state: ClientLoadState::EarlyLoadSequence,
-            interest_event_sender: interest_event_sender,
-            interest_events: Some(interest_event_receiver),
+            avatar_event_sender,
+            avatar_events: Some(avatar_event_receiver),
             interest_list: HashSet::new(),
             interest_added_queue: VecDeque::new(),
             interest_removed_queue: VecDeque::new(),
+            server_actions: VecDeque::new(),
             target_avatar: None,
         };
 
         session.run(&tasks, token)
     }
 
-    fn run(mut self, tasks: &TaskTracker, token: CancellationToken) -> Sender<ZoneMessage> {
+    fn run(mut self, tasks: &TaskTracker, token: CancellationToken) -> Sender<ZoneUpstreamMessage> {
         let (request_sender, mut request_receiver) = mpsc::channel(10);
 
         tasks.spawn(async move {
             let session_ref = self.session_ref.clone();
             let mut zone_events = self.instance.zone().subscribe().await;
-
-            let mut interest_event_receiver = self.interest_events.take().unwrap();
-
+            let mut avatar_event_receiver = self.avatar_events.take().unwrap();
             let mut update_timer = time::interval(Duration::from_millis(250));
 
             'net_loop: loop {
@@ -268,9 +269,9 @@ impl ZoneSession {
                     request = request_receiver.recv() => {
                         if let Some(request) = request {
                             match request {
-                                ZoneMessage::EnterZone { .. } => unreachable!(),
-                                ZoneMessage::Travel { .. } => {
-                                    if let Err(e) = self.travel_to_zone().await {
+                                ZoneUpstreamMessage::EnterZone { .. } => unreachable!(),
+                                ZoneUpstreamMessage::Travel { destination, .. } => {
+                                    if let Err(e) = self.travel_to_zone(destination).await {
                                         error!(
                                             session = self.session_id.to_string(), 
                                             avatar = self.avatar_id.to_string(); 
@@ -278,7 +279,7 @@ impl ZoneSession {
                                         break 'net_loop;
                                     }
                                 },
-                                ZoneMessage::Message { message, ..} => {
+                                ZoneUpstreamMessage::Message { message, ..} => {
                                     if let Err(e) = self.handle_message(Message::from_bytes(&message).unwrap().1).await {
                                         error!(
                                             session = self.session_id.to_string(), 
@@ -287,7 +288,7 @@ impl ZoneSession {
                                         break 'net_loop;
                                     }
                                 }
-                                ZoneMessage::LeaveZone { .. } => break 'net_loop,
+                                ZoneUpstreamMessage::LeaveZone { .. } => break 'net_loop,
                             }
                             
                         } else {
@@ -308,12 +309,12 @@ impl ZoneSession {
                             }
                         }
                     },
-                    Some(event) = interest_event_receiver.recv() => {
-                        if let Err(e) = self.handle_interest_event(event).await {
+                    Some(event) = avatar_event_receiver.recv() => {
+                        if let Err(e) = self.handle_avatar_event(event).await {
                             error!(
                                 session = self.session_id.to_string(), 
                                 avatar = self.avatar_id.to_string(); 
-                                "Interest event error: {:#?}", e);
+                                "Avatar event error: {:#?}", e);
                             break 'net_loop;
                         }  
                     },
@@ -359,16 +360,27 @@ impl ZoneSession {
         request_sender
     }
 
-    async fn travel_to_zone(&mut self) -> AnotherlandResult<()> {
+    async fn travel_to_zone(&mut self, destination: TravelType) -> AnotherlandResult<()> {
         let session_s = self.session_ref.lock().await;
 
         // Spawn player character
         let mut param_buffer = Vec::new();
         let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
-        let player = self.instance.zone().spawn_player(PlayerSpawnMode::TravelDirect, self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
+        let (player, server_action) = self.instance.zone().spawn_player(
+            match destination {
+                TravelType::EntryPoint => PlayerSpawnMode::TravelDirect,
+                TravelType::Portal { uuid } => PlayerSpawnMode::TravelPortal(uuid),
+                _ => unimplemented!(),
+            }, 
+            self.avatar_id.clone(), 
+            session_s.session().character_id.unwrap(), 
+            self.avatar_event_sender.clone()).await?;
+
+        self.server_actions.push_back(server_action);
+
         let _ = player.data.write_to_client(&mut writer)?;
-        
+
         info!(
             session = self.session_id.to_string(), 
             avatar = self.avatar_id.to_string(); 
@@ -407,15 +419,24 @@ impl ZoneSession {
         Ok(())
     }
 
-    async fn handle_interest_event(&mut self, event: InterestEvent) -> AnotherlandResult<()> {
+    async fn handle_avatar_event(&mut self, event: AvatarEvent) -> AnotherlandResult<()> {
         match event {
-            InterestEvent::InterestAdded { ids } => {
+            AvatarEvent::InterestAdded { ids } => {
                 self.interest_removed_queue = self.interest_removed_queue.drain(..).filter(|v| !ids.contains(v)).collect();
                 self.interest_added_queue.append(&mut ids.into_iter().collect());
             },
-            InterestEvent::InterestRemoved { ids } => {
+            AvatarEvent::InterestRemoved { ids } => {
                 self.interest_added_queue = self.interest_added_queue.drain(..).filter(|v| !ids.contains(v)).collect();
                 self.interest_removed_queue.append(&mut ids.into_iter().collect());
+            },
+            AvatarEvent::Travel { zone, destination } => {
+                self.travel(zone, destination).await?;
+            },
+            AvatarEvent::Message(message) => {
+                self.send(message).await?;
+            },
+            AvatarEvent::ServerAction(action) => {
+                self.server_actions.push_back(action);
             }
         }
 
@@ -495,7 +516,9 @@ impl ZoneSession {
                 let mut param_buffer = Vec::new();
                 let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
-                let player = self.instance.zone().spawn_player(PlayerSpawnMode::LoginNormal, self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.interest_event_sender.clone()).await?;
+                let (player, server_action) = self.instance.zone().spawn_player(PlayerSpawnMode::LoginNormal, self.avatar_id.clone(), session_s.session().character_id.unwrap(), self.avatar_event_sender.clone()).await?;
+                self.server_actions.push_back(server_action);
+
                 let _ = player.data.write_to_client(&mut writer)?;
 
                 let movement = self.instance.zone().get_avatar_move_state(self.avatar_id.clone()).await.unwrap();
@@ -505,7 +528,7 @@ impl ZoneSession {
                 mm_init.rot = movement.rotation.into();
                 mm_init.vel = movement.velocity.into();
 
-                mm_init.physics = PhysicsState::Walking.into();       
+                mm_init.physics = PhysicsState::Walking.into();   
 
                 info!(
                     session = self.session_id.to_string(), 
@@ -707,6 +730,13 @@ impl ZoneSession {
                     self.send(response.into_message()).await?;
                 }
             },
+            AtlasPkt(CPkt::oaPktAvatarTellBehavior(pkt)) => {
+                if pkt.instigator != self.avatar_id.as_u64() {
+                    warn!("Client tried to instigate behavior on behalf of other avatar: {:#?}", pkt);
+                } else {
+                    self.instance.zone().tell_behavior(pkt.instigator.into(), pkt.target.into(), pkt.behavior).await;
+                }
+            },
             _ => {
                 debug!(
                     session = self.session_id.to_string(), 
@@ -719,10 +749,24 @@ impl ZoneSession {
     }
 
     async fn send(&self, message: Message) -> AnotherlandResult<()> {
-        self.downstream.send(ZoneMessage::Message { 
+        self.downstream.send(ZoneDownstreamMessage::Message { 
             session_id: self.session_id.clone(),
             message: message.to_bytes(), 
         }).await.map_err(|_| AnotherlandErrorKind::IOError)?;
+
+        Ok(())
+    }
+
+    async fn travel(&self, zone: Uuid, destination: TravelType) -> AnotherlandResult<()> {
+        debug!("Initiating travel for avatar {}. Godspeed!", self.avatar_id);
+
+        self.downstream.send(ZoneDownstreamMessage::RequestTravel { 
+            session_id: self.session_id, 
+            zone, 
+            travel: destination
+        })
+        .await
+        .map_err(|_| AnotherlandErrorKind::IOError)?;
 
         Ok(())
     }
@@ -794,8 +838,8 @@ impl ZoneSession {
         }
 
         if self.load_state == ClientLoadState::RequestSpawn {
-                // Synchronize time
-                {
+            // Synchronize time
+            {
                 let mut game_time_sync = CPktServerNotify::default();
                 game_time_sync.notify_type = CpktServerNotifyNotifyType::SyncGameClock;
                 game_time_sync.field_2 = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
@@ -820,13 +864,10 @@ impl ZoneSession {
 
                 self.send(connectionstate.into_message()).await?;
             }
+        }
 
-            // Tell the client the avatar is ready to spawn
-            {
-                let mut action = oaPktServerAction::default();
-                action.action = "TRAVEL:NonPortalTravel|NonPortalTravelDefault".to_owned();
-                action.version = 4;
-                action.override_teleport = false;
+        if self.load_state == ClientLoadState::Spawned {
+            while let Some(action) = self.server_actions.pop_front() {
                 self.send(action.into_message()).await?;
             }
         }

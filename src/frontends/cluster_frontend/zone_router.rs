@@ -31,13 +31,14 @@ use crate::actors::ZoneRegistry;
 use crate::cluster::RemoteActorRef;
 use crate::util::{AnotherlandErrorKind, AnotherlandError};
 use crate::{util::AnotherlandResult, NODE};
-use crate::frontends::{ZoneServerClient, ZoneMessage};
+use crate::frontends::{TravelType, ZoneDownstreamMessage, ZoneServerClient, ZoneUpstreamMessage};
 
 enum ZoneRouterCommand {
     ConnectZone { zone_id: Uuid, session_id: Uuid, avatar_id: AvatarId, retval: oneshot::Sender<AnotherlandResult<ZoneRouterConnection>> },
     ForwardMessageToZone { zone_id: Uuid, session_id: Uuid, message: Vec<u8>, retval: oneshot::Sender<AnotherlandResult<()>> },
     ForwardToClient { session_id: Uuid, message: Vec<u8> },
-    NotifyTravel { zone_id: Uuid, session_id: Uuid, retval: oneshot::Sender<AnotherlandResult<()>> },
+    RequestTravel { session_id: Uuid, zone_id: Uuid, travel: TravelType },
+    NotifyTravel { zone_id: Uuid, session_id: Uuid, destination: TravelType, retval: oneshot::Sender<AnotherlandResult<()>> },
     DropConnection { zone_id: Uuid, session_id: Uuid },
     DropZone { zone_id: Uuid },
 }
@@ -66,7 +67,7 @@ impl ZoneRouter {
             let command_sender = command_sender.clone();
 
             let mut connections = ZoneConnectionRegistry::new();
-            let mut session_connections = HashMap::<Uuid, (Uuid, mpsc::Sender<Message>)>::new();
+            let mut session_connections = HashMap::<Uuid, (Uuid, mpsc::Sender<ZoneRouterMessage>)>::new();
 
             async move {
                 'event_loop: loop {
@@ -82,7 +83,7 @@ impl ZoneRouter {
                                                 "Entering zone {}", zone_id);
             
                                             // Notify zone server that a client is entering
-                                            if let Err(_) = connection.send(ZoneMessage::EnterZone { 
+                                            if let Err(_) = connection.send(ZoneUpstreamMessage::EnterZone { 
                                                     session_id: session_id.clone(), 
                                                     avatar_id: avatar_id.clone() 
                                                 }).await {
@@ -116,7 +117,7 @@ impl ZoneRouter {
                                 Some(ZoneRouterCommand::ForwardMessageToZone { zone_id, session_id, message, retval}) => {
                                     match connections.get_zone_server_client(&zone_id) {
                                         Ok(connection) => {
-                                            let _ = retval.send(connection.send(ZoneMessage::Message { 
+                                            let _ = retval.send(connection.send(ZoneUpstreamMessage::Message { 
                                                 session_id, 
                                                 message
                                             }).await.map_err(|_| AnotherlandErrorKind::IOError.into()));
@@ -130,7 +131,7 @@ impl ZoneRouter {
                                     if let Some(client) = session_connections.get(&session_id) {
                                         match Message::from_bytes(&message) {
                                             Ok((_, message)) => {
-                                                if client.1.send(message).await.is_err() {
+                                                if client.1.send(ZoneRouterMessage::Message(message)).await.is_err() {
                                                     session_connections.remove(&session_id);
                                                 }
                                             },
@@ -138,14 +139,14 @@ impl ZoneRouter {
                                                 warn!("Received invalid message from zone!");
                                             }
                                         }
-                                        
                                     }
                                 },
-                                Some(ZoneRouterCommand::NotifyTravel { zone_id, session_id, retval }) => {
+                                Some(ZoneRouterCommand::NotifyTravel { zone_id, session_id, destination, retval }) => {
                                     match connections.get_zone_server_client(&zone_id) {
                                         Ok(connection) => {
-                                            let _ = retval.send(connection.send(ZoneMessage::Travel {
-                                                session_id
+                                            let _ = retval.send(connection.send(ZoneUpstreamMessage::Travel {
+                                                session_id,
+                                                destination
                                             }).await.map_err(|_| AnotherlandErrorKind::IOError.into()));
                                         },
                                         Err(e) => {
@@ -156,7 +157,7 @@ impl ZoneRouter {
                                 Some(ZoneRouterCommand::DropConnection { zone_id, session_id }) => {
                                     // tell zone the client left
                                     if let Ok(connection) = connections.get_zone_server_client(&zone_id) {
-                                        let _ = connection.send(ZoneMessage::LeaveZone { 
+                                        let _ = connection.send(ZoneUpstreamMessage::LeaveZone { 
                                             session_id: session_id.clone() 
                                         }).await;
                                     }
@@ -175,6 +176,13 @@ impl ZoneRouter {
                                     // drop sessions
                                     for session_id in session_ids {
                                         session_connections.remove(&session_id);
+                                    }
+                                },
+                                Some(ZoneRouterCommand::RequestTravel { session_id, zone_id, travel }) => {
+                                    if let Some(client) = session_connections.get(&session_id) {
+                                        if client.1.send(ZoneRouterMessage::TravelRequest { zone: zone_id, travel }).await.is_err() {
+                                            session_connections.remove(&session_id);
+                                        }
                                     }
                                 },
                                 None => break 'event_loop,
@@ -219,7 +227,7 @@ impl Drop for ZoneRouter {
 }
 
 struct ZoneConnectionRegistry {
-    connections: HashMap<Uuid, mpsc::Sender<ZoneMessage>>,
+    connections: HashMap<Uuid, mpsc::Sender<ZoneUpstreamMessage>>,
     zone_registry: RemoteActorRef<ZoneRegistry>,
 }
 
@@ -231,7 +239,7 @@ impl ZoneConnectionRegistry {
         }
     }
 
-    async fn get_or_create_zone_server_client(&mut self, zone_id: &Uuid, token: &CancellationToken, tasks: &TaskTracker, command_sender: &mpsc::Sender<ZoneRouterCommand>) -> AnotherlandResult<mpsc::Sender<ZoneMessage>> {
+    async fn get_or_create_zone_server_client(&mut self, zone_id: &Uuid, token: &CancellationToken, tasks: &TaskTracker, command_sender: &mpsc::Sender<ZoneRouterCommand>) -> AnotherlandResult<mpsc::Sender<ZoneUpstreamMessage>> {
         if let Some(connection) = self.connections.get(zone_id) {
             Ok(connection.to_owned())
         } else {
@@ -255,8 +263,11 @@ impl ZoneConnectionRegistry {
                             select! {
                                 message = client.recv() => {
                                        match message {
-                                        Some(ZoneMessage::Message { session_id, message }) => {
+                                        Some(ZoneDownstreamMessage::Message { session_id, message }) => {
                                             let _ = command_sender.send(ZoneRouterCommand::ForwardToClient { session_id, message }).await;
+                                        },
+                                        Some(ZoneDownstreamMessage::RequestTravel { session_id, zone, travel }) => {
+                                            let _ = command_sender.send(ZoneRouterCommand::RequestTravel { session_id, zone_id: zone, travel }).await;
                                         },
                                         None => {
                                             zone_message_receiver.close();
@@ -303,9 +314,14 @@ impl ZoneConnectionRegistry {
         }
     }
 
-    fn get_zone_server_client(&self, zone_id: &Uuid) -> AnotherlandResult<mpsc::Sender<ZoneMessage>> {
+    fn get_zone_server_client(&self, zone_id: &Uuid) -> AnotherlandResult<mpsc::Sender<ZoneUpstreamMessage>> {
         self.connections.get(zone_id).map(|v| v.to_owned()).ok_or(AnotherlandError::app_err("zone not found"))
     }
+}
+
+pub enum ZoneRouterMessage {
+    Message(Message),
+    TravelRequest{ zone: Uuid, travel: TravelType },
 }
 
 pub(super) struct ZoneRouterConnection {
@@ -313,7 +329,7 @@ pub(super) struct ZoneRouterConnection {
     session_id: Uuid,
     avatar_id: AvatarId,
     command_sender: mpsc::Sender<ZoneRouterCommand>,
-    message_receiver: Mutex<mpsc::Receiver<Message>>,
+    message_receiver: Mutex<mpsc::Receiver<ZoneRouterMessage>>,
 }
 
 // this is a lie, please don't use this accross threads
@@ -333,17 +349,18 @@ impl ZoneRouterConnection {
         retval_receiver.await.map_err(|_| AnotherlandErrorKind::IOError)?
     }
 
-    pub async fn receive(&self) -> Option<Message> {
+    pub async fn receive(&self) -> Option<ZoneRouterMessage> {
         let mut receiver = self.message_receiver.lock().await;
         receiver.recv().await
     }
 
-    pub async fn notify_travel(&self) -> AnotherlandResult<()> {
+    pub async fn notify_travel(&self, destination: TravelType) -> AnotherlandResult<()> {
         let (retval_sender, retval_receiver) = oneshot::channel();
 
         self.command_sender.send(ZoneRouterCommand::NotifyTravel { 
             zone_id: self.zone_id.clone(), 
             session_id: self.session_id.clone(), 
+            destination,
             retval: retval_sender 
         }).await.map_err(|_| AnotherlandErrorKind::IOError)?;
 
