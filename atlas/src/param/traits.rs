@@ -13,12 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{hash::Hash, cell::Ref, collections::HashMap, io, str::FromStr, any::Any};
+use std::{hash::Hash, collections::HashMap, io, str::FromStr, any::Any};
 
 use bitstream_io::ByteWrite;
-use log::debug;
 use nom::{IResult, error::VerboseError, error::context};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use parking_lot::RwLockReadGuard;
 use specs::EntityBuilder;
@@ -80,12 +78,12 @@ pub trait ParamClass: Default + Any {
     type Attributes: ParamAttrib;
 
     fn from_set(set: ParamSet<Self::Attributes>) -> Self;
-    fn as_set<'a>(&'a self) -> RwLockReadGuard<'a, ParamSet<Self::Attributes>>;
+    fn as_set(&self) -> RwLockReadGuard<ParamSet<Self::Attributes>>;
     fn into_set(self) -> ParamSet<Self::Attributes>;
 
     fn apply(&mut self, set: ParamSet<Self::Attributes>);
 
-    fn into_persistent_json(&self) -> Value {
+    fn as_persistent_json(&self) -> Value {
         Self::Attributes::serialize_json_set(&self.as_set())
     }
 

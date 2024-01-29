@@ -13,8 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{raknet::Message, AvatarId, ParamClass, Uuid};
-use glam::Vec3;
+use atlas::{raknet::Message, AvatarId, Uuid};
+
 use tokio::sync::mpsc;
 use specs::{prelude::*, Component};
 

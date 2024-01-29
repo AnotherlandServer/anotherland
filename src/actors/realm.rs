@@ -20,12 +20,9 @@ use async_trait::async_trait;
 use atlas::AvatarId;
 use bson::doc;
 use log::debug;
-use mongodb::{Database, options::{UpdateModifications, UpdateOptions, FindOneOptions}};
-use serde_derive::{Serialize, Deserialize};
+use mongodb::Database;
 
-use crate::{cluster::actor::Actor, util::{AnotherlandResult, AnotherlandError}, db::{Account, Session, cluster_database, realm_database, Character, DatabaseRecord, ZoneDef}, NODE, CONF};
-
-use super::SessionManager;
+use crate::{cluster::actor::Actor, util::AnotherlandResult, db::{Session, realm_database, Character, DatabaseRecord}, CONF};
 
 pub struct Realm {
     realm_db: Database,
@@ -106,7 +103,7 @@ impl Realm {
 
     #[rpc]
     pub fn get_cluster_frontend_address(&self) -> Option<SocketAddrV4> {
-        self.cluster_frontend.clone()
+        self.cluster_frontend
     }
 
     #[rpc]

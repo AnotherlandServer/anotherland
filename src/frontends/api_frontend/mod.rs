@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod api_frontend;
+mod frontend;
 mod schema;
 
-pub use api_frontend::*;
+pub use frontend::*;

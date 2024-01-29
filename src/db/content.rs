@@ -20,7 +20,7 @@ use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
-use atlas::{ParamError, Uuid, ParamBox, ParamClass};
+use atlas::{Uuid, ParamBox, ParamClass};
 
 use crate::util::AnotherlandResult;
 
@@ -69,15 +69,6 @@ impl DatabaseRecord<'_> for BuffContent {
     }
 }
 
-impl BuffContent {
-    pub fn into_param<T>(self) -> Option<T> 
-        where
-            T: ParamClass
-    {
-        self.0.data.map(|v| v.take::<T>().unwrap())
-    }
-}
-
 // drops
 #[derive(Serialize, Deserialize, Clone)]
 pub struct DropsContent(Content);
@@ -112,15 +103,6 @@ impl DatabaseRecord<'_> for DropsContent {
     }
 }
 
-impl DropsContent {
-    pub fn into_param<T>(self) -> Option<T> 
-        where
-            T: ParamClass
-    {
-        self.0.data.map(|v| v.take::<T>().unwrap())
-    }
-}
-
 // factions
 #[derive(Serialize, Deserialize, Clone)]
 pub struct FactionContent(Content);
@@ -152,15 +134,6 @@ impl DatabaseRecord<'_> for FactionContent {
 
     fn query_one(key: &Self::Key) -> Document {
         doc!{ "guid": { "$eq": bson::to_bson(key).unwrap() } }
-    }
-}
-
-impl FactionContent {
-    pub fn into_param<T>(self) -> Option<T> 
-        where
-            T: ParamClass
-    {
-        self.0.data.map(|v| v.take::<T>().unwrap())
     }
 }
 
@@ -203,7 +176,7 @@ impl ItemContent {
         let collection = Self::collection(db);
         let mut items = Vec::new();
 
-        let string_categories: Vec<_> = categories.iter().map(|v| v).collect();
+        let string_categories: Vec<_> = categories.iter().collect();
 
         let mut result = collection.find(doc!{"data.ednaModule.Category.v": {"$in":string_categories}}, None).await?;
         while let Some(item) = result.try_next().await? {
@@ -378,13 +351,6 @@ impl DatabaseRecord<'_> for MiscContent {
 }
 
 impl MiscContent {
-    pub fn into_param<T>(self) -> Option<T> 
-        where
-            T: ParamClass
-    {
-        self.0.data.map(|v| v.take::<T>().unwrap())
-    }
-
     pub async fn get_by_name(db: Database, name: &str) -> AnotherlandResult<Option<Self>> {
         Ok(Self::collection(db).find_one(doc! { "name": mongodb::bson::Regex {
             pattern: format!("^{}$", name),

@@ -30,8 +30,8 @@ impl From<Vec<u8>> for Buffer {
     }
 }
 
-impl Into<Vec<u8>> for Buffer {
-    fn into(self) -> Vec<u8> {
-        self.data
+impl From<Buffer> for Vec<u8> {
+    fn from(val: Buffer) -> Vec<u8> {
+        val.data
     }
 }

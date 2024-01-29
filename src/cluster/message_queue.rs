@@ -16,7 +16,7 @@
 use std::{collections::HashMap, net::SocketAddrV4, fmt::Display};
 
 use atlas::Uuid;
-use glam::Vec3;
+
 use once_cell::sync::Lazy;
 use serde_derive::{Serialize, Deserialize};
 use tokio::sync::{broadcast::{Sender, self, Receiver}, RwLock};
@@ -33,9 +33,9 @@ pub enum ShutdownSubject {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum TravelType {
-    DirectTravel,
-    PortalTravel,
-    NonPortalTravel,
+    Direct,
+    Portal,
+    NonPortal,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -58,7 +58,7 @@ impl Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ApiError::NotFound => f.write_str("not found"),
-            ApiError::Custom { message } => f.write_str(&message),
+            ApiError::Custom { message } => f.write_str(message),
         }
     }
 }

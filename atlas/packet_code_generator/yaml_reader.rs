@@ -86,10 +86,6 @@ impl DefinitionFile {
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
         let yaml_defintion = &yaml_doc[0];
 
-        let name = Path::new(file_path).file_stem()
-            .ok_or(io::ErrorKind::InvalidInput)?
-            .to_str().unwrap();
-
         let mut definition = DefinitionFile {
             packets: Vec::new(),
             structures: Vec::new(),
@@ -138,7 +134,7 @@ impl PacketDefintion {
 
         Ok(definition)
     }
-
+    
     pub fn resolve_references(&mut self, packets: &HashMap<String, Rc<RefCell<PacketDefintion>>>, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
         if let Some(inherit) = &self.inherit {
             match inherit {
@@ -158,7 +154,7 @@ impl PacketDefintion {
         }
 
         for field in &mut self.fields {
-            field.resolve_references(packets, structs)?;
+            field.resolve_references(structs)?;
         }
 
         Ok(())
@@ -176,11 +172,8 @@ impl PacketDefintion {
 
     pub fn normalize(&mut self) {
         // initialize with parent fieldcount
-        let mut field_count = if let Some(parent) = &self.inherit {
-            match parent {
-                PacketDefinitionReference::Resolved(parent) => parent.borrow().count_fields(),
-                _ => 0usize
-            }
+        let mut field_count = if let Some(PacketDefinitionReference::Resolved(parent)) = &self.inherit {
+            parent.borrow().count_fields()
         } else {
             0usize
         };
@@ -210,7 +203,7 @@ impl StructDefinition {
         Ok(definition)
     }
 
-    pub fn resolve_references(&mut self, packets: &HashMap<String, Rc<RefCell<PacketDefintion>>>, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
+    pub fn resolve_references(&mut self, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
         if let Some(inherit) = &self.inherit {
             match inherit {
                 StructDefinitionReference::Unresolved(parent_name) => {
@@ -229,7 +222,7 @@ impl StructDefinition {
         }
 
         for field in &mut self.fields {
-            field.resolve_references(packets, structs)?;
+            field.resolve_references(structs)?;
         }
 
         Ok(())
@@ -248,11 +241,8 @@ impl StructDefinition {
 
     pub fn normalize(&mut self) {
         // initialize with parent fieldcount
-        let mut field_count = if let Some(parent) = &self.inherit {
-            match parent {
-                StructDefinitionReference::Resolved(parent) => parent.borrow().count_fields(),
-                _ => 0usize
-            }
+        let mut field_count = if let Some(StructDefinitionReference::Resolved(parent)) = &self.inherit {
+            parent.borrow().count_fields()
         } else {
             0usize
         };
@@ -299,22 +289,22 @@ impl FieldDefinition {
         }
     }
 
-    pub fn resolve_references(&mut self, packets: &HashMap<String, Rc<RefCell<PacketDefintion>>>, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
+    pub fn resolve_references(&mut self, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
         match self {
             FieldDefinition::Branch { is_true, is_false, .. } => {
                 for field in is_true {
-                    field.resolve_references(packets, structs)?;
+                    field.resolve_references(structs)?;
                 }
 
                 for field in is_false {
-                    field.resolve_references(packets, structs)?;
+                    field.resolve_references(structs)?;
                 }
 
                 Ok(())
             }
             FieldDefinition::Field { name, r#type } => {
-                r#type.resolve_references(packets, structs)
-                    .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("Failed to resolve type for field {}: {}", name.as_ref().unwrap(), e.to_string())))
+                r#type.resolve_references(structs)
+                    .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("Failed to resolve type for field {}: {}", name.as_ref().unwrap(), e)))
             },
         }
     }
@@ -389,39 +379,29 @@ impl FieldDefinition {
         match self {
             FieldDefinition::Field { name, .. } => {
                 if let Some(name) = name {
-                    return name == lookup_name;
+                    name == lookup_name
                 } else {
-                    return false;
+                    false
                 }
             },
             FieldDefinition::Branch { is_true, is_false, .. } => {
                 for field in is_true {
-                    match field {
-                        FieldDefinition::Field { name, .. } => {
-                            if let Some(name) = name {
-                                if name == lookup_name {
-                                    return true;
-                                }
-                            }
-                        },
-                        _ => (),
+                    if let FieldDefinition::Field { name: Some(name), .. } = field {
+                        if name == lookup_name {
+                            return true;
+                        }
                     }
                 }
 
                 for field in is_false { 
-                    match field {
-                        FieldDefinition::Field { name, .. } => {
-                            if let Some(name) = name {
-                                if name == lookup_name {
-                                    return true;
-                                }
-                            }
-                        },
-                        _ => (),
+                    if let FieldDefinition::Field { name: Some(name), .. } = field {
+                        if name == lookup_name {
+                            return true;
+                        }
                     }
                 }
 
-                return false;
+                false
             }
         }
     }
@@ -496,7 +476,7 @@ impl FieldTypeDefinition {
         }
     }
 
-    pub fn resolve_references(&mut self, packets: &HashMap<String, Rc<RefCell<PacketDefintion>>>, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
+    pub fn resolve_references(&mut self, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
         match self {
             FieldTypeDefinition::Struct(struct_reference) => {
                 match struct_reference {
@@ -513,7 +493,7 @@ impl FieldTypeDefinition {
                     StructDefinitionReference::Resolved(_) => Ok(()),
                 }
             },
-            FieldTypeDefinition::Array {  r#type, .. } => r#type.resolve_references(packets, structs),
+            FieldTypeDefinition::Array {  r#type, .. } => r#type.resolve_references(structs),
             _ => Ok(())
         }
     }
@@ -533,7 +513,7 @@ pub fn load_definitions(path: &str) ->
         let entry = entry?;
 
         if !entry.file_type()?.is_file() || 
-            !(Path::new(&entry.file_name()).extension().unwrap() == "yaml") { continue; }
+            Path::new(&entry.file_name()).extension().unwrap() != "yaml" { continue; }
 
         println!("Parsing definition {}...", entry.file_name().to_string_lossy());
 

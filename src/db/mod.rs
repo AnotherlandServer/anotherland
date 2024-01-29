@@ -16,7 +16,7 @@
 mod account;
 mod session;
 mod content;
-mod db;
+mod record;
 mod instance;
 mod worlddef;
 mod zonedef;
@@ -28,7 +28,7 @@ mod cash_shop_vendor;
 pub use account::*;
 pub use session::*;
 pub use content::*;
-pub use db::*;
+pub use record::*;
 pub use instance::*;
 pub use worlddef::*;
 pub use zonedef::*;
@@ -49,7 +49,7 @@ pub async fn initalize_db() -> AnotherlandResult<()> {
         Session::init_collection(db.clone()).await?;
     }
 
-    if let Some(_) = ARGS.mongo_realm_db() {
+    if ARGS.mongo_realm_db().is_some() {
         let db = realm_database().await;
 
         Character::init_collection(db.clone()).await?;

@@ -13,15 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::f32::consts::PI;
-
-use glam::{Vec4, Quat, Vec3};
+use glam::{Vec4, Quat};
 
 use crate::NetworkVec4;
 
-impl Into<Vec4> for NetworkVec4 {
-    fn into(self) -> Vec4 {
-        Vec4::new(self.x, self.y, self.z, self.w)
+impl From<NetworkVec4> for Vec4 {
+    fn from(val: NetworkVec4) -> Vec4 {
+        Vec4::new(val.x, val.y, val.z, val.w)
     }
 }
 
@@ -31,9 +29,9 @@ impl From<Vec4> for NetworkVec4 {
     }
 }
 
-impl Into<Quat> for NetworkVec4 {
-    fn into(self) -> Quat {
-        Quat::from_vec4(Vec4::new(self.x, self.y, self.z, self.w))
+impl From<NetworkVec4> for Quat {
+    fn from(val: NetworkVec4) -> Quat {
+        Quat::from_vec4(Vec4::new(val.x, val.y, val.z, val.w))
     }
 }
 

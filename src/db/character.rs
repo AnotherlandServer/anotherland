@@ -20,7 +20,7 @@ use mongodb::{Database, IndexModel, options::IndexOptions, Collection};
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_derive::Deserialize;
-use serde_with::serde_as;
+
 use sha1::{Sha1, Digest};
 use tokio_stream::StreamExt;
 
@@ -72,7 +72,7 @@ impl Character {
 
         let mut avatar_data = template.clone();
         let default_items = ItemContent::list_by_categories(db.clone(), vec![
-            Uuid::parse_str("6B74CF2D-79A3-48B8-B752-995179A064BD").unwrap().into()
+            Uuid::parse_str("6B74CF2D-79A3-48B8-B752-995179A064BD").unwrap()
         ].as_slice()).await?;
 
         debug!("Default item count: {}", default_items.len());
@@ -81,8 +81,8 @@ impl Character {
 
         let character = Character {
             id: numeric_id,
-            guid: guid,
-            account: account_id.clone(),
+            guid,
+            account: *account_id,
             name: name.to_owned(),
             world_id: 130,
             data: avatar_data,

@@ -13,13 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, any::{type_name, Any}, io};
+use std::{collections::HashMap, any::type_name, io};
 
 use bitstream_io::ByteWrite;
 use nom::{IResult, error::{VerboseError, context}, number, multi};
-use serde::Serialize;
 
-use crate::{Param, ParamAttrib, ParamClass, ParamFlag, ParamSetBox};
+use crate::{Param, ParamAttrib, ParamFlag, ParamSetBox};
 
 #[derive(Clone)]
 pub struct ParamSet<T: ParamAttrib> {
@@ -52,10 +51,10 @@ impl <T: ParamAttrib>ParamSet<T> {
     }
 
     pub fn extend(&mut self, other: ParamSet<T>) {
-        self.params.extend(other.params.into_iter());
+        self.params.extend(other.params);
     }
 
-    fn read_attribute<'a>(i: &'a [u8]) -> IResult<&'a [u8], (T, Param), VerboseError<&'a [u8]>>
+    fn read_attribute(i: &[u8]) -> IResult<&[u8], (T, Param), VerboseError<&[u8]>>
     {
         let (i, attribute_id) = context("Attribute Id", number::complete::le_u16)(i)?;
         let attribute: T = match attribute_id.try_into() {

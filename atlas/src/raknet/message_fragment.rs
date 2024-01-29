@@ -108,16 +108,16 @@ impl MessageFragment {
                 match reliability {
                     0 => |i| Ok((i, Reliability::Unreliable)),
                     1 => |i| {
-                        map(Self::parse_sequence, |seq| Reliability::UnreliableSequenced(seq))(i)
+                        map(Self::parse_sequence, Reliability::UnreliableSequenced)(i)
                     },
                     2 => |i| Ok((i, Reliability::Reliable)),
                     3 => |i| {
-                        map(Self::parse_sequence, |seq| Reliability::ReliableOrdered(seq))(i)
+                        map(Self::parse_sequence, Reliability::ReliableOrdered)(i)
                     },
                     4 => |i| {
-                        map(Self::parse_sequence, |seq| Reliability::ReliableSequenced(seq))(i)
+                        map(Self::parse_sequence, Reliability::ReliableSequenced)(i)
                     },
-                    _ => |i| fail(i)
+                    _ => fail
                 }
             }))(i)
 
@@ -154,8 +154,7 @@ impl MessageFragment {
         move |mut i| {
             //print!("Input: {:#?}", i);
     
-            let mut result = Vec::with_capacity(count);
-            result.resize(count, 0);
+            let mut result = vec![0; count];
     
             let (byte_match, nibble_match) = if unsigned {
                 (0u8, 0u8)
@@ -187,13 +186,13 @@ impl MessageFragment {
                 result[0] = nibble_match | first_byte;
     
                 //print!("Output 2: {:#?}", result);
-                return Ok((i, result));
+                Ok((i, result))
             } else {
                 let (i, first_byte): (_, u8) = bit_parser::take(8usize)(i)?;
                 result[0] = first_byte;
     
                 //print!("Output 3: {:#?}", result);
-                return Ok((i, result));
+                Ok((i, result))
             }
         }
     }
@@ -206,7 +205,7 @@ impl MessageFragment {
         ), |r| r.to_vec()))(i)
     }
 
-    pub fn parse_ack<'a>(input: BitInput<'a>) -> IResult<BitInput<'a>, MessageFragment, VerboseError<BitInput<'a>>> {
+    pub fn parse_ack(input: BitInput) -> IResult<BitInput, MessageFragment, VerboseError<BitInput>> {
         context("ack", map(tuple((
             Self::parse_duration,
             length_count(
@@ -237,14 +236,14 @@ impl MessageFragment {
         )), |(system_time, ack_range)| Self::Ack(system_time, ack_range)))(input)
     }
 
-    pub fn parse_system_time<'a>(input: BitInput<'a>) -> IResult<BitInput<'a>, MessageFragment, VerboseError<BitInput<'a>>> {
+    pub fn parse_system_time(input: BitInput) -> IResult<BitInput, MessageFragment, VerboseError<BitInput>> {
         context("system_time", map(
             Self::parse_duration, 
-            |duration| Self::SystemTime(duration))
+            Self::SystemTime)
         )(input)
     }
 
-    pub fn parse_packet<'a>(input: BitInput<'a>) -> IResult<BitInput<'a>, MessageFragment, VerboseError<BitInput<'a>>> {
+    pub fn parse_packet(input: BitInput) -> IResult<BitInput, MessageFragment, VerboseError<BitInput>> {
         context("message", map(tuple((
             // Message Number
             context("message number", Self::parse_message_number),

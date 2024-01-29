@@ -18,11 +18,8 @@ use crate::{raknet::MAX_MTU_SIZE, Uuid};
 use super::{RakNetErrorKind, PeerAddress, MessageFragment, MessageNumber, Reliability, PacketSplit, Message, OnlineMessage, RakNetError, RakNetResult};
 use std::{time::{Instant, SystemTime}, time::{Duration, UNIX_EPOCH}, net::SocketAddr, collections::{VecDeque, HashMap}, sync::Arc};
 use bitstream_io::{BitWriter, BigEndian, BitWrite};
-use log::{debug, trace, info};
-use log::kv::{ToValue, Value};
-use serde::Serialize;
-use serde::ser::SerializeStruct;
-use tokio::{net::UdpSocket, io, sync::{RwLock, oneshot}};
+use log::{debug, trace};
+use tokio::{net::UdpSocket, io, sync::RwLock};
 use async_recursion::async_recursion;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -215,7 +212,7 @@ impl RakNetPeerData {
                 MessageFragment::OnlineMessage(message) => {
                     match message.split {
                         PacketSplit::Split { id, index, count } => {
-                            let reliability = message.reliability.clone();
+                            let reliability = message.reliability;
 
                             if let Some(split_messages) = self.split_packet_channel.get_mut(&id) {
                                 // Insert new message
@@ -268,7 +265,7 @@ impl RakNetPeerData {
                                             index: 0, 
                                             peer_addr: self.remote_address, 
                                             own_addr: self.local_address, 
-                                            guid: self.guid.clone() 
+                                            guid: self.guid 
                                         }).await?;
                                     },
                                     Message::ConnectedPong { .. } => {
@@ -478,7 +475,7 @@ impl RakNetPeerData {
                     _ => (),
                 }
 
-                let _ = MessageFragment::OnlineMessage(online_message).serialize_to_bitwriter(&mut writer)?;
+                MessageFragment::OnlineMessage(online_message).serialize_to_bitwriter(&mut writer)?;
                 
                 let _ = writer.byte_align();
                 let _ = writer.flush();
@@ -499,13 +496,11 @@ impl RakNetPeerData {
             let _ = writer.flush();
 
             let remainder = writer.into_writer();
-            self.send_raw(&remainder.as_slice()).await?;
+            self.send_raw(remainder.as_slice()).await?;
         }
 
-        if self.state == State::HalfClosed {
-            if self.resend_queue.is_empty() {
-                self.state = State::Disconnected;
-            }
+        if self.state == State::HalfClosed && self.resend_queue.is_empty(){
+            self.state = State::Disconnected;
         }
 
         Ok(())

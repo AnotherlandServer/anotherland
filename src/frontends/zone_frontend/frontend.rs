@@ -708,7 +708,7 @@ impl ZoneSession {
                         avatar_id: self.avatar_id.as_u64(),
                         spline_id: Uuid::parse_str("2851e8fe-6810-4281-b296-52b10cbb307d").unwrap(),
                         acknowledged: true,
-                        loc: Vec3::new(1199.960693, -397.063202, 33.211296).into(),
+                        loc: Vec3::new(1_199.960_7, -397.063_2, 33.211296).into(),
                         ..Default::default()
                     }.into_message()).await?;
                 }

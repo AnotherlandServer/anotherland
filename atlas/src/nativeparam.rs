@@ -23,7 +23,7 @@ use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 
 use crate::{ParamError, AvatarId, Uuid};
 
-use super::{parsers::parse_pkt_cstring};
+use super::parsers::parse_pkt_cstring;
 
 #[derive(Debug, Clone, Default)]
 pub enum NativeParam {
@@ -49,7 +49,7 @@ pub enum NativeParam {
 }
 
 impl NativeParam {
-    pub fn from_bytes<'a>(data: &'a [u8]) -> IResult<&[u8], NativeParam, VerboseError<&[u8]>> {
+    pub fn from_bytes(data: &[u8]) -> IResult<&[u8], NativeParam, VerboseError<&[u8]>> {
         context("nativeparam", |data| {
             let (data, r#type) = context("type", le_u8)(data)?;
 
@@ -149,7 +149,7 @@ impl NativeParam {
         })(data)
     }
 
-    pub fn parse_struct<'a>(data: &'a [u8]) -> IResult<&[u8], NativeParam, VerboseError<&[u8]>> {
+    pub fn parse_struct(data: &[u8]) -> IResult<&[u8], NativeParam, VerboseError<&[u8]>> {
         let (data, field_count) = le_u8(data)?;
         let (data, params) = count(Self::from_bytes, field_count as usize)(data)?;
 

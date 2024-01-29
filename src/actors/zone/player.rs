@@ -25,15 +25,15 @@ pub enum PlayerSpawnMode {
     TravelPoint, // 6   
 }
 
-impl Into<i32> for PlayerSpawnMode {
-    fn into(self) -> i32 {
-        match self {
-            Self::LoginFirstTime => 1,
-            Self::LoginNormal => 2,
-            Self::TravelDirect => 3,
-            Self::TravelPortal(_) => 4,
-            Self::TravelCarrier => 5,
-            Self::TravelPoint => 6,
+impl From<PlayerSpawnMode> for i32 {
+    fn from(val: PlayerSpawnMode) -> Self {
+        match val {
+            PlayerSpawnMode::LoginFirstTime => 1,
+            PlayerSpawnMode::LoginNormal => 2,
+            PlayerSpawnMode::TravelDirect => 3,
+            PlayerSpawnMode::TravelPortal(_) => 4,
+            PlayerSpawnMode::TravelCarrier => 5,
+            PlayerSpawnMode::TravelPoint => 6,
         }
     }
 }

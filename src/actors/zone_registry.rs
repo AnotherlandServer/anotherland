@@ -19,7 +19,7 @@ use actor_macros::actor_actions;
 use async_trait::async_trait;
 use atlas::Uuid;
 
-use crate::{cluster::actor::Actor, db::{ZoneDef}, util::AnotherlandResult};
+use crate::{cluster::actor::Actor, util::AnotherlandResult};
 
 pub struct ZoneRegistry {
     zones: HashMap<Uuid, SocketAddr>,

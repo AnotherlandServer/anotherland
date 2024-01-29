@@ -14,15 +14,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_trait::async_trait;
-use tokio::{sync::{oneshot, mpsc}, select};
+
 use tokio_util::sync::CancellationToken;
 
-use crate::util::{AnotherlandResult, AnotherlandError};
+use crate::util::{AnotherlandResult};
 
 #[async_trait]
 pub trait Frontend: Send + Sync {
     fn name(&self) -> &str;
     async fn starting(&mut self) -> AnotherlandResult<()> { Ok(()) }
-    async fn run(&mut self, token: CancellationToken) -> AnotherlandResult<()> { Ok(()) }
+    async fn run(&mut self, _token: CancellationToken) -> AnotherlandResult<()> { Ok(()) }
     async fn stopped(&mut self) -> AnotherlandResult<()> { Ok(()) }
 }

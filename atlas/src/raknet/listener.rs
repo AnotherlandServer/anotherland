@@ -59,7 +59,7 @@ impl Drop for RakNetListener {
 
             // only wait for the result command when we sucessfully sent the command
             // to avoid a deadlock here.
-            if let Ok(_) = command_channel.send(RakNetCommand::Stop(result_sender)).await {
+            if command_channel.send(RakNetCommand::Stop(result_sender)).await.is_ok() {
                 let _ = result_receiver.await;
             }
         });
@@ -107,7 +107,7 @@ impl RakNetListener {
                                     for (_, cmd) in peers {
                                         let (result_sender, result_receiver) = oneshot::channel();
 
-                                        if let Ok(_) = cmd.send(RakNetPeerCommand::Disconnect(result_sender)).await {
+                                        if cmd.send(RakNetPeerCommand::Disconnect(result_sender)).await.is_ok() {
                                             wait_handles.push(result_receiver);
                                         }
                                     }
@@ -139,7 +139,7 @@ impl RakNetListener {
                                         // is there a task running for this peer?
                                         if let Some(cmd) = peers.get(&addr) {
                                             // let the peer task handle to fragments
-                                            if let Err(_) = cmd.send(RakNetPeerCommand::Digest(fragments)).await {
+                                            if cmd.send(RakNetPeerCommand::Digest(fragments)).await.is_err() {
                                                 peers.remove(&addr);
                                             }
                                         } else {
@@ -154,14 +154,14 @@ impl RakNetListener {
  
                                             if let Ok(mut peer) = RakNetPeerData::new(
                                                     task_socket.clone(), 
-                                                    addr.clone(), 
+                                                    addr, 
                                                     task_socket.local_addr().unwrap()
                                                 ) {
 
                                                 debug!("Got new connection from {}", addr.to_string());
                                                 peers.insert(addr, peer_cmd_sender.clone());
 
-                                                let mut peet_handle = Some(RakNetPeer::new(peer.guid().clone(), peer_event_receiver, peer_cmd_sender.clone()));
+                                                let mut peet_handle = Some(RakNetPeer::new(*peer.guid(), peer_event_receiver, peer_cmd_sender.clone()));
 
                                                 tokio::spawn(async move {
                                                     loop {
@@ -176,7 +176,7 @@ impl RakNetListener {
                                                                         let _ = ret.send(());
                                                                     },
                                                                     RakNetPeerCommand::Send(priority, reliability, message, ret) => { 
-                                                                        if let Ok(_) = peer.send(priority, reliability, message).await {
+                                                                        if peer.send(priority, reliability, message).await.is_ok() {
                                                                             // run update once to immediately send messages
                                                                             let _ = peer.run_update().await;
 
@@ -200,7 +200,7 @@ impl RakNetListener {
                                                                                     let _ = task_command_sender.send(RakNetCommand::PeerConnected(peet_handle.take().unwrap())).await;
                                                                                     prev_state = *peer.state();
                                                                                 } else if *peer.state() == State::Disconnected {
-                                                                                    let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr.clone())).await;
+                                                                                    let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr)).await;
                                                                                     break;
                                                                                 }
                                                                             },
@@ -220,7 +220,7 @@ impl RakNetListener {
 
                                                                 // stop loop on disconnect
                                                                 if *peer.state() == State::Disconnected {
-                                                                    let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr.clone())).await;
+                                                                    let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr)).await;
                                                                     break;
                                                                 }
                                                             }
@@ -265,7 +265,7 @@ impl RakNetListener {
         // if the task is already stopped, sending might fail and the
         // command is never executed.
         // therefore avoid waiting on the return channel if the command send failed.
-        if let Ok(_) = self.command_channel.send(RakNetCommand::Stop(result_sender)).await {
+        if self.command_channel.send(RakNetCommand::Stop(result_sender)).await.is_ok() {
             let res = result_receiver.await.map_err(|e| RakNetError::from_kind(RakNetErrorKind::IOError));
             let _ = self.listen_task.take().unwrap().await;
 
@@ -279,7 +279,7 @@ impl RakNetListener {
         &self.local_addr
     }
 
-    fn parse_datagram<'b>(data: &'b[u8]) -> IResult<&'b[u8], Vec<MessageFragment>, VerboseError<&'b[u8]>> {
+    fn parse_datagram(data: &[u8]) -> IResult<&[u8], Vec<MessageFragment>, VerboseError<&[u8]>> {
         if Message::test_offline_message(data) {
             Message::from_bytes(data).map(|(i, m)| (i, vec![MessageFragment::OfflineMessage(m)]))
         } else {
@@ -348,7 +348,7 @@ impl RakNetPeer {
     pub async fn send(&self, priority: Priority, reliability: Reliability, message: Message) -> RakNetResult<()> {
         let (result_sender, result_receiver) = oneshot::channel();
 
-        if let Ok(_) = self.command.send(RakNetPeerCommand::Send(priority, reliability, message, result_sender)).await {
+        if self.command.send(RakNetPeerCommand::Send(priority, reliability, message, result_sender)).await.is_ok() {
             match result_receiver.await {
                 Ok(r) => r,
                 Err(_) => Err(RakNetError::from_kind(RakNetErrorKind::IOError)),
@@ -361,7 +361,7 @@ impl RakNetPeer {
     pub async fn disconnect(&self) {
         let (result_sender, result_receiver) = oneshot::channel();
 
-        if let Ok(_) = self.command.send(RakNetPeerCommand::Disconnect(result_sender)).await {
+        if self.command.send(RakNetPeerCommand::Disconnect(result_sender)).await.is_ok() {
             let _ = result_receiver.await;
         }
     }
@@ -375,7 +375,7 @@ impl Drop for RakNetPeer {
         tokio::spawn(async move {
             let (result_sender, result_receiver) = oneshot::channel();
 
-            if let Ok(_) = command.send(RakNetPeerCommand::Disconnect(result_sender)).await {
+            if command.send(RakNetPeerCommand::Disconnect(result_sender)).await.is_ok() {
                 let _ = result_receiver.await;
             }
         });

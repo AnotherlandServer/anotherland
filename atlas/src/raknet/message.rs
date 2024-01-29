@@ -92,7 +92,7 @@ pub enum Message {
 }
 
 impl Message {
-    pub fn test_offline_message<'a>(data: &'a [u8]) -> bool {
+    pub fn test_offline_message(data: &[u8]) -> bool {
         data[0] == ID_OPEN_CONNECTION_REQUEST || data[0] == ID_OPEN_CONNECTION_REPLY
     }
 }
@@ -100,11 +100,11 @@ impl Message {
 // Parsing
 #[allow(unused)]
 impl Message {
-    fn parse_peer_address<'a>(data: &'a [u8]) -> IResult<&'a [u8], PeerAddress, VerboseError<&'a[u8]>> {
+    fn parse_peer_address(data: &[u8]) -> IResult<&[u8], PeerAddress, VerboseError<&[u8]>> {
         map(tuple((le_u32, le_u16)), |(address, port)| PeerAddress::new(&Ipv4Addr::from(address), port))(data)
     }
 
-    fn parse_internal_ping<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_internal_ping(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("internal_ping", map(
             tuple((
                 tag([ID_INTERNAL_PING]),
@@ -115,7 +115,7 @@ impl Message {
             }))(data)
     }
 
-    fn parse_connected_pong<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_connected_pong(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("connected_pong", map(
             tuple((
                 tag([ID_CONNECTED_PONG]),
@@ -127,7 +127,7 @@ impl Message {
             }))(data)
     }
 
-    fn parse_new_incoming_connection<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_new_incoming_connection(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("new_incoming_connection", map(
             tuple((
                 tag([ID_NEW_INCOMING_CONNECTION]),
@@ -139,7 +139,7 @@ impl Message {
             }))(data)
     }
 
-    fn parse_disconnection_notification<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_disconnection_notification(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("disconnection_notification", map(
             tag([ID_DISCONNECTION_NOTIFICATION]),
             |_| {
@@ -147,7 +147,7 @@ impl Message {
             }))(data)
     }
 
-    fn parse_connection_request<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_connection_request(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("conenction_request", map(
             tuple((
                 tag([ID_CONNECTION_REQUEST]),
@@ -160,7 +160,7 @@ impl Message {
             }))(data)
     }
 
-    fn parse_secured_connection_response<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_secured_connection_response(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("secured_connection_response", map(tuple((
             tag([ID_SECURED_CONNECTION_RESPONSE]),
             take(20usize),
@@ -175,19 +175,19 @@ impl Message {
             }))(data)
     }
 
-    fn parse_open_connection_request<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_open_connection_request(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("open_connection_request", 
             map(tuple((tag([ID_OPEN_CONNECTION_REQUEST]), le_u8)), |(_, version)| {
                 Message::OpenConnectionRequest{version}
             }))(data)
     }
 
-    fn parse_open_connection_reply<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_open_connection_reply(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("open_connection_reply", 
             map(tag([ID_OPEN_CONNECTION_REQUEST]), |_| Message::OpenConnectionReply))(data)
     }
 
-    fn parse_connection_request_accepted<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_connection_request_accepted(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("connection_request_accepted", 
             map(tuple((
                 tag([ID_CONNECTION_REQUEST_ACCEPTED]),
@@ -198,18 +198,18 @@ impl Message {
             )),
             |(_, peer_addr, index, own_addr, guid)| 
                 Message::ConnectionRequestAccepted { 
-                    index: index, 
+                    index, 
                     peer_addr: PeerAddress::new(&Ipv4Addr::from(peer_addr.0), peer_addr.1), 
                     own_addr: PeerAddress::new(&Ipv4Addr::from(own_addr.0), own_addr.1),
                     guid: uuid::Uuid::from_bytes_le(guid.try_into().unwrap()).into(),
                 }))(data)
     }
 
-    fn parse_atlas_pkt<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_atlas_pkt(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         /*let (_, (id, sub_id)) = tuple((le_u8, le_u8))(data)?;
         fs::write(format!("dump/{:#02x}_{:#02x}.bin", id, sub_id), data);*/
 
-        context("atlas_pkt", map(CPkt::from_bytes, |pkt| Message::AtlasPkt(pkt)))(data)
+        context("atlas_pkt", map(CPkt::from_bytes, Message::AtlasPkt))(data)
     }
 
     /*fn parse_received_static_data<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
@@ -219,18 +219,18 @@ impl Message {
         )), |(_, data)| Message::ReceivedStaticData { data: data.to_vec() }))(data)
     }*/
 
-    fn parse_user_message<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_user_message(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("user_message", map(tuple((
             le_u8::<&[u8], _>, 
             flat_map(rest_len, take)
         )), |(number, data)| Message::User { number, data: data.to_vec() }))(data)
     }
 
-    fn parse_unknown_message<'a>(data: &'a [u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    fn parse_unknown_message(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("unknown_message", fail)(data)
     }
 
-    pub fn from_bytes<'a>(data: &'a[u8]) -> IResult<&'a [u8], Message, VerboseError<&'a[u8]>> {
+    pub fn from_bytes(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
         context("message_type",
             flat_map(peek(le_u8),
             |msg_id| {

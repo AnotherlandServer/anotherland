@@ -28,7 +28,7 @@ pub struct PeerAddress {
 
 impl PeerAddress {
     pub fn new(ip: &Ipv4Addr, port: u16) -> PeerAddress {
-        PeerAddress { ip: ip.clone(), port }
+        PeerAddress { ip: *ip, port }
     }
 
     pub fn as_socket_addr(&self) -> SocketAddr {
@@ -64,6 +64,6 @@ impl Serialize for PeerAddress {
     where
         S: serde::Serializer {
         
-        serializer.serialize_str(format!("{}:{}", self.ip.to_string(), self.port).as_str())
+        serializer.serialize_str(format!("{}:{}", self.ip, self.port).as_str())
     }
 }

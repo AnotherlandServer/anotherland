@@ -15,15 +15,15 @@
 
 use std::{marker::PhantomData, net::{SocketAddr, Ipv6Addr}, sync::Arc, time::Duration};
 
-use atlas::{AvatarId, raknet::Message, Uuid};
+use atlas::{AvatarId, Uuid};
 use glam::Vec3;
 use log::{trace, debug};
 use nom::AsBytes;
-use quinn::{RecvStream, SendStream, Chunk, Endpoint, ServerConfig, Connecting, VarInt, Connection, ClientConfig};
-use rustls::server;
+use quinn::{RecvStream, Endpoint, ServerConfig, Connecting, VarInt, Connection, ClientConfig};
+
 use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::{self, Receiver, Sender}, select};
-use tokio_util::{sync::CancellationToken, task::TaskTracker, bytes::Bytes};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::util::{AnotherlandResult, AnotherlandErrorKind};
 
@@ -264,12 +264,12 @@ impl ZoneServerSkipVerification {
 impl rustls::client::ServerCertVerifier for ZoneServerSkipVerification {
     fn verify_server_cert(
         &self,
-        end_entity: &rustls::Certificate,
-        intermediates: &[rustls::Certificate],
-        server_name: &rustls::ServerName,
-        scts: &mut dyn Iterator<Item = &[u8]>,
-        ocsp_response: &[u8],
-        now: std::time::SystemTime,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: std::time::SystemTime,
     ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
         Ok(rustls::client::ServerCertVerified::assertion())
     }

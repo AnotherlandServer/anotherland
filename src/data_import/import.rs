@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use log::info;
@@ -21,9 +21,9 @@ use mongodb::{IndexModel, options::IndexOptions, bson::doc};
 use tokio::runtime::Handle;
 
 use crate::{util::AnotherlandResult, db::{Content, WorldDef, ZoneDef, realm_database, cluster_database, CashShopVendor, CashShopItem, CashShopBundle, RawInstance}};
-use atlas::{ParamBox, ParamSet, ParamSetBox, Uuid};
+use atlas::{ParamBox, ParamSetBox, Uuid};
 
-async fn import_content_table(game_client_path: &PathBuf, src_table: &str, target_table: &str) -> AnotherlandResult<()> {
+async fn import_content_table(game_client_path: &Path, src_table: &str, target_table: &str) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
@@ -59,7 +59,7 @@ async fn import_content_table(game_client_path: &PathBuf, src_table: &str, targe
             
             documents.push(Content {
                 id: row.read::<i64,_>("id"),
-                guid: Uuid::parse_str(row.read::<&str,_>("guid")).unwrap().into(),
+                guid: Uuid::parse_str(row.read::<&str,_>("guid")).unwrap(),
                 name: row.read::<&str,_>("name").to_owned(),
                 class: row.read::<i64,_>("ixClass") as u16,
                 data,
@@ -80,7 +80,7 @@ async fn import_content_table(game_client_path: &PathBuf, src_table: &str, targe
     })
 }
 
-async fn import_instance(game_client_path: &PathBuf) -> AnotherlandResult<()> {
+async fn import_instance(game_client_path: &Path) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
@@ -94,7 +94,7 @@ async fn import_instance(game_client_path: &PathBuf) -> AnotherlandResult<()> {
         info!("Importing Instance -> instances...");
     
         let result = db
-            .prepare(format!("SELECT * FROM Instance"))
+            .prepare("SELECT * FROM Instance")
             .unwrap()
             .into_iter()
             .map(|row| row.unwrap());
@@ -114,10 +114,10 @@ async fn import_instance(game_client_path: &PathBuf) -> AnotherlandResult<()> {
     
             documents.push(RawInstance {
                 id: row.read::<i64,_>("ixInstanceID"),
-                guid: Uuid::parse_str(row.read::<&str,_>("uxInstanceGuid")).unwrap().into(),
-                zone_guid: Uuid::parse_str(row.read::<&str,_>("uxZoneGuid")).unwrap().into(),
+                guid: Uuid::parse_str(row.read::<&str,_>("uxInstanceGuid")).unwrap(),
+                zone_guid: Uuid::parse_str(row.read::<&str,_>("uxZoneGuid")).unwrap(),
                 class: row.read::<i64,_>("ixClass"),
-                content_guid: Uuid::parse_str(row.read::<&str,_>("uxContentGuid")).unwrap().into(),
+                content_guid: Uuid::parse_str(row.read::<&str,_>("uxContentGuid")).unwrap(),
                 editor_name: row.read::<&str,_>("sEditorName").to_owned(),
                 data,
                 phase_tag: row.read::<&str,_>("phaseTag").to_owned(),
@@ -145,7 +145,7 @@ async fn import_instance(game_client_path: &PathBuf) -> AnotherlandResult<()> {
 }
 
 
-async fn import_worlddef(game_client_path: &PathBuf) -> AnotherlandResult<()> {
+async fn import_worlddef(game_client_path: &Path) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
@@ -159,7 +159,7 @@ async fn import_worlddef(game_client_path: &PathBuf) -> AnotherlandResult<()> {
         info!("Importing WorldDef -> worlddefs...");
     
         let result = db
-            .prepare(format!("SELECT * FROM WorldDef"))
+            .prepare("SELECT * FROM WorldDef")
             .unwrap()
             .into_iter()
             .map(|row| row.unwrap());
@@ -170,9 +170,9 @@ async fn import_worlddef(game_client_path: &PathBuf) -> AnotherlandResult<()> {
         for row in result {   
             documents.push(WorldDef {
                 id: row.read::<i64,_>("ixWorldID") as u16,
-                guid: Uuid::parse_str(row.read::<&str,_>("uxWorldDefGuid")).unwrap().into(),
+                guid: Uuid::parse_str(row.read::<&str,_>("uxWorldDefGuid")).unwrap(),
                 name: row.read::<&str,_>("sWorldDef").to_owned(),
-                umap_guid: Uuid::parse_str(row.read::<&str,_>("uxUMapGuid")).unwrap().into(),
+                umap_guid: Uuid::parse_str(row.read::<&str,_>("uxUMapGuid")).unwrap(),
             });
         }
     
@@ -196,7 +196,7 @@ async fn import_worlddef(game_client_path: &PathBuf) -> AnotherlandResult<()> {
     })
 }
 
-async fn import_zone(game_client_path: &PathBuf) -> AnotherlandResult<()> {
+async fn import_zone(game_client_path: &Path) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
@@ -210,7 +210,7 @@ async fn import_zone(game_client_path: &PathBuf) -> AnotherlandResult<()> {
         info!("Importing Zone -> zones...");
     
         let result = db
-            .prepare(format!("SELECT * FROM Zone"))
+            .prepare("SELECT * FROM Zone")
             .unwrap()
             .into_iter()
             .map(|row| row.unwrap());
@@ -221,9 +221,9 @@ async fn import_zone(game_client_path: &PathBuf) -> AnotherlandResult<()> {
         for row in result {   
             documents.push(ZoneDef {
                 id: row.read::<i64,_>("ixZoneID"),
-                guid: Uuid::parse_str(row.read::<&str,_>("uxZoneGuid")).unwrap().into(),
-                worlddef_guid: Uuid::parse_str(row.read::<&str,_>("uxWorldDefGuid")).unwrap().into(),
-                parent_zone_guid: Uuid::parse_str(row.read::<&str,_>("uxParentZoneGuid")).unwrap().into(),
+                guid: Uuid::parse_str(row.read::<&str,_>("uxZoneGuid")).unwrap(),
+                worlddef_guid: Uuid::parse_str(row.read::<&str,_>("uxWorldDefGuid")).unwrap(),
+                parent_zone_guid: Uuid::parse_str(row.read::<&str,_>("uxParentZoneGuid")).unwrap(),
                 zone: row.read::<&str,_>("sZone").to_owned(),
                 zone_type: row.read::<i64,_>("iType") as i32,
                 is_instance: row.read::<i64,_>("bInstance") != 0,
@@ -255,7 +255,7 @@ async fn import_zone(game_client_path: &PathBuf) -> AnotherlandResult<()> {
     })
 }
 
-async fn import_vendor_data(game_client_path: &PathBuf) -> AnotherlandResult<()> {
+async fn import_vendor_data(game_client_path: &Path) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
@@ -269,7 +269,7 @@ async fn import_vendor_data(game_client_path: &PathBuf) -> AnotherlandResult<()>
         info!("Importing VendorData -> cash_shop_vendors...");
     
         let result = db
-            .prepare(format!("SELECT * FROM VendorData"))
+            .prepare("SELECT * FROM VendorData")
             .unwrap()
             .into_iter()
             .map(|row| row.unwrap());
@@ -279,10 +279,10 @@ async fn import_vendor_data(game_client_path: &PathBuf) -> AnotherlandResult<()>
         // dump data
         for row in result {   
             documents.push(CashShopVendor {
-                id: Uuid::parse_str(row.read::<&str,_>("VendorID")).unwrap().into(),
+                id: Uuid::parse_str(row.read::<&str,_>("VendorID")).unwrap(),
                 name: row.read::<&str,_>("VendorName").to_owned(),
                 sku_list: row.read::<&str,_>("SKUList")
-                    .split(",")
+                    .split(',')
                     .map(|s| s.trim())
                     .filter(|s| s.len() == 36)
                     .map(|s| Uuid::parse_str(s)
@@ -290,7 +290,7 @@ async fn import_vendor_data(game_client_path: &PathBuf) -> AnotherlandResult<()>
                     .collect(),
                 bundle_list: row.try_read::<&str,_>("BundleList")
                     .unwrap_or("")
-                    .split(",")
+                    .split(',')
                     .map(|s| s.trim())
                     .filter(|s| s.len() == 36)
                     .map(|s| Uuid::parse_str(s)
@@ -315,7 +315,7 @@ async fn import_vendor_data(game_client_path: &PathBuf) -> AnotherlandResult<()>
     })
 }
 
-async fn import_shop_items(game_client_path: &PathBuf) -> AnotherlandResult<()> {
+async fn import_shop_items(game_client_path: &Path) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
@@ -329,7 +329,7 @@ async fn import_shop_items(game_client_path: &PathBuf) -> AnotherlandResult<()> 
         info!("Importing SKUItems -> cash_shop_items...");
     
         let result = db
-            .prepare(format!("SELECT * FROM SKUItems"))
+            .prepare("SELECT * FROM SKUItems")
             .unwrap()
             .into_iter()
             .map(|row| row.unwrap());
@@ -339,11 +339,11 @@ async fn import_shop_items(game_client_path: &PathBuf) -> AnotherlandResult<()> 
         // dump data
         for row in result {   
             documents.push(CashShopItem {
-                id: Uuid::parse_str(row.read::<&str,_>("SKUID")).unwrap().into(),
+                id: Uuid::parse_str(row.read::<&str,_>("SKUID")).unwrap(),
                 display_name: row.read::<&str,_>("DisplayName").to_owned(),
                 description: row.read::<&str,_>("Description").to_owned(),
                 reference_item_name: row.read::<&str,_>("ReferenceItemName").to_owned(),
-                reference_item_guid: Uuid::parse_str(row.read::<&str,_>("ReferenceItemGUID")).unwrap().into(),
+                reference_item_guid: Uuid::parse_str(row.read::<&str,_>("ReferenceItemGUID")).unwrap(),
                 cash_price: row.read::<&str,_>("CashPrice").parse::<u32>().unwrap(),
                 sku_code: row.read::<&str,_>("SKUCode").to_owned(),
                 rental_duration: row.read::<&str,_>("RentalDuration").parse::<u32>().unwrap(),
@@ -385,7 +385,7 @@ async fn import_shop_items(game_client_path: &PathBuf) -> AnotherlandResult<()> 
 }
 
 
-async fn import_shop_bundles(game_client_path: &PathBuf) -> AnotherlandResult<()> {
+async fn import_shop_bundles(game_client_path: &Path) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
         let db = sqlite::open(
             game_client_path
@@ -399,7 +399,7 @@ async fn import_shop_bundles(game_client_path: &PathBuf) -> AnotherlandResult<()
         info!("Importing BundleItems -> cash_shop_bundles...");
     
         let result = db
-            .prepare(format!("SELECT * FROM BundleItems"))
+            .prepare("SELECT * FROM BundleItems")
             .unwrap()
             .into_iter()
             .map(|row| row.unwrap());
@@ -409,13 +409,13 @@ async fn import_shop_bundles(game_client_path: &PathBuf) -> AnotherlandResult<()
         // dump data
         for row in result {   
             documents.push(CashShopBundle {
-                id: Uuid::parse_str(row.read::<&str,_>("BundleID")).unwrap().into(),
+                id: Uuid::parse_str(row.read::<&str,_>("BundleID")).unwrap(),
                 display_name: row.read::<&str,_>("DisplayName").to_owned(),
                 description: row.read::<&str,_>("Description").to_owned(),
                 cash_price: row.read::<i64,_>("CashPrice") as u32,
                 icon: row.read::<&str,_>("Icon").to_owned(),
-                item_list_andcount: row.read::<&str,_>("ItemListAndCount").to_owned().split(",").filter(|s| s.len() != 0).map(|s| {
-                    let item_count: Vec<_> = s.split("=").collect();
+                item_list_andcount: row.read::<&str,_>("ItemListAndCount").split(',').filter(|s| !s.is_empty()).map(|s| {
+                    let item_count: Vec<_> = s.split('=').collect();
                     (item_count[0].to_owned(), item_count[1].parse().unwrap())
                 }).collect(),
                 is_in_stock: row.read::<i64,_>("IsInStock") != 0,

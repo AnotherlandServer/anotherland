@@ -17,10 +17,10 @@ use std::{collections::HashMap, net::SocketAddrV4};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-use crate::{cluster::{actor::Actor, connect_queue, MessageChannel, ClusterMessage}, util::AnotherlandResult, NODE};
+use crate::{cluster::{actor::Actor, connect_queue, MessageChannel, ClusterMessage}, util::AnotherlandResult};
 
 #[derive(Clone)]
 pub struct RealmEntry {
@@ -67,11 +67,8 @@ impl Actor for RealmList {
                 tokio::select! {
                     _ = cancellation_token.cancelled() => { break 'message_loop; },
                     Ok(msg) = cluster_channel.recv() => {
-                        match msg {
-                            ClusterMessage::RealmServerHearthbeat{realm_id, name, channels, address} => {
-                                handle.update_realm(realm_id, name, channels, address).await;
-                            },
-                            _ => (),
+                        if let ClusterMessage::RealmServerHearthbeat{realm_id, name, channels, address} = msg {
+                            handle.update_realm(realm_id, name, channels, address).await
                         }
                     },
                 }
@@ -95,7 +92,7 @@ impl Actor for RealmList {
 impl RealmList {
     #[rpc]
     pub fn get_realms(&self) -> Vec<RealmEntry> {
-        self.realms.iter().map(|(_, v)| v.clone()).collect()
+        self.realms.values().cloned().collect()
     }
 
     pub fn update_realm(&mut self, realm_id: u32, name: String, channels: Vec<(u32, f32)>, address: SocketAddrV4) {

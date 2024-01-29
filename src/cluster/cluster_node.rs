@@ -15,13 +15,13 @@
 
 use std::{marker::PhantomData, any::{Any, type_name}, collections::HashMap, sync::{Arc, Mutex}, net::SocketAddr, cell::OnceCell};
 use futures::future::join_all;
-use log::{debug, trace, error, info};
-use tokio::{sync::{mpsc, oneshot, broadcast, watch, Barrier}, select, net::TcpStream, task::JoinSet};
+use log::{trace, error, info};
+use tokio::{sync::{mpsc, oneshot, watch}, select};
 use tokio_util::{task::task_tracker::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::frontend::{Frontend}, util::{AnotherlandError, AnotherlandResult}, NODE};
+use crate::{cluster::frontend::Frontend, util::AnotherlandError, NODE};
 
-use super::{actor::{Actor, ActorHandler, ActorResult, ActorErr}};
+use super::actor::{Actor, ActorHandler, ActorResult, ActorErr};
 
 pub struct ClusterNodeData {
     actors: HashMap<String, ActorEntry>,
@@ -54,7 +54,9 @@ enum RemoteActorConnection<T: ActorHandler + ?Sized> {
 impl<T: 'static + ActorHandler> Clone for RemoteActorConnection<T> {
     fn clone(&self) -> Self {
         match self {
-            Self::Remote(arg0) => Self::Remote(arg0.clone()),
+            Self::Remote(_) => {
+                Self::Remote(())
+            },
             Self::Local(arg0) => Self::Local(arg0.clone()),
         }
     }
@@ -82,11 +84,11 @@ impl ClusterNode {
 
             starting_nodes: Vec::new(),
 
-            subtasks: (||{
+            subtasks: {
                 let cell = OnceCell::new(); 
                 let _ = cell.set(TaskTracker::new()); 
                 cell
-            })(),
+            },
         })))
     }
 
@@ -101,7 +103,7 @@ impl ClusterNode {
         let actor_ref = ActorRef { 
             channel: tx.clone(), 
             token: Some(actor_token.clone()),
-            phantom: PhantomData::default() 
+            phantom: PhantomData 
         };
 
         let mut state_signal_wait = self.0.lock().unwrap().state_signal_wait.clone();
@@ -120,7 +122,7 @@ impl ClusterNode {
 
         data.subtasks.get_mut().unwrap().spawn({
             let actor_ref = actor_ref.clone();
-            let name = name.clone();
+            let _name = name.clone();
 
             async move {
                 let mut stopping = false;
@@ -166,7 +168,7 @@ impl ClusterNode {
                 }
 
                 // Run stop lifecycle
-                let _ = actor.stopped().await?;
+                actor.stopped().await?;
 
                 if let Some(name) = actor.name() {
                     trace!("Stopped actor {}", name);
@@ -264,12 +266,10 @@ impl ClusterNode {
             loop {
                 let _ = state_signal_wait.changed().await;
                 let state = state_signal_wait.borrow().to_owned();
-                match state{
-                    ClusterNodeState::Stopping => {
-                        let _ = tx.send(()).await;
-                        break;
-                    },
-                    _ => (),
+
+                if let ClusterNodeState::Stopping = state {
+                    let _ = tx.send(()).await;
+                    break;
                 }
             }
         });
@@ -279,15 +279,11 @@ impl ClusterNode {
         where T: 'static + Actor + ActorHandler + Send + Sync {
         
         if let Some(actor) = self.0.lock().unwrap().actors.get(name) {
-            if let Some(producer) = actor.producer.downcast_ref::<mpsc::Sender<T::MessageType>>() {
-                Some(ActorRef { 
+            actor.producer.downcast_ref::<mpsc::Sender<T::MessageType>>().map(|producer| ActorRef { 
                     channel: producer.clone(), 
                     token: None,
-                    phantom: PhantomData::default() 
+                    phantom: PhantomData 
                 })
-            } else {
-                None
-            }
         } else {
             None
         }
@@ -296,16 +292,12 @@ impl ClusterNode {
     pub fn get_remote_actor<T>(&self, name: &str) -> Option<RemoteActorRef<T>>
     where T: 'static + Actor + ActorHandler + Send + Sync {
         if T::has_remote_actions() {
-            if let Some(actor) = self.0.lock().unwrap().remote_actors.get(name).map(|v| v.clone()) {
+            if let Some(actor) = self.0.lock().unwrap().remote_actors.get(name).cloned() {
                 let connection = match actor.as_ref() {
                     RemoteActorNode::Local(actor) => {
-                        if let Some(producer) = actor.producer.downcast_ref::<mpsc::Sender<T::MessageType>>() {
-                            Some(RemoteActorConnection::Local(producer.clone()))
-                        } else {
-                            None
-                        }
+                        actor.producer.downcast_ref::<mpsc::Sender<T::MessageType>>().map(|producer| RemoteActorConnection::Local(producer.clone()))
                     },
-                    RemoteActorNode::Remote(addr) => {
+                    RemoteActorNode::Remote(_addr) => {
                         todo!()
                     }
                 };
@@ -313,7 +305,7 @@ impl ClusterNode {
                 connection.map(|c| {
                     RemoteActorRef { 
                         node: c,
-                        phantom: PhantomData::default(), 
+                        phantom: PhantomData, 
                     }
                 })
             } else {
@@ -341,6 +333,7 @@ impl ClusterNode {
     }
 
     pub async fn stop(&self) {
+        #![allow(clippy::await_holding_lock)]
         let mut self_s = self.0.lock().unwrap();
 
         let _ = self_s.state_signal.send(ClusterNodeState::Stopping);
@@ -381,7 +374,7 @@ impl<T: ActorHandler + Send + Sync> ActorRef<T> {
 
 impl<T: ActorHandler + Send + Sync> Clone for ActorRef<T> {
     fn clone(&self) -> Self {
-        Self { channel: self.channel.clone(), token: self.token.clone(), phantom: self.phantom.clone() }
+        Self { channel: self.channel.clone(), token: self.token.clone(), phantom: self.phantom }
     }
 }
 
@@ -405,6 +398,6 @@ impl<T: ActorHandler + Send + Sync> RemoteActorRef<T> {
 
 impl<T: ActorHandler + Send + Sync> Clone for RemoteActorRef<T> {
     fn clone(&self) -> Self {
-        Self { node: self.node.clone(), phantom: self.phantom.clone() }
+        Self { node: self.node.clone(), phantom: self.phantom }
     }
 }

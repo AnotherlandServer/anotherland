@@ -17,7 +17,7 @@ use std::{path::Path, io, fs, collections::HashMap, rc::Rc, cell::RefCell};
 
 use nom::{IResult, character::complete, error::Error};
 use proc_macro2::TokenStream;
-use quote::{format_ident, TokenStreamExt};
+use quote::format_ident;
 use regex::Regex;
 use ::quote::quote;
 
@@ -61,14 +61,8 @@ struct ParamClass {
 }
 
 impl ParamClass {
-    fn is_child_of(&self, class: &str) -> bool {
-        self.name.as_str() == class || if let Some(extends_ref) = &self.extends_ref {
-            extends_ref.borrow().is_child_of(class)
-        } else { false }
-    }
-
     fn has_param(&self, param: &str) -> bool {
-        self.paramid.iter().find(|(name, _)| name == param).is_some()
+        self.paramid.iter().any(|(name, _)| name == param)
     }
 
     fn param_is_owned(&self, param: &str) -> bool {
@@ -116,7 +110,7 @@ enum ParamType {
     Int64,
     Int64Vector,
     IntVector,
-    JSON,
+    Json,
     LocalizedString,
     String,
     StringFloatPair,
@@ -152,7 +146,7 @@ impl ParamType {
             ParamType::Int64 => quote!(i64),
             ParamType::Int64Vector => quote!([i64]),
             ParamType::IntVector => quote!([i32]),
-            ParamType::JSON => quote!(Value),
+            ParamType::Json => quote!(Value),
             ParamType::LocalizedString => quote!(Uuid),
             ParamType::OAInstanceGroup => quote!(()),
             ParamType::OASetGuid => quote!(()),
@@ -168,26 +162,19 @@ impl ParamType {
     }
 
     fn is_any_type(self) -> bool {
-        match self {
-            ParamType::Any => true,
-            _ => false,
-        }
+        matches!(self, ParamType::Any)
     }
 
     fn is_copy_type(self) -> bool {
-        match self {
-            ParamType::AvatarID | 
+        matches!(self, ParamType::AvatarID | 
             ParamType::Bool |
             ParamType::Float |
             ParamType::Int |
-            ParamType::Int64 => true,
-            _ => false,
-        }
+            ParamType::Int64)
     }
 
     fn is_ref_type(self) -> bool {
-        match self {
-            ParamType::AvatarIDSet |
+        matches!(self, ParamType::AvatarIDSet |
             ParamType::AvatarIDVector |
             ParamType::ContentRef |
             ParamType::FloatRange |
@@ -196,7 +183,7 @@ impl ParamType {
             ParamType::GuidPair |
             ParamType::Int64Vector |
             ParamType::IntVector |
-            ParamType::JSON |
+            ParamType::Json |
             ParamType::LocalizedString |
             ParamType::OAVectorGuid |
             ParamType::String |
@@ -204,9 +191,7 @@ impl ParamType {
             ParamType::StringIntHashmap |
             ParamType::StringStringHashmap |
             ParamType::StringVector |
-            ParamType::Vector3 => true,
-            _ => false,
-        }
+            ParamType::Vector3)
     }
 }
 
@@ -244,7 +229,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
     let file_content = {
         let data: Vec<u16> = fs::read(paramlist_path)?
             .chunks_exact(2)
-            .into_iter()
             .map(|v| u16::from_ne_bytes([v[0], v[1]]))
             .collect();
         String::from_utf16(&data[1..])
@@ -316,7 +300,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 "Int64" => paramtype = Some(ParamType::Int64),
                                 "Int64_vector" => paramtype = Some(ParamType::Int64Vector),
                                 "Int_vector" => paramtype = Some(ParamType::IntVector),
-                                "JSON" => paramtype = Some(ParamType::JSON),
+                                "JSON" => paramtype = Some(ParamType::Json),
                                 "LocalizedString" => paramtype = Some(ParamType::LocalizedString),
                                 "String" => paramtype = Some(ParamType::String),
                                 "StringFloatPair" => paramtype = Some(ParamType::StringFloatPair),
@@ -357,7 +341,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                         match paramtype.as_ref().unwrap() {
                             ParamType::Any => None,
                             ParamType::AvatarID => {
-                                let val: u64 = default_str.strip_prefix("#").unwrap().parse().expect("failed to parse avatar id");
+                                let val: u64 = default_str.strip_prefix('#').unwrap().parse().expect("failed to parse avatar id");
                                 Some(quote! { Param::AvatarId(#val.into()) })
                             },
                             ParamType::AvatarIDSet => None,
@@ -386,7 +370,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             },
                             ParamType::Int64Vector => None,
                             ParamType::IntVector => None,
-                            ParamType::JSON => {
+                            ParamType::Json => {
                                 let json = default_str.replace("\\\"", "\"");
                                 Some(quote! { Param::JsonValue(serde_json::from_str(#json).unwrap(), None) })
                             },
@@ -397,7 +381,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             ParamType::StringIntHashmap => None,
                             ParamType::StringVector => None,
                             ParamType::Vector3 => {
-                                let parts: Vec<_> = default_str.split(" ").collect();
+                                let parts: Vec<_> = default_str.split(' ').collect();
                                 let x: f32 = parts[0].parse().expect("failed to parse vector3");
                                 let y: f32 = parts[1].parse().expect("failed to parse vector3");
                                 let z: f32 = parts[2].parse().expect("failed to parse vector3");
@@ -501,7 +485,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             },
             Err(e) => {
                 println!("Error in line {}", line_number + 1);
-                println!("{}", e.to_string());
+                println!("{}", e);
                 panic!();
             }
             _ => (),
@@ -511,7 +495,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
     // resolve references
     for (_, class) in class_map.iter() {
         if !class.borrow().extends.is_empty() {
-            let extend_class = class_map.get(&class.borrow().extends).map(|c| c.clone()).unwrap();
+            let extend_class = class_map.get(&class.borrow().extends).cloned().unwrap();
             extend_class.borrow_mut().final_class = false;
             class.borrow_mut().extends_ref = Some(extend_class);
         }
@@ -572,8 +556,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         let enum_name = format_ident!("{}Attribute", class.name.to_case(Case::UpperCamel));
         let class_name = format_ident!("{}Class", class.name.to_case(Case::UpperCamel));
 
-        let class_id_literal = class.unique_id;
-
         let enum_entries: Vec<_> = class.paramid.iter().map(|v| {
             let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
 
@@ -622,7 +604,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 ParamType::Int64 => quote!(ParamType::Int64),
                 ParamType::Int64Vector => quote!(ParamType::Int64Array),
                 ParamType::IntVector => quote!(ParamType::IntArray),
-                ParamType::JSON => quote!(ParamType::JsonValue),
+                ParamType::Json => quote!(ParamType::JsonValue),
                 ParamType::LocalizedString => quote!(ParamType::LocalizedString),
                 ParamType::String => quote!(ParamType::String),
                 ParamType::StringFloatPair => quote!(ParamType::StringFloatPair),
@@ -794,7 +776,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
                     if options.param_type.is_any_type() {
                         tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, #rust_type>>;
+                            fn #field_name_ident(&self) -> Option<MappedRwLockReadGuard<#rust_type>>;
                         });
                     } else if options.param_type.is_copy_type() {
                         if options.default.is_some() {
@@ -809,16 +791,16 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     } else if options.param_type.is_ref_type() {
                         if options.default.is_some() {
                             tokens.push(quote! { 
-                                fn #field_name_ident<'a>(&'a self) -> MappedRwLockReadGuard<'a, #rust_type>;
+                                fn #field_name_ident(&self) -> MappedRwLockReadGuard<#rust_type>;
                             });
                         } else {
                             tokens.push(quote! { 
-                                fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, #rust_type>>;
+                                fn #field_name_ident(&self) -> Option<MappedRwLockReadGuard<#rust_type>>;
                             });
                         }
                     } else {
                         tokens.push(quote! { 
-                            fn #field_name_ident<'a>(&'a self) -> Option<()>;
+                            fn #field_name_ident(&self) -> Option<()>;
                         });
                     }
 
@@ -884,7 +866,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                         ParamType::IntVector => tokens.push(quote! { 
                             fn #set_field_name(&mut self, val: Vec<i32>);
                         }),
-                        ParamType::JSON => tokens.push(quote! { 
+                        ParamType::Json => tokens.push(quote! { 
                             fn #set_field_name(&mut self, val: Value);
                         }),
                         ParamType::LocalizedString => tokens.push(quote! { 
@@ -918,15 +900,9 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             fn #set_field_name(&mut self, val: Vec<String>);
                         }),
                         ParamType::Vector3 => {
-                            if options.flags.contains(&ParamFlag::Uts) {
-                                tokens.push(quote! {
-                                    fn #set_field_name(&mut self, val: Vec3);
-                                })
-                            } else {
-                                tokens.push(quote! {
-                                    fn #set_field_name(&mut self, val: Vec3);
-                                })
-                            }
+                            tokens.push(quote! {
+                                fn #set_field_name(&mut self, val: Vec3);
+                            })
                         },
                     }
 
@@ -1033,7 +1009,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
                             if options.param_type.is_any_type() {
                                 tokens.push(quote! { 
-                                    fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, #rust_type>> {
+                                    fn #field_name_ident(&self) -> Option<MappedRwLockReadGuard<#rust_type>> {
                                         RwLockReadGuard::try_map::<Param, _>(self.0.read(), 
                                         |v| 
                                             v.get(&#attrib_name::#attrib_enum_name)
@@ -1048,8 +1024,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                             self.0
                                                 .read()
                                                 .get(&#attrib_name::#attrib_enum_name)
-                                                .map(|v| v.try_into().ok())
-                                                .flatten()
+                                                .and_then(|v| v.try_into().ok())
                                                 .expect("param not defined")
                                         }
                                     });
@@ -1059,20 +1034,18 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                             self.0
                                                 .read()
                                                 .get(&#attrib_name::#attrib_enum_name)
-                                                .map(|v| v.try_into().ok())
-                                                .flatten()
+                                                .and_then(|v| v.try_into().ok())
                                         }
                                     });
                                 }
                             } else if options.param_type.is_ref_type() {
                                 if options.default.is_some() {
                                     tokens.push(quote!{
-                                        fn #field_name_ident<'a>(&'a self) -> MappedRwLockReadGuard<'a, #rust_type> {
+                                        fn #field_name_ident(&self) -> MappedRwLockReadGuard<#rust_type> {
                                             RwLockReadGuard::try_map::<#rust_type, _>(self.0.read(), 
                                             |v| 
                                                 v.get(&#attrib_name::#attrib_enum_name)
-                                                .map(|v| v.try_into().ok())
-                                                .flatten()
+                                                .and_then(|v| v.try_into().ok())
                                             )
                                             .ok()
                                             .expect("param not defined")
@@ -1080,12 +1053,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                     });
                                 } else {
                                     tokens.push(quote!{
-                                        fn #field_name_ident<'a>(&'a self) -> Option<MappedRwLockReadGuard<'a, #rust_type>> {
+                                        fn #field_name_ident(&self) -> Option<MappedRwLockReadGuard<#rust_type>> {
                                             RwLockReadGuard::try_map::<#rust_type, _>(self.0.read(), 
                                             |v| 
                                                 v.get(&#attrib_name::#attrib_enum_name)
-                                                .map(|v| v.try_into().ok())
-                                                .flatten()
+                                                .and_then(|v| v.try_into().ok())
                                             )
                                             .ok()
                                         }
@@ -1093,7 +1065,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 }
                             } else {
                                 tokens.push(quote! { 
-                                    fn #field_name_ident<'a>(&'a self) -> Option<()> { todo!() }
+                                    fn #field_name_ident(&self) -> Option<()> { todo!() }
                                 });
                             }
     
@@ -1156,7 +1128,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 ParamType::IntVector => tokens.push(quote! { 
                                     fn #set_field_name(&mut self, val: Vec<i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
                                 }),
-                                ParamType::JSON => tokens.push(quote! { 
+                                ParamType::Json => tokens.push(quote! { 
                                     fn #set_field_name(&mut self, val: Value) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
                                 }),
                                 ParamType::LocalizedString => tokens.push(quote! { 
@@ -1190,15 +1162,9 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                     fn #set_field_name(&mut self, val: Vec<String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
                                 }),
                                 ParamType::Vector3 => {
-                                    if options.flags.contains(&ParamFlag::Uts) {
-                                        tokens.push(quote! {
-                                            fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
-                                        })
-                                    } else {
-                                        tokens.push(quote! {
-                                            fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
-                                        })
-                                    }
+                                    tokens.push(quote! {
+                                        fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    })
                                 },
                             }
     
@@ -1242,7 +1208,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         };
 
         let default_params: Vec<_> = v.borrow().paramoption.iter()
-        .map(|(name, options)| {
+        .filter_map(|(name, options)| {
             let field_name = name.to_case(Case::UpperCamel);
 
             let attrib_name = format_ident!("{}Attribute", class.name.to_case(Case::UpperCamel));
@@ -1252,14 +1218,8 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 _ => field_name.as_str(),
             });
 
-            if let Some(default_literal) = options.default_literal.as_ref() {
-                Some(quote!(set.insert(#attrib_name::#field_name_ident, #default_literal);))
-            } else {
-                None
-            }
+            options.default_literal.as_ref().map(|default_literal| quote!(set.insert(#attrib_name::#field_name_ident, #default_literal);))
         })
-        .filter(|v| v.is_some())
-        .map(|v| v.unwrap())
         .collect();
 
         let default_implt = if default_params.is_empty() {
@@ -1285,7 +1245,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     Self(Arc::new(RwLock::new(set)))
                 }
 
-                fn as_set<'a>(&'a self) -> RwLockReadGuard<'a, ParamSet<Self::Attributes>> {
+                fn as_set(&self) -> RwLockReadGuard<ParamSet<Self::Attributes>> {
                     self.0.read()
                 }
 
@@ -1328,7 +1288,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 where
                     S: Serializer,
                 {
-                    let json = self.into_persistent_json();
+                    let json = self.as_persistent_json();
                     json.serialize(s)
                 }
             }
@@ -1386,7 +1346,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
     let class_into_json: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => value.downcast_ref::<#class_name>().expect("class id mismatch").into_persistent_json(), }
+        quote! { ClassId::#class_name => value.downcast_ref::<#class_name>().expect("class id mismatch").as_persistent_json(), }
     }).collect();
 
     let class_read: Vec<_> = final_classes.iter().map(|v| {
@@ -1567,7 +1527,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 }
             }
 
-            pub(crate) fn write_to_client<'a, T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
+            pub(crate) fn write_to_client<T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
             where T: ByteWrite {
                 match self {
                     #(#class_write_to_client)*
@@ -1580,14 +1540,14 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 }
             }
 
-            pub(crate) fn write_set<'a, T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
+            pub(crate) fn write_set<T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
             where T: ByteWrite {
                 match self {
                     #(#class_write_set)*
                 }
             }
 
-            pub(crate) fn write_set_to_client<'a, T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
+            pub(crate) fn write_set_to_client<T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
             where T: ByteWrite {
                 match self {
                     #(#class_write_set_to_client)*
@@ -1639,17 +1599,17 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             }
         }
 
-        impl Into<u16> for ClassId {
-            fn into(self) -> u16 {
-                match self {
+        impl From<ClassId> for u16 {
+            fn from(val: ClassId) -> u16 {
+                match val {
                     #(#class_id_int),*
                 }
             }
         }
 
-        impl Into<u32> for ClassId {
-            fn into(self) -> u32 {
-                let id: u16 = self.into();
+        impl From<ClassId> for u32 {
+            fn from(val: ClassId) -> u32 {
+                let id: u16 = val.into();
                 id as u32
             }
         }

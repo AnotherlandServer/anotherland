@@ -16,7 +16,6 @@
 use std::{any::Any, io, str::FromStr};
 
 use bitstream_io::ByteWrite;
-use log::debug;
 use nom::{error::VerboseError, IResult};
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde_json::{Value, json};
@@ -57,7 +56,7 @@ impl ParamBox {
         self.class.downcast().map_err(|_| ParamError(())).map(|v| *v)
     }
 
-    pub fn into_persistent_json(&self) -> Value {
+    pub fn as_persistent_json(&self) -> Value {
         let serialized = self.class_id.class_into_json(self.class.as_ref());
 
         json!({ self.class_id.to_string(): serialized })
@@ -65,11 +64,10 @@ impl ParamBox {
 
     pub fn from_json(value: &Value) -> Result<Self, io::Error> {
         let (class_name, value) = value.as_object()
-            .map(|v| v.iter().next())
-            .flatten()
+            .and_then(|v| v.iter().next())
             .ok_or(io::Error::new(io::ErrorKind::InvalidData, ""))?;
 
-        let class_id = ClassId::from_str(&class_name)
+        let class_id = ClassId::from_str(class_name)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid class name"))?;
 
         let value = class_id.class_from_json(value)?;
@@ -80,7 +78,7 @@ impl ParamBox {
         })
     }
 
-    pub fn read<'a>(class_id: u16, i: &'a [u8]) -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
+    pub fn read(class_id: u16, i: &[u8]) -> IResult<&[u8], Self, VerboseError<&[u8]>> {
         let class_id: ClassId = class_id.try_into().expect("unknown class id");
         let (i, class) = class_id.read(i)?;
 
@@ -116,7 +114,7 @@ impl Serialize for ParamBox {
     where
         S: Serializer,
     {
-        let json = self.into_persistent_json();
+        let json = self.as_persistent_json();
         json.serialize(s)
     }
 }
@@ -134,7 +132,7 @@ impl <'de>Deserialize<'de> for ParamBox {
 impl Clone for ParamBox {
     fn clone(&self) -> Self {
         Self { 
-            class_id: self.class_id.clone(), 
+            class_id: self.class_id, 
             class: self.class_id.clone_class(self.class.as_ref()),
         }
     }

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::{HashMap, HashSet}, sync::Arc};
+use std::{collections::{HashSet}, sync::Arc};
 
 use atlas::{AvatarId, AvatarType, OaZoneConfigClass, Uuid};
 use log::debug;
@@ -44,10 +44,9 @@ impl ZoneFactory {
 
             MiscContent::get_by_name(db.clone(), &zone_def.realu_zone_type)
                 .await?
-                .map(|mut v| {
+                .and_then(|mut v| {
                     v.data.take().map(|v| v.take::<OaZoneConfigClass>().ok())
                 })
-                .flatten()
                 .flatten()
                 .ok_or(AnotherlandError::app_err("zoneconfig not found"))?
         };
@@ -65,7 +64,7 @@ impl ZoneFactory {
         let mut instance_template = Vec::new();
         let mut id_set = HashSet::new();
 
-        let instances = Instance::load_for_zone(db, &zone_id).await?;
+        let instances = Instance::load_for_zone(db, zone_id).await?;
         for instance in instances.into_iter() {
             // generate avatar id
             let id = {
@@ -79,7 +78,7 @@ impl ZoneFactory {
             };
 
             // remember id to avoid collisions
-            id_set.insert(id.clone()); 
+            id_set.insert(id); 
 
             instance_template.push((instance, id));
         }

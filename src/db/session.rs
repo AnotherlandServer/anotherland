@@ -45,7 +45,7 @@ impl Session {
 
         let session = Session {
             id: Uuid::new(),
-            account: account.id.clone(),
+            account: account.id,
             is_gm: account.is_gm,
             realm_id: None,
             world_id: None,
@@ -125,7 +125,7 @@ impl Session {
     }
 
     pub async fn select_zone(&mut self, db: Database, zone_guid: Uuid) -> AnotherlandResult<()> {
-        self.zone_guid = Some(zone_guid.clone());
+        self.zone_guid = Some(zone_guid);
 
         let collection = Self::collection(db);
 

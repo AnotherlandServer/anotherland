@@ -33,15 +33,13 @@ pub fn generate_enum_code(enums: &Vec<Rc<RefCell<GeneratedEnum>>>) -> TokenStrea
         let values: Vec<Ident> = generated_enum.values.iter()
             .map(|v| format_ident!("{}", v.1)).collect();
 
-        let mut compare: Vec<_> = generated_enum.values.iter()
+        let compare: Vec<_> = generated_enum.values.iter()
             .map(|(k, v)| {
                 let val_ident = format_ident!("{}", v);
                 let k = *k as u32;
 
-                quote! { if rh == &#k && self == &#enum_identifier::#val_ident { true } }
+                quote! { (rh == &#k && self == &#enum_identifier::#val_ident) }
             }).collect();
-
-        compare.push(quote! { { false } });
 
         code.extend(quote! {
             #[allow(non_camel_case_types)]
@@ -53,7 +51,7 @@ pub fn generate_enum_code(enums: &Vec<Rc<RefCell<GeneratedEnum>>>) -> TokenStrea
 
             impl PartialEq<u32> for #enum_identifier {
                 fn eq(&self, rh: &u32) -> bool {
-                    #(#compare)else*
+                    #(#compare)||*
                 }
             }
         });
@@ -109,9 +107,8 @@ pub fn generate_struct_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>) -> Toke
     for generated_struct in structs {
         let generated_struct = generated_struct.borrow();
 
-        match &generated_struct.definition {
-            GeneratedStructSource::PacketDefintion(pkg) => if pkg.borrow().id == 0 { continue; }
-            _ => (),
+        if let GeneratedStructSource::PacketDefintion(pkg) = &generated_struct.definition {
+            if pkg.borrow().id == 0 { continue; }
         }
 
         let struct_ident = format_ident!("{}", generated_struct.name);
@@ -498,7 +495,7 @@ pub fn generate_parser_code(generated_struct: &GeneratedStruct) -> TokenStream {
     match &generated_struct.definition {
         GeneratedStructSource::PacketDefintion(_) => {
             quote! {
-                pub fn from_bytes<'a>(i: &'a [u8]) -> IResult<&'a [u8], CPkt, VerboseError<&'a [u8]>> { 
+                pub fn from_bytes(i: &[u8]) -> IResult<&[u8], CPkt, VerboseError<&[u8]>> { 
                     context(#struct_name, |i| {
                         #(#field_parser)*
         
@@ -511,7 +508,7 @@ pub fn generate_parser_code(generated_struct: &GeneratedStruct) -> TokenStream {
         },
         GeneratedStructSource::StructDefinition(_) => {
             quote! {
-                pub fn from_bytes<'a>(i: &'a [u8]) -> IResult<&'a [u8], #struct_ident, VerboseError<&'a [u8]>> { 
+                pub fn from_bytes(i: &[u8]) -> IResult<&[u8], #struct_ident, VerboseError<&[u8]>> { 
                     context(#struct_name, |i| {
                         #(#field_parser)*
         
@@ -751,7 +748,7 @@ pub fn generate_field_writer_code(generated_struct: &GeneratedStruct, field_def:
     }
 }
 
-pub fn generate_writer_code<'a>(generated_struct: &GeneratedStruct) -> TokenStream {
+pub fn generate_writer_code(generated_struct: &GeneratedStruct) -> TokenStream {
     let parent_field_writers: Vec<_> =  match &generated_struct.definition {
         GeneratedStructSource::PacketDefintion(def) => {
             let def = def.borrow();
@@ -816,9 +813,8 @@ pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>)
     for generated_struct in structs {
         let generated_struct = generated_struct.borrow();
 
-        match &generated_struct.definition {
-            GeneratedStructSource::PacketDefintion(pkg) => if pkg.borrow().id == 0 { continue; }
-            _ => (),
+        if let GeneratedStructSource::PacketDefintion(pkg) = &generated_struct.definition {
+            if pkg.borrow().id == 0 { continue; }
         }
 
         let struct_ident = format_ident!("{}", generated_struct.name);

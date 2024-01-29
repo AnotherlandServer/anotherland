@@ -13,15 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::BorrowMut;
-use std::cell::{Cell, RefCell};
+
+
 use std::collections::HashMap;
-use std::ops::DerefMut;
+
 use std::sync::Arc;
 
 use atlas::Uuid;
 use atlas::{AvatarId, raknet::Message};
-use futures::future::Remote;
+
 use log::{error, warn, trace};
 use tokio::select;
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -41,10 +41,6 @@ enum ZoneRouterCommand {
     NotifyTravel { zone_id: Uuid, session_id: Uuid, destination: TravelType, retval: oneshot::Sender<AnotherlandResult<()>> },
     DropConnection { zone_id: Uuid, session_id: Uuid },
     DropZone { zone_id: Uuid },
-}
-
-enum ZoneRouterEvent {
-    
 }
 
 #[derive(Clone)]
@@ -83,10 +79,10 @@ impl ZoneRouter {
                                                 "Entering zone {}", zone_id);
             
                                             // Notify zone server that a client is entering
-                                            if let Err(_) = connection.send(ZoneUpstreamMessage::EnterZone { 
-                                                    session_id: session_id.clone(), 
-                                                    avatar_id: avatar_id.clone() 
-                                                }).await {
+                                            if connection.send(ZoneUpstreamMessage::EnterZone { 
+                                                    session_id, 
+                                                    avatar_id 
+                                                }).await.is_err() {
                                                 
                                                 let _ = retval.send(Err(AnotherlandError::app_err("failed to enter zone")));
                                             } else {
@@ -98,8 +94,8 @@ impl ZoneRouter {
                                                     "Returning connection handle for zone {}", zone_id);
             
                                                 let _ = retval.send(Ok(ZoneRouterConnection {
-                                                    zone_id: zone_id.clone(),
-                                                    session_id: session_id.clone(),
+                                                    zone_id,
+                                                    session_id,
                                                     avatar_id,
                                                     command_sender: command_sender.clone(),
                                                     message_receiver: Mutex::new(message_receiver),
@@ -135,7 +131,7 @@ impl ZoneRouter {
                                                     session_connections.remove(&session_id);
                                                 }
                                             },
-                                            Err(e) => {
+                                            Err(_e) => {
                                                 warn!("Received invalid message from zone!");
                                             }
                                         }
@@ -158,15 +154,13 @@ impl ZoneRouter {
                                     // tell zone the client left
                                     if let Ok(connection) = connections.get_zone_server_client(&zone_id) {
                                         let _ = connection.send(ZoneUpstreamMessage::LeaveZone { 
-                                            session_id: session_id.clone() 
+                                            session_id 
                                         }).await;
                                     }
             
                                     // Remove connection when zone_id matches
-                                    if session_connections.contains_key(&session_id) {
-                                        if session_connections.get(&session_id).unwrap().0 == zone_id {
-                                            session_connections.remove(&session_id);
-                                        }
+                                    if session_connections.contains_key(&session_id) && session_connections.get(&session_id).unwrap().0 == zone_id {
+                                        session_connections.remove(&session_id);
                                     }
                                 },
                                 Some(ZoneRouterCommand::DropZone { zone_id }) => {
@@ -207,9 +201,9 @@ impl ZoneRouter {
         let (retval_sender, retval_receiver) = oneshot::channel();
 
         self.command_sender.send(ZoneRouterCommand::ConnectZone { 
-            zone_id: zone_id.clone(), 
-            session_id: session_id.clone(), 
-            avatar_id: avatar_id.clone(), 
+            zone_id: *zone_id, 
+            session_id: *session_id, 
+            avatar_id: *avatar_id, 
             retval: retval_sender 
         }).await.map_err(|_| AnotherlandErrorKind::IO)?;
 
@@ -245,14 +239,14 @@ impl ZoneConnectionRegistry {
         } else {
             trace!("Resolving server address for zone {}", zone_id);
 
-            if let Some(addr) = self.zone_registry.resolve_zone_address(zone_id.clone()).await {
+            if let Some(addr) = self.zone_registry.resolve_zone_address(*zone_id).await {
                 let mut client = ZoneServerClient::connect(addr).await?;
                 let (zone_message_sender, mut zone_message_receiver) = mpsc::channel(10);
 
-                self.connections.insert(zone_id.clone(), zone_message_sender.clone());
+                self.connections.insert(*zone_id, zone_message_sender.clone());
 
                 tasks.spawn({
-                    let zone_id = zone_id.clone();
+                    let zone_id = *zone_id;
                     let token = token.to_owned();
                     let command_sender = command_sender.to_owned();
 
@@ -275,7 +269,6 @@ impl ZoneConnectionRegistry {
 
                                             break 'message_loop;
                                         },
-                                        _ => {},
                                     }
                                 },
                                 Some(message) = zone_message_receiver.recv() => {
@@ -300,7 +293,7 @@ impl ZoneConnectionRegistry {
                         zone_message_receiver.close();
                         client.close().await;
                         
-                        let _ = command_sender.send(ZoneRouterCommand::DropZone { zone_id: zone_id.clone() }).await;
+                        let _ = command_sender.send(ZoneRouterCommand::DropZone { zone_id }).await;
 
                         trace!("Stopped net task for zone {}", zone_id);
 
@@ -340,8 +333,8 @@ impl ZoneRouterConnection {
         let (retval_sender, retval_receiver) = oneshot::channel();
 
         self.command_sender.send(ZoneRouterCommand::ForwardMessageToZone { 
-            zone_id: self.zone_id.clone(), 
-            session_id: self.session_id.clone(), 
+            zone_id: self.zone_id, 
+            session_id: self.session_id, 
             message: message.to_bytes(), 
             retval: retval_sender,
         }).await.map_err(|_| AnotherlandErrorKind::IO)?;
@@ -358,8 +351,8 @@ impl ZoneRouterConnection {
         let (retval_sender, retval_receiver) = oneshot::channel();
 
         self.command_sender.send(ZoneRouterCommand::NotifyTravel { 
-            zone_id: self.zone_id.clone(), 
-            session_id: self.session_id.clone(), 
+            zone_id: self.zone_id, 
+            session_id: self.session_id, 
             destination,
             retval: retval_sender 
         }).await.map_err(|_| AnotherlandErrorKind::IO)?;
@@ -371,8 +364,8 @@ impl ZoneRouterConnection {
 impl Drop for ZoneRouterConnection {
     fn drop(&mut self) {
         let cmd = ZoneRouterCommand::DropConnection { 
-            zone_id: self.zone_id.clone(), 
-            session_id: self.session_id.clone() 
+            zone_id: self.zone_id, 
+            session_id: self.session_id 
         };
 
         let sender = self.command_sender.clone();

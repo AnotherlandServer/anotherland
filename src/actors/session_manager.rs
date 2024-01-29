@@ -21,7 +21,7 @@ use log::debug;
 use mongodb::Database;
 use tokio_stream::StreamExt;
 
-use crate::{cluster::{actor::{Actor, ActorResult}, connect_queue, MessageChannel, MessageQueueProducer, MessageQueueConsumer, ClusterMessage}, util::{AnotherlandResult, AnotherlandError}, db::{Account, Session, cluster_database, DatabaseRecord}, NODE};
+use crate::{cluster::{actor::{Actor}, connect_queue, MessageChannel, MessageQueueProducer, ClusterMessage}, util::{AnotherlandResult, AnotherlandError}, db::{Account, Session, cluster_database, DatabaseRecord}};
 
 pub struct SessionManager {
     cluster_db: Database,
@@ -120,7 +120,7 @@ impl SessionManager {
 
         // Destroy all found sessions
         while let Some(session) = result.try_next().await? {
-            self.destroy_session(session.id.into()).await?;
+            self.destroy_session(session.id).await?;
         }
     
         Ok(())
@@ -129,10 +129,10 @@ impl SessionManager {
     #[rpc]
     pub async fn destroy_session(&mut self, session_id: Uuid) -> AnotherlandResult<()> {
         // first we tell all session handlers, that this session became invalid
-        self.cluster_channel_producer.send(ClusterMessage::SessionDestroyed { session_id: session_id.clone() }).await?;
+        self.cluster_channel_producer.send(ClusterMessage::SessionDestroyed { session_id }).await?;
 
         // and only then we update the database
-        if let Some(session) = Session::get(self.cluster_db.clone(), &session_id.into()).await? {
+        if let Some(session) = Session::get(self.cluster_db.clone(), &session_id).await? {
             session.delete(self.cluster_db.clone()).await?;
         }
 
@@ -147,7 +147,7 @@ impl SessionManager {
 
         // Destroy all found sessions
         while let Some(session) = result.try_next().await? {
-            self.destroy_session(session.id.into()).await?;
+            self.destroy_session(session.id).await?;
         }
 
         Ok(())

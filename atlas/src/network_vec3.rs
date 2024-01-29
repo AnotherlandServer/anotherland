@@ -17,9 +17,9 @@ use glam::Vec3;
 
 use crate::NetworkVec3;
 
-impl Into<Vec3> for NetworkVec3 {
-    fn into(self) -> Vec3 {
-        Vec3 { x: self.x, y: self.y, z: self.z }
+impl From<NetworkVec3> for Vec3 {
+    fn from(val: NetworkVec3) -> Vec3 {
+        Vec3 { x: val.x, y: val.y, z: val.z }
     }
 }
 

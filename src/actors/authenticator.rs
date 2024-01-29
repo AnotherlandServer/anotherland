@@ -17,7 +17,7 @@ use actor_macros::actor_actions;
 use async_trait::async_trait;
 use atlas::Uuid;
 use bson::doc;
-use mongodb::{Database, options::{UpdateModifications, UpdateOptions}};
+use mongodb::{Database, options::UpdateOptions};
 use serde_derive::{Serialize, Deserialize};
 
 use crate::{cluster::actor::Actor, util::{AnotherlandResult, AnotherlandError}, db::{Account, Session, cluster_database}, NODE};
@@ -99,7 +99,7 @@ impl Authenticator {
 
     #[rpc]
     pub async fn get_account(&self, account_id: Uuid) -> AnotherlandResult<Account> {
-        let account = Account::get_by_id(self.cluster_db.clone(), &account_id.into()).await?;
+        let account = Account::get_by_id(self.cluster_db.clone(), &account_id).await?;
         account.ok_or(AnotherlandError::app_err("account not found"))
     }
 
@@ -113,7 +113,7 @@ impl Authenticator {
                     // only allow gm logins when servers are locked
                     Ok(LoginResult::ServersLocked)
                 } else {
-                    let session = self.session_manager_mut().create_session(account.id.clone().into()).await?;
+                    let session = self.session_manager_mut().create_session(account.id).await?;
                     Ok(LoginResult::Session(session))
                 }
             } else {

@@ -61,11 +61,8 @@ impl SessionHandler {
                     tokio::select! {
                         _ = token.cancelled() => { break; },
                         Ok(msg) = cluster_channel.recv() => {
-                            match msg {
-                                ClusterMessage::SessionDestroyed { session_id } => {
-                                    handler.write().await.invalidate_session(session_id);
-                                },
-                                _ => (),
+                            if let ClusterMessage::SessionDestroyed { session_id } = msg {
+                                handler.write().await.invalidate_session(session_id);
                             }
                         },
                     }
@@ -92,8 +89,8 @@ impl SessionHandler {
         let authenticator = self.authenticator.get_or_init(Self::get_authenticator).await.clone();
         let session_manager = self.session_manager.get_or_init(Self::get_session_manager).await.clone();
 
-        let session = session_manager.get_session(session_id.clone()).await?;
-        let account = authenticator.get_account(session.account.clone()).await?;
+        let session = session_manager.get_session(session_id).await?;
+        let account = authenticator.get_account(session.account).await?;
 
         let token = CancellationToken::new();
 
@@ -107,7 +104,7 @@ impl SessionHandler {
             token: token.clone()
         };
 
-        self.session_id_to_peer.insert(session_id.clone(), peer_id.clone());
+        self.session_id_to_peer.insert(session_id, peer_id);
         self.session_data.insert(peer_id, data.clone());
         self.session_tokens.insert(session_id, token);
 
@@ -136,14 +133,14 @@ impl SessionHandler {
 
     pub async fn forget_peer(&mut self, peer_id: Uuid) {
         if let Some(session) = self.session_data.remove(&peer_id) {
-            self.session_id_to_peer.remove(&session.lock().await.session().id.into());
+            self.session_id_to_peer.remove(&session.lock().await.session().id);
         }
     }
 
     pub async fn destroy_session(&mut self, session_id: Uuid) {
         if let Some(peer_id) = self.session_id_to_peer.remove(&session_id) {
             self.session_data.remove(&peer_id);
-            self.session_manager.get_or_init(Self::get_session_manager).await.clone().destroy_session(session_id).await;
+            let _ = self.session_manager.get_or_init(Self::get_session_manager).await.clone().destroy_session(session_id).await;
         }
     }
 
@@ -196,27 +193,27 @@ impl SessionData {
     }
 
     pub async fn reload(&mut self) -> AnotherlandResult<()> {
-        self.session = self.manager.get_session(self.session.id.clone().into()).await?;
+        self.session = self.manager.get_session(self.session.id).await?;
         Ok(())
     }
 
     pub async fn select_realm(&mut self, realm_id: u32) -> AnotherlandResult<()> {
-        self.session = self.manager.session_select_realm(self.session.id.clone().into(), realm_id).await?;
+        self.session = self.manager.session_select_realm(self.session.id, realm_id).await?;
         Ok(())
     }
 
     pub async fn select_world(&mut self, world_id: u16) -> AnotherlandResult<()> {
-        self.session = self.manager.session_select_world(self.session.id.clone().into(), world_id).await?;
+        self.session = self.manager.session_select_world(self.session.id, world_id).await?;
         Ok(())
     }
 
     pub async fn select_character(&mut self, character_id: u32) -> AnotherlandResult<()> {
-        self.session = self.manager.session_select_character(self.session.id.clone().into(), character_id).await?;
+        self.session = self.manager.session_select_character(self.session.id, character_id).await?;
         Ok(())
     }
 
     pub async fn select_zone(&mut self, zone_guid: Uuid) -> AnotherlandResult<()> {
-        self.session = self.manager.session_select_zone(self.session.id.clone().into(), zone_guid).await?;
+        self.session = self.manager.session_select_zone(self.session.id, zone_guid).await?;
         Ok(())
     }
     pub async fn invalidated(&self) {

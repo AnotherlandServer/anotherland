@@ -120,9 +120,9 @@ impl <'dr>Deserialize<'dr> for AvatarId {
     }
 }
 
-impl Into<u64> for AvatarId {
-    fn into(self) -> u64 {
-        self.as_u64()
+impl From<AvatarId> for u64 {
+    fn from(val: AvatarId) -> u64 {
+        val.as_u64()
     }
 }
 

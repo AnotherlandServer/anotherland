@@ -48,25 +48,25 @@ pub enum PhysicsState {
     SplineSurfing,
 }
 
-impl Into<Physics> for PhysicsState {
-    fn into(self) -> Physics {
+impl From<PhysicsState> for Physics {
+    fn from(val: PhysicsState) -> Self {
         Physics {
-            state: match self {
-                Self::None => atlas::PhysicsState::None,
-                Self::Walking => atlas::PhysicsState::Walking,
-                Self::Falling => atlas::PhysicsState::Falling,
-                Self::Swimming => atlas::PhysicsState::Swimming,
-                Self::Flying => atlas::PhysicsState::Flying,
-                Self::Projectile => atlas::PhysicsState::Projectile,
-                Self::Rotating => atlas::PhysicsState::Rotating,
-                Self::Interpolating => atlas::PhysicsState::Interpolating,
-                Self::Spider => atlas::PhysicsState::Spider,
-                Self::Ladder => atlas::PhysicsState::Ladder,
-                Self::RigidBody => atlas::PhysicsState::RigidBody,
-                Self::SoftBody => atlas::PhysicsState::SoftBody,
-                Self::Unused => atlas::PhysicsState::Unused,
-                Self::Custom => atlas::PhysicsState::Custom,
-                Self::SplineSurfing => atlas::PhysicsState::SplineSurfing,
+            state: match val {
+                PhysicsState::None => atlas::PhysicsState::None,
+                PhysicsState::Walking => atlas::PhysicsState::Walking,
+                PhysicsState::Falling => atlas::PhysicsState::Falling,
+                PhysicsState::Swimming => atlas::PhysicsState::Swimming,
+                PhysicsState::Flying => atlas::PhysicsState::Flying,
+                PhysicsState::Projectile => atlas::PhysicsState::Projectile,
+                PhysicsState::Rotating => atlas::PhysicsState::Rotating,
+                PhysicsState::Interpolating => atlas::PhysicsState::Interpolating,
+                PhysicsState::Spider => atlas::PhysicsState::Spider,
+                PhysicsState::Ladder => atlas::PhysicsState::Ladder,
+                PhysicsState::RigidBody => atlas::PhysicsState::RigidBody,
+                PhysicsState::SoftBody => atlas::PhysicsState::SoftBody,
+                PhysicsState::Unused => atlas::PhysicsState::Unused,
+                PhysicsState::Custom => atlas::PhysicsState::Custom,
+                PhysicsState::SplineSurfing => atlas::PhysicsState::SplineSurfing,
             }
         }
     }

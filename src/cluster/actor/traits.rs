@@ -13,15 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{fmt::Debug, marker::PhantomData};
-
 use async_trait::async_trait;
-use futures::Future;
-use tokio::sync::mpsc;
 
 use crate::{util::AnotherlandResult, cluster::ActorRef};
-
-use super::ActorErr;
 
 #[async_trait]
 pub trait Actor: Send {
@@ -30,7 +24,7 @@ pub trait Actor: Send {
     fn name(&self) -> Option<&str>;
 
     async fn starting(&mut self) -> AnotherlandResult<()> { Ok(()) }
-    async fn started(&mut self, handle: ActorRef<Self::ActorType>) -> AnotherlandResult<()> { Ok(()) }
+    async fn started(&mut self, _handle: ActorRef<Self::ActorType>) -> AnotherlandResult<()> { Ok(()) }
 
     /// Stopping MUST be cancel safe to avoid blocking the main event loop
     async fn stopping(&mut self) -> AnotherlandResult<()> { Ok(()) }

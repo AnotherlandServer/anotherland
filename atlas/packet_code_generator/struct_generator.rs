@@ -204,38 +204,31 @@ impl GeneratedField {
     pub fn generate_and_resolve_enums(&mut self, prefix: &str) -> Vec<Rc<RefCell<GeneratedEnum>>> {
         let mut enums = Vec::new();
 
-        match &mut self.r#type {
-            GeneratedFieldType::Enum(enum_ref) => {
-                match enum_ref {
-                    GeneratedEnumReference::Unresolved(def) => {
-                        let naming_case = Converter::new()
-                        .set_boundaries(&[Boundary::Hyphen, Boundary::Underscore, Boundary::Space, Boundary::LowerUpper])
-                        .set_pattern(Pattern::Capital)
-                        .set_delim("");
+        if let GeneratedFieldType::Enum(enum_ref) = &mut self.r#type {
+            if let GeneratedEnumReference::Unresolved(def) = enum_ref {
+                let naming_case = Converter::new()
+                .set_boundaries(&[Boundary::Hyphen, Boundary::Underscore, Boundary::Space, Boundary::LowerUpper])
+                .set_pattern(Pattern::Capital)
+                .set_delim("");
 
-                        let enum_name = naming_case.convert(format!("{}_{}", prefix, self.name));
+                let enum_name = naming_case.convert(format!("{}_{}", prefix, self.name));
 
-                        match def {
-                            FieldTypeDefinition::Enum { values, .. } => {
-                                let enum_values = values.iter()
-                                    .map(|v| (v.0, naming_case.convert(&v.1)))
-                                    .collect();
-                                
-                                let generated = Rc::new(RefCell::new(GeneratedEnum {
-                                    name: enum_name,
-                                    values: enum_values,
-                                }));
+                if let FieldTypeDefinition::Enum { values, .. } = def {
+                    let enum_values = values.iter()
+                    .map(|v| (v.0, naming_case.convert(&v.1)))
+                    .collect();
+                
+                    let generated = Rc::new(RefCell::new(GeneratedEnum {
+                        name: enum_name,
+                        values: enum_values,
+                    }));
 
-                                enums.push(generated.clone());
-                                *enum_ref = GeneratedEnumReference::Resolved(generated);
-                            },
-                            _ => panic!("Enum reference did point to non enum type defintion!"),
-                        }
-                    },
-                    _ => (),
+                    enums.push(generated.clone());
+                    *enum_ref = GeneratedEnumReference::Resolved(generated);
+                } else {
+                    panic!("Enum reference did point to non enum type defintion!")
                 }
-            },
-            _ => (),
+            }
         }
 
         enums
@@ -279,7 +272,7 @@ impl GeneratedFieldType {
                         } else {
                             GeneratedFieldType::Struct(GeneratedStructReference::Unresolved(struct_ref.borrow().name.to_owned()))
                         },
-                    _ => panic!()
+                    StructDefinitionReference::Unresolved(name) => panic!("Unresolved struct reference: {}", name),
                 },
             FieldTypeDefinition::Enum { .. } => 
                 GeneratedFieldType::Enum(GeneratedEnumReference::Unresolved(definition.clone())),

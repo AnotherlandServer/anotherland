@@ -13,17 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::ops::Deref;
-
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens, format_ident};
-use syn::{ItemImpl, parse_macro_input, ImplItem, Visibility, FnArg, token::{Async}, Token, Pat, Type, PathSegment, Ident, Meta};
+use syn::{ItemImpl, parse_macro_input, ImplItem, Visibility, FnArg, Pat, Type, Ident, Meta};
 use convert_case::{Case, Casing};
-
-/*#[proc_macro_derive(Actor)]
-pub fn derive_actor(_item: TokenStream) -> TokenStream {
-    TokenStream::new()
-}*/
 
 fn extract_ident(ty: &Type) -> (Ident, TokenStream) {
     match ty {
@@ -44,7 +37,7 @@ fn extract_ident(ty: &Type) -> (Ident, TokenStream) {
 }
 
 #[proc_macro_attribute]
-pub fn actor_actions(args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn actor_actions(_args: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut input = parse_macro_input!(item as ItemImpl);
 
     let (input_type, template) = extract_ident(input.self_ty.as_ref());
@@ -127,7 +120,7 @@ pub fn actor_actions(args: proc_macro::TokenStream, item: proc_macro::TokenStrea
         let signature = f.sig.to_token_stream();
         let visibility = f.vis.to_token_stream();
 
-        let asyncness = if let None = f.sig.asyncness {
+        let asyncness = if f.sig.asyncness.is_none() {
             quote!(async)
         } else {
             quote!()
@@ -159,17 +152,12 @@ pub fn actor_actions(args: proc_macro::TokenStream, item: proc_macro::TokenStrea
 
     let remote_ref_actions: Vec<_> = public_actions.iter().filter(|f| {
             for a in f.attrs.iter() {
-                match &a.meta {
-                    Meta::Path(path) => {
-                        for segment in path.segments.iter() {
-                            if segment.ident.to_string() == "rpc" {
-                                return true
-                            }
+                if let Meta::Path(path) = &a.meta {
+                    for segment in path.segments.iter() {
+                        if segment.ident == "rpc" {
+                            return true
                         }
-
-                        ()
-                    },
-                    _ => (),
+                    }
                 }
             }
 
@@ -179,7 +167,7 @@ pub fn actor_actions(args: proc_macro::TokenStream, item: proc_macro::TokenStrea
             let ident = format_ident!("{}", f.sig.ident.to_string().to_case(Case::UpperCamel));
             let signature = f.sig.to_token_stream();
 
-            let asyncness = if let None = f.sig.asyncness {
+            let asyncness = if f.sig.asyncness.is_none() {
                 quote!(async)
             } else {
                 quote!()
@@ -215,24 +203,21 @@ pub fn actor_actions(args: proc_macro::TokenStream, item: proc_macro::TokenStrea
 
     // remove rpc attributes
     for item in input.items.iter_mut() {
-        match item {
-            ImplItem::Fn(f) => {
-                f.attrs = f.attrs.clone().into_iter().filter(|a| {
-                    match &a.meta {
-                        Meta::Path(path) => {
-                            for segment in path.segments.iter() {
-                                if segment.ident.to_string() == "rpc" {
-                                    return false
-                                }
+        if let ImplItem::Fn(f) = item {
+            f.attrs = f.attrs.clone().into_iter().filter(|a| {
+                match &a.meta {
+                    Meta::Path(path) => {
+                        for segment in path.segments.iter() {
+                            if segment.ident == "rpc" {
+                                return false
                             }
+                        }
 
-                            true
-                        },
-                        _ => true,
-                    }
-                }).collect();
-            },
-            _ => (),
+                        true
+                    },
+                    _ => true,
+                }
+            }).collect();
         }
     }
 

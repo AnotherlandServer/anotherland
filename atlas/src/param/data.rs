@@ -183,24 +183,22 @@ impl Param {
 
                     if bytes.is_empty() {
                         Ok((i, Param::JsonValue(Value::Null, Some("".to_owned()))))
+                    } else if let Ok(json) = serde_json::from_slice(bytes) {
+                        Ok((i, Param::JsonValue(json, Some(String::from_utf8_lossy(bytes).to_string()))))
                     } else {
-                        if let Ok(json) = serde_json::from_slice(bytes) {
+                        // Try to fixup the json, as serde_json seems to be more strict than whatever parser otherland 
+                        // is using. Or they just ignored those errors...
+                        let fixed_json = String::from_utf8_lossy(bytes)
+                            .replace("},]", "}]")
+                            .replace("\":.", "\":0.")
+                            .replace("},,{", "},{")
+                            .replace("\"QuestID\":,\"QuestTag\":,", "\"QuestID\":null,\"QuestTag\":null,");
+
+                        if let Ok(json) = serde_json::from_str(&fixed_json) {
                             Ok((i, Param::JsonValue(json, Some(String::from_utf8_lossy(bytes).to_string()))))
                         } else {
-                            // Try to fixup the json, as serde_json seems to be more strict than whatever parser otherland 
-                            // is using. Or they just ignored those errors...
-                            let fixed_json = String::from_utf8_lossy(bytes)
-                                .replace("},]", "}]")
-                                .replace("\":.", "\":0.")
-                                .replace("},,{", "},{")
-                                .replace("\"QuestID\":,\"QuestTag\":,", "\"QuestID\":null,\"QuestTag\":null,");
-
-                            if let Ok(json) = serde_json::from_str(&fixed_json) {
-                                Ok((i, Param::JsonValue(json, Some(String::from_utf8_lossy(bytes).to_string()))))
-                            } else {
-                                println!("Failed to parse json: \"{}\"", String::from_utf8_lossy(bytes));
-                                fail(i)
-                            }
+                            println!("Failed to parse json: \"{}\"", String::from_utf8_lossy(bytes));
+                            fail(i)
                         }
                     }
                 })(i)
@@ -221,7 +219,7 @@ impl Param {
             32 => {
                 context("StringArray", |i| {
                     let (i, count) = number::complete::le_u32(i)?;
-                    let (i, data) = multi::count(|i: &'a [u8]| -> Result<(&'a [u8], String), nom::Err<VerboseError<&'a [u8]>>> {
+                    let (i, data) = multi::count(|i: &'a [u8]| {
                         let (i, len) = number::complete::le_u16(i)?;
                         let (i, bytes) = take(len as usize)(i)?;
         
@@ -407,10 +405,7 @@ impl Param {
     }
 
     pub fn is_set(&self) -> bool {
-        match self {
-            Param::None => false,
-            _ => true,
-        }
+        !matches!(self, Param::None)
     }
 }
 

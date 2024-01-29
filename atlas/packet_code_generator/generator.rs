@@ -73,20 +73,20 @@ pub fn generate_packet_code() -> io::Result<()> {
     let mut generated_enums = Vec::new();
 
     // resolve type references
-    for (_, def) in &struct_definitions {
-        def.borrow_mut().resolve_references(&packet_definitions, &struct_definitions)?;
+    for def in struct_definitions.values() {
+        def.borrow_mut().resolve_references(&struct_definitions)?;
         def.borrow_mut().normalize();
     }
 
-    for (_, def) in &packet_definitions {
+    for def in packet_definitions.values() {
         def.borrow_mut().resolve_references(&packet_definitions, &struct_definitions)?;
         def.borrow_mut().normalize();
     }
 
     // generate struct layouts & enums
-    for (_, struct_definition) in &struct_definitions {
+    for struct_definition in struct_definitions.values() {
         let mut generated_struct = 
-            GeneratedStruct::generate_from_struct_definition(&struct_definition)?;
+            GeneratedStruct::generate_from_struct_definition(struct_definition)?;
         
         let mut enums = generated_struct.generate_and_resolve_enums();
         generated_enums.append(&mut enums);
@@ -95,14 +95,14 @@ pub fn generate_packet_code() -> io::Result<()> {
         generated_structs.insert(generated_struct.name.clone(), Rc::new(RefCell::new(generated_struct)));
     }
 
-    for (_, generated) in &generated_structs {
+    for generated in generated_structs.values() {
         generated.borrow_mut().resolve_references(&generated_structs)?;
     }
 
     // generate packets layouts & enums
-    for (_, packet_definition) in &packet_definitions {
+    for packet_definition in packet_definitions.values() {
         let mut generated_struct = 
-            GeneratedStruct::generate_from_packet_definition(&packet_definition, &generated_structs)?;
+            GeneratedStruct::generate_from_packet_definition(packet_definition, &generated_structs)?;
         
         let mut enums = generated_struct.generate_and_resolve_enums();
         generated_enums.append(&mut enums);
@@ -120,10 +120,7 @@ pub fn generate_packet_code() -> io::Result<()> {
 
     let packet_struct_enums: Vec<_> = struct_list.iter()
         .filter(|v| {
-            match v.borrow().definition {
-                super::struct_generator::GeneratedStructSource::PacketDefintion(_) => true,
-                _ => false,
-            }
+            matches!(v.borrow().definition, super::struct_generator::GeneratedStructSource::PacketDefintion(_))
         })
         .map(|v| {
             let struct_ident = format_ident!("{}", v.borrow().name);
@@ -143,10 +140,7 @@ pub fn generate_packet_code() -> io::Result<()> {
 
     let packet_enum_ids: Vec<_> = struct_list.iter()
         .filter(|v| {
-            match v.borrow().definition {
-                super::struct_generator::GeneratedStructSource::PacketDefintion(_) => true,
-                _ => false,
-            }
+            matches!(v.borrow().definition, super::struct_generator::GeneratedStructSource::PacketDefintion(_))
         })
         .map(|v| {
             let struct_ident = format_ident!("{}", v.borrow().name);
@@ -166,10 +160,7 @@ pub fn generate_packet_code() -> io::Result<()> {
 
     let packet_struct_parser: Vec<_> = struct_list.iter()
         .filter(|v| {
-            match v.borrow().definition {
-                super::struct_generator::GeneratedStructSource::PacketDefintion(_) => true,
-                _ => false,
-            }
+            matches!(v.borrow().definition, super::struct_generator::GeneratedStructSource::PacketDefintion(_))
         })
         .map(|v| {
             let v = v.borrow();
@@ -191,10 +182,7 @@ pub fn generate_packet_code() -> io::Result<()> {
 
     let packet_writer_enum: Vec<_> = struct_list.iter()
     .filter(|v| {
-        match v.borrow().definition {
-            super::struct_generator::GeneratedStructSource::PacketDefintion(_) => true,
-            _ => false,
-        }
+        matches!(v.borrow().definition, super::struct_generator::GeneratedStructSource::PacketDefintion(_))
     })
     .map(|v| {
         let v = v.borrow();
@@ -215,47 +203,63 @@ pub fn generate_packet_code() -> io::Result<()> {
     }).collect();
 
     write_source(&out_dir_path.join("generated_packets.rs"), quote! {
-        #[allow(non_camel_case_types)]
-        #[derive(Debug)]
-        pub enum CPkt {
-            #(#packet_struct_enums)*
-        }
 
-        impl CPkt {
-            pub fn from_bytes<'a>(i: &'a [u8]) -> IResult<&'a [u8], CPkt, VerboseError<&'a [u8]>> {
-                context("CPkt", flat_map(tuple((le_u8, le_u8)), 
-                    |v| {
-                        match v {
-                            #(#packet_struct_parser)*
-                            _ => {
-                                error!("Unknown packet id {:#?}", v);
-                                Self::pkt_fail
-                            },
+        #[allow(clippy::all)]
+
+        mod generated_packets {
+            use nom::{IResult, error::{VerboseError, context}, combinator::*, sequence::*, number::complete::*, bytes::complete::take};
+            use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
+            use crate::parsers::*;
+            use std::io;
+            use log::error;
+            use crate::raknet::Message;
+            use crate::NativeParam;
+            use crate::Uuid;
+
+            #[allow(non_camel_case_types)]
+            #[derive(Debug)]
+            pub enum CPkt {
+                #(#packet_struct_enums)*
+            }
+
+            impl CPkt {
+                pub fn from_bytes(i: &[u8]) -> IResult<&[u8], CPkt, VerboseError<&[u8]>> {
+                    context("CPkt", flat_map(tuple((le_u8, le_u8)), 
+                        |v| {
+                            match v {
+                                #(#packet_struct_parser)*
+                                _ => {
+                                    error!("Unknown packet id {:#?}", v);
+                                    Self::pkt_fail
+                                },
+                            }
                         }
+                    ))(i)
+                }
+
+                fn pkt_fail(i: &[u8]) -> IResult<&[u8], CPkt, VerboseError<&[u8]>> {
+                    fail(i)
+                }
+
+                pub fn to_bytes(&self) -> Vec<u8> {
+                    match self {
+                        #(#packet_writer_enum)*
                     }
-                ))(i)
-            }
+                }
 
-            fn pkt_fail<'a>(i: &'a [u8]) -> IResult<&'a [u8], CPkt, VerboseError<&'a [u8]>> {
-                fail(i)
-            }
-
-            pub fn to_bytes(&self) -> Vec<u8> {
-                match self {
-                    #(#packet_writer_enum)*
+                pub fn get_id(&self) -> (u8, u8) {
+                    match self {
+                        #(#packet_enum_ids)*
+                    }
                 }
             }
 
-            pub fn get_id(&self) -> (u8, u8) {
-                match self {
-                    #(#packet_enum_ids)*
-                }
-            }
+            #enum_code
+            #struct_code
+            #impl_code
         }
 
-        #enum_code
-        #struct_code
-        #impl_code
+        pub use generated_packets::*;
     })?;
 
     Ok(())
@@ -267,7 +271,7 @@ fn write_source(dest: &PathBuf, tokens: TokenStream) -> io::Result<()> {
             Ok(v) => v,
             Err(e) => {
                 println!("Code generation error for {}!", dest.to_str().unwrap());
-                println!("Error: {}", e.to_string());
+                println!("Error: {}", e);
                 println!("Line: {:#?}", e.span());
                 panic!();
             }

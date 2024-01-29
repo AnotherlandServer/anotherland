@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod zone;
+mod actor;
 mod components;
 mod events;
 mod player;
@@ -21,7 +21,7 @@ mod social;
 mod loader;
 mod systems;
 
-pub use zone::*;
+pub use actor::*;
 pub use events::*;
 pub use player::*;
 pub use social::*;

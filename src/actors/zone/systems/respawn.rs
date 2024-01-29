@@ -16,7 +16,7 @@
 use std::time::Instant;
 
 use atlas::NonClientBaseComponent;
-use log::debug;
+
 use specs::{Entities, Join, System, WriteStorage};
 
 use crate::actors::{Spawned, SpawnerState};

@@ -13,21 +13,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io;
-use std::ops::DerefMut;
-
 use async_trait::async_trait;
 use bson::{Document, doc};
 use log::{warn, debug};
-use log4rs::append::rolling_file::policy::compound::trigger::Trigger;
+
 use mongodb::{Database, Collection};
 use serde_derive::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
 
-use atlas::{BilliardBallAttribute, BilliardBallClass, ChessMetaGameLogicAttribute, ChessMetaGameLogicClass, ChessPieceAttribute, ChessPieceClass, CtfGameFlagAttribute, CtfGameFlagClass, CustomTriggerAttribute, CustomTriggerClass, DoorAttribute, DoorClass, EdnaContainerAttribute, EdnaContainerClass, InteractObjectAttribute, InteractObjectClass, MinigameInfoAttribute, MinigameInfoClass, MinigameScoreBoardAttribute, MinigameScoreBoardClass, MyLandSettingsAttribute, MyLandSettingsClass, MypadRoomDoorAttribute, MypadRoomDoorClass, NonSpawnPlacementAttribute, NonSpawnPlacementClass, NpcOtherlandAttribute, NpcOtherlandClass, OtherlandStructureAttribute, OtherlandStructureClass, ParamBox, ParamClass, ParamSet, ParamSetBox, PatrolNodeAttribute, PatrolNodeClass, PlanetAttribute, PlanetClass, PortalAttribute, PortalClass, PresetPointAttribute, PresetPointClass, QuestBeaconAttribute, QuestBeaconClass, ServerGatewayAttribute, ServerGatewayClass, ServerGatewayExitPhaseAttribute, ServerGatewayExitPhaseClass, ShipAttribute, ShipClass, SpawnNodeAttribute, SpawnNodeClass, SpawnerAttribute, SpawnerClass, StartingPointAttribute, StartingPointClass, StructureAttribute, StructureClass, TriggerAttribute, TriggerClass, Uuid, WorldDisplayAttribute, WorldDisplayClass};
-use crate::util::{AnotherlandResult, AnotherlandError};
+use atlas::{BilliardBallAttribute, ChessMetaGameLogicAttribute, ChessPieceAttribute, CtfGameFlagAttribute, CustomTriggerAttribute, DoorAttribute, EdnaContainerAttribute, InteractObjectAttribute, MinigameInfoAttribute, MinigameScoreBoardAttribute, MyLandSettingsAttribute, MypadRoomDoorAttribute, NonSpawnPlacementAttribute, NpcOtherlandAttribute, OtherlandStructureAttribute, ParamSet, ParamSetBox, PatrolNodeAttribute, PlanetAttribute, PortalAttribute, PresetPointAttribute, QuestBeaconAttribute, ServerGatewayAttribute, ServerGatewayExitPhaseAttribute, ShipAttribute, SpawnNodeAttribute, SpawnerAttribute, StartingPointAttribute, StructureAttribute, TriggerAttribute, Uuid, WorldDisplayAttribute};
+use crate::util::AnotherlandResult;
 
-use super::{DatabaseRecord, Content, SpawnerContent, NpcContent, StructureContent};
+use super::{DatabaseRecord, SpawnerContent, NpcContent, StructureContent};
 
 #[derive(Serialize, Deserialize)]
 pub struct RawInstance {
@@ -96,7 +93,7 @@ impl Instance {
 
         let mut result = RawInstance::collection(db.clone()).find(doc!{"zone_guid": {"$eq": zone}}, None).await?;
         while let Some(row) = result.try_next().await? {
-            let content_guid = row.content_guid.clone();
+            let content_guid = row.content_guid;
 
             if let Some(instance) = Instance::from_raw_instance(db.clone(), row).await? {
                 rows.push(instance);
@@ -142,101 +139,13 @@ impl Instance {
         }
     }
 
-    pub fn content_guid(&self) -> &Uuid {
-        match self {
-            Self::Spawner { content_guid, .. } => content_guid,
-            Self::Npc { content_guid, .. } => content_guid,
-            Self::Structure { content_guid, .. } => content_guid,
-            Self::Portal { content_guid, .. } => content_guid,
-            Self::StartingPoint { content_guid, .. } => content_guid,
-            Self::Trigger { content_guid, .. } => content_guid,
-            Self::ChessPiece { content_guid, .. } => content_guid,
-            Self::Ship { content_guid, .. } => content_guid,
-            Self::Planet { content_guid, .. } => content_guid,
-            Self::InteractObject { content_guid, .. } =>content_guid,
-            Self::PatrolNode { content_guid, .. } => content_guid,
-            Self::SpawnNode { content_guid, .. } => content_guid,
-            Self::MinigameInfo { content_guid, .. } => content_guid,
-            Self::ChessMetaGameLogic { content_guid, .. } => content_guid,
-            Self::EDNAContainer { content_guid, .. } => content_guid,
-            Self::BilliardBall { content_guid, .. } => content_guid,
-            Self::OtherlandStructure { content_guid, .. } => content_guid,
-            Self::MinigameScoreBoard { content_guid, .. } => content_guid,
-            Self::PresetPoint { content_guid, .. } => content_guid,
-            Self::Door { content_guid, .. } => content_guid,
-            Self::CTFGameFlag { content_guid, .. } => content_guid,
-            Self::ServerGateway { content_guid, .. } => content_guid,
-            Self::ServerGatewayExitPhase { content_guid, .. } => content_guid,
-            Self::NonSpawnPlacement { content_guid, .. } => content_guid,
-            Self::MyLandSettings { content_guid, .. } => content_guid,
-            Self::WorldDisplay { content_guid, .. } => content_guid,
-            Self::MypadRoomDoor { content_guid, .. } => content_guid,
-            Self::QuestBeacon { content_guid, .. } => content_guid,
-            Self::CustomTrigger { content_guid, .. } => content_guid,
-        }
-    }
-
-    pub async fn load_content<'a, T1, T2>(&'a self, db: Database) -> AnotherlandResult<T1> 
-        where 
-            T1: DatabaseRecord<'a, Key = bson::Uuid> + DerefMut<Target = Content>,
-            T2: ParamClass,
-    {
-        if let Some(mut content) = T1::get(db.clone(), &self.content_guid()).await? {
-            if let Some(mut class) = content.data.as_mut() {
-                self.extend_content(&mut class);
-                //class.as_anyclass_mut().apply(self.data_as_anyclass().clone());
-            }
-
-            Ok(content.into())
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::NotFound, 
-                format!("{} {} not found in content db", std::any::type_name::<T1>(), self.content_guid())
-            ).into())
-        }
-    }
-
-    fn extend_content(&self, content: &mut ParamBox) {
-        match self {
-            Self::Spawner { data, .. } => content.get_mut::<SpawnerClass>().unwrap().apply(data.clone()),
-            Self::Npc { data, .. } => content.get_mut::<NpcOtherlandClass>().unwrap().apply(data.clone()),
-            Self::Structure { data, .. } => content.get_mut::<StructureClass>().unwrap().apply(data.clone()),
-            Self::Portal { data, .. } => content.get_mut::<PortalClass>().unwrap().apply(data.clone()),
-            Self::StartingPoint { data, .. } => content.get_mut::<StartingPointClass>().unwrap().apply(data.clone()),
-            Self::Trigger { data, .. } => content.get_mut::<TriggerClass>().unwrap().apply(data.clone()),
-            Self::ChessPiece { data, .. } => content.get_mut::<ChessPieceClass>().unwrap().apply(data.clone()),
-            Self::Ship { data, .. } => content.get_mut::<ShipClass>().unwrap().apply(data.clone()),
-            Self::Planet { data, .. } => content.get_mut::<PlanetClass>().unwrap().apply(data.clone()),
-            Self::InteractObject { data, .. } => content.get_mut::<InteractObjectClass>().unwrap().apply(data.clone()),
-            Self::PatrolNode { data, .. } => content.get_mut::<PatrolNodeClass>().unwrap().apply(data.clone()),
-            Self::SpawnNode { data, .. } => content.get_mut::<SpawnNodeClass>().unwrap().apply(data.clone()),
-            Self::MinigameInfo { data, .. } => content.get_mut::<MinigameInfoClass>().unwrap().apply(data.clone()),
-            Self::ChessMetaGameLogic { data, .. } => content.get_mut::<ChessMetaGameLogicClass>().unwrap().apply(data.clone()),
-            Self::EDNAContainer { data, .. } => content.get_mut::<EdnaContainerClass>().unwrap().apply(data.clone()),
-            Self::BilliardBall { data, .. } => content.get_mut::<BilliardBallClass>().unwrap().apply(data.clone()),
-            Self::OtherlandStructure { data, .. } => content.get_mut::<OtherlandStructureClass>().unwrap().apply(data.clone()),
-            Self::MinigameScoreBoard { data, .. } => content.get_mut::<MinigameScoreBoardClass>().unwrap().apply(data.clone()),
-            Self::PresetPoint { data, .. } => content.get_mut::<PresetPointClass>().unwrap().apply(data.clone()),
-            Self::Door { data, .. } => content.get_mut::<DoorClass>().unwrap().apply(data.clone()),
-            Self::CTFGameFlag { data, .. } => content.get_mut::<CtfGameFlagClass>().unwrap().apply(data.clone()),
-            Self::ServerGateway { data, .. } => content.get_mut::<ServerGatewayClass>().unwrap().apply(data.clone()),
-            Self::ServerGatewayExitPhase { data, .. } => content.get_mut::<ServerGatewayExitPhaseClass>().unwrap().apply(data.clone()),
-            Self::NonSpawnPlacement { data, .. } => content.get_mut::<NonSpawnPlacementClass>().unwrap().apply(data.clone()),
-            Self::MyLandSettings { data, .. } => content.get_mut::<MyLandSettingsClass>().unwrap().apply(data.clone()),
-            Self::WorldDisplay { data, .. } => content.get_mut::<WorldDisplayClass>().unwrap().apply(data.clone()),
-            Self::MypadRoomDoor { data, .. } => content.get_mut::<MypadRoomDoorClass>().unwrap().apply(data.clone()),
-            Self::QuestBeacon { data, .. } => content.get_mut::<QuestBeaconClass>().unwrap().apply(data.clone()),
-            Self::CustomTrigger { data, .. } => content.get_mut::<CustomTriggerClass>().unwrap().apply(data.clone()),
-        }
-    }
-
     async fn from_raw_instance(db: Database, value: RawInstance) -> AnotherlandResult<Option<Self>> {
         Ok(match value.class {
             44 => 
                 if let Some(content) = SpawnerContent::get(db, &value.content_guid).await? {
                     Some(Instance::Spawner { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -252,7 +161,7 @@ impl Instance {
                 if let Some(content) = NpcContent::get(db, &value.content_guid).await? {
                     Some(Instance::Npc { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -268,7 +177,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::Structure { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -284,7 +193,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::Portal { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -300,7 +209,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::StartingPoint { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -316,7 +225,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::Trigger { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -332,7 +241,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::ChessPiece { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -348,7 +257,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::Ship { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -364,7 +273,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::Planet { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -380,7 +289,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::InteractObject { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -396,7 +305,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::PatrolNode { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -412,7 +321,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::SpawnNode { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -428,7 +337,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::MinigameInfo { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -444,7 +353,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::ChessMetaGameLogic { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -460,7 +369,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::EDNAContainer { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -476,7 +385,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::BilliardBall { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -492,7 +401,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::OtherlandStructure { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -508,7 +417,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::MinigameScoreBoard { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -524,7 +433,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::PresetPoint { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -540,7 +449,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::Door { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -556,7 +465,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::CTFGameFlag { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -572,7 +481,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::ServerGateway { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -588,7 +497,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::ServerGatewayExitPhase { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -604,7 +513,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::NonSpawnPlacement { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -620,7 +529,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::MyLandSettings { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -640,7 +549,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::WorldDisplay { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -656,7 +565,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::MypadRoomDoor { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -672,7 +581,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::QuestBeacon { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()
@@ -688,7 +597,7 @@ impl Instance {
                 if let Some(content) = StructureContent::get(db, &value.content_guid).await? {
                     Some(Instance::CustomTrigger { 
                         guid: value.guid, 
-                        content_guid: value.content_guid.clone(), 
+                        content_guid: value.content_guid, 
                         name: value.editor_name,
                         data: value.data.map(|v| 
                             v.take()

@@ -30,7 +30,6 @@ pub use param::*;
 pub use nativeparam::*;
 pub use generated::*;
 pub use avatarid::*;
-pub use buffer::*;
 pub use uuid::*;
 pub use world::*;
 
@@ -53,12 +52,14 @@ mod tests {
 
     #[test]
     fn oa_pkt_cluster_node_to_client_serialization() {
-        let mut original = oaPktClusterNodeToClient::default();
-        original.field_1 = Uuid::new();
-        original.field_3 = NativeParam::Struct([
-            NativeParam::AvatarId(1),
-            NativeParam::Bool(true)
-        ].to_vec());
+        let original = oaPktClusterNodeToClient {
+            field_1: Uuid::new(),
+            field_3: NativeParam::Struct([
+                NativeParam::AvatarId(1),
+                NativeParam::Bool(true)
+            ].to_vec()),
+            ..Default::default()
+        };
 
         let bytes = original.clone().into_message().to_bytes();
         let serialized = Message::from_bytes(&bytes).unwrap().1;

@@ -13,20 +13,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{cell::Cell, collections::HashMap, f32::consts::PI, io, ops::DerefMut, sync::Arc, time::{Duration, Instant}};
+use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
 use atlas::{oaPktConfirmTravel, oaPktServerAction, raknet::Message, setup_atlas, AvatarId, NonClientBaseComponent, NonClientBaseParams, OaZoneConfigParams, ParamBox, ParamClass, ParamSetBox, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointComponent, Uuid};
 use glam::{Vec3, Quat};
-use log::{as_serde, debug, error, info, trace, warn};
+use log::{debug, error, info, warn};
 use mongodb::Database;
-use specs::{Dispatcher, DispatcherBuilder, Entity, Join, World, WriteStorage};
+use specs::{DispatcherBuilder, Entity, Join, World};
 use tokio::{time, sync::{mpsc, broadcast}, select, task::JoinHandle, runtime::Handle};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use specs::{WorldExt, Builder};
 
-use crate::{actors::Spawned, cluster::{actor::Actor, ActorRef}, components::ZoneFactory, db::{Character, Instance, RawInstance}, frontends::TravelType, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}, NODE};
+use crate::{actors::Spawned, cluster::{actor::Actor, ActorRef}, components::ZoneFactory, db::{Character, RawInstance}, frontends::TravelType, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
 use super::{components::{AvatarComponent, EntityType, AvatarEvent, InterestList, Position}, systems::{RespawnEntities, UpdateInterests}, AvatarEventServer, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
@@ -189,7 +189,7 @@ impl Zone {
             .append_to_entity(self.world.create_entity())
             .with(entity_type)
             .with(AvatarComponent {
-                id: avatar_id.clone(),
+                id: avatar_id,
                 name: name.to_owned(),
                 phase_tag: phase_tag.to_owned(),
             })
@@ -216,13 +216,13 @@ impl Zone {
         }
 
         // update lookup map
-        self.avatar_id_to_entity_lookup.insert(avatar_id.clone(), entity.clone());
-        self.uuid_to_entity_lookup.insert(id, entity.clone());
+        self.avatar_id_to_entity_lookup.insert(avatar_id, entity);
+        self.uuid_to_entity_lookup.insert(id, entity);
 
         
         // notify clients
         let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarSpawned { 
-            avatar_id: avatar_id.clone(), 
+            avatar_id, 
             params: entity_params.clone().into_box(),
         }));
 
@@ -230,11 +230,7 @@ impl Zone {
     }
 
     pub(super) fn get_entity_params(&mut self, entity: Entity) -> Option<ParamBox> {
-        if let Some(params) = self.world.read_storage::<ParamBox>().get(entity) {
-            Some(params.clone())
-        } else {
-            None
-        }
+        self.world.read_storage::<ParamBox>().get(entity).cloned()
     }
 }
 
@@ -271,7 +267,7 @@ impl Zone {
 
     pub async fn spawn_player(&mut self, spawn_mode: PlayerSpawnMode, avatar_id: AvatarId, character_id: u32, avatar_event_sender: mpsc::Sender<AvatarEvent>) -> AnotherlandResult<(Character, ServerAction)> {
         let mut spawn_mode = spawn_mode;
-        let mut action;
+        let action;
         
         if let Some(mut character) = Character::get(self.realm_db.clone(), &character_id).await? {
             // do some first time spawn setup
@@ -310,7 +306,7 @@ impl Zone {
                     }
 
                     character.data.set_zone(&self.factory.zone_def().zone);
-                    character.data.set_zone_guid(self.factory.zone_def().guid.clone());
+                    character.data.set_zone_guid(self.factory.zone_def().guid);
                     character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
                     character.world_id = self.factory.world_def().id as u32;
 
@@ -343,7 +339,7 @@ impl Zone {
 
                     // move to zone
                     character.data.set_zone(&self.factory.zone_def().zone);
-                    character.data.set_zone_guid(self.factory.zone_def().guid.clone());
+                    character.data.set_zone_guid(self.factory.zone_def().guid);
                     character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
                     character.world_id = self.factory.world_def().id as u32;
 
@@ -370,7 +366,7 @@ impl Zone {
 
             let entity = character.data.append_to_entity(self.world.create_entity())
                 .with(AvatarComponent {
-                    id: avatar_id.clone(),
+                    id: avatar_id,
                     name: character.name.clone(),
                     phase_tag: "".to_owned(),
                 })
@@ -389,7 +385,7 @@ impl Zone {
                 .with(Spawned)
                 .build();
 
-            self.avatar_id_to_entity_lookup.insert(avatar_id.clone(), entity);
+            self.avatar_id_to_entity_lookup.insert(avatar_id, entity);
 
             let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarSpawned { 
                 avatar_id, 
@@ -430,9 +426,9 @@ impl Zone {
     pub async fn move_player_avatar(&mut self, avatar_id: AvatarId, movement: Movement) {
         if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) {
             if let Some(position) = self.world.write_storage::<Position>().get_mut(*entity) {
-                position.position = movement.position.clone().into();
-                position.rotation = movement.rotation.clone().into();
-                position.velocity = movement.velocity.clone().into();
+                position.position = movement.position;
+                position.rotation = movement.rotation;
+                position.velocity = movement.velocity;
 
                 // update clients
                 let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarMoved { 
@@ -463,11 +459,7 @@ impl Zone {
 
     pub fn get_avatar_move_state(&mut self, avatar_id: AvatarId) -> Option<Position> {
        if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) {
-            if let Some(entry) = self.world.read_component::<Position>().get(*entity) {
-                Some(entry.clone())
-            } else {
-                None
-            }
+            self.world.read_component::<Position>().get(*entity).cloned()
         } else {
             None
         }
@@ -526,7 +518,7 @@ impl Zone {
         }
     }
 
-    pub fn proximity_chat(&mut self, range: ProximityChatRange, avatar_id: AvatarId, message: String) {
+    pub fn proximity_chat(&mut self, _range: ProximityChatRange, _avatar_id: AvatarId, _message: String) {
         
     }
 }

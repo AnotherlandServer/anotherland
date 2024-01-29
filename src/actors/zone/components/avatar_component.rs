@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use atlas::AvatarId;
-use glam::Vec3;
+
 use specs::{prelude::*, Component};
 
 #[derive(Clone, Debug, Component)]

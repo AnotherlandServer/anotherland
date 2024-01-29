@@ -17,8 +17,8 @@ use async_trait::async_trait;
 use atlas::Uuid;
 use bson::doc;
 use chrono::{Utc, DateTime};
-use log::{debug, info};
-use mongodb::{Database, options::{IndexOptions, InsertOneOptions}, IndexModel, Collection};
+use log::info;
+use mongodb::{Database, options::IndexOptions, IndexModel, Collection};
 use serde::{Serialize, Deserialize};
 use sha1::{Sha1, Digest};
 
@@ -68,12 +68,12 @@ impl Account {
         
         let numeric_id = u32::from_le_bytes(result[0..4].try_into().unwrap());
         let account = Account {
-            id: id.into(),
+            id,
             numeric_id,
             username,
             email,
             password: bcrypt::hash(password, bcrypt::DEFAULT_COST)?,
-            created: Utc::now().into(),
+            created: Utc::now(),
             last_login: None,
             banned: false,
             ban_reason: None,
