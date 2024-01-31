@@ -125,7 +125,7 @@ enum ParamType {
 }
 
 impl ParamType {
-    fn into_rust_type(self) -> TokenStream {
+    fn into_rust_type(self, flags: &[ParamFlag]) -> TokenStream {
         match self {
             ParamType::Any => quote!(Param),
             ParamType::AvatarID => quote!(AvatarId),
@@ -157,7 +157,11 @@ impl ParamType {
             ParamType::StringIntHashmap => quote!(HashMap<String, i32>),
             ParamType::StringStringHashmap => quote!(HashMap<String, String>),
             ParamType::StringVector => quote!([String]),
-            ParamType::Vector3 => quote!(Vec3),
+            ParamType::Vector3 => if flags.contains(&ParamFlag::Uts) {
+                quote!((u32, Vec3))
+            } else {
+                quote!(Vec3)
+            },
         }
     }
 
@@ -386,7 +390,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 let y: f32 = parts[1].parse().expect("failed to parse vector3");
                                 let z: f32 = parts[2].parse().expect("failed to parse vector3");
 
-                                Some(quote! { Param::Vector3(Vec3::new(#x, #y, #z)) })
+
+                                if flags.contains(&ParamFlag::Uts) {
+                                    Some(quote! { Param::Vector3Uts((0, Vec3::new(#x, #y, #z))) })
+                                } else {
+                                    Some(quote! { Param::Vector3(Vec3::new(#x, #y, #z)) })
+                                }
                             },
                             ParamType::OAInstanceGroup => None,
                             ParamType::OASetGuid => None,
@@ -772,7 +781,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                         tokens.push(quote!(#[deprecated]));
                     }
 
-                    let rust_type = options.param_type.into_rust_type();
+                    let rust_type = options.param_type.into_rust_type(&options.flags);
 
                     if options.param_type.is_any_type() {
                         tokens.push(quote! { 
@@ -900,9 +909,15 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             fn #set_field_name(&mut self, val: Vec<String>);
                         }),
                         ParamType::Vector3 => {
-                            tokens.push(quote! {
-                                fn #set_field_name(&mut self, val: Vec3);
-                            })
+                            if options.flags.contains(&ParamFlag::Uts) {
+                                tokens.push(quote! {
+                                    fn #set_field_name(&mut self, val: (u32, Vec3));
+                                })
+                            } else {
+                                tokens.push(quote! {
+                                    fn #set_field_name(&mut self, val: Vec3);
+                                })
+                            }
                         },
                     }
 
@@ -1005,7 +1020,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                         Some(options) => {
                             let mut tokens = Vec::new();
 
-                            let rust_type = options.param_type.into_rust_type();
+                            let rust_type = options.param_type.into_rust_type(&options.flags);
 
                             if options.param_type.is_any_type() {
                                 tokens.push(quote! { 
@@ -1162,9 +1177,15 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                     fn #set_field_name(&mut self, val: Vec<String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
                                 }),
                                 ParamType::Vector3 => {
-                                    tokens.push(quote! {
-                                        fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
-                                    })
+                                    if options.flags.contains(&ParamFlag::Uts) {
+                                        tokens.push(quote! {
+                                            fn #set_field_name(&mut self, val: (u32, Vec3)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                        })
+                                    } else {
+                                        tokens.push(quote! {
+                                            fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                        })
+                                    }
                                 },
                             }
     

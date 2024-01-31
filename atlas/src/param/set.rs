@@ -16,7 +16,8 @@
 use std::{collections::HashMap, any::type_name, io};
 
 use bitstream_io::ByteWrite;
-use nom::{IResult, error::{VerboseError, context}, number, multi};
+use log::{debug, warn};
+use nom::{combinator::fail, error::{VerboseError, context}, multi, number, IResult};
 
 use crate::{Param, ParamAttrib, ParamFlag, ParamSetBox};
 
@@ -59,7 +60,10 @@ impl <T: ParamAttrib>ParamSet<T> {
         let (i, attribute_id) = context("Attribute Id", number::complete::le_u16)(i)?;
         let attribute: T = match attribute_id.try_into() {
             Ok(attribute) => attribute,
-            Err(_) => panic!("failed to parse attribute id"),
+            Err(_) => {
+                warn!("failed to parse attribute id {}", attribute_id);
+                return fail(i);
+            },
         };
 
         let (i, param) = Param::read(i, attribute.flags())?;

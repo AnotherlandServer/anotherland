@@ -42,7 +42,7 @@ pub enum Param {
     Class(u32, Vec<u8>), // 41
     Positionable(Vec4, Vec3), // 21
     Vector3(Vec3), // 13
-    Vector3Uts(u32, Vec3), // 13
+    Vector3Uts((u32, Vec3)), // 13
     Vector4(Vec4), // 14
     FloatPair((f32, f32)), // 12
     IntArray4((i32, i32, i32, i32)), // 9
@@ -144,7 +144,7 @@ impl Param {
                     context("Vector3Uts", |i| {
                         let (i, uts) = number::complete::le_u32(i)?;
                         let (i, val) = count(number::complete::le_f32, 3usize)(i)?;
-                        Ok((i, Param::Vector3Uts(uts, Vec3::new(val[0], val[1], val[2]))))
+                        Ok((i, Param::Vector3Uts((uts, Vec3::new(val[0], val[1], val[2])))))
                     })(i)
                 } else {
                     context("Vector3", |i| {
@@ -305,7 +305,7 @@ impl Param {
                 writer.write_bytes(val.y.to_le_bytes().as_slice())?;
                 writer.write_bytes(val.z.to_le_bytes().as_slice())?;
             },
-            Self::Vector3Uts(uts, val) => {
+            Self::Vector3Uts((uts, val)) => {
                 writer.write(13u8)?;
                 writer.write(*uts)?;
                 writer.write_bytes(val.x.to_le_bytes().as_slice())?;
@@ -418,6 +418,12 @@ impl From<bool> for Param {
 impl From<Vec3> for Param {
     fn from(value: Vec3) -> Self {
         Param::Vector3(value)
+    }
+}
+
+impl From<(u32, Vec3)> for Param {
+    fn from(val: (u32, Vec3)) -> Self {
+        Param::Vector3Uts(val)
     }
 }
 
@@ -565,7 +571,18 @@ impl <'a>TryInto<&'a Vec3> for &'a Param {
     fn try_into(self) -> Result<&'a Vec3, Self::Error> {
         match self {
             Param::Vector3(val) => Ok(val),
-            Param::Vector3Uts(_, val) => Ok(val),
+            Param::Vector3Uts((_, val)) => Ok(val),
+            _ => Err(ParamError(()))
+        }
+    }
+}
+
+impl <'a>TryInto<&'a (u32, Vec3)> for &'a Param {
+    type Error = ParamError;
+
+    fn try_into(self) -> Result<&'a (u32, Vec3), Self::Error> {
+        match self {
+            Param::Vector3Uts(val) => Ok(val),
             _ => Err(ParamError(()))
         }
     }
