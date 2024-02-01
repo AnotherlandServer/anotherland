@@ -210,12 +210,13 @@ struct ZoneSession {
     downstream: Sender<ZoneDownstreamMessage>,
     load_state: ClientLoadState,
     instance: ZoneInstance,
-
+    
     avatar_event_sender: mpsc::Sender<AvatarEvent>,
     avatar_events: Option<mpsc::Receiver<AvatarEvent>>,
     interest_list: HashSet<AvatarId>,
     interest_added_queue: VecDeque<AvatarId>,
     interest_removed_queue: VecDeque<AvatarId>,
+    ignore_interest_updates: bool,
 
     server_actions: VecDeque<ServerAction>,
 
@@ -247,6 +248,7 @@ impl ZoneSession {
             interest_list: HashSet::new(),
             interest_added_queue: VecDeque::new(),
             interest_removed_queue: VecDeque::new(),
+            ignore_interest_updates: false,
             server_actions: VecDeque::new(),
             target_avatar: None,
         };
@@ -416,12 +418,16 @@ impl ZoneSession {
     async fn handle_avatar_event(&mut self, event: AvatarEvent) -> AnotherlandResult<()> {
         match event {
             AvatarEvent::InterestAdded { ids } => {
-                self.interest_removed_queue = self.interest_removed_queue.drain(..).filter(|v| !ids.contains(v)).collect();
-                self.interest_added_queue.append(&mut ids.into_iter().collect());
+                if !self.ignore_interest_updates {
+                    self.interest_removed_queue = self.interest_removed_queue.drain(..).filter(|v| !ids.contains(v)).collect();
+                    self.interest_added_queue.append(&mut ids.into_iter().collect());
+                }
             },
             AvatarEvent::InterestRemoved { ids } => {
-                self.interest_added_queue = self.interest_added_queue.drain(..).filter(|v| !ids.contains(v)).collect();
-                self.interest_removed_queue.append(&mut ids.into_iter().collect());
+                if !self.ignore_interest_updates {
+                    self.interest_added_queue = self.interest_added_queue.drain(..).filter(|v| !ids.contains(v)).collect();
+                    self.interest_removed_queue.append(&mut ids.into_iter().collect());
+                }
             },
             AvatarEvent::Travel { zone, destination } => {
                 self.travel(zone, destination).await?;
@@ -571,10 +577,6 @@ impl ZoneSession {
             AtlasPkt(CPkt::CPktRouted(pkt)) => {
                 match Message::from_bytes(&pkt.field_4).unwrap().1 {
                     AtlasPkt(CPkt::oaPktMoveManagerPosUpdate(pkt)) => {
-                        //debug!("Movement: {:#?}", pkt);
-
-                        let quat: Quat = pkt.rot.clone().into();
-                        debug!("Rot: {:?}", quat.to_euler(glam::EulerRot::XYZ));
 
                         self.instance.zone().move_player_avatar(
                             self.avatar_id, 
@@ -740,9 +742,22 @@ impl ZoneSession {
         Ok(())
     }
 
-    async fn travel(&self, zone: Uuid, destination: TravelType) -> AnotherlandResult<()> {
+    async fn travel(&mut self, zone: Uuid, destination: TravelType) -> AnotherlandResult<()> {
         debug!("Initiating travel for avatar {}. Godspeed!", self.avatar_id);
 
+        // stop accepting interest updates
+        self.ignore_interest_updates = true;
+
+        // unload all interests
+        let interests: Vec<_> = self.interest_list.drain().collect();
+        for avatar_id in interests {
+            self.send(CPktAvatarClientNotify {
+                avatar_id: avatar_id.as_u64(),
+                ..Default::default()
+            }.into_message()).await?;
+        }
+
+        // tell frontend to initiate travel
         self.downstream.send(ZoneDownstreamMessage::RequestTravel { 
             session_id: self.session_id, 
             zone, 

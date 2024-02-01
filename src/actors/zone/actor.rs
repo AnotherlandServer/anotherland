@@ -301,7 +301,7 @@ impl Zone {
                     if let Some(entry_point) = (&starting_point_storage, &non_client_storage).join().next() {
                         debug!("Found entrypoint");
 
-                        character.data.set_pos(entry_point.1.pos().to_owned());
+                        character.data.set_pos((0, entry_point.1.pos().to_owned()));
                         character.data.set_rot(entry_point.1.rot().to_owned());
                     }
 
@@ -311,14 +311,14 @@ impl Zone {
                     character.world_id = self.factory.world_def().id as u32;
 
                     action = ServerAction::DirectTravel(AvatarId::default(), Some(Position { 
-                        position: character.data.pos().to_owned(),
+                        position: character.data.pos().to_owned().1,
                         rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                         velocity: Vec3::default(),
                     }));
                 },
                 PlayerSpawnMode::LoginNormal => {
                     action = ServerAction::DirectTravel(AvatarId::default(), Some(Position { 
-                        position: character.data.pos().to_owned(),
+                        position: character.data.pos().to_owned().1,
                         rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                         velocity: Vec3::default(),
                     }));
@@ -343,12 +343,11 @@ impl Zone {
                     character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
                     character.world_id = self.factory.world_def().id as u32;
 
-                    // position player at exit
-                    character.data.set_pos(exit.pos().to_owned());
+                    character.data.set_pos((0, exit.pos().to_owned()));
                     character.data.set_rot(exit.rot().to_owned());
 
                     action = ServerAction::DirectTravel(portal_avatar.id, Some(Position { 
-                        position: character.data.pos().to_owned(),
+                        position: character.data.pos().to_owned().1,
                         rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                         velocity: Vec3::default(),
                     }));
@@ -371,7 +370,7 @@ impl Zone {
                     phase_tag: "".to_owned(),
                 })
                 .with(Position {
-                    position: character.data.pos().to_owned(),
+                    position: character.data.pos().to_owned().1,
                     rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                     velocity: Vec3::default(),
                 })
