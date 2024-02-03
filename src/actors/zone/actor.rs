@@ -21,15 +21,16 @@ use atlas::{oaPktConfirmTravel, oaPktServerAction, raknet::Message, setup_atlas,
 use glam::{Vec3, Quat};
 use log::{debug, error, info, warn};
 use mongodb::Database;
-use specs::{DispatcherBuilder, Entity, Join, World};
-use tokio::{time, sync::{mpsc, broadcast}, select, task::JoinHandle, runtime::Handle};
+use once_cell::sync::Lazy;
+use specs::{Dispatcher, DispatcherBuilder, Entity, Join, World};
+use tokio::{runtime::Handle, select, sync::{broadcast, mpsc, OnceCell}, task::JoinHandle, time};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use specs::{WorldExt, Builder};
 
-use crate::{actors::Spawned, cluster::{actor::Actor, ActorRef}, components::ZoneFactory, db::{Character, RawInstance}, frontends::TravelType, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{zone::systems::EventInfo, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::{Character, RawInstance}, frontends::TravelType, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
-use super::{components::{AvatarComponent, EntityType, AvatarEvent, InterestList, Position}, systems::{RespawnEntities, UpdateInterests}, AvatarEventServer, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
+use super::{components::{AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, systems::{RespawnEntities, SpecialEventController, UpdateInterests}, AvatarEventServer, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
 
 pub enum ServerAction {
     DirectTravel(AvatarId, Option<Position>),
@@ -81,6 +82,7 @@ impl ServerAction {
     }
 }
 
+static SPECIAL_EVENTS: OnceCell<SpecialEvents> = OnceCell::const_new();
 
 pub struct Zone {
     pub(super) realm_db: Database,
@@ -141,7 +143,18 @@ impl Actor for Zone {
         self.world.insert(Handle::current());
         self.world.insert(TaskTracker::new());
 
+        // load in content
         self.load_content().await?;
+
+        // load special event config
+        let special_events = SPECIAL_EVENTS.get_or_try_init(SpecialEvents::load).await.unwrap();
+        self.world.insert(special_events.get_events_for_map(&self.factory.world_def().name).await?
+            .into_iter()
+            .map(|v| EventInfo {
+                event: v,
+                active: None
+            })
+            .collect::<Vec<_>>());
 
         info!("Spawned zone {}...", self.factory.zone_def().guid);
 
@@ -181,7 +194,7 @@ impl Actor for Zone {
 }
 
 impl Zone {
-    pub(super) fn spawn_non_player_avatar<T>(&mut self, avatar_id: AvatarId, entity_type: EntityType, name: &str, phase_tag: &str, id: Uuid, entity_params: T) -> AvatarId 
+    pub(super) fn spawn_non_player_avatar<T>(&mut self, avatar_id: AvatarId, entity_type: EntityType, name: &str, phase_tag: &str, id: Uuid, content_id: Uuid, entity_params: T) -> AvatarId 
         where T: ParamClass + Clone + ?Sized
     {
         // spawn entity
@@ -190,6 +203,8 @@ impl Zone {
             .with(entity_type)
             .with(AvatarComponent {
                 id: avatar_id,
+                instance_id: Some(id),
+                content_id: Some(content_id),
                 name: name.to_owned(),
                 phase_tag: phase_tag.to_owned(),
             })
@@ -252,6 +267,7 @@ impl Zone {
 
     pub fn check_respawn(&mut self) {
         let mut dispatcher = DispatcherBuilder::new()
+            .with(SpecialEventController, "special_event_controller", &[])
             .with(RespawnEntities, "respawn_entities", &[])
             .build();
 
@@ -305,7 +321,7 @@ impl Zone {
 
                     character.data.set_zone(&self.factory.zone_def().zone);
                     character.data.set_zone_guid(self.factory.zone_def().guid);
-                    character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
+                    character.data.set_world_map_guid(&self.factory.world_def().guid.to_string());
                     character.world_id = self.factory.world_def().id as u32;
 
                     action = ServerAction::DirectTravel(AvatarId::default(), Some(Position { 
@@ -334,7 +350,7 @@ impl Zone {
                     // get exit node
                     if let Some(exit_point) = portal.exit_point() {
                         let exit_entity = self.uuid_to_entity_lookup.get(&Uuid::parse_str(&*exit_point).unwrap()).unwrap();
-                    let exit = spawn_storage.get(*exit_entity).unwrap();
+                        let exit = spawn_storage.get(*exit_entity).unwrap();
 
                         character.data.set_pos((0, exit.pos().to_owned()));
                         character.data.set_rot(exit.rot().to_owned());
@@ -359,9 +375,6 @@ impl Zone {
                     character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
                     character.world_id = self.factory.world_def().id as u32;
 
-                    character.data.set_pos((0, exit.pos().to_owned()));
-                    character.data.set_rot(exit.rot().to_owned());
-
                     action = ServerAction::DirectTravel(portal_avatar.id, Some(Position { 
                         position: character.data.pos().to_owned().1,
                         rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
@@ -382,6 +395,8 @@ impl Zone {
             let entity = character.data.append_to_entity(self.world.create_entity())
                 .with(AvatarComponent {
                     id: avatar_id,
+                    instance_id: None,
+                    content_id: None,
                     name: character.name.clone(),
                     phase_tag: "".to_owned(),
                 })

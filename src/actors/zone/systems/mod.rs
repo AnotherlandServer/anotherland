@@ -15,6 +15,8 @@
 
 mod update_interests;
 mod respawn;
+mod special_event_controller;
 
 pub(super) use update_interests::*;
 pub(super) use respawn::*;
+pub(super) use special_event_controller::*;

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::AvatarId;
+use atlas::{AvatarId, Uuid};
 
 use specs::{prelude::*, Component};
 
@@ -21,6 +21,8 @@ use specs::{prelude::*, Component};
 #[storage(VecStorage)]
 pub struct AvatarComponent {
     pub id: AvatarId,
+    pub instance_id: Option<Uuid>,
+    pub content_id: Option<Uuid>,
     pub name: String,
     pub phase_tag: String,
 }

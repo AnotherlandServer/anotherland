@@ -665,8 +665,7 @@ impl ZoneSession {
                         }
                     },
                     _ => {
-                        info!("Unknown avatar behavior: {:#?}", pkt);
-                        todo!();
+                        warn!("Unknown avatar behavior: {:#?}", pkt);
                     }
                 }
             },

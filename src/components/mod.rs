@@ -15,6 +15,8 @@
 
 mod session_handler;
 mod zone_factory;
+mod special_events;
 
 pub use session_handler::*;
 pub use zone_factory::*;
+pub use special_events::*;
