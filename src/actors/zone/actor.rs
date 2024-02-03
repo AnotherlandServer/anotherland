@@ -203,8 +203,6 @@ impl Zone {
                 respawn_instant: None 
             });
 
-            debug!("Rot: {:?}", base.rot());
-
             let _ = self.world.write_storage::<Position>().insert(entity, Position {
                 position: base.pos().to_owned(),
                 rotation: Quat::from_unit_vector(base.rot().to_owned()),
@@ -334,8 +332,26 @@ impl Zone {
                     let portal_avatar = avatar_storage.get(*portal_entity).unwrap();
 
                     // get exit node
-                    let exit_entity = self.uuid_to_entity_lookup.get(&Uuid::parse_str(&*portal.exit_point().unwrap()).unwrap()).unwrap();
+                    if let Some(exit_point) = portal.exit_point() {
+                        let exit_entity = self.uuid_to_entity_lookup.get(&Uuid::parse_str(&*exit_point).unwrap()).unwrap();
                     let exit = spawn_storage.get(*exit_entity).unwrap();
+
+                        character.data.set_pos((0, exit.pos().to_owned()));
+                        character.data.set_rot(exit.rot().to_owned());
+                    } else {
+                        warn!("Exit node not found on portal {}", portal_uuid);
+
+                        // lookup entry point and copy position
+                        let starting_point_storage = self.world.read_storage::<StartingPointComponent>();
+                        let non_client_storage = self.world.read_storage::<NonClientBaseComponent>();
+
+                        if let Some(entry_point) = (&starting_point_storage, &non_client_storage).join().next() {
+                            debug!("Found entrypoint");
+
+                            character.data.set_pos((0, entry_point.1.pos().to_owned()));
+                            character.data.set_rot(entry_point.1.rot().to_owned());
+                        }
+                    }
 
                     // move to zone
                     character.data.set_zone(&self.factory.zone_def().zone);
