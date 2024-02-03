@@ -15,7 +15,7 @@
 
 use std::collections::HashSet;
 
-use atlas::{PlayerClass, PlayerParams};
+use atlas::{NonClientBaseComponent, PlayerClass, PlayerParams};
 use specs::{Join, ReadExpect, ReadStorage, System, WriteStorage};
 use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
@@ -33,6 +33,7 @@ impl<'a> System<'a> for UpdateInterests {
         ReadStorage<'a, Position>,
         ReadStorage<'a, PlayerClass>,
         ReadStorage<'a, AvatarEventServer>,
+        ReadStorage<'a, NonClientBaseComponent>,
         WriteStorage<'a, InterestList>
     );
 
@@ -44,6 +45,7 @@ impl<'a> System<'a> for UpdateInterests {
         position_storage, 
         player, 
         event_sender,
+        non_client_base,
         mut interests
     ): Self::SystemData) {
         //let mut avatar_positions = Vec::new();
@@ -52,12 +54,17 @@ impl<'a> System<'a> for UpdateInterests {
             let mut new_interests = HashSet::new();
     
             // determine interests
-            for (other_avatar, other_pos, _) in (&avatar_storage, &position_storage, &spawned).join() {
+            for (other_avatar, other_pos, base, _) in (&avatar_storage, &position_storage, &non_client_base, &spawned).join() {
                 if other_avatar.id == avatar.id {
                     continue;
                 }
     
-                if position.position.distance(other_pos.position) <= player.aware_dist() {
+                if (position.position.distance(other_pos.position) <= player.aware_dist() || base.always_visible_to_players()) && 
+                    base.visible_on_quest_available().is_none() && 
+                    base.visible_on_quest_complete().is_none() && 
+                    base.visible_on_quest_finished().is_none() && 
+                    base.visible_on_quest_in_progress().is_none() {
+
                     new_interests.insert(other_avatar.id.to_owned());
                 }
             }
