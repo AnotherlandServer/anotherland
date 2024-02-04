@@ -18,7 +18,7 @@ use atlas::{raknet::Message, AvatarId, Uuid};
 use tokio::sync::mpsc;
 use specs::{prelude::*, Component};
 
-use crate::{actors::ServerAction, frontends::TravelType};
+use crate::{actors::{ProximityChatRange, ServerAction}, frontends::TravelType};
 
 
 pub enum AvatarEvent {
@@ -27,6 +27,7 @@ pub enum AvatarEvent {
     Travel { zone: Uuid, destination: TravelType },
     Message(Message),
     ServerAction(ServerAction),
+    ChatMessage { range: ProximityChatRange, sender: String, message: String },
 }
 
 #[derive(Clone, Debug, Component)]

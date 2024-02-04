@@ -16,7 +16,7 @@
 use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use async_trait::async_trait;
-use atlas::{oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktResourceNotify, CPktServerNotify, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
+use atlas::{oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktChat, CPktResourceNotify, CPktServerNotify, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
 use bitstream_io::{ByteWriter, LittleEndian};
 use glam::{Quat, Vec3};
 use log::{debug, error, trace, warn, info};
@@ -24,7 +24,7 @@ use quinn::ServerConfig;
 use tokio::{sync::{Mutex, mpsc::{self, Sender}, RwLock}, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, ActorRef}, util::{AnotherlandResult, AnotherlandErrorKind}, db::{ZoneDef, realm_database, ItemContent, Character, WorldDef}, actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ServerAction, Zone, ZoneEvent, ZoneRegistry}, NODE, CLUSTER_CERT, components::{SessionHandler, SessionRef, ZoneFactory}};
+use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneEvent, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, ItemContent, WorldDef, ZoneDef}, util::{AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
 use crate::db::DatabaseRecord;
 
 use super::{load_state::ClientLoadState, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
@@ -437,6 +437,18 @@ impl ZoneSession {
             },
             AvatarEvent::ServerAction(action) => {
                 self.server_actions.push_back(action);
+            },
+            AvatarEvent::ChatMessage { range, sender, message } => {
+                self.send(CPktChat {
+                    chat_type: match range {
+                        ProximityChatRange::Say => CpktChatChatType::Say,
+                        ProximityChatRange::TeamSay => CpktChatChatType::Say,
+                        ProximityChatRange::Shout => CpktChatChatType::Shout,
+                    },
+                    message,
+                    sender,
+                    ..Default::default()
+                }.into_message()).await?;
             }
         }
 
@@ -488,9 +500,6 @@ impl ZoneSession {
                         ..Default::default()
                     }.into_message()).await?;
                 }
-            },
-            ZoneEvent::ChatMessage { range: _, sender: _, message: _ } => {
-                todo!()
             }
         }
 
@@ -720,6 +729,13 @@ impl ZoneSession {
                 } else {
                     self.instance.zone().tell_behavior(pkt.instigator.into(), pkt.target.into(), pkt.behavior).await;
                 }
+            },
+            AtlasPkt(CPkt::CPktChat(pkt)) => {
+                self.instance.zone().proximity_chat(match pkt.chat_type {
+                    CpktChatChatType::Say => ProximityChatRange::Say,
+                    CpktChatChatType::Shout => ProximityChatRange::Shout,
+                    _ => unreachable!(),
+                }, self.avatar_id, pkt.message).await;
             },
             _ => {
                 debug!(

@@ -548,7 +548,27 @@ impl Zone {
         }
     }
 
-    pub fn proximity_chat(&mut self, _range: ProximityChatRange, _avatar_id: AvatarId, _message: String) {
-        
+    pub fn proximity_chat(&mut self, range: ProximityChatRange, avatar_id: AvatarId, message: String) {
+        if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) {
+            let event_sender_storage = self.world.read_storage::<AvatarEventServer>();
+            let position_storage = self.world.read_storage::<Position>();
+            let avatar_storage = self.world.read_storage::<AvatarComponent>();
+
+            let sender_pos = position_storage.get(*entity).unwrap().position;
+            let sender = avatar_storage.get(*entity).unwrap();
+            
+
+            for (event_sender, position) in (&event_sender_storage, &position_storage).join() {
+                if position.position.distance(sender_pos) <= range.aware_dist() {
+                    let event_sender = event_sender.sender.clone();
+                    let sender = sender.name.clone();
+                    let message = message.clone();
+
+                    tokio::spawn(async move {
+                        let _ = event_sender.send(AvatarEvent::ChatMessage { range, sender, message }).await;
+                    });
+                }
+            }
+        }
     }
 }

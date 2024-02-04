@@ -80,32 +80,11 @@ pub enum ChatType {
     Channel { name: String },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum SocialEvent {
-    PeerEnter{peer_id: Uuid, zone: Uuid},
-    PeerLeave{peer_id: Uuid},
-    PeerTravel{peer_id: Uuid, zone: Uuid},
-    ChannelOptIn{peer_id: Uuid, channel: String},
-    ChannelOptOut{peer_id: Uuid, channel: String},
-    Chat{peer_id: Uuid, chat_type: ChatType, message: String},
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ClusterMessage {
     SessionDestroyed{session_id: Uuid},
     RealmServerHearthbeat{realm_id: u32, name: String, channels: Vec<(u32, f32)>, address: SocketAddrV4},
-    /*Shutdown{subject: ShutdownSubject},
-    InvalidateSession{session_id: Uuid},
-    RealmServerHearthbeat{realm_id: u32, name: String, population: usize, address: SocketAddrV4},
-    FrontendServerHearthbeat{realm_id: u32, address: SocketAddrV4},
-    Request{session_id: Uuid, peer_id: Uuid, data: Vec<u8>},
-    Response{peer_id: Uuid, data: Vec<u8>},
-    ZoneTravelRequest{session_id: Uuid, peer_id: Uuid, avatar_id: AvatarId, current_zone: Uuid, destination_zone: Uuid, travel_type: TravelType},
-    ZoneTravelResponse{session_id: Uuid, avatar_id: AvatarId, destination_zone: Uuid, pos: Vec3, rot: Vec3},
-    ZoneTravelFinished{session_id: Uuid, avatar_id: AvatarId, world_id: u16, zone_id: Uuid},
-    ApiRequest{request_id: Uuid, request: ApiRequest},
-    ApiResponse{request_id: Uuid, response: ApiResponse},
-    SocialEvent{event: SocialEvent},*/
 }
 
 #[derive(Clone)]

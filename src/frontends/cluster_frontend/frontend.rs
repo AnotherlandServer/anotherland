@@ -16,13 +16,13 @@
 use std::{collections::HashSet, sync::Arc, time::{Duration, UNIX_EPOCH, SystemTime}, net::SocketAddrV4};
 
 use async_trait::async_trait;
-use atlas::{raknet::{RakNetListener, RakNetPeer, Message, Priority, Reliability}, AvatarId, CPkt, CPktStream_167_0, oaPktClusterNodeToClient, NativeParam, FactionRelation, FactionRelationList, oaPktFactionResponse, oaPktCashItemVendorSyncAcknowledge, CashItemVendorEntry, oaPktSKUBundleSyncAcknowledge, Uuid};
+use atlas::{oaPktCashItemVendorSyncAcknowledge, oaPktClusterNodeToClient, oaPktFactionResponse, oaPktSKUBundleSyncAcknowledge, raknet::{Message, Priority, RakNetListener, RakNetPeer, Reliability}, AvatarId, CPkt, CPktChannelChat, CPktChat, CPktStream_167_0, CashItemVendorEntry, CpktChatChatType, FactionRelation, FactionRelationList, NativeParam, Uuid};
 use log::{warn, error, trace, info, debug};
 use rand::random;
-use tokio::{sync::{Mutex, RwLock}, time, select};
+use tokio::{select, sync::{mpsc::Receiver, Mutex, RwLock}, time};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, CommunityMessage}, util::AnotherlandResult, CONF, NODE, actors::Realm, ARGS, db::{CashShopVendor, realm_database, ZoneDef, WorldDef}, frontends::TravelType, components::{SessionHandler, SessionRef}};
+use crate::{actors::{ChatChannel, Realm, Social, SocialEvent}, cluster::{frontend::Frontend, ActorRef, CommunityMessage}, components::{SessionHandler, SessionRef}, db::{realm_database, CashShopVendor, WorldDef, ZoneDef}, frontends::TravelType, util::AnotherlandResult, ARGS, CONF, NODE};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneRouter, ZoneRouterConnection, ZoneRouterMessage};
@@ -91,6 +91,8 @@ struct ClusterFrontendSession {
     avatar_ids: Arc<Mutex<HashSet<AvatarId>>>,
     avatar_id: AvatarId,
     session_id: Option<Uuid>,
+    social: ActorRef<Social>,
+    social_events: Receiver<SocialEvent>,
 }
 
 impl ClusterFrontendSession {
@@ -112,6 +114,9 @@ impl ClusterFrontendSession {
 
         trace!(peer = peer.id().to_string(), avatar_id = avatar_id.to_string(); "Started cluster session");
 
+        let mut social = NODE.get_actor("social").expect("Social actor missing");
+        let social_events = social.register_avatar(avatar_id).await;
+
         Self {
             peer,
             session_handler: session_handler.to_owned(),
@@ -121,6 +126,8 @@ impl ClusterFrontendSession {
             avatar_ids,
             avatar_id,
             session_id: None,
+            social,
+            social_events,
         }
     }
 
@@ -209,11 +216,45 @@ impl ClusterFrontendSession {
                             }
                         }
                     },
+                    Some(event) = self.social_events.recv() => {
+                        match event {
+                            SocialEvent::Chat(chat) => {
+                                if let ChatChannel::Generic(channel) = chat.channel {
+                                    let _ = self.peer.send(Priority::High, Reliability::Reliable, CPktChannelChat {
+                                        channel,
+                                        message: format!("{}: {}", chat.sender, chat.message),
+                                        ..Default::default()
+                                    }.into_message()).await;
+                                } else {
+                                    let _ = self.peer.send(Priority::High, Reliability::Reliable, CPktChat {
+                                        chat_type: match chat.channel {
+                                            ChatChannel::Party => CpktChatChatType::Party,
+                                            ChatChannel::Clan => CpktChatChatType::Clan,
+                                            ChatChannel::Officer => CpktChatChatType::Officer,
+                                            ChatChannel::Whisper { .. } => CpktChatChatType::Whisper,
+                                            _ => unreachable!(),
+                                        },
+                                        sender: chat.sender,
+                                        receiver: if let ChatChannel::Whisper { receiver } = chat.channel {
+                                            receiver
+                                        } else {
+                                            String::default()
+                                        },
+                                        message: chat.message,
+                                        ..Default::default()
+                                    }.into_message()).await;
+                                }
+                            }
+                        }
+                    },
                     _ = token.cancelled() => {
                         break 'net_loop;
                     }
                 }
             }
+
+            // unregister from social actor
+            self.social.unregister_avatar(self.avatar_id).await;
 
             self.zone_connection.take();
             self.peer.disconnect().await;
@@ -233,7 +274,7 @@ impl ClusterFrontendSession {
 
         //debug!("{:#?}", message);
 
-        match &message {
+        match message {
             AtlasPkt(CPkt::oaPktRequestEnterGame(pkt)) => {
                 match self.session_handler.write().await.initiate(*self.peer.id(), pkt.session_id, pkt.magic_bytes.clone()).await {
                     Ok(session) => {
@@ -241,6 +282,8 @@ impl ClusterFrontendSession {
 
                         let session = session.lock().await;
                         self.session_id = Some(session.session().id);
+
+                        self.social.update_avatar(self.avatar_id, session.session().id).await?;
                         
                         if let Some(zone) = session.session().zone_guid.as_ref() {
                             trace!(
@@ -258,7 +301,7 @@ impl ClusterFrontendSession {
                                         avatar_id = self.avatar_id.to_string(); 
                                         "Connected to zone, forwarding initial message.");
 
-                                    if let Err(e) = connection.send(&message).await {
+                                    if let Err(e) = connection.send(&pkt.into_message()).await {
                                         error!(
                                             peer = self.peer.id().to_string(), 
                                             session_id = self.session_id.map(|v| v.to_string()), 
@@ -268,7 +311,6 @@ impl ClusterFrontendSession {
                                     } else {
                                         self.zone_connection = Some(Arc::new(connection));
                                     }
-                                    //let _ = connection.send(&message).await;
                                 },
                                 Err(e) => {
                                     error!(
@@ -378,10 +420,29 @@ impl ClusterFrontendSession {
                     deleted_bundle_ids: Vec::new(),
                     ..Default::default()
                 }.into_message()).await?;
-            }
-            AtlasPkt(CPkt::CPktChat(_pkt)) => {
             },
-            AtlasPkt(CPkt::CPktChannelChat(_pkt)) => {
+            AtlasPkt(CPkt::CPktChannelChat(pkt)) => {
+                self.social.chat(self.avatar_id, ChatChannel::Generic(pkt.channel), pkt.message).await;
+            },
+            AtlasPkt(CPkt::CPktChat(pkt)) => {
+                match pkt.chat_type {
+                    CpktChatChatType::Party => self.social.chat(self.avatar_id, ChatChannel::Party, pkt.message).await,
+                    CpktChatChatType::Clan => self.social.chat(self.avatar_id, ChatChannel::Clan, pkt.message).await,
+                    CpktChatChatType::Officer => self.social.chat(self.avatar_id, ChatChannel::Officer, pkt.message).await,
+                    CpktChatChatType::Whisper => self.social.chat(self.avatar_id, ChatChannel::Whisper { receiver: pkt.receiver }, pkt.message).await,
+                    _ => {
+                        // forward proximity based chat to zone server
+                        if let Some(connection) = self.zone_connection.as_ref() {
+                            if connection.send(&pkt.into_message()).await.is_err() {
+                                error!(
+                                    peer = self.peer.id().to_string(), 
+                                    session = self.session_id.map(|v| v.to_string()); 
+                                    "Forward to zone server failed, closing connection.");
+                                self.peer.disconnect().await;
+                            }
+                        }
+                    }
+                }
             },
             AtlasPkt(CPkt::oaPktClusterClientToCommunity(pkt)) => {
                 debug!("{:#?}", pkt);

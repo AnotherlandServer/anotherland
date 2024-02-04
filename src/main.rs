@@ -29,7 +29,7 @@ use std::net::Ipv4Addr;
 use atlas::{CommonConfigClass, OaCommonConfigParams};
 use clap::{Parser, Subcommand};
 use cluster::ClusterNode;
-use actors::{Realm, RealmList, ZoneRegistry};
+use actors::{Realm, RealmList, Social, ZoneRegistry};
 use ::config::File;
 use db::WorldDef;
 use frontends::{ApiFrontend, ClusterFrontend, LoginQueueFrontend, RealmFrontend, ZoneFrontend};
@@ -204,6 +204,7 @@ async fn initialize_realm_server() -> AnotherlandResult<()> {
 
 async fn initialize_cluster_frontend_server() -> AnotherlandResult<()> {
     NODE.add_actor(ZoneRegistry::initialize().await?);
+    NODE.add_actor(Social::initialize().await?);
     NODE.add_frontend(ClusterFrontend::initialize().await?);
 
     Ok(())

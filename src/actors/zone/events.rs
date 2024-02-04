@@ -24,9 +24,6 @@ pub enum ZoneEvent {
     AvatarUpdated { avatar_id: AvatarId, params: ParamSetBox },
     AvatarMoved { avatar_id: AvatarId, movement: Movement },
     AvatarDespawned { avatar_id: AvatarId },
-
-    // social events
-    ChatMessage { range: ProximityChatRange, sender: String, message: String },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

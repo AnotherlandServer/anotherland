@@ -13,8 +13,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use num_traits::float;
+
+#[derive(Clone, Copy)]
 pub enum ProximityChatRange {
     Say,
     TeamSay,
     Shout,
+}
+
+impl ProximityChatRange {
+    // todo: validate those ranges
+    pub fn aware_dist(&self) -> f32 {
+        match self {
+            ProximityChatRange::Say => 1000.0,
+            ProximityChatRange::TeamSay => 1000.0,
+            ProximityChatRange::Shout => 3900.0,
+        }
+    }
 }
