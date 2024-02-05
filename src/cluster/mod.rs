@@ -16,6 +16,7 @@
 mod message_queue;
 mod community_messages;
 mod cluster_node;
+mod cheat_message;
 
 pub mod actor;
 pub mod frontend;
@@ -23,3 +24,4 @@ pub mod frontend;
 pub use message_queue::*;
 pub use community_messages::*;
 pub use cluster_node::*;
+pub use cheat_message::*;

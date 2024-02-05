@@ -17,7 +17,7 @@ use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{oaPktConfirmTravel, oaPktServerAction, raknet::Message, setup_atlas, AvatarId, NonClientBaseComponent, NonClientBaseParams, OaZoneConfigParams, ParamBox, ParamClass, ParamSetBox, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointComponent, Uuid};
+use atlas::{oaPktConfirmTravel, oaPktMoveManagerStateChanged, oaPktServerAction, raknet::Message, setup_atlas, AvatarId, NonClientBaseComponent, NonClientBaseParams, OaZoneConfigParams, Param, ParamBox, ParamClass, ParamSet, ParamSetBox, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointClass, StartingPointComponent, Uuid};
 use glam::{Vec3, Quat};
 use log::{debug, error, info, warn};
 use mongodb::Database;
@@ -27,7 +27,7 @@ use tokio::{runtime::Handle, select, sync::{broadcast, mpsc, OnceCell}, task::Jo
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use specs::{WorldExt, Builder};
 
-use crate::{actors::{zone::systems::EventInfo, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::{Character, RawInstance}, frontends::TravelType, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, zone::systems::EventInfo, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::{Character, RawInstance}, frontends::TravelType, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
 use super::{components::{AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, systems::{RespawnEntities, SpecialEventController, UpdateInterests}, AvatarEventServer, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
@@ -35,7 +35,7 @@ use super::{components::{AvatarComponent, AvatarEvent, EntityType, InterestList,
 pub enum ServerAction {
     DirectTravel(AvatarId, Option<Position>),
     NonPortalTravel(AvatarId, Option<Position>),
-    TeleportTravel(AvatarId, Option<Position>),
+    Teleport(AvatarId, Position)
 }
 
 impl ServerAction {
@@ -53,11 +53,11 @@ impl ServerAction {
                 4,
                 teleport_override
             ),
-            Self::TeleportTravel(instigator, teleport_override) => (
+            Self::Teleport(instigator, position) => (
                 instigator,
-                "TRAVEL:TeleportTravel|TeleportTravelDefault".to_owned(),
+                "TELEPORT:TeleportTravel|TeleportTravelDefault".to_owned(),
                 4,
-                teleport_override
+                Some(position)
             ),
         };
 
@@ -352,21 +352,13 @@ impl Zone {
                         let exit_entity = self.uuid_to_entity_lookup.get(&Uuid::parse_str(&*exit_point).unwrap()).unwrap();
                         let exit = spawn_storage.get(*exit_entity).unwrap();
 
-                        character.data.set_pos((0, exit.pos().to_owned()));
+                        character.data.set_pos((0, exit.pos().to_owned() + Vec3::new(0.0, 0.0, get_player_height(&character.data) / 2.0)));
                         character.data.set_rot(exit.rot().to_owned());
                     } else {
                         warn!("Exit node not found on portal {}", portal_uuid);
 
-                        // lookup entry point and copy position
-                        let starting_point_storage = self.world.read_storage::<StartingPointComponent>();
-                        let non_client_storage = self.world.read_storage::<NonClientBaseComponent>();
-
-                        if let Some(entry_point) = (&starting_point_storage, &non_client_storage).join().next() {
-                            debug!("Found entrypoint");
-
-                            character.data.set_pos((0, entry_point.1.pos().to_owned()));
-                            character.data.set_rot(entry_point.1.rot().to_owned());
-                        }
+                        character.data.set_pos((0, self.default_pos));
+                        character.data.set_rot(self.default_rot);
                     }
 
                     // move to zone
@@ -504,10 +496,115 @@ impl Zone {
 
             // check target entity type
             let entity_type = *self.world.read_storage::<EntityType>().get(*target_entity).unwrap();
+            let cmd_args: Vec<_> = behavior.split(' ').collect();
 
             match entity_type {
+                EntityType::Player => {
+                    match cmd_args[0] {
+                        "RespawnNow" => {
+                            match cmd_args[1] {
+                                "NearestPortal" => {
+                                    let spawned_storage = self.world.read_storage::<Spawned>();
+                                    let position_storage = self.world.read_storage::<Position>();
+                                    let starting_point_storage = self.world.read_storage::<StartingPointClass>();
+                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+        
+                                    let player = player_storage.get_mut(*player_entity).unwrap();
+                                    let player_pos = position_storage.get(*player_entity).unwrap();
+        
+                                    // find nearest starting point (most likely a portal exit node)
+                                    let mut positions: Vec<_> = (
+                                        &starting_point_storage, 
+                                        &spawned_storage
+                                    ).join().map(|(starting_point, _)| (starting_point.pos(), starting_point.rot())).collect();
+        
+                                    positions.sort_by(|a, b| {
+                                        a.0.distance_squared(player_pos.position)
+                                            .total_cmp(&b.0.distance_squared(player_pos.position))
+                                    });
+        
+                                    let (respawn_pos, respawn_rot) = if let Some((pos, rot)) = positions.first() {
+                                        debug!("Respawn pos: {:?}", pos);
+                                        (**pos + Vec3::new(0.0, 0.0, get_player_height(player) / 2.0), **rot)
+                                    } else {
+                                        warn!("No portal for respawning found. Moving to default location");
+                                        (self.default_pos, self.default_rot)
+                                    };
+        
+                                    // revive & teleport player
+                                    let mut update = ParamSet::<PlayerAttribute>::new();
+        
+                                    update.insert(PlayerAttribute::Alive, true);
+                                    update.insert(PlayerAttribute::HpCur, player.hp_max());
+                                    update.insert(PlayerAttribute::Pos, Param::Vector3Uts((0, respawn_pos)));
+                                    update.insert(PlayerAttribute::Rot, respawn_rot);
+                                    update.insert(PlayerAttribute::IsUnAttackable, true); 
+                        
+                                    player.apply(update.clone());
+                        
+                                    // update clients
+                                    let event_sender = self.event_sender.clone();
+        
+                                    let current_hp = player.hp_cur();
+        
+                                    tokio::spawn(async move {
+                                        let _ = sender.send(AvatarEvent::ServerAction(ServerAction::Teleport(instigator, Position { 
+                                            position: respawn_pos, 
+                                            rotation: Quat::from_unit_vector(respawn_rot), 
+                                            velocity: Vec3::default(), 
+                                        }))).await;
+
+                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarMoved { 
+                                            avatar_id: instigator, 
+                                            movement: Movement { 
+                                                position: respawn_pos, 
+                                                rotation: Quat::from_unit_vector(respawn_rot), 
+                                                velocity: Vec3::default(), 
+                                                physics_state: super::PhysicsState::Walking, 
+                                                mover_key: 0, 
+                                                seconds: 0.0 
+                                            } 
+                                        }));
+
+                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
+                                            avatar_id: instigator, 
+                                            params: update.into_box(),
+                                        }));
+        
+                                        let _ = event_sender.send(Arc::new(ZoneEvent::CombatHpUpdate { 
+                                            avatar_id: instigator, 
+                                            hp: current_hp,
+                                        }));
+                                    });
+                                },
+                                _ => todo!("Respawn mode {} not implemented!", cmd_args[1]),
+                            }
+                        },
+                        "PromptCooldown" => {
+                            // todo
+                        },
+                        "DisableInvulnerability" => {
+                            let mut update = ParamSet::<PlayerAttribute>::new();
+                            let mut player_storage = self.world.write_storage::<PlayerClass>();
+                            let player = player_storage.get_mut(*player_entity).unwrap();
+
+                            update.insert(PlayerAttribute::IsUnAttackable, false);
+                            player.apply(update.clone());
+
+                            let event_sender = self.event_sender.clone();
+                
+                            tokio::spawn(async move {
+                                let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
+                                    avatar_id: instigator, 
+                                    params: update.into_box(),
+                                }));
+                            });
+                        },
+                        _ => warn!("Unimplemented behavior '{}' for player", behavior),
+                    }
+                },
                 EntityType::Portal => {
-                    match behavior.as_str() {
+                    match cmd_args[0] {
                         "ConfirmTravelRequest" => {
                             tokio::spawn(async move {
                                 let _ = sender.send(AvatarEvent::Message(oaPktConfirmTravel {
@@ -569,6 +666,31 @@ impl Zone {
                     });
                 }
             }
+        }
+    }
+
+    pub fn kill_avatar(&mut self, avatar_id: AvatarId) {
+        if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) {
+            let mut player_storage = self.world.write_storage::<PlayerClass>();
+
+            let mut update = ParamSet::<PlayerAttribute>::new();
+
+            let player = player_storage.get_mut(*entity).unwrap();
+            
+            update.insert(PlayerAttribute::Alive, false);
+            update.insert(PlayerAttribute::HpCur, 0);
+
+            player.apply(update.clone());
+
+            let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
+                avatar_id, 
+                params: update.into_box(),
+            }));
+
+            let _ = self.event_sender.send(Arc::new(ZoneEvent::CombatHpUpdate { 
+                avatar_id, 
+                hp: 0,
+            }));
         }
     }
 }

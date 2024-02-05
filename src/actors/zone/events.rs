@@ -24,6 +24,7 @@ pub enum ZoneEvent {
     AvatarUpdated { avatar_id: AvatarId, params: ParamSetBox },
     AvatarMoved { avatar_id: AvatarId, movement: Movement },
     AvatarDespawned { avatar_id: AvatarId },
+    CombatHpUpdate { avatar_id: AvatarId, hp: i32 },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

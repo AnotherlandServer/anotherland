@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::Uuid;
+use atlas::{PlayerParams, Uuid};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum PlayerSpawnMode {
@@ -36,4 +36,8 @@ impl From<PlayerSpawnMode> for i32 {
             PlayerSpawnMode::TravelPoint => 6,
         }
     }
+}
+
+pub fn get_player_height(player: &dyn PlayerParams) -> f32 {
+    player.customization_height() * 180.0
 }

@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::{HashSet, HashMap, VecDeque}, sync::Arc, net::{SocketAddr, Ipv6Addr}, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{borrow::Borrow, collections::{HashMap, HashSet, VecDeque}, net::{Ipv6Addr, SocketAddr}, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use async_trait::async_trait;
-use atlas::{oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktChat, CPktResourceNotify, CPktServerNotify, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
+use atlas::{oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPkt_Combat_HpUpdate, oaPkt_SplineSurfing_Acknowledge, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktChat, CPktResourceNotify, CPktServerNotify, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
 use bitstream_io::{ByteWriter, LittleEndian};
 use glam::{Quat, Vec3};
 use log::{debug, error, trace, warn, info};
@@ -24,7 +24,7 @@ use quinn::ServerConfig;
 use tokio::{sync::{Mutex, mpsc::{self, Sender}, RwLock}, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneEvent, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, ItemContent, WorldDef, ZoneDef}, util::{AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
+use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneEvent, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, ItemContent, WorldDef, ZoneDef}, util::{AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
 use crate::db::DatabaseRecord;
 
 use super::{load_state::ClientLoadState, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
@@ -500,6 +500,13 @@ impl ZoneSession {
                         ..Default::default()
                     }.into_message()).await?;
                 }
+            },
+            ZoneEvent::CombatHpUpdate { avatar_id, hp } => {
+                self.send(oaPkt_Combat_HpUpdate {
+                    avatar_id: avatar_id.as_u64(),
+                    hp: *hp,
+                    ..Default::default()
+                }.into_message()).await?;
             }
         }
 
@@ -736,6 +743,20 @@ impl ZoneSession {
                     CpktChatChatType::Shout => ProximityChatRange::Shout,
                     _ => unreachable!(),
                 }, self.avatar_id, pkt.message).await;
+            },
+            AtlasPkt(CPkt::oaPktCheatingClusterNode(pkt)) => {
+                debug!("{:#?}", pkt);
+
+                let command = CheatMessage::from_native(pkt.command.clone())?;
+                debug!("{:#?}", command);
+
+                match command {
+                    CheatMessage::InstantKill { target, .. } => {
+                        if target == self.avatar_id || self.session_ref.lock().await.account().is_gm {
+                            self.instance.zone().kill_avatar(target).await;
+                        }
+                    }
+                }
             },
             _ => {
                 debug!(
