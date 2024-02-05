@@ -48,7 +48,7 @@ pub trait ParamAttrib: PartialEq + Eq + Hash + Clone + FromStr + TryFrom<u16> + 
         for (name, value) in obj {
             match Self::from_str(name) {
                 Ok(attribute) => {
-                    let param = serde_json::from_value(value.clone())?;
+                    let param = serde_json::from_value::<Param>(value.clone())?;
                     set.insert(attribute, param);
                 },
                 Err(_) => {

@@ -39,8 +39,10 @@ impl <T: ParamAttrib>ParamSet<T> {
         }
     }
 
-    pub fn insert(&mut self, key: T, value: Param) {
-        self.params.insert(key, value);
+    pub fn insert<P>(&mut self, key: T, value: P)
+        where P: Into<Param>
+    {
+        self.params.insert(key, value.into());
     }
 
     pub fn remove(&mut self, key: &T) -> Option<Param> {

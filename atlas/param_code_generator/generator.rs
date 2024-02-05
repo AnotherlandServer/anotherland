@@ -1090,25 +1090,25 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                     { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::AvatarID => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: AvatarId) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: AvatarId) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::AvatarIDSet => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: HashSet<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: HashSet<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::AvatarIDVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: Vec<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::BitSetFilter => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: u32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: u32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::Bool => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: bool) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: bool) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::ClassRefPowerRangeList => tokens.push(quote! { 
                                     fn #set_field_name(&mut self, _val: ()) { todo!() }
                                 }),
                                 ParamType::ContentRef => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::ContentRefAndInt => tokens.push(quote! { 
                                     fn #set_field_name(&mut self, _val: ()) { todo!() }
@@ -1117,37 +1117,37 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                     fn #set_field_name(&mut self, _val: ()) { todo!() }
                                 }),
                                 ParamType::Float => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: f32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: f32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::FloatRange => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: (f32, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: (f32, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::FloatVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<f32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: Vec<f32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::Guid => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::GuidPair => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: (Uuid, Uuid)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: (Uuid, Uuid)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::Int => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: i32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: i32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::Int64 => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: i64) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: i64) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::Int64Vector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<i64>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: Vec<i64>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::IntVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: Vec<i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::Json => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Value) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: Value) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::LocalizedString => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::OAInstanceGroup => tokens.push(quote! { 
                                     fn #set_field_name(&mut self, _val: ()) { todo!() }
@@ -1159,31 +1159,31 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                     fn #set_field_name(&mut self, _val: ()) { todo!() }
                                 }),
                                 ParamType::OAVectorGuid => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<Uuid>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: Vec<Uuid>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::String => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::StringFloatPair => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: (String, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: (String, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::StringIntHashmap => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: HashMap<String, i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: HashMap<String, i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::StringStringHashmap => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: HashMap<String, String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: HashMap<String, String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::StringVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                    fn #set_field_name(&mut self, val: Vec<String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::Vector3 => {
                                     if options.flags.contains(&ParamFlag::Uts) {
                                         tokens.push(quote! {
-                                            fn #set_field_name(&mut self, val: (u32, Vec3)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                            fn #set_field_name(&mut self, val: (u32, Vec3)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                         })
                                     } else {
                                         tokens.push(quote! {
-                                            fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, val.into()) }
+                                            fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                         })
                                     }
                                 },
