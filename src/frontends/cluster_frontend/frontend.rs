@@ -16,13 +16,13 @@
 use std::{collections::HashSet, sync::Arc, time::{Duration, UNIX_EPOCH, SystemTime}, net::SocketAddrV4};
 
 use async_trait::async_trait;
-use atlas::{oaPktCashItemVendorSyncAcknowledge, oaPktClusterNodeToClient, oaPktFactionResponse, oaPktSKUBundleSyncAcknowledge, raknet::{Message, Priority, RakNetListener, RakNetPeer, Reliability}, AvatarId, CPkt, CPktChannelChat, CPktChat, CPktStream_167_0, CashItemVendorEntry, CpktChatChatType, FactionRelation, FactionRelationList, NativeParam, Uuid};
+use atlas::{oaPktCashItemVendorSyncAcknowledge, oaPktClusterNodeToClient, oaPktFactionResponse, oaPktSKUBundleSyncAcknowledge, raknet::{Message, Priority, RakNetListener, RakNetPeer, Reliability}, AvatarId, CPkt, CPktChannelChat, CPktChat, CPktStream_167_0, CashItemSKUBundleEntry, CashItemSKUItemEntry, CashItemVendorEntry, CpktChatChatType, FactionRelation, FactionRelationList, NativeParam, Uuid};
 use log::{warn, error, trace, info, debug};
 use rand::random;
 use tokio::{select, sync::{mpsc::Receiver, Mutex, RwLock}, time};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{actors::{ChatChannel, Realm, Social, SocialEvent}, cluster::{frontend::Frontend, ActorRef, CommunityMessage}, components::{SessionHandler, SessionRef}, db::{realm_database, CashShopVendor, WorldDef, ZoneDef}, frontends::TravelType, util::AnotherlandResult, ARGS, CONF, NODE};
+use crate::{actors::{ChatChannel, Realm, Social, SocialEvent}, cluster::{frontend::Frontend, ActorRef, CommunityMessage}, components::{SessionHandler, SessionRef}, db::{realm_database, CashShopBundle, CashShopItem, CashShopVendor, WorldDef, ZoneDef}, frontends::TravelType, util::AnotherlandResult, ARGS, CONF, NODE};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneRouter, ZoneRouterConnection, ZoneRouterMessage};
@@ -272,8 +272,6 @@ impl ClusterFrontendSession {
     async fn handle_message(&mut self, message: Message) -> AnotherlandResult<()> {
         use atlas::raknet::Message::*;
 
-        //debug!("{:#?}", message);
-
         match message {
             AtlasPkt(CPkt::oaPktRequestEnterGame(pkt)) => {
                 match self.session_handler.write().await.initiate(*self.peer.id(), pkt.session_id, pkt.magic_bytes.clone()).await {
@@ -413,9 +411,66 @@ impl ClusterFrontendSession {
                 }.into_message()).await?;
             },
             AtlasPkt(CPkt::oaPktSKUBundleSyncRequest(_pkt)) => {
+                // todo: move into own component
+                let items: Vec<_> = CashShopItem::list(realm_database().await).await?
+                    .iter()
+                    .map(|i| CashItemSKUItemEntry {
+                        cash_price: i.cash_price,
+                        rental_duration: i.rental_duration,
+                        is_in_stock: i.is_in_stock,
+                        is_hot: i.is_hot,
+                        is_new: i.is_new,
+                        version: i.version,
+                        is_visible: i.is_visible,
+                        is_tradable: i.is_tradable,
+                        is_featured: i.is_featured,
+                        quantity: i.quantity,
+                        discount: i.discount,
+                        sku_id: i.id.to_string(),
+                        display_name: i.display_name.to_owned(),
+                        description: i.description.to_owned(),
+                        reference_item_name: i.reference_item_name.to_owned(),
+                        reference_item_guid: i.reference_item_guid.to_string(),
+                        sku_code: i.sku_code.to_owned(),
+                        date_start: String::from("invalid"),
+                        date_end: String::from("invalid"),
+                    })
+                    .collect();
+
+                let bundles: Vec<_> = CashShopBundle::list(realm_database().await).await?
+                    .iter()
+                    .map(|b| CashItemSKUBundleEntry {
+                        cash_price: b.cash_price,
+                        is_in_stock: b.is_in_stock,
+                        is_hot: b.is_hot,
+                        is_new: b.is_new,
+                        version: b.version,
+                        is_visible: b.is_visible,
+                        is_tradable: b.is_tradable,
+                        is_featured: b.is_featured,
+                        quantity: b.quantity,
+                        discount: b.discount,
+                        bundle_id: b.id.to_string(),
+                        display_name: b.display_name.to_owned(),
+                        description: b.description.to_owned(),
+                        icon: b.icon.to_owned(),
+                        item_list_and_count: b.item_list_andcount
+                            .iter()
+                            .map(
+                                |(item, count)| format!("{}={}", item, count)
+                            )
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        date_start: String::from("invalid"),
+                        date_end: String::from("invalid"),
+                    })
+                    .collect();
+
                 self.peer.send(Priority::High, Reliability::Reliable, oaPktSKUBundleSyncAcknowledge {
-                    sku_items: Vec::new(),
-                    bundle_items: Vec::new(),
+                    sku_item_count: items.len() as u32,
+                    sku_items: items,
+                    bundle_item_count: bundles.len() as u32,
+                    bundle_items: bundles,
                     deleted_item_ids: Vec::new(),
                     deleted_bundle_ids: Vec::new(),
                     ..Default::default()

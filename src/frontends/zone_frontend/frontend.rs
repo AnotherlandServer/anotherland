@@ -554,6 +554,8 @@ impl ZoneSession {
                         rot: movement.rotation.into(),
                         vel: movement.velocity.into(),
                         physics: PhysicsState::Walking.into(),
+                        mover_type: 1,
+                        replica: 7,
                         ..Default::default()
                     }.to_bytes().into(),
                     has_guid: true,
@@ -720,7 +722,11 @@ impl ZoneSession {
                 debug!("Dialog List: {:#?}", pkt);
             },
             AtlasPkt(CPkt::CPktRequestAvatarBehaviors(pkt)) => {
+                debug!("Request behavior: {:#?}", pkt);
+
                 if pkt.behaviour == "FlightTube" {
+                    
+
                     self.send(oaPkt_SplineSurfing_Acknowledge {
                         avatar_id: self.avatar_id.as_u64(),
                         spline_id: Uuid::parse_str("2851e8fe-6810-4281-b296-52b10cbb307d").unwrap(),

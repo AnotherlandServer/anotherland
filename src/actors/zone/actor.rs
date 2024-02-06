@@ -219,6 +219,9 @@ impl Zone {
             });
 
             let _ = self.world.write_storage::<Position>().insert(entity, Position {
+                mover_key: 0,
+                replica: 7,
+                version: 1,
                 position: base.pos().to_owned(),
                 rotation: Quat::from_unit_vector(base.rot().to_owned()),
                 velocity: Vec3::default(),
@@ -282,6 +285,8 @@ impl Zone {
     pub async fn spawn_player(&mut self, spawn_mode: PlayerSpawnMode, avatar_id: AvatarId, character_id: u32, avatar_event_sender: mpsc::Sender<AvatarEvent>) -> AnotherlandResult<(Character, ServerAction)> {
         let mut spawn_mode = spawn_mode;
         let action;
+
+        let position;
         
         if let Some(mut character) = Character::get(self.realm_db.clone(), &character_id).await? {
             // do some first time spawn setup
@@ -324,18 +329,28 @@ impl Zone {
                     character.data.set_world_map_guid(&self.factory.world_def().guid.to_string());
                     character.world_id = self.factory.world_def().id as u32;
 
-                    action = ServerAction::DirectTravel(AvatarId::default(), Some(Position { 
+                    position = Position { 
+                        mover_key: 0,
+                        replica: 7,
+                        version: 1,
                         position: character.data.pos().to_owned().1,
                         rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                         velocity: Vec3::default(),
-                    }));
+                    };
+
+                    action = ServerAction::DirectTravel(AvatarId::default(), Some(position.clone()));
                 },
                 PlayerSpawnMode::LoginNormal => {
-                    action = ServerAction::DirectTravel(AvatarId::default(), Some(Position { 
+                    position = Position { 
+                        mover_key: 0,
+                        replica: 7,
+                        version: 1,
                         position: character.data.pos().to_owned().1,
                         rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                         velocity: Vec3::default(),
-                    }));
+                    };
+
+                    action = ServerAction::DirectTravel(AvatarId::default(), Some(position.clone()));
                 },
                 PlayerSpawnMode::TravelPortal(portal_uuid) => {
                     let portal_storage = self.world.read_storage::<PortalClass>();
@@ -367,11 +382,16 @@ impl Zone {
                     character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
                     character.world_id = self.factory.world_def().id as u32;
 
-                    action = ServerAction::DirectTravel(portal_avatar.id, Some(Position { 
+                    position = Position { 
+                        mover_key: 0,
+                        replica: 7,
+                        version: 1,
                         position: character.data.pos().to_owned().1,
                         rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                         velocity: Vec3::default(),
-                    }));
+                    };
+
+                    action = ServerAction::DirectTravel(portal_avatar.id, Some(position.clone()));
                 },
                 _ => unimplemented!(),
             }
@@ -392,11 +412,7 @@ impl Zone {
                     name: character.name.clone(),
                     phase_tag: "".to_owned(),
                 })
-                .with(Position {
-                    position: character.data.pos().to_owned().1,
-                    rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
-                    velocity: Vec3::default(),
-                })
+                .with(position)
                 .with(InterestList {
                     interests: Vec::new(),
                 })
@@ -505,12 +521,12 @@ impl Zone {
                             match cmd_args[1] {
                                 "NearestPortal" => {
                                     let spawned_storage = self.world.read_storage::<Spawned>();
-                                    let position_storage = self.world.read_storage::<Position>();
+                                    let mut position_storage = self.world.write_storage::<Position>();
                                     let starting_point_storage = self.world.read_storage::<StartingPointClass>();
                                     let mut player_storage = self.world.write_storage::<PlayerClass>();
         
                                     let player = player_storage.get_mut(*player_entity).unwrap();
-                                    let player_pos = position_storage.get(*player_entity).unwrap();
+                                    let player_pos = position_storage.get_mut(*player_entity).unwrap();
         
                                     // find nearest starting point (most likely a portal exit node)
                                     let mut positions: Vec<_> = (
@@ -541,18 +557,19 @@ impl Zone {
                                     update.insert(PlayerAttribute::IsUnAttackable, true); 
                         
                                     player.apply(update.clone());
+
+                                    player_pos.version = player_pos.version.wrapping_add(1);
+                                    player_pos.position = respawn_pos;
+                                    player_pos.rotation = Quat::from_unit_vector(respawn_rot);
                         
                                     // update clients
                                     let event_sender = self.event_sender.clone();
         
                                     let current_hp = player.hp_cur();
+                                    let send_pos = player_pos.clone();
         
                                     tokio::spawn(async move {
-                                        let _ = sender.send(AvatarEvent::ServerAction(ServerAction::Teleport(instigator, Position { 
-                                            position: respawn_pos, 
-                                            rotation: Quat::from_unit_vector(respawn_rot), 
-                                            velocity: Vec3::default(), 
-                                        }))).await;
+                                        let _ = sender.send(AvatarEvent::ServerAction(ServerAction::Teleport(instigator, send_pos))).await;
 
                                         let _ = event_sender.send(Arc::new(ZoneEvent::AvatarMoved { 
                                             avatar_id: instigator, 

@@ -19,6 +19,10 @@ use specs::{prelude::*, Component};
 #[derive(Clone, Component)]
 #[storage(VecStorage)]
 pub struct Position {
+    pub mover_key: u16,
+    pub replica: u8,
+    pub version: u16,
+
     pub position: Vec3,
     pub rotation: Quat,
     pub velocity: Vec3,
