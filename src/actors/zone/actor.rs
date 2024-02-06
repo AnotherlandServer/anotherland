@@ -13,11 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
+use std::{collections::HashMap, ops::Deref, sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{oaPktConfirmTravel, oaPktMoveManagerStateChanged, oaPktServerAction, raknet::Message, setup_atlas, AvatarId, NonClientBaseComponent, NonClientBaseParams, OaZoneConfigParams, Param, ParamBox, ParamClass, ParamSet, ParamSetBox, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointClass, StartingPointComponent, Uuid};
+use atlas::{oaPktConfirmTravel, oaPktMoveManagerStateChanged, oaPktServerAction, raknet::Message, setup_atlas, AvatarId, NonClientBaseComponent, NonClientBaseParams, OaZoneConfigParams, Param, ParamBox, ParamClass, ParamSet, ParamSetBox, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointClass, StartingPointComponent, TriggerClass, Uuid};
 use glam::{Vec3, Quat};
 use log::{debug, error, info, warn};
 use mongodb::Database;
@@ -503,6 +503,10 @@ impl Zone {
         }
     }
 
+    pub fn request_behavior(&mut self, instigator: AvatarId, behavior: String, data: String) {
+        
+    }
+
     pub fn tell_behavior(&mut self, instigator: AvatarId, target: AvatarId, behavior: String) {
         // todo: move behaviors into scripts
         if let Some(player_entity) = self.avatar_id_to_entity_lookup.get(&instigator) && 
@@ -656,7 +660,111 @@ impl Zone {
                         },
                         _ => warn!("Unimplemented behavior '{}' for portal node", behavior),
                     }
-                }
+                },
+                EntityType::Trigger => {
+                    if cmd_args[0] == "triggeraction" {
+                        let trigger_storage = self.world.read_storage::<TriggerClass>();
+                        let trigger = trigger_storage.get(*target_entity).unwrap();
+
+                        if let Some(script) = trigger.lua_script() {
+                            match script.deref() {
+                                "ClassClear" => {
+                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let player = player_storage.get_mut(*player_entity).unwrap();
+
+                                    let mut update = ParamSet::new();
+                                    update.insert(PlayerAttribute::CombatStyle, 6);
+
+                                    player.apply(update.clone());
+
+                                    let event_sender = self.event_sender.clone();
+                
+                                    tokio::spawn(async move {
+                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
+                                            avatar_id: instigator, 
+                                            params: update.into_box(),
+                                        }));
+                                    });
+                                },
+                                "ClassEnergizer" => {
+                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let player = player_storage.get_mut(*player_entity).unwrap();
+
+                                    let mut update = ParamSet::new();
+                                    update.insert(PlayerAttribute::CombatStyle, 3);
+
+                                    player.apply(update.clone());
+
+                                    let event_sender = self.event_sender.clone();
+                
+                                    tokio::spawn(async move {
+                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
+                                            avatar_id: instigator, 
+                                            params: update.into_box(),
+                                        }));
+                                    });
+                                },
+                                "ClassWarrior" => {
+                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let player = player_storage.get_mut(*player_entity).unwrap();
+
+                                    let mut update = ParamSet::new();
+                                    update.insert(PlayerAttribute::CombatStyle, 0);
+
+                                    player.apply(update.clone());
+
+                                    let event_sender = self.event_sender.clone();
+                
+                                    tokio::spawn(async move {
+                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
+                                            avatar_id: instigator, 
+                                            params: update.into_box(),
+                                        }));
+                                    });
+                                },
+                                "ClassMarksman" => {
+                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let player = player_storage.get_mut(*player_entity).unwrap();
+
+                                    let mut update = ParamSet::new();
+                                    update.insert(PlayerAttribute::CombatStyle, 1);
+
+                                    player.apply(update.clone());
+
+                                    let event_sender = self.event_sender.clone();
+                
+                                    tokio::spawn(async move {
+                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
+                                            avatar_id: instigator, 
+                                            params: update.into_box(),
+                                        }));
+                                    });
+                                },
+                                "ClassAssassin" => {
+                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let player = player_storage.get_mut(*player_entity).unwrap();
+
+                                    let mut update = ParamSet::new();
+                                    update.insert(PlayerAttribute::CombatStyle, 2);
+
+                                    player.apply(update.clone());
+
+                                    let event_sender = self.event_sender.clone();
+                
+                                    tokio::spawn(async move {
+                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
+                                            avatar_id: instigator, 
+                                            params: update.into_box(),
+                                        }));
+                                    });
+                                },
+                                _ => warn!("Unimplemented lua script '{}' for trigger", script),
+                            }
+                        };
+                    } else {
+                        warn!("Unimplemented behavior '{}' for trigger", behavior);
+                    }
+                },
                 _ => warn!("Behavior '{}' not implemented for entity type {:?}", behavior, entity_type),
             }
         }
