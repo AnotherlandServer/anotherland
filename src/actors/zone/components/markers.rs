@@ -13,8 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use specs::{prelude::*, Component};
+use bevy_ecs::prelude::*;
 
 #[derive(Component)]
-#[storage(NullStorage)]
 pub struct Spawned;

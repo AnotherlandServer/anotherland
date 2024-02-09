@@ -14,12 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::time::Instant;
-
-
-use specs::{prelude::*, Component};
+use bevy_ecs::prelude::*;
 
 #[derive(Clone, Component)]
-#[storage(VecStorage)]
 pub struct SpawnerState {
     pub despawn_instant: Option<Instant>,
     pub respawn_instant: Option<Instant>,

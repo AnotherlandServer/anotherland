@@ -13,14 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{AvatarId, Uuid};
 use bevy_ecs::prelude::*;
+use tokio::runtime::Handle;
+use tokio_util::task::TaskTracker;
 
-#[derive(Clone, Debug, Component)]
-pub struct AvatarComponent {
-    pub id: AvatarId,
-    pub instance_id: Option<Uuid>,
-    pub content_id: Option<Uuid>,
-    pub name: String,
-    pub phase_tag: String,
+#[derive(Resource)]
+pub struct Tasks {
+    pub handle: Handle,
+    pub tasks: TaskTracker,
 }

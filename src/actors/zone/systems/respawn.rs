@@ -16,56 +16,34 @@
 use std::time::Instant;
 
 use atlas::NonClientBaseComponent;
-
-use specs::{Entities, Join, System, WriteStorage};
+use bevy_ecs::{entity::Entity, query::Without, system::{Commands, Query}};
 
 use crate::actors::{Spawned, SpawnerState};
 
-pub struct RespawnEntities;
+pub fn respawn(mut commands: Commands, mut query: Query<(Entity, &NonClientBaseComponent, &mut SpawnerState, Without<Spawned>)>) {
+    let now = Instant::now();
 
-impl<'a> System<'a> for RespawnEntities {
-    type SystemData = (
-        Entities<'a>,
-        WriteStorage<'a, Spawned>,
-        WriteStorage<'a, SpawnerState>,
-        WriteStorage<'a, NonClientBaseComponent>,
-    );
+    for (entity, base, mut state, _) in query.iter_mut() {
+        // first check if the entity is enabled at all
+        if base.enable_in_game() {
+            if let Some(instant) = state.respawn_instant {
+                // respawn when we reached the set time
+                if instant <= now {
+                    // reset state
+                    state.despawn_instant = None;
+                    state.respawn_instant = None;
 
-    fn run(&mut self, (
-        entities, 
-        mut spawned, 
-        mut state, 
-        base
-    ): Self::SystemData) {
-        let mut respawn_ents = Vec::new();
-        let now = Instant::now();
-
-        // iterate trough all despawned entities
-        for (entity, base, state, _) in (&entities, &base, &mut state, !&spawned).join() {
-            // first check if the entity is enabled at all
-            if base.enable_in_game() {
-                if let Some(instant) = state.respawn_instant {
-                    // respawn when we reached the set time
-                    if instant <= now {
-                        // reset state
-                        state.despawn_instant = None;
-                        state.respawn_instant = None;
-
-                        respawn_ents.push(entity);
-                    }
-
-                    // if no explicit instant for respaning is set, respawn immediately
-                } else {
-                    respawn_ents.push(entity);
+                    commands.entity(entity)
+                        .insert(Spawned);
                 }
+
+                // if no explicit instant for respaning is set, respawn immediately
+            } else {
+                commands.entity(entity)
+                        .insert(Spawned);
             }
         }
 
-        // respawn qualified ents
-        for ent in respawn_ents.into_iter() {
-            let _ = spawned.insert(ent, Spawned);
-
-            // todo: run entity specific respawn logic
-        }
-    }    
+        
+    }
 }

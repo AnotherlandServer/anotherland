@@ -13,12 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use specs::{World, WorldExt};
+use bevy_ecs::prelude::*;
 
-use crate::{setup_components, ParamBox};
+use crate::components::SpecialMapEvent;
 
-pub fn setup_atlas(world: &mut World) {
-    world.register::<ParamBox>();
-
-    setup_components(world);
+pub struct EventInfo {
+    pub event: SpecialMapEvent,
+    pub active: Option<bool>,
 }
+
+#[derive(Resource)]
+pub struct EventInfos(pub Vec<EventInfo>);

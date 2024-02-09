@@ -19,12 +19,11 @@ use bitstream_io::ByteWrite;
 use nom::{error::VerboseError, IResult};
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde_json::{Value, json};
-use specs::{Component, EntityBuilder, VecStorage};
+use bevy_ecs::prelude::*;
 
 use crate::{ClassId, ParamClass, ParamError};
 
 #[derive(Component)]
-#[storage(VecStorage)]
 pub struct ParamBox {
     class_id: ClassId,
     class: Box<dyn Any>,
@@ -102,10 +101,6 @@ impl ParamBox {
 
     pub fn strip_original_data(&mut self) {
 
-    }
-
-    pub fn append_to_entity<'a>(&self, builder: EntityBuilder<'a>) -> EntityBuilder<'a> {
-        self.class_id.append_to_entity(self.class.as_ref(), builder)
     }
 }
 

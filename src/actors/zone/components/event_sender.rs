@@ -16,7 +16,7 @@
 use atlas::{raknet::Message, AvatarId, Uuid};
 
 use tokio::sync::mpsc;
-use specs::{prelude::*, Component};
+use bevy_ecs::prelude::*;
 
 use crate::{actors::{ProximityChatRange, ServerAction}, frontends::TravelType};
 
@@ -31,7 +31,6 @@ pub enum AvatarEvent {
 }
 
 #[derive(Clone, Debug, Component)]
-#[storage(DenseVecStorage)]
 pub struct AvatarEventServer {
     pub sender: mpsc::Sender<AvatarEvent>,
 }

@@ -16,7 +16,9 @@
 mod update_interests;
 mod respawn;
 mod special_event_controller;
+mod chat;
 
-pub(super) use update_interests::*;
-pub(super) use respawn::*;
-pub(super) use special_event_controller::*;
+pub use update_interests::*;
+pub use respawn::*;
+pub use special_event_controller::*;
+pub use chat::*;

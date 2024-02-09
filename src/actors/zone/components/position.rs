@@ -14,10 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use glam::{Quat, Vec3};
-use specs::{prelude::*, Component};
+use bevy_ecs::prelude::*;
 
 #[derive(Clone, Component)]
-#[storage(VecStorage)]
 pub struct Position {
     pub mover_key: u16,
     pub replica: u8,

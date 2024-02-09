@@ -19,7 +19,9 @@ mod events;
 mod player;
 mod social;
 mod loader;
+mod resources;
 mod systems;
+mod zone_events;
 
 pub use actor::*;
 pub use events::*;

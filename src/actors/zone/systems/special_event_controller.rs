@@ -13,89 +13,67 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{sync::Arc, time::SystemTime};
-
-use atlas::{NonClientBaseComponent, Uuid};
-use chrono::{DateTime, Local};
+use atlas::NonClientBaseComponent;
+use bevy_ecs::{entity::Entity, system::{Commands, Query, ResMut}};
 use log::info;
-use specs::{Entities, Join, ReadStorage, System, WriteExpect, WriteStorage};
 
-use crate::{actors::{AvatarComponent, Spawned}, components::SpecialMapEvent};
+use crate::actors::{zone::resources::EventInfos, AvatarComponent, Spawned};
 
-pub struct EventInfo {
-    pub event: SpecialMapEvent,
-    pub active: Option<bool>,
-}
+pub fn sepcial_event_controller(
+    mut event_infos: ResMut<EventInfos>, 
+    mut commands: Commands,
+    mut query: Query<(Entity, &AvatarComponent, &mut NonClientBaseComponent)>,
+) {
+    // check event status
+    for event_info in event_infos.0.iter_mut() {
+        if event_info.event.is_active() {
+            // check if we have to activate the event
+            if !event_info.active.unwrap_or(false) {
+                info!("Enabling event: {}", event_info.event.name());
 
-pub struct SpecialEventController;
-
-impl<'a> System<'a> for SpecialEventController {
-    type SystemData = (
-        WriteExpect<'a, Vec<EventInfo>>,
-        Entities<'a>,
-        ReadStorage<'a, AvatarComponent>,
-        WriteStorage<'a, NonClientBaseComponent>,
-        WriteStorage<'a, Spawned>,
-    );
-
-    fn run(&mut self, (
-        mut event_infos,
-        entities,
-        avatar, 
-        mut base,
-        mut spawned
-    ): Self::SystemData) {
-        // check event status
-        for event_info in event_infos.iter_mut() {
-            if event_info.event.is_active() {
-                // check if we have to activate the event
-                if !event_info.active.unwrap_or(false) {
-                    info!("Enabling event: {}", event_info.event.name());
-
-                    for (ent, avatar, base) in (&entities, &avatar, &mut base).join() {
-                        if let Some(instance_id) = avatar.instance_id {
-                            if event_info.event.event_instances.contains(&instance_id) {
-                                base.set_enable_in_game(true);
-                            } else if event_info.event.hidden_instances.contains(&instance_id) {
-                                base.set_enable_in_game(false);
-                                spawned.remove(ent);
-                            }
-                        }
-
-                        if let Some(content_id) = avatar.content_id {
-                            if event_info.event.content.contains(&content_id) {
-                                base.set_enable_in_game(true);
-                            }
+                for (ent, avatar, mut base) in query.iter_mut() {
+                    if let Some(instance_id) = avatar.instance_id {
+                        if event_info.event.event_instances.contains(&instance_id) {
+                            base.set_enable_in_game(true);
+                        } else if event_info.event.hidden_instances.contains(&instance_id) {
+                            base.set_enable_in_game(false);
+                            commands.entity(ent).remove::<Spawned>();
                         }
                     }
 
-                    event_info.active = Some(true);
-                }
-            } else {
-                // check if we have to deactivate the event
-                if event_info.active.unwrap_or(true) {
-                    info!("Disabling event: {}", event_info.event.name());
-
-                    for (ent, avatar, base) in (&entities, &avatar, &mut base).join() {
-                        if let Some(instance_id) = avatar.instance_id {
-                            if event_info.event.event_instances.contains(&instance_id) {
-                                base.set_enable_in_game(false);
-                                spawned.remove(ent);
-                            } else if event_info.event.hidden_instances.contains(&instance_id) {
-                                base.set_enable_in_game(true);
-                            }
+                    if let Some(content_id) = avatar.content_id {
+                        if event_info.event.content.contains(&content_id) {
+                            base.set_enable_in_game(true);
                         }
+                    }
+                }
 
-                        if let Some(content_id) = avatar.content_id {
-                            if event_info.event.content.contains(&content_id) {
-                                base.set_enable_in_game(false);
-                                spawned.remove(ent);
-                            }
+                event_info.active = Some(true);
+            }
+        } else {
+            // check if we have to deactivate the event
+            if event_info.active.unwrap_or(true) {
+                info!("Disabling event: {}", event_info.event.name());
+
+                for (ent, avatar, mut base) in query.iter_mut() {
+                    if let Some(instance_id) = avatar.instance_id {
+                        if event_info.event.event_instances.contains(&instance_id) {
+                            base.set_enable_in_game(false);
+                            commands.entity(ent).remove::<Spawned>();
+                        } else if event_info.event.hidden_instances.contains(&instance_id) {
+                            base.set_enable_in_game(true);
                         }
                     }
 
-                    event_info.active = Some(false);
+                    if let Some(content_id) = avatar.content_id {
+                        if event_info.event.content.contains(&content_id) {
+                            base.set_enable_in_game(false);
+                            commands.entity(ent).remove::<Spawned>();
+                        }
+                    }
                 }
+
+                event_info.active = Some(false);
             }
         }
     }

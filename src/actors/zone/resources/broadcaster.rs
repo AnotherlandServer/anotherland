@@ -13,14 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{AvatarId, Uuid};
-use bevy_ecs::prelude::*;
+use std::sync::Arc;
 
-#[derive(Clone, Debug, Component)]
-pub struct AvatarComponent {
-    pub id: AvatarId,
-    pub instance_id: Option<Uuid>,
-    pub content_id: Option<Uuid>,
-    pub name: String,
-    pub phase_tag: String,
+use bevy_ecs::prelude::*;
+use tokio::sync::broadcast;
+
+use crate::actors::ZoneEvent;
+
+#[derive(Resource)]
+pub struct Broadcaster {
+    pub sender: broadcast::Sender<Arc<ZoneEvent>>
 }

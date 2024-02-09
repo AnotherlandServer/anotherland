@@ -955,7 +955,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             }
 
             #[derive(Component)]
-            #[storage(DenseVecStorage)]
             pub struct #component_name(Box<dyn #trait_name>);
 
             unsafe impl Send for #component_name {}
@@ -1210,11 +1209,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         };
 
         // generate component factory
-        let append_components = {
-            let mut components = Vec::new();
+        let bundle_type = {
+            let mut components: Vec<TokenStream> = Vec::new();
 
-            components.push(quote!{ .with(self.clone_ref()) });
-            components.push(quote!{ .with(self.clone_ref().into_box()) });
+            components.push(quote!(ParamBox));
+            components.push(quote!( #class_name ));
 
             let mut current_class = Some(v.to_owned().to_owned());
             while let Some(parent_class_ref) = current_class {
@@ -1222,7 +1221,25 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
                 let component_name = format_ident!("{}Component", parent_class_ref.borrow().name.to_case(Case::UpperCamel));
 
-                components.push(quote!{ .with(#component_name(Box::new(self.clone_ref()))) });
+                components.push(quote!( #component_name ));
+            }
+
+            quote!{(#(#components),*)}
+        };
+
+        let bundle_class = {
+            let mut components: Vec<TokenStream> = Vec::new();
+
+            components.push(quote!{ self.clone_ref().into_box() });
+            components.push(quote!{ self.clone_ref() });
+
+            let mut current_class = Some(v.to_owned().to_owned());
+            while let Some(parent_class_ref) = current_class {
+                current_class = parent_class_ref.borrow().extends_ref.clone();
+
+                let component_name = format_ident!("{}Component", parent_class_ref.borrow().name.to_case(Case::UpperCamel));
+
+                components.push(quote!{ #component_name(Box::new(self.clone_ref())) });
             }
 
             components
@@ -1256,11 +1273,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         quote!{
             #[derive(Component)]
-            #[storage(DenseVecStorage)]
             pub struct #class_name(Arc<RwLock<ParamSet<#attrib_name>>>);
 
             impl ParamClass for #class_name {
                 type Attributes = #attrib_name;
+                type EntityBundle = #bundle_type;
 
                 fn from_set(set: ParamSet<Self::Attributes>) -> Self {
                     Self(Arc::new(RwLock::new(set)))
@@ -1282,9 +1299,8 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     Self(self.0.clone())
                 }
 
-                fn append_to_entity<'a>(&self, builder: EntityBuilder<'a>) -> EntityBuilder<'a> {
-                    builder
-                    #(#append_components)*
+                fn as_bundle(&self) -> Self::EntityBundle {
+                    (#(#bundle_class),*)
                 }
 
                 fn into_box(self) -> ParamBox {
@@ -1427,11 +1443,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         quote! { ClassId::#class_name => Box::new(value.downcast_ref::<#class_name>().expect("class id mismatch").clone()), }
     }).collect();
 
-    let class_append_to_entity: Vec<_> = final_classes.iter().map(|v| {
-        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => value.downcast_ref::<#class_name>().expect("class id mismatch").append_to_entity(builder), }
-    }).collect();
-
     let class_id_int: Vec<_> = final_classes.iter().map(|v| {
         let class = v.borrow();
         let id_literal = class.unique_id;
@@ -1439,24 +1450,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         quote!(ClassId::#class_name => #id_literal)
     }).collect();
-
-    let setup_components: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class = v.borrow();
-
-        if class.final_class || ADDITIONAL_PARAM_CLASSES.contains(&class.name.as_str()) {
-            let class_name = format_ident!("{}Class", class.name.to_case(Case::UpperCamel));
-            let component_name = format_ident!("{}Component", class.name.to_case(Case::UpperCamel));
-            quote! {
-                world.register::<#class_name>();
-                world.register::<#component_name>();
-            }
-        } else {
-            let component_name = format_ident!("{}Component", class.name.to_case(Case::UpperCamel));
-            quote!(world.register::<#component_name>();)
-        }
-
-    })
-    .collect();
 
     write_source("generated_params.rs", quote! {
         use glam::Vec3;
@@ -1481,12 +1474,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use serde::Serializer;
         use serde::Deserialize;
         use serde::Deserializer;
-        use specs::World;
-        use specs::WorldExt;
-        use specs::Component;
-        use specs::EntityBuilder;
-        use specs::Builder;
-        use specs::DenseVecStorage;
+        use bevy_ecs::prelude::*;
 
         use crate::AvatarId;
         use crate::Uuid;
@@ -1580,12 +1568,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     #(#class_clone)*
                 }
             }
-
-            pub(crate) fn append_to_entity<'a>(&self, value: &dyn Any, builder: EntityBuilder<'a>) -> EntityBuilder<'a> {
-                match self {
-                    #(#class_append_to_entity)*
-                }
-            }
         }
 
         impl Display for ClassId {
@@ -1633,10 +1615,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 let id: u16 = val.into();
                 id as u32
             }
-        }
-
-        pub(crate) fn setup_components(world: &mut World) {
-            #(#setup_components)*
         }
     })
 }

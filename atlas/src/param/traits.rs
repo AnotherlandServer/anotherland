@@ -19,7 +19,7 @@ use bitstream_io::ByteWrite;
 use nom::{IResult, error::VerboseError, error::context};
 use serde_json::Value;
 use parking_lot::RwLockReadGuard;
-use specs::EntityBuilder;
+use bevy_ecs::prelude::*;
 
 use crate::{ClassId, Param, ParamBox, ParamFlag, ParamSet, ParamType};
 
@@ -76,6 +76,7 @@ pub trait ParamAttrib: PartialEq + Eq + Hash + Clone + FromStr + TryFrom<u16> + 
 
 pub trait ParamClass: Default + Any {
     type Attributes: ParamAttrib;
+    type EntityBundle: Bundle;
 
     fn from_set(set: ParamSet<Self::Attributes>) -> Self;
     fn as_set(&self) -> RwLockReadGuard<ParamSet<Self::Attributes>>;
@@ -115,7 +116,7 @@ pub trait ParamClass: Default + Any {
 
     fn clone_ref(&self) -> Self;
 
-    fn append_to_entity<'a>(&self, builder: EntityBuilder<'a>) -> EntityBuilder<'a>;
+    fn as_bundle(&self) -> Self::EntityBundle;
 
     fn into_box(self) -> ParamBox;
 }

@@ -13,14 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{AvatarId, Uuid};
-use bevy_ecs::prelude::*;
+use bevy_ecs::event::Event;
+use glam::Vec3;
 
-#[derive(Clone, Debug, Component)]
-pub struct AvatarComponent {
-    pub id: AvatarId,
-    pub instance_id: Option<Uuid>,
-    pub content_id: Option<Uuid>,
-    pub name: String,
-    pub phase_tag: String,
+use super::ProximityChatRange;
+
+#[derive(Event)]
+pub struct ProximityChatEvent{
+    pub range: ProximityChatRange,
+    pub pos: Vec3,
+    pub sender: String,
+    pub message: String,
 }

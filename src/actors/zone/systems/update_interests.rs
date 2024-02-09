@@ -16,82 +16,58 @@
 use std::collections::HashSet;
 
 use atlas::{NonClientBaseComponent, PlayerClass, PlayerParams};
-use specs::{Join, ReadExpect, ReadStorage, System, WriteStorage};
+use bevy_ecs::{query::{With, Without}, system::{Query, Res}};
 use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 
-use crate::actors::{zone::components::{InterestList, Position, AvatarComponent, AvatarEvent}, AvatarEventServer, Spawned};
+use crate::actors::{zone::{components::{AvatarComponent, AvatarEvent, InterestList, Position}, resources::Tasks}, AvatarEventServer, Spawned};
 
-pub struct UpdateInterests;
+pub fn update_interests(
+    mut players: Query<(&AvatarComponent, &PlayerClass, &Position, &AvatarEventServer, &mut InterestList, Without<NonClientBaseComponent>)>,
+    non_player_avatars: Query<(&AvatarComponent, &Position, &NonClientBaseComponent, With<Spawned>, Without<PlayerClass>)>,
+    tasks: Res<Tasks>,
+) {
+    for (avatar, player, position, sender, mut interests, _) in players.iter_mut() {
+        let mut new_interests = HashSet::new();
 
-impl<'a> System<'a> for UpdateInterests {
-    type SystemData = (
-        ReadExpect<'a, Handle>,
-        ReadExpect<'a, TaskTracker>,
-        ReadStorage<'a, Spawned>,
-        ReadStorage<'a, AvatarComponent>,
-        ReadStorage<'a, Position>,
-        ReadStorage<'a, PlayerClass>,
-        ReadStorage<'a, AvatarEventServer>,
-        ReadStorage<'a, NonClientBaseComponent>,
-        WriteStorage<'a, InterestList>
-    );
-
-    fn run(&mut self, (
-        handle, 
-        tasks, 
-        spawned,
-        avatar_storage,
-        position_storage, 
-        player, 
-        event_sender,
-        non_client_base,
-        mut interests
-    ): Self::SystemData) {
-        //let mut avatar_positions = Vec::new();
-        
-        for (avatar, interests, position, player, sender, _) in (&avatar_storage, &mut interests, &position_storage, &player, &event_sender, &spawned).join() {
-            let mut new_interests = HashSet::new();
-    
-            // determine interests
-            for (other_avatar, other_pos, base, _) in (&avatar_storage, &position_storage, &non_client_base, &spawned).join() {
-                if other_avatar.id == avatar.id {
-                    continue;
-                }
-    
-                if (position.position.distance(other_pos.position) <= player.aware_dist() || base.always_visible_to_players()) && 
-                    base.visible_on_quest_available().is_none() && 
-                    base.visible_on_quest_complete().is_none() && 
-                    base.visible_on_quest_finished().is_none() && 
-                    base.visible_on_quest_in_progress().is_none() {
-
-                    new_interests.insert(other_avatar.id.to_owned());
-                }
+        // determine interests
+        for (other_avatar, other_pos, base, _, _) in non_player_avatars.iter() {
+            if other_avatar.id == avatar.id {
+                continue;
             }
-    
-            // check for changes
-            let added_interests: Vec<_> = new_interests.iter().filter(|v| !interests.interests.contains(v)).map(|v| v.to_owned()).collect();
-            let removed_interests: Vec<_> = interests.interests.iter().filter(|v| !new_interests.contains(v)).map(|v| v.to_owned()).collect();
-    
-            // send updates
-            if !added_interests.is_empty() || !removed_interests.is_empty() {
-                interests.interests = new_interests.into_iter().collect();
-    
-                let sender = sender.sender.clone();
-                let _guard = handle.enter();
-    
-                tasks.spawn(async move {
-                    if !added_interests.is_empty() {
-                        let _ = sender.send(AvatarEvent::InterestAdded { ids: added_interests }).await;
-                    }
-    
-                    if !removed_interests.is_empty() {
-                        let _ = sender.send(AvatarEvent::InterestRemoved { ids: removed_interests }).await;
-                    }
-                });
-    
-                drop(_guard);
+
+            if (position.position.distance(other_pos.position) <= player.aware_dist() || base.always_visible_to_players()) && 
+                base.visible_on_quest_available().is_none() && 
+                base.visible_on_quest_complete().is_none() && 
+                base.visible_on_quest_finished().is_none() && 
+                base.visible_on_quest_in_progress().is_none() {
+
+                new_interests.insert(other_avatar.id.to_owned());
             }
         }
-    }    
+
+        // check for changes
+        let added_interests: Vec<_> = new_interests.iter().filter(|v| !interests.interests.contains(v)).map(|v| v.to_owned()).collect();
+        let removed_interests: Vec<_> = interests.interests.iter().filter(|v| !new_interests.contains(v)).map(|v| v.to_owned()).collect();
+
+        // send updates
+        if !added_interests.is_empty() || !removed_interests.is_empty() {
+            interests.interests = new_interests.into_iter().collect();
+
+            let sender = sender.sender.clone();
+            let _guard = tasks.handle.enter();
+
+            tasks.tasks.spawn(async move {
+                if !added_interests.is_empty() {
+                    let _ = sender.send(AvatarEvent::InterestAdded { ids: added_interests }).await;
+                }
+
+                if !removed_interests.is_empty() {
+                    let _ = sender.send(AvatarEvent::InterestRemoved { ids: removed_interests }).await;
+                }
+            });
+
+            drop(_guard);
+        }
+    }
 }
