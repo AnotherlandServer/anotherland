@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy_ecs::event::Event;
+use bevy_ecs::{entity::Entity, event::Event};
 use glam::Vec3;
 
-use super::ProximityChatRange;
+use super::{AvatarEvent, ProximityChatRange};
 
 #[derive(Event)]
 pub struct ProximityChatEvent{
@@ -25,3 +25,20 @@ pub struct ProximityChatEvent{
     pub sender: String,
     pub message: String,
 }
+
+#[derive(Event)]
+pub struct RequestBehavior {
+    pub entity: Entity,
+    pub behavior: String,
+    pub data: String,
+}
+
+#[derive(Event)]
+pub struct TellBehavior {
+    pub instigator: Entity,
+    pub target: Entity,
+    pub behavior: String,
+}
+
+#[derive(Event)]
+pub struct AvatarEventFired(pub Entity, pub AvatarEvent);

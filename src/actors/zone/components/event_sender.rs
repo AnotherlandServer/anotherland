@@ -20,7 +20,6 @@ use bevy_ecs::prelude::*;
 
 use crate::{actors::{ProximityChatRange, ServerAction}, frontends::TravelType};
 
-
 pub enum AvatarEvent {
     InterestAdded { ids: Vec<AvatarId> },
     InterestRemoved { ids: Vec<AvatarId> },
@@ -30,7 +29,5 @@ pub enum AvatarEvent {
     ChatMessage { range: ProximityChatRange, sender: String, message: String },
 }
 
-#[derive(Clone, Debug, Component)]
-pub struct AvatarEventServer {
-    pub sender: mpsc::Sender<AvatarEvent>,
-}
+#[derive(Component)]
+pub struct AvatarEventSender(pub mpsc::Sender<AvatarEvent>);

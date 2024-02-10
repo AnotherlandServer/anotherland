@@ -16,18 +16,16 @@
 use std::collections::HashSet;
 
 use atlas::{NonClientBaseComponent, PlayerClass, PlayerParams};
-use bevy_ecs::{query::{With, Without}, system::{Query, Res}};
-use tokio::runtime::Handle;
-use tokio_util::task::TaskTracker;
+use bevy_ecs::{entity::Entity, event::EventWriter, query::{With, Without}, system::Query};
 
-use crate::actors::{zone::{components::{AvatarComponent, AvatarEvent, InterestList, Position}, resources::Tasks}, AvatarEventServer, Spawned};
+use crate::actors::{zone::{components::{AvatarComponent, AvatarEvent, InterestList, Position}, zone_events::AvatarEventFired}, Spawned};
 
 pub fn update_interests(
-    mut players: Query<(&AvatarComponent, &PlayerClass, &Position, &AvatarEventServer, &mut InterestList, Without<NonClientBaseComponent>)>,
+    mut players: Query<(Entity, &AvatarComponent, &PlayerClass, &Position, &mut InterestList, Without<NonClientBaseComponent>)>,
     non_player_avatars: Query<(&AvatarComponent, &Position, &NonClientBaseComponent, With<Spawned>, Without<PlayerClass>)>,
-    tasks: Res<Tasks>,
+    mut ev_avatar_event: EventWriter<AvatarEventFired>,
 ) {
-    for (avatar, player, position, sender, mut interests, _) in players.iter_mut() {
+    for (entity, avatar, player, position, mut interests, _) in players.iter_mut() {
         let mut new_interests = HashSet::new();
 
         // determine interests
@@ -47,27 +45,18 @@ pub fn update_interests(
         }
 
         // check for changes
-        let added_interests: Vec<_> = new_interests.iter().filter(|v| !interests.interests.contains(v)).map(|v| v.to_owned()).collect();
-        let removed_interests: Vec<_> = interests.interests.iter().filter(|v| !new_interests.contains(v)).map(|v| v.to_owned()).collect();
+        let added_interests: Vec<_> = new_interests.iter().filter(|v| !interests.interests.contains(v)).cloned().collect();
+        let removed_interests: Vec<_> = interests.interests.iter().filter(|v| !new_interests.contains(v)).cloned().collect();
 
-        // send updates
-        if !added_interests.is_empty() || !removed_interests.is_empty() {
-            interests.interests = new_interests.into_iter().collect();
-
-            let sender = sender.sender.clone();
-            let _guard = tasks.handle.enter();
-
-            tasks.tasks.spawn(async move {
-                if !added_interests.is_empty() {
-                    let _ = sender.send(AvatarEvent::InterestAdded { ids: added_interests }).await;
-                }
-
-                if !removed_interests.is_empty() {
-                    let _ = sender.send(AvatarEvent::InterestRemoved { ids: removed_interests }).await;
-                }
-            });
-
-            drop(_guard);
+        if !added_interests.is_empty() {
+            ev_avatar_event.send(AvatarEventFired(entity, AvatarEvent::InterestAdded { ids: added_interests }));
         }
+
+        if !removed_interests.is_empty() {
+            ev_avatar_event.send(AvatarEventFired(entity, AvatarEvent::InterestRemoved { ids: removed_interests }));
+        }
+
+        // remember interests
+        interests.interests = new_interests.iter().cloned().collect();
     }
 }

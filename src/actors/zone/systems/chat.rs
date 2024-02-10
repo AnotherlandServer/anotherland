@@ -13,30 +13,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy_ecs::{event::EventReader, system::Query};
+use atlas::PlayerClass;
+use bevy_ecs::{entity::Entity, event::{EventReader, EventWriter}, query::With, system::Query};
 
-use crate::actors::{zone::zone_events::ProximityChatEvent, AvatarEvent, AvatarEventServer, Position};
+use crate::actors::{zone::zone_events::{AvatarEventFired, ProximityChatEvent}, AvatarEvent, Position};
 
 pub fn send_proximity_chat(
     mut ev_chat: EventReader<ProximityChatEvent>,
-    query: Query<(&AvatarEventServer, &Position)>,
+    query: Query<(Entity, &Position, With<PlayerClass>)>,
+    mut ev_avatar_event: EventWriter<AvatarEventFired>,
 ) {
     for msg in ev_chat.read() {
-        for (event_sender, position) in query.iter() {
-            if position.position.distance(msg.pos) <= msg.range.aware_dist() {
-                let event_sender = event_sender.sender.clone();
-                let range = msg.range;
-                let sender = msg.sender.clone();
-                let message = msg.message.clone();
-
-                tokio::spawn(async move {
-                    let _ = event_sender.send(AvatarEvent::ChatMessage { 
-                        range, 
-                        sender, 
-                        message 
-                    }).await;
-                });
-            }
-        }
+        ev_avatar_event.send_batch(
+            query.iter()
+                .filter(|(_, pos, _)| pos.position.distance(msg.pos) <= msg.range.aware_dist())
+                .map(|(entity, _, _)| {
+                    AvatarEventFired(entity, AvatarEvent::ChatMessage { 
+                        range: msg.range, 
+                        sender: msg.sender.clone(),
+                        message: msg.message.clone(),
+                    })
+                })
+        );
     }
 }

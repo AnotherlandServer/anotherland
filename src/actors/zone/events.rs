@@ -14,10 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use atlas::{AvatarId, ParamBox, ParamSetBox, Physics};
-use bevy_ecs::event::Event;
 use glam::{Quat, Vec3};
-
-use super::ProximityChatRange;
 
 pub enum ZoneEvent {
     // avatar events

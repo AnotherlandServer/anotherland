@@ -18,17 +18,18 @@ use std::{collections::HashMap, ops::Deref, sync::Arc, time::{Duration, Instant}
 use actor_macros::actor_actions;
 use async_trait::async_trait;
 use atlas::{oaPktConfirmTravel, oaPktMoveManagerStateChanged, oaPktServerAction, raknet::Message, AvatarId, NonClientBaseComponent, NonClientBaseParams, NpcBaseComponent, NpcOtherlandAttribute, NpcOtherlandClass, NpcOtherlandComponent, NpcOtherlandParams, OaZoneConfigParams, Param, ParamBox, ParamClass, ParamSet, ParamSetBox, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointClass, StartingPointComponent, TriggerClass, Uuid};
+use bevy::{app::{App, Update}, MinimalPlugins};
 use glam::{Vec3, Quat};
 use log::{debug, error, info, warn};
 use mongodb::Database;
 use tokio::{runtime::Handle, select, sync::{broadcast, mpsc, OnceCell}, task::JoinHandle, time};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use bevy_ecs::{prelude::*, system::RunSystemOnce};
+use bevy_ecs::{prelude::*, schedule::ScheduleLabel, system::RunSystemOnce};
 
-use crate::{actors::{get_player_height, zone::{resources::{EventInfo, EventInfos}, systems::{respawn, send_proximity_chat, sepcial_event_controller, update_interests}}, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::{Character, RawInstance}, frontends::TravelType, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, zone::{resources::{EventInfo, EventInfos}, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, update_interests}}, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::{Character, RawInstance}, frontends::TravelType, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
-use super::{components::{AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, resources::{Broadcaster, Tasks}, zone_events::ProximityChatEvent, AvatarEventServer, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
+use super::{components::{AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, resources::{Broadcaster, Tasks}, zone_events::{AvatarEventFired, ProximityChatEvent, RequestBehavior, TellBehavior}, AvatarEventSender, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
 
 pub enum ServerAction {
     DirectTravel(AvatarId, Option<Position>),
@@ -82,6 +83,9 @@ impl ServerAction {
 
 static SPECIAL_EVENTS: OnceCell<SpecialEvents> = OnceCell::const_new();
 
+#[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone)]
+struct SlowUpdate;
+
 pub struct Zone {
     pub(super) realm_db: Database,
     pub(super) factory: ZoneFactory,
@@ -89,7 +93,7 @@ pub struct Zone {
     default_pos: Vec3,
     default_rot: Vec3,
 
-    pub(super) world: World,
+    pub(super) app: App,
 
     cancellation_token: CancellationToken,
     update_task: Option<JoinHandle<()>>,
@@ -97,9 +101,6 @@ pub struct Zone {
     event_sender: broadcast::Sender<Arc<ZoneEvent>>,
     avatar_id_to_entity_lookup: HashMap<AvatarId, Entity>,
     uuid_to_entity_lookup: HashMap<Uuid, Entity>,
-
-    fast_update: Schedule,
-    slow_update: Schedule,
 }
 
 impl Zone {
@@ -109,14 +110,12 @@ impl Zone {
             factory,
             default_pos: Vec3::default(),
             default_rot: Vec3::default(),
-            world: World::new(),
+            app: App::new(),
             cancellation_token: CancellationToken::new(),
             update_task: None,
             event_sender: broadcast::channel(500).0,
             avatar_id_to_entity_lookup: HashMap::new(),
             uuid_to_entity_lookup: HashMap::new(),
-            fast_update: Schedule::default(),
-            slow_update: Schedule::default(),
         }
     }
 }
@@ -132,42 +131,50 @@ impl Actor for Zone {
     fn name(&self) -> Option<&str> { None }
 
     async fn starting(&mut self) -> AnotherlandResult<()> {
-        self.world.insert_resource(Broadcaster {
-            sender: self.event_sender.clone()
-        });
-        self.world.insert_resource(Tasks {
-            handle: Handle::current(),
-            tasks: TaskTracker::new(),
-        });
+        // load special event config
+        let special_events = SPECIAL_EVENTS.get_or_try_init(SpecialEvents::load).await.unwrap();
+
+        // setup bevy app
+        self.app
+            .add_plugins(MinimalPlugins)
+            .add_systems(Update, (
+                send_proximity_chat,
+                update_interests,
+                send_messages,
+            ))
+            .add_systems(SlowUpdate, (
+                respawn,
+                sepcial_event_controller,
+            ))
+            .add_event::<ProximityChatEvent>()
+            .add_event::<RequestBehavior>()
+            .add_event::<TellBehavior>()
+            .add_event::<AvatarEventFired>()
+            .insert_resource(Broadcaster {
+                sender: self.event_sender.clone()
+            })
+            .insert_resource(Tasks {
+                handle: Handle::current(),
+                tasks: TaskTracker::new(),
+            })
+            .insert_resource(EventInfos(
+                special_events.get_events_for_map(&self.factory.world_def().name).await?
+                .into_iter()
+                .map(|v| EventInfo {
+                    event: v,
+                    active: None
+                })
+                .collect::<Vec<_>>()
+            ));
 
         // load in content
         self.load_content().await?;
 
-        // load special event config
-        let special_events = SPECIAL_EVENTS.get_or_try_init(SpecialEvents::load).await.unwrap();
-        self.world.insert_resource(EventInfos(
-            special_events.get_events_for_map(&self.factory.world_def().name).await?
-            .into_iter()
-            .map(|v| EventInfo {
-                event: v,
-                active: None
-            })
-            .collect::<Vec<_>>()
-        ));
-
-        // setup schedules
-        self.fast_update.add_systems(update_interests);
-
-        self.slow_update.add_systems((
-            respawn,
-            sepcial_event_controller,
-            send_proximity_chat
-        ));
 
         // lookup starting point
         {
-            let mut query = self.world.query::<&StartingPointClass>();
-            if let Some(entry_point) = query.iter(&self.world).next() {
+            let mut query = self.app.world.query::<&StartingPointClass>();
+            if let Some(entry_point) = query.iter(&self.app.world).next() {
                 debug!("Found entrypoint");
 
                 self.default_pos = entry_point.pos().to_owned();
@@ -217,7 +224,7 @@ impl Zone {
         where T: ParamClass + Clone + ?Sized
     {
         // spawn entity
-        let entity = self.world
+        let entity = self.app.world
             .spawn(entity_params.as_bundle())
             .insert(entity_type)
             .insert(AvatarComponent {
@@ -229,7 +236,7 @@ impl Zone {
             })
             .id();
 
-        let mut entity_ref = self.world.get_entity_mut(entity).unwrap();
+        let mut entity_ref = self.app.world.get_entity_mut(entity).unwrap();
 
         // insert position component for npcs & structures
         if let Some(base) = entity_ref.get::<NonClientBaseComponent>() {
@@ -269,7 +276,7 @@ impl Zone {
     }
 
     pub(super) fn get_entity_params(&mut self, entity: Entity) -> Option<ParamBox> {
-        self.world.get::<ParamBox>(entity).cloned()
+        self.app.world.get::<ParamBox>(entity).cloned()
     }
 }
 
@@ -278,13 +285,7 @@ impl Zone {
     pub fn fast_update(&mut self) {
         let start_time = Instant::now();
 
-        self.fast_update.run(&mut self.world);
-        /*let mut dispatcher = DispatcherBuilder::new()
-            .with(UpdateInterests, "update_interests", &[])
-            .build();
-
-        dispatcher.dispatch(&self.world);
-        self.world.maintain();*/
+        self.app.update();
 
         let cycle_duration = Instant::now().duration_since(start_time);
         if cycle_duration.as_millis() >= 30 {
@@ -293,12 +294,7 @@ impl Zone {
     }
 
     pub fn slow_update(&mut self) {
-        /*let mut dispatcher = DispatcherBuilder::new()
-            .with(SpecialEventController, "special_event_controller", &[])
-            .with(RespawnEntities, "respawn_entities", &[])
-            .build();*/
-
-        self.slow_update.run(&mut self.world);
+        self.app.world.run_schedule(SlowUpdate);
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<ZoneEvent>> {
@@ -370,15 +366,15 @@ impl Zone {
                 PlayerSpawnMode::TravelPortal(portal_uuid) => {
                     let (portal, portal_avatar) = self.uuid_to_entity_lookup.get(&portal_uuid).map(|entity| {
                         (
-                            self.world.get::<PortalClass>(*entity).unwrap(), 
-                            self.world.get::<AvatarComponent>(*entity).unwrap()
+                            self.app.world.get::<PortalClass>(*entity).unwrap(), 
+                            self.app.world.get::<AvatarComponent>(*entity).unwrap()
                         )
                     }).unwrap();
 
                     // get exit node
                     if let Some(exit_point) = portal.exit_point() {
                         let exit = self.uuid_to_entity_lookup.get(&Uuid::parse_str(&*exit_point).unwrap())
-                            .and_then(|entity| self.world.get::<SpawnNodeClass>(*entity))
+                            .and_then(|entity| self.app.world.get::<SpawnNodeClass>(*entity))
                             .unwrap();
 
                         character.data.set_pos((0, exit.pos().to_owned() + Vec3::new(0.0, 0.0, get_player_height(&character.data) / 2.0)));
@@ -418,7 +414,7 @@ impl Zone {
             // save character changes
             character.save(self.realm_db.clone()).await?;
 
-            let entity = self.world.spawn(character.data.as_bundle())
+            let entity = self.app.world.spawn(character.data.as_bundle())
                 .insert(AvatarComponent {
                     id: avatar_id,
                     instance_id: None,
@@ -430,9 +426,7 @@ impl Zone {
                 .insert(InterestList {
                     interests: Vec::new(),
                 })
-                .insert(AvatarEventServer {
-                    sender: avatar_event_sender,
-                })
+                .insert(AvatarEventSender(avatar_event_sender))
                 .insert(EntityType::Player)
                 .insert(Spawned)
                 .id();
@@ -452,14 +446,14 @@ impl Zone {
 
     pub fn despawn_avatar(&mut self, avatar_id: AvatarId) {
         if let Some(entity) = self.avatar_id_to_entity_lookup.remove(&avatar_id) {
-            self.world.despawn(entity);
+            self.app.world.despawn(entity);
             let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarDespawned { avatar_id }));
         }
     }
 
     pub fn update_avatar(&mut self, avatar_id: AvatarId, update_set: ParamSetBox) {
         if let Some(mut params) = self.avatar_id_to_entity_lookup.get(&avatar_id)
-            .and_then(|ent| self.world.get_mut::<ParamBox>(*ent)) {
+            .and_then(|ent| self.app.world.get_mut::<ParamBox>(*ent)) {
 
             if let Ok(player) = params.get_mut::<PlayerClass>() {
                 player.apply(update_set.get().unwrap().to_owned());
@@ -477,7 +471,7 @@ impl Zone {
 
     pub async fn move_player_avatar(&mut self, avatar_id: AvatarId, movement: Movement) {
         if let Some(mut position) = self.avatar_id_to_entity_lookup.get(&avatar_id)
-            .and_then(|ent| self.world.get_mut::<Position>(*ent)) {
+            .and_then(|ent| self.app.world.get_mut::<Position>(*ent)) {
 
             position.position = movement.position;
             position.rotation = movement.rotation;
@@ -493,32 +487,48 @@ impl Zone {
 
     pub fn get_avatar_params(&mut self, avatar_id: AvatarId) -> Option<(String, ParamBox)> {
         self.avatar_id_to_entity_lookup.get(&avatar_id)
-            .and_then(|ent| self.world.get_entity(*ent))
+            .and_then(|ent| self.app.world.get_entity(*ent))
             .map(|ent| (ent.get::<AvatarComponent>().unwrap().name.clone(), ent.get::<ParamBox>().unwrap().clone()))
     }
 
     pub fn get_avatar_params_by_uuid(&mut self, uuid: Uuid) -> Option<(String, ParamBox)> {
         self.uuid_to_entity_lookup.get(&uuid)
-            .and_then(|ent| self.world.get_entity(*ent))
+            .and_then(|ent| self.app.world.get_entity(*ent))
             .map(|ent| (ent.get::<AvatarComponent>().unwrap().name.clone(), ent.get::<ParamBox>().unwrap().clone()))
     }
 
     pub fn get_avatar_move_state(&mut self, avatar_id: AvatarId) -> Option<Position> {
         self.avatar_id_to_entity_lookup.get(&avatar_id)
-            .and_then(|ent| self.world.get::<Position>(*ent))
+            .and_then(|ent| self.app.world.get::<Position>(*ent))
             .cloned()
     }
 
-    pub fn request_behavior(&mut self, instigator: AvatarId, behavior: String, data: String) {
-        todo!()
+    pub fn request_behavior(&mut self, avatar: AvatarId, behavior: String, data: String) {
+        if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar).cloned() {
+            self.app.world.send_event(RequestBehavior {
+                entity,
+                behavior,
+                data,
+            });
+        }
     }
 
     pub fn tell_behavior(&mut self, instigator: AvatarId, target: AvatarId, behavior: String) {
+        if let Some(instigator) = self.avatar_id_to_entity_lookup.get(&instigator).cloned() && 
+            let Some(target) = self.avatar_id_to_entity_lookup.get(&target).cloned() {
+            
+            self.app.world.send_event(TellBehavior {
+                instigator,
+                target,
+                behavior,
+            });
+        }
+
             /*if let Some(player_entity) = self.avatar_id_to_entity_lookup.get(&instigator) && 
             let Some(target_entity) = self.avatar_id_to_entity_lookup.get(&target) {
 
-            let sender = self.world.get::<AvatarEventServer>(*player_entity).unwrap().sender.clone();
-            let entity_type = *self.world.get::<EntityType>(*target_entity).unwrap();
+            let sender = self.app.world.get::<AvatarEventServer>(*player_entity).unwrap().sender.clone();
+            let entity_type = *self.app.world.get::<EntityType>(*target_entity).unwrap();
 
             let cmd_args: Vec<_> = behavior.split(' ').collect();
 
@@ -528,19 +538,19 @@ impl Zone {
                         "RespawnNow" => {
                             match cmd_args[1] {
                                 "NearestPortal" => {
-                                    /*let spawned_storage = self.world.read_storage::<Spawned>();
-                                    let mut position_storage = self.world.write_storage::<Position>();
-                                    let starting_point_storage = self.world.read_storage::<StartingPointClass>();
-                                    let mut player_storage = self.world.write_storage::<PlayerClass>();*/
+                                    /*let spawned_storage = self.app.world.read_storage::<Spawned>();
+                                    let mut position_storage = self.app.world.write_storage::<Position>();
+                                    let starting_point_storage = self.app.world.read_storage::<StartingPointClass>();
+                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();*/
         
                                     
-                                    let mut player_ent = self.world.entity_mut(*player_entity);
+                                    let mut player_ent = self.app.world.entity_mut(*player_entity);
                                     
         
                                     // find nearest starting point (most likely a portal exit node)
-                                    let mut query = self.world.query::<(&StartingPointClass, With<Spawned>)>();
+                                    let mut query = self.app.world.query::<(&StartingPointClass, With<Spawned>)>();
 
-                                    let mut positions: Vec<_> = query.iter(&self.world)
+                                    let mut positions: Vec<_> = query.iter(&self.app.world)
                                         .map(|(starting_point, _)| (starting_point.pos(), starting_point.rot())).collect();
         
                                     positions.sort_by(|a, b| {
@@ -619,7 +629,7 @@ impl Zone {
                         },
                         "DisableInvulnerability" => {
                             let mut update = ParamSet::<PlayerAttribute>::new();
-                            let mut player = self.world.get_mut::<PlayerClass>(*player_entity).unwrap();
+                            let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
 
                             update.insert(PlayerAttribute::IsUnAttackable, false);
                             player.apply(update.clone());
@@ -647,7 +657,7 @@ impl Zone {
                             });
                         },
                         "DoTravel" => {
-                            let portal = self.world.get::<PortalClass>(*target_entity).unwrap();
+                            let portal = self.app.world.get::<PortalClass>(*target_entity).unwrap();
                             if let Some(nodelink) = portal.nodelink().map(|v| v.to_owned()) {
                                 let db = self.realm_db.clone();
 
@@ -674,12 +684,12 @@ impl Zone {
                 },
                 EntityType::Trigger => {
                     if cmd_args[0] == "triggeraction" {
-                        let trigger = self.world.get::<TriggerClass>(*target_entity).unwrap();
+                        let trigger = self.app.world.get::<TriggerClass>(*target_entity).unwrap();
 
                         if let Some(script) = trigger.lua_script() {
                             match script.deref() {
                                 "ClassClear" => {
-                                    let mut player = self.world.get_mut::<PlayerClass>(*player_entity).unwrap();
+                                    let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
 
                                     let mut update = ParamSet::new();
                                     update.insert(PlayerAttribute::CombatStyle, 6);
@@ -696,7 +706,7 @@ impl Zone {
                                     });
                                 },
                                 "ClassEnergizer" => {
-                                    let mut player = self.world.get_mut::<PlayerClass>(*player_entity).unwrap();
+                                    let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
 
                                     let mut update = ParamSet::new();
                                     update.insert(PlayerAttribute::CombatStyle, 3);
@@ -713,7 +723,7 @@ impl Zone {
                                     });
                                 },
                                 "ClassWarrior" => {
-                                    let mut player = self.world.get_mut::<PlayerClass>(*player_entity).unwrap();
+                                    let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
 
                                     let mut update = ParamSet::new();
                                     update.insert(PlayerAttribute::CombatStyle, 0);
@@ -730,7 +740,7 @@ impl Zone {
                                     });
                                 },
                                 "ClassMarksman" => {
-                                    let mut player = self.world.get_mut::<PlayerClass>(*player_entity).unwrap();
+                                    let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
 
                                     let mut update = ParamSet::new();
                                     update.insert(PlayerAttribute::CombatStyle, 1);
@@ -747,7 +757,7 @@ impl Zone {
                                     });
                                 },
                                 "ClassAssassin" => {
-                                    let mut player = self.world.get_mut::<PlayerClass>(*player_entity).unwrap();
+                                    let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
 
                                     let mut update = ParamSet::new();
                                     update.insert(PlayerAttribute::CombatStyle, 2);
@@ -777,11 +787,11 @@ impl Zone {
         // todo: move behaviors into scripts
         /*if let Some(player_entity) = self.avatar_id_to_entity_lookup.get(&instigator) && 
             let Some(target_entity) = self.avatar_id_to_entity_lookup.get(&target) {
-            let sender_storage = self.world.write_storage::<AvatarEventServer>();
+            let sender_storage = self.app.world.write_storage::<AvatarEventServer>();
             let sender = sender_storage.get(*player_entity).unwrap().sender.clone();
 
             // check target entity type
-            let entity_type = *self.world.read_storage::<EntityType>().get(*target_entity).unwrap();
+            let entity_type = *self.app.world.read_storage::<EntityType>().get(*target_entity).unwrap();
             let cmd_args: Vec<_> = behavior.split(' ').collect();
 
             match entity_type {
@@ -790,10 +800,10 @@ impl Zone {
                         "RespawnNow" => {
                             match cmd_args[1] {
                                 "NearestPortal" => {
-                                    let spawned_storage = self.world.read_storage::<Spawned>();
-                                    let mut position_storage = self.world.write_storage::<Position>();
-                                    let starting_point_storage = self.world.read_storage::<StartingPointClass>();
-                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let spawned_storage = self.app.world.read_storage::<Spawned>();
+                                    let mut position_storage = self.app.world.write_storage::<Position>();
+                                    let starting_point_storage = self.app.world.read_storage::<StartingPointClass>();
+                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
         
                                     let player = player_storage.get_mut(*player_entity).unwrap();
                                     let player_pos = position_storage.get_mut(*player_entity).unwrap();
@@ -872,7 +882,7 @@ impl Zone {
                         },
                         "DisableInvulnerability" => {
                             let mut update = ParamSet::<PlayerAttribute>::new();
-                            let mut player_storage = self.world.write_storage::<PlayerClass>();
+                            let mut player_storage = self.app.world.write_storage::<PlayerClass>();
                             let player = player_storage.get_mut(*player_entity).unwrap();
 
                             update.insert(PlayerAttribute::IsUnAttackable, false);
@@ -901,7 +911,7 @@ impl Zone {
                             });
                         },
                         "DoTravel" => {
-                            let portal_storage = self.world.read_storage::<PortalClass>();
+                            let portal_storage = self.app.world.read_storage::<PortalClass>();
                             let portal = portal_storage.get(*target_entity).unwrap();
                             if let Some(nodelink) = portal.nodelink().map(|v| v.to_owned()) {
                                 let db = self.realm_db.clone();
@@ -929,13 +939,13 @@ impl Zone {
                 },
                 EntityType::Trigger => {
                     if cmd_args[0] == "triggeraction" {
-                        let trigger_storage = self.world.read_storage::<TriggerClass>();
+                        let trigger_storage = self.app.world.read_storage::<TriggerClass>();
                         let trigger = trigger_storage.get(*target_entity).unwrap();
 
                         if let Some(script) = trigger.lua_script() {
                             match script.deref() {
                                 "ClassClear" => {
-                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
                                     let player = player_storage.get_mut(*player_entity).unwrap();
 
                                     let mut update = ParamSet::new();
@@ -953,7 +963,7 @@ impl Zone {
                                     });
                                 },
                                 "ClassEnergizer" => {
-                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
                                     let player = player_storage.get_mut(*player_entity).unwrap();
 
                                     let mut update = ParamSet::new();
@@ -971,7 +981,7 @@ impl Zone {
                                     });
                                 },
                                 "ClassWarrior" => {
-                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
                                     let player = player_storage.get_mut(*player_entity).unwrap();
 
                                     let mut update = ParamSet::new();
@@ -989,7 +999,7 @@ impl Zone {
                                     });
                                 },
                                 "ClassMarksman" => {
-                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
                                     let player = player_storage.get_mut(*player_entity).unwrap();
 
                                     let mut update = ParamSet::new();
@@ -1007,7 +1017,7 @@ impl Zone {
                                     });
                                 },
                                 "ClassAssassin" => {
-                                    let mut player_storage = self.world.write_storage::<PlayerClass>();
+                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
                                     let player = player_storage.get_mut(*player_entity).unwrap();
 
                                     let mut update = ParamSet::new();
@@ -1038,12 +1048,12 @@ impl Zone {
 
     pub fn proximity_chat(&mut self, range: ProximityChatRange, avatar_id: AvatarId, message: String) {
         if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id)
-            .and_then(|e| self.world.get_entity(*e)) {
+            .and_then(|e| self.app.world.get_entity(*e)) {
 
             let pos: Vec3 = entity.get::<Position>().unwrap().position;
             let sender = entity.get::<AvatarComponent>().unwrap().name.clone();
 
-            self.world.send_event(ProximityChatEvent {
+            self.app.world.send_event(ProximityChatEvent {
                 range,
                 pos,
                 sender,
@@ -1054,7 +1064,7 @@ impl Zone {
 
     pub fn kill_avatar(&mut self, avatar_id: AvatarId) {
         if let Some(mut entity) = self.avatar_id_to_entity_lookup.get(&avatar_id)
-            .and_then(|e| self.world.get_entity_mut(*e)) {
+            .and_then(|e| self.app.world.get_entity_mut(*e)) {
             
             if entity.contains::<PlayerClass>() {
                 let mut update = ParamSet::<PlayerAttribute>::new();
