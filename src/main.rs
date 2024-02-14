@@ -224,6 +224,11 @@ async fn initialize_api_server() -> AnotherlandResult<()> {
 
 #[tokio::main]
 async fn main() -> AnotherlandResult<()> {
+    println!("Copyright (C) 2024  AnotherlandServer\n\
+    This program comes with ABSOLUTELY NO WARRANTY.\n\
+    This is free software, and you are welcome to redistribute it\n\
+    under certain conditions; See LICENSE for details.\n");
+
     let _ = dotenvy::dotenv();
 
     // Setup logging
