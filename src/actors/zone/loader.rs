@@ -13,11 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{BilliardBallClass, ChessMetaGameLogicClass, ChessPieceClass, CtfGameFlagClass, CustomTriggerClass, DoorClass, EdnaContainerClass, InteractObjectClass, MinigameInfoClass, MinigameScoreBoardClass, MyLandSettingsClass, MypadRoomDoorClass, NonSpawnPlacementClass, NpcOtherlandClass, OtherlandStructureClass, ParamClass, PatrolNodeClass, PlanetClass, PortalClass, PresetPointClass, QuestBeaconClass, ServerGatewayClass, ServerGatewayExitPhaseClass, ShipClass, SpawnNodeClass, SpawnerClass, StartingPointClass, StructureClass, TriggerClass, WorldDisplayClass};
+use atlas::{BilliardBallClass, ChessMetaGameLogicClass, ChessPieceClass, CtfGameFlagClass, CustomTriggerClass, DoorClass, EdnaContainerClass, InteractObjectClass, MinigameInfoClass, MinigameScoreBoardClass, MyLandSettingsClass, MypadRoomDoorClass, NonClientBaseParams, NonSpawnPlacementClass, NpcOtherlandClass, OtherlandStructureClass, ParamClass, PatrolNodeClass, PlanetClass, PortalClass, PresetPointClass, QuestBeaconClass, ServerGatewayClass, ServerGatewayExitPhaseClass, ShipClass, SpawnNodeClass, SpawnerClass, StartingPointClass, StructureClass, TriggerClass, Uuid, WorldDisplayClass};
+use log::error;
 
-use crate::{util::AnotherlandResult, db::Instance};
+use crate::{db::{DatabaseRecord, Instance, RawInstance}, util::AnotherlandResult};
 
-use super::{Zone, components::EntityType};
+use super::{components::EntityType, PortalNodelink, Zone};
 
 impl Zone {
     pub(super) async fn load_content(&mut self) -> AnotherlandResult<()> {
@@ -47,7 +48,21 @@ impl Zone {
                     let mut params = content.to_owned().into_param::<PortalClass>().unwrap();
                     params.apply(data.to_owned());
                     
-                    self.spawn_non_player_avatar(id.to_owned(), EntityType::Portal, name, phase_tag, instance.guid().to_owned(), content.guid, params);
+                    let nodelink = params.nodelink().map(|v| v.to_owned());
+                    let db = self.realm_db.clone();
+
+                    let mut portal = self.spawn_non_player_avatar(id.to_owned(), EntityType::Portal, name, phase_tag, instance.guid().to_owned(), content.guid, params);
+                    
+                    if let Some(nodelink) = nodelink {
+                        if let Ok(Some(node)) = RawInstance::get(db, &Uuid::parse_str(&nodelink).unwrap()).await {
+                            portal.insert(PortalNodelink::RemotePortal { 
+                                zone: node.zone_guid, 
+                                portal: node.guid,
+                            });
+                        } else {
+                            error!("Failed to read node {}", nodelink)
+                        }
+                    }
                 },
                 Instance::StartingPoint { name, data, phase_tag, content, .. } => {
                     let mut params = content.to_owned().into_param::<StartingPointClass>().unwrap();

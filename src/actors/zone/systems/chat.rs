@@ -20,14 +20,14 @@ use crate::actors::{zone::zone_events::{AvatarEventFired, ProximityChatEvent}, A
 
 pub fn send_proximity_chat(
     mut ev_chat: EventReader<ProximityChatEvent>,
-    query: Query<(Entity, &Position, With<PlayerClass>)>,
+    query: Query<(Entity, &Position), With<PlayerClass>>,
     mut ev_avatar_event: EventWriter<AvatarEventFired>,
 ) {
     for msg in ev_chat.read() {
         ev_avatar_event.send_batch(
             query.iter()
-                .filter(|(_, pos, _)| pos.position.distance(msg.pos) <= msg.range.aware_dist())
-                .map(|(entity, _, _)| {
+                .filter(|(_, pos)| pos.position.distance(msg.pos) <= msg.range.aware_dist())
+                .map(|(entity, _)| {
                     AvatarEventFired(entity, AvatarEvent::ChatMessage { 
                         range: msg.range, 
                         sender: msg.sender.clone(),

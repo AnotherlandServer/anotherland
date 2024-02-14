@@ -22,6 +22,8 @@ mod loader;
 mod resources;
 mod systems;
 mod zone_events;
+mod behavior;
+mod behaviors;
 
 pub use actor::*;
 pub use events::*;

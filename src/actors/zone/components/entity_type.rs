@@ -15,7 +15,7 @@
 
 use bevy_ecs::prelude::*;
 
-#[derive(PartialEq, Eq, Clone, Copy, Component, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Component, Debug, Hash)]
 pub enum EntityType {
     Player,
     Spawner,

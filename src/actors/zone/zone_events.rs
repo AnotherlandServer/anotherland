@@ -27,18 +27,4 @@ pub struct ProximityChatEvent{
 }
 
 #[derive(Event)]
-pub struct RequestBehavior {
-    pub entity: Entity,
-    pub behavior: String,
-    pub data: String,
-}
-
-#[derive(Event)]
-pub struct TellBehavior {
-    pub instigator: Entity,
-    pub target: Entity,
-    pub behavior: String,
-}
-
-#[derive(Event)]
 pub struct AvatarEventFired(pub Entity, pub AvatarEvent);

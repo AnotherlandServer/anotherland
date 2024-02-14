@@ -20,16 +20,17 @@ use bevy_ecs::{entity::Entity, event::EventWriter, query::{With, Without}, syste
 
 use crate::actors::{zone::{components::{AvatarComponent, AvatarEvent, InterestList, Position}, zone_events::AvatarEventFired}, Spawned};
 
+#[allow(clippy::type_complexity)]
 pub fn update_interests(
-    mut players: Query<(Entity, &AvatarComponent, &PlayerClass, &Position, &mut InterestList, Without<NonClientBaseComponent>)>,
-    non_player_avatars: Query<(&AvatarComponent, &Position, &NonClientBaseComponent, With<Spawned>, Without<PlayerClass>)>,
+    mut players: Query<(Entity, &AvatarComponent, &PlayerClass, &Position, &mut InterestList), Without<NonClientBaseComponent>>,
+    non_player_avatars: Query<(&AvatarComponent, &Position, &NonClientBaseComponent), (With<Spawned>, Without<PlayerClass>)>,
     mut ev_avatar_event: EventWriter<AvatarEventFired>,
 ) {
-    for (entity, avatar, player, position, mut interests, _) in players.iter_mut() {
+    for (entity, avatar, player, position, mut interests) in players.iter_mut() {
         let mut new_interests = HashSet::new();
 
         // determine interests
-        for (other_avatar, other_pos, base, _, _) in non_player_avatars.iter() {
+        for (other_avatar, other_pos, base) in non_player_avatars.iter() {
             if other_avatar.id == avatar.id {
                 continue;
             }

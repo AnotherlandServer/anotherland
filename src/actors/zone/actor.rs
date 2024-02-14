@@ -13,23 +13,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, ops::Deref, sync::Arc, time::{Duration, Instant}};
+use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{oaPktConfirmTravel, oaPktMoveManagerStateChanged, oaPktServerAction, raknet::Message, AvatarId, NonClientBaseComponent, NonClientBaseParams, NpcBaseComponent, NpcOtherlandAttribute, NpcOtherlandClass, NpcOtherlandComponent, NpcOtherlandParams, OaZoneConfigParams, Param, ParamBox, ParamClass, ParamSet, ParamSetBox, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointClass, StartingPointComponent, TriggerClass, Uuid};
+use atlas::{ oaPktServerAction, raknet::Message, AvatarId, NonClientBaseComponent, NonClientBaseParams, NpcOtherlandAttribute, NpcOtherlandClass, NpcOtherlandComponent, OaZoneConfigParams, ParamBox, ParamClass, ParamSet, ParamSetBox, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointClass, Uuid};
 use bevy::{app::{App, Update}, MinimalPlugins};
 use glam::{Vec3, Quat};
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use mongodb::Database;
 use tokio::{runtime::Handle, select, sync::{broadcast, mpsc, OnceCell}, task::JoinHandle, time};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use bevy_ecs::{prelude::*, schedule::ScheduleLabel, system::RunSystemOnce};
+use bevy_ecs::{prelude::*, schedule::ScheduleLabel};
 
-use crate::{actors::{get_player_height, zone::{resources::{EventInfo, EventInfos}, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, update_interests}}, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::{Character, RawInstance}, frontends::TravelType, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, zone::{behavior::AvatarBehaviorPlugin, behaviors::BehaviorsPlugin, resources::{EventInfo, EventInfos}, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, update_interests}}, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::Character, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
-use super::{components::{AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, resources::{Broadcaster, Tasks}, zone_events::{AvatarEventFired, ProximityChatEvent, RequestBehavior, TellBehavior}, AvatarEventSender, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
+use super::{behavior::BehaviorExt, components::{AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, resources::{Broadcaster, Tasks}, zone_events::{AvatarEventFired, ProximityChatEvent}, AvatarEventSender, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
 
 pub enum ServerAction {
     DirectTravel(AvatarId, Option<Position>),
@@ -86,6 +86,12 @@ static SPECIAL_EVENTS: OnceCell<SpecialEvents> = OnceCell::const_new();
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone)]
 struct SlowUpdate;
 
+#[derive(Resource)]
+pub struct DefaultPos {
+    pub pos: Vec3,
+    pub rot: Vec3,
+}
+
 pub struct Zone {
     pub(super) realm_db: Database,
     pub(super) factory: ZoneFactory,
@@ -137,6 +143,8 @@ impl Actor for Zone {
         // setup bevy app
         self.app
             .add_plugins(MinimalPlugins)
+            .add_plugins(AvatarBehaviorPlugin)
+            .add_plugins(BehaviorsPlugin)
             .add_systems(Update, (
                 send_proximity_chat,
                 update_interests,
@@ -147,8 +155,6 @@ impl Actor for Zone {
                 sepcial_event_controller,
             ))
             .add_event::<ProximityChatEvent>()
-            .add_event::<RequestBehavior>()
-            .add_event::<TellBehavior>()
             .add_event::<AvatarEventFired>()
             .insert_resource(Broadcaster {
                 sender: self.event_sender.clone()
@@ -165,7 +171,11 @@ impl Actor for Zone {
                     active: None
                 })
                 .collect::<Vec<_>>()
-            ));
+            ))
+            .insert_resource(DefaultPos {
+                pos: self.default_pos,
+                rot: self.default_rot,
+            });
 
         // load in content
         self.load_content().await?;
@@ -220,7 +230,16 @@ impl Actor for Zone {
 }
 
 impl Zone {
-    pub(super) fn spawn_non_player_avatar<T>(&mut self, avatar_id: AvatarId, entity_type: EntityType, name: &str, phase_tag: &str, id: Uuid, content_id: Uuid, entity_params: T) -> AvatarId 
+    pub(super) fn spawn_non_player_avatar<T>(
+        &mut self, 
+        avatar_id: AvatarId, 
+        entity_type: EntityType, 
+        name: &str, 
+        phase_tag: &str, 
+        id: Uuid, 
+        content_id: Uuid, 
+        entity_params: T
+    ) -> EntityWorldMut<'_> 
         where T: ParamClass + Clone + ?Sized
     {
         // spawn entity
@@ -242,7 +261,6 @@ impl Zone {
         if let Some(base) = entity_ref.get::<NonClientBaseComponent>() {
             let position = base.pos().to_owned();
             let rotation = base.rot().to_owned();
-            drop(base);
 
             entity_ref
                 .insert(SpawnerState { 
@@ -272,11 +290,7 @@ impl Zone {
         self.avatar_id_to_entity_lookup.insert(avatar_id, entity);
         self.uuid_to_entity_lookup.insert(id, entity);
 
-        avatar_id
-    }
-
-    pub(super) fn get_entity_params(&mut self, entity: Entity) -> Option<ParamBox> {
-        self.app.world.get::<ParamBox>(entity).cloned()
+        entity_ref
     }
 }
 
@@ -504,546 +518,17 @@ impl Zone {
     }
 
     pub fn request_behavior(&mut self, avatar: AvatarId, behavior: String, data: String) {
-        if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar).cloned() {
-            self.app.world.send_event(RequestBehavior {
-                entity,
-                behavior,
-                data,
-            });
+        if let Some(target) = self.avatar_id_to_entity_lookup.get(&avatar) {    
+            self.app.request_behavior(*target, behavior, data);
         }
     }
 
     pub fn tell_behavior(&mut self, instigator: AvatarId, target: AvatarId, behavior: String) {
-        if let Some(instigator) = self.avatar_id_to_entity_lookup.get(&instigator).cloned() && 
-            let Some(target) = self.avatar_id_to_entity_lookup.get(&target).cloned() {
-            
-            self.app.world.send_event(TellBehavior {
-                instigator,
-                target,
-                behavior,
-            });
+        if let Some(instigator) = self.avatar_id_to_entity_lookup.get(&instigator) && 
+            let Some(target) = self.avatar_id_to_entity_lookup.get(&target) {
+                
+            self.app.tell_behavior(*instigator, *target, behavior);
         }
-
-            /*if let Some(player_entity) = self.avatar_id_to_entity_lookup.get(&instigator) && 
-            let Some(target_entity) = self.avatar_id_to_entity_lookup.get(&target) {
-
-            let sender = self.app.world.get::<AvatarEventServer>(*player_entity).unwrap().sender.clone();
-            let entity_type = *self.app.world.get::<EntityType>(*target_entity).unwrap();
-
-            let cmd_args: Vec<_> = behavior.split(' ').collect();
-
-            match entity_type {
-                EntityType::Player => {
-                    match cmd_args[0] {
-                        "RespawnNow" => {
-                            match cmd_args[1] {
-                                "NearestPortal" => {
-                                    /*let spawned_storage = self.app.world.read_storage::<Spawned>();
-                                    let mut position_storage = self.app.world.write_storage::<Position>();
-                                    let starting_point_storage = self.app.world.read_storage::<StartingPointClass>();
-                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();*/
-        
-                                    
-                                    let mut player_ent = self.app.world.entity_mut(*player_entity);
-                                    
-        
-                                    // find nearest starting point (most likely a portal exit node)
-                                    let mut query = self.app.world.query::<(&StartingPointClass, With<Spawned>)>();
-
-                                    let mut positions: Vec<_> = query.iter(&self.app.world)
-                                        .map(|(starting_point, _)| (starting_point.pos(), starting_point.rot())).collect();
-        
-                                    positions.sort_by(|a, b| {
-                                        a.0.distance_squared(player_ent.get::<Position>().unwrap().position)
-                                            .total_cmp(&b.0.distance_squared(player_ent.get::<Position>().unwrap().position))
-                                    });
-        
-                                    let (respawn_pos, respawn_rot) = if let Some((pos, rot)) = positions.first() {
-                                        debug!("Respawn pos: {:?}", pos);
-                                        (**pos + Vec3::new(0.0, 0.0, get_player_height(&*player_ent.get::<PlayerClass>().unwrap()) / 2.0), **rot)
-                                    } else {
-                                        warn!("No portal for respawning found. Moving to default location");
-                                        (self.default_pos, self.default_rot)
-                                    };
-        
-                                    // revive & teleport player
-                                    let mut update = ParamSet::<PlayerAttribute>::new();
-        
-                                    {
-                                        let mut player = player_ent.get_mut::<PlayerClass>().unwrap();
-
-                                        update.insert(PlayerAttribute::Alive, true);
-                                        update.insert(PlayerAttribute::HpCur, player.hp_max());
-                                        update.insert(PlayerAttribute::Pos, Param::Vector3Uts((0, respawn_pos)));
-                                        update.insert(PlayerAttribute::Rot, respawn_rot);
-                                        update.insert(PlayerAttribute::IsUnAttackable, true); 
-                            
-                                        player.apply(update.clone());
-                                    }
-
-                                    {
-                                        let mut player_pos = player_ent.get_mut::<Position>().unwrap();
-
-                                        player_pos.version = player_pos.version.wrapping_add(1);
-                                        player_pos.position = respawn_pos;
-                                        player_pos.rotation = Quat::from_unit_vector(respawn_rot);
-                                    }
-                        
-                                    // update clients
-                                    let event_sender = self.event_sender.clone();
-        
-                                    let current_hp = player_ent.get::<PlayerClass>().unwrap().hp_cur();
-                                    let send_pos = player_ent.get::<Position>().unwrap().clone();
-        
-                                    tokio::spawn(async move {
-                                        let _ = sender.send(AvatarEvent::ServerAction(ServerAction::Teleport(instigator, send_pos))).await;
-
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarMoved { 
-                                            avatar_id: instigator, 
-                                            movement: Movement { 
-                                                position: respawn_pos, 
-                                                rotation: Quat::from_unit_vector(respawn_rot), 
-                                                velocity: Vec3::default(), 
-                                                physics_state: super::PhysicsState::Walking, 
-                                                mover_key: 0, 
-                                                seconds: 0.0 
-                                            } 
-                                        }));
-
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-        
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::CombatHpUpdate { 
-                                            avatar_id: instigator, 
-                                            hp: current_hp,
-                                        }));
-                                    });
-                                },
-                                _ => todo!("Respawn mode {} not implemented!", cmd_args[1]),
-                            }
-                        },
-                        "PromptCooldown" => {
-                            // todo
-                        },
-                        "DisableInvulnerability" => {
-                            let mut update = ParamSet::<PlayerAttribute>::new();
-                            let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
-
-                            update.insert(PlayerAttribute::IsUnAttackable, false);
-                            player.apply(update.clone());
-
-                            let event_sender = self.event_sender.clone();
-                
-                            tokio::spawn(async move {
-                                let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                    avatar_id: instigator, 
-                                    params: update.into_box(),
-                                }));
-                            });
-                        },
-                        _ => warn!("Unimplemented behavior '{}' for player", behavior),
-                    }
-                },
-                EntityType::Portal => {
-                    match cmd_args[0] {
-                        "ConfirmTravelRequest" => {
-                            tokio::spawn(async move {
-                                let _ = sender.send(AvatarEvent::Message(oaPktConfirmTravel {
-                                    state: 1,
-                                    ..Default::default()
-                                }.into_message())).await;
-                            });
-                        },
-                        "DoTravel" => {
-                            let portal = self.app.world.get::<PortalClass>(*target_entity).unwrap();
-                            if let Some(nodelink) = portal.nodelink().map(|v| v.to_owned()) {
-                                let db = self.realm_db.clone();
-
-                                // get the target zone based on the destination node
-                                tokio::spawn(async move {
-                                    // todo: lookup target zone during zone loading and store in entity
-                                    if let Ok(Some(node)) = RawInstance::get(db, &Uuid::parse_str(&nodelink).unwrap()).await {
-                                        let _ = sender.send(AvatarEvent::Travel { 
-                                            zone: node.zone_guid, 
-                                            destination: TravelType::Portal { 
-                                                uuid: node.guid 
-                                            }
-                                        }).await;
-                                    } else {
-                                        error!("Failed to read node {}", nodelink)
-                                    }
-                                });
-                            } else {
-                                warn!("No nodelink for portal set")
-                            }
-                        },
-                        _ => warn!("Unimplemented behavior '{}' for portal node", behavior),
-                    }
-                },
-                EntityType::Trigger => {
-                    if cmd_args[0] == "triggeraction" {
-                        let trigger = self.app.world.get::<TriggerClass>(*target_entity).unwrap();
-
-                        if let Some(script) = trigger.lua_script() {
-                            match script.deref() {
-                                "ClassClear" => {
-                                    let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
-
-                                    let mut update = ParamSet::new();
-                                    update.insert(PlayerAttribute::CombatStyle, 6);
-
-                                    player.apply(update.clone());
-
-                                    let event_sender = self.event_sender.clone();
-                
-                                    tokio::spawn(async move {
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-                                    });
-                                },
-                                "ClassEnergizer" => {
-                                    let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
-
-                                    let mut update = ParamSet::new();
-                                    update.insert(PlayerAttribute::CombatStyle, 3);
-
-                                    player.apply(update.clone());
-
-                                    let event_sender = self.event_sender.clone();
-                
-                                    tokio::spawn(async move {
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-                                    });
-                                },
-                                "ClassWarrior" => {
-                                    let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
-
-                                    let mut update = ParamSet::new();
-                                    update.insert(PlayerAttribute::CombatStyle, 0);
-
-                                    player.apply(update.clone());
-
-                                    let event_sender = self.event_sender.clone();
-                
-                                    tokio::spawn(async move {
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-                                    });
-                                },
-                                "ClassMarksman" => {
-                                    let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
-
-                                    let mut update = ParamSet::new();
-                                    update.insert(PlayerAttribute::CombatStyle, 1);
-
-                                    player.apply(update.clone());
-
-                                    let event_sender = self.event_sender.clone();
-                
-                                    tokio::spawn(async move {
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-                                    });
-                                },
-                                "ClassAssassin" => {
-                                    let mut player = self.app.world.get_mut::<PlayerClass>(*player_entity).unwrap();
-
-                                    let mut update = ParamSet::new();
-                                    update.insert(PlayerAttribute::CombatStyle, 2);
-
-                                    player.apply(update.clone());
-
-                                    let event_sender = self.event_sender.clone();
-                
-                                    tokio::spawn(async move {
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-                                    });
-                                },
-                                _ => warn!("Unimplemented lua script '{}' for trigger", script),
-                            }
-                        };
-                    } else {
-                        warn!("Unimplemented behavior '{}' for trigger", behavior);
-                    }
-                },
-                _ => warn!("Behavior '{}' not implemented for entity type {:?}", behavior, entity_type),
-            }
-        }*/
-
-        // todo: move behaviors into scripts
-        /*if let Some(player_entity) = self.avatar_id_to_entity_lookup.get(&instigator) && 
-            let Some(target_entity) = self.avatar_id_to_entity_lookup.get(&target) {
-            let sender_storage = self.app.world.write_storage::<AvatarEventServer>();
-            let sender = sender_storage.get(*player_entity).unwrap().sender.clone();
-
-            // check target entity type
-            let entity_type = *self.app.world.read_storage::<EntityType>().get(*target_entity).unwrap();
-            let cmd_args: Vec<_> = behavior.split(' ').collect();
-
-            match entity_type {
-                EntityType::Player => {
-                    match cmd_args[0] {
-                        "RespawnNow" => {
-                            match cmd_args[1] {
-                                "NearestPortal" => {
-                                    let spawned_storage = self.app.world.read_storage::<Spawned>();
-                                    let mut position_storage = self.app.world.write_storage::<Position>();
-                                    let starting_point_storage = self.app.world.read_storage::<StartingPointClass>();
-                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
-        
-                                    let player = player_storage.get_mut(*player_entity).unwrap();
-                                    let player_pos = position_storage.get_mut(*player_entity).unwrap();
-        
-                                    // find nearest starting point (most likely a portal exit node)
-                                    let mut positions: Vec<_> = (
-                                        &starting_point_storage, 
-                                        &spawned_storage
-                                    ).join().map(|(starting_point, _)| (starting_point.pos(), starting_point.rot())).collect();
-        
-                                    positions.sort_by(|a, b| {
-                                        a.0.distance_squared(player_pos.position)
-                                            .total_cmp(&b.0.distance_squared(player_pos.position))
-                                    });
-        
-                                    let (respawn_pos, respawn_rot) = if let Some((pos, rot)) = positions.first() {
-                                        debug!("Respawn pos: {:?}", pos);
-                                        (**pos + Vec3::new(0.0, 0.0, get_player_height(player) / 2.0), **rot)
-                                    } else {
-                                        warn!("No portal for respawning found. Moving to default location");
-                                        (self.default_pos, self.default_rot)
-                                    };
-        
-                                    // revive & teleport player
-                                    let mut update = ParamSet::<PlayerAttribute>::new();
-        
-                                    update.insert(PlayerAttribute::Alive, true);
-                                    update.insert(PlayerAttribute::HpCur, player.hp_max());
-                                    update.insert(PlayerAttribute::Pos, Param::Vector3Uts((0, respawn_pos)));
-                                    update.insert(PlayerAttribute::Rot, respawn_rot);
-                                    update.insert(PlayerAttribute::IsUnAttackable, true); 
-                        
-                                    player.apply(update.clone());
-
-                                    player_pos.version = player_pos.version.wrapping_add(1);
-                                    player_pos.position = respawn_pos;
-                                    player_pos.rotation = Quat::from_unit_vector(respawn_rot);
-                        
-                                    // update clients
-                                    let event_sender = self.event_sender.clone();
-        
-                                    let current_hp = player.hp_cur();
-                                    let send_pos = player_pos.clone();
-        
-                                    tokio::spawn(async move {
-                                        let _ = sender.send(AvatarEvent::ServerAction(ServerAction::Teleport(instigator, send_pos))).await;
-
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarMoved { 
-                                            avatar_id: instigator, 
-                                            movement: Movement { 
-                                                position: respawn_pos, 
-                                                rotation: Quat::from_unit_vector(respawn_rot), 
-                                                velocity: Vec3::default(), 
-                                                physics_state: super::PhysicsState::Walking, 
-                                                mover_key: 0, 
-                                                seconds: 0.0 
-                                            } 
-                                        }));
-
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-        
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::CombatHpUpdate { 
-                                            avatar_id: instigator, 
-                                            hp: current_hp,
-                                        }));
-                                    });
-                                },
-                                _ => todo!("Respawn mode {} not implemented!", cmd_args[1]),
-                            }
-                        },
-                        "PromptCooldown" => {
-                            // todo
-                        },
-                        "DisableInvulnerability" => {
-                            let mut update = ParamSet::<PlayerAttribute>::new();
-                            let mut player_storage = self.app.world.write_storage::<PlayerClass>();
-                            let player = player_storage.get_mut(*player_entity).unwrap();
-
-                            update.insert(PlayerAttribute::IsUnAttackable, false);
-                            player.apply(update.clone());
-
-                            let event_sender = self.event_sender.clone();
-                
-                            tokio::spawn(async move {
-                                let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                    avatar_id: instigator, 
-                                    params: update.into_box(),
-                                }));
-                            });
-                        },
-                        _ => warn!("Unimplemented behavior '{}' for player", behavior),
-                    }
-                },
-                EntityType::Portal => {
-                    match cmd_args[0] {
-                        "ConfirmTravelRequest" => {
-                            tokio::spawn(async move {
-                                let _ = sender.send(AvatarEvent::Message(oaPktConfirmTravel {
-                                    state: 1,
-                                    ..Default::default()
-                                }.into_message())).await;
-                            });
-                        },
-                        "DoTravel" => {
-                            let portal_storage = self.app.world.read_storage::<PortalClass>();
-                            let portal = portal_storage.get(*target_entity).unwrap();
-                            if let Some(nodelink) = portal.nodelink().map(|v| v.to_owned()) {
-                                let db = self.realm_db.clone();
-
-                                // get the target zone based on the destination node
-                                tokio::spawn(async move {
-                                    // todo: lookup target zone during zone loading and store in entity
-                                    if let Ok(Some(node)) = RawInstance::get(db, &Uuid::parse_str(&nodelink).unwrap()).await {
-                                        let _ = sender.send(AvatarEvent::Travel { 
-                                            zone: node.zone_guid, 
-                                            destination: TravelType::Portal { 
-                                                uuid: node.guid 
-                                            }
-                                        }).await;
-                                    } else {
-                                        error!("Failed to read node {}", nodelink)
-                                    }
-                                });
-                            } else {
-                                warn!("No nodelink for portal set")
-                            }
-                        },
-                        _ => warn!("Unimplemented behavior '{}' for portal node", behavior),
-                    }
-                },
-                EntityType::Trigger => {
-                    if cmd_args[0] == "triggeraction" {
-                        let trigger_storage = self.app.world.read_storage::<TriggerClass>();
-                        let trigger = trigger_storage.get(*target_entity).unwrap();
-
-                        if let Some(script) = trigger.lua_script() {
-                            match script.deref() {
-                                "ClassClear" => {
-                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
-                                    let player = player_storage.get_mut(*player_entity).unwrap();
-
-                                    let mut update = ParamSet::new();
-                                    update.insert(PlayerAttribute::CombatStyle, 6);
-
-                                    player.apply(update.clone());
-
-                                    let event_sender = self.event_sender.clone();
-                
-                                    tokio::spawn(async move {
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-                                    });
-                                },
-                                "ClassEnergizer" => {
-                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
-                                    let player = player_storage.get_mut(*player_entity).unwrap();
-
-                                    let mut update = ParamSet::new();
-                                    update.insert(PlayerAttribute::CombatStyle, 3);
-
-                                    player.apply(update.clone());
-
-                                    let event_sender = self.event_sender.clone();
-                
-                                    tokio::spawn(async move {
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-                                    });
-                                },
-                                "ClassWarrior" => {
-                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
-                                    let player = player_storage.get_mut(*player_entity).unwrap();
-
-                                    let mut update = ParamSet::new();
-                                    update.insert(PlayerAttribute::CombatStyle, 0);
-
-                                    player.apply(update.clone());
-
-                                    let event_sender = self.event_sender.clone();
-                
-                                    tokio::spawn(async move {
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-                                    });
-                                },
-                                "ClassMarksman" => {
-                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
-                                    let player = player_storage.get_mut(*player_entity).unwrap();
-
-                                    let mut update = ParamSet::new();
-                                    update.insert(PlayerAttribute::CombatStyle, 1);
-
-                                    player.apply(update.clone());
-
-                                    let event_sender = self.event_sender.clone();
-                
-                                    tokio::spawn(async move {
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-                                    });
-                                },
-                                "ClassAssassin" => {
-                                    let mut player_storage = self.app.world.write_storage::<PlayerClass>();
-                                    let player = player_storage.get_mut(*player_entity).unwrap();
-
-                                    let mut update = ParamSet::new();
-                                    update.insert(PlayerAttribute::CombatStyle, 2);
-
-                                    player.apply(update.clone());
-
-                                    let event_sender = self.event_sender.clone();
-                
-                                    tokio::spawn(async move {
-                                        let _ = event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                                            avatar_id: instigator, 
-                                            params: update.into_box(),
-                                        }));
-                                    });
-                                },
-                                _ => warn!("Unimplemented lua script '{}' for trigger", script),
-                            }
-                        };
-                    } else {
-                        warn!("Unimplemented behavior '{}' for trigger", behavior);
-                    }
-                },
-                _ => warn!("Behavior '{}' not implemented for entity type {:?}", behavior, entity_type),
-            }
-        }*/
     }
 
     pub fn proximity_chat(&mut self, range: ProximityChatRange, avatar_id: AvatarId, message: String) {
