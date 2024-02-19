@@ -1,0 +1,11 @@
+[package]
+name = "upk"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+futures = "0.3.30"
+log = "0.4.20"
+nom = "7.1.3"
+tokio = { version = "1.36.0", features = ["test-util", "macros", "io-util", "fs"] }
+uuid = "1.7.0"
