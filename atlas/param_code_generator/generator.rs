@@ -29,6 +29,9 @@ static ADDITIONAL_PARAM_CLASSES: &[&str] = &[
     "structure",
     "InteractObject",
     "NonSpawnPlacement",
+    "itemEdna",
+    "oaCommonConfig",
+    "physicsActor",
 ];
 
 #[derive(Debug, Default)]
@@ -1419,9 +1422,10 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
     let class_read_set: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
         quote! { ClassId::#class_name => {
-                let (i, class) = #class_name::read(i)?;
-                Ok((i, Box::new(class)))
+                let (i, set) = ParamSet::<#attribute_name>::read(i)?;
+                Ok((i, Box::new(set)))
             }, 
         }
     }).collect();
