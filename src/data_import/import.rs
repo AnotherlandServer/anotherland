@@ -543,7 +543,7 @@ pub async fn import_flighttubes(game_client_path: &Path) -> AnotherlandResult<()
                                     })
                                     .unwrap();
 
-                                let tangent = control_point.attrib("Point")
+                                let tangent = control_point.attrib("Tangent")
                                     .and_then(|attrib| {
                                         if let ObjectProperty::Vector(val) = attrib {
                                             Some(Vec3::from_array(*val))
