@@ -15,8 +15,6 @@
 
 use std::{fmt, io};
 
-use nom::error::VerboseError;
-
 #[derive(Debug)]
 pub enum UPKError {
     IOError(std::io::Error),

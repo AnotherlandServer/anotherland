@@ -13,18 +13,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{cell::RefCell, path::Path, slice::Iter, sync::Arc};
+use std::{ path::Path, slice::Iter, sync::Arc};
 
-use log::{debug, info};
 use tokio::{fs::File, io::{AsyncReadExt, AsyncSeekExt}, sync::RwLock};
 use uuid::Uuid;
 
-use crate::{parsers::{parse_file_header, parse_signature}, types::Class, FName};
+use crate::{parsers::{parse_file_header, parse_signature}, FName};
 
-use super::{parsers::{Header, NameTableEntry}, upk_result::UPKResult, UPKError};
+use super::upk_result::UPKResult;
 
 pub struct PackageFile {
     file: RwLock<File>,
+    version: u16,
     name: String,
     id: Uuid,
     names: Vec<FName>,
@@ -37,6 +37,12 @@ pub enum LocalObjectIndexRef {
     Null,
     Import(usize),
     Export(usize),
+}
+
+pub enum LocalObject {
+    Null,
+    Export(ExportRef),
+    Import(ImportRef),
 }
 
 impl LocalObjectIndexRef {
@@ -55,7 +61,7 @@ impl LocalObjectIndexRef {
     }
 }
 
-pub struct ObjectImportRef((FName, FName));
+/*pub struct ObjectImportRef((FName, FName, LocalObjectIndexRef));
 
 impl ObjectImportRef {
     pub fn package(&self) -> &str {
@@ -65,9 +71,14 @@ impl ObjectImportRef {
     pub fn name(&self) -> &str {
         &self.0.1
     }
-}
+
+    pub fn owner(&self) -> &LocalObjectIndexRef {
+        &self.0.2
+    }
+}*/
 
 pub struct Export {
+    self_ref: LocalObjectIndexRef,
     obj_type_ref: LocalObjectIndexRef,
     parent_class_ref: LocalObjectIndexRef,
     owner_ref: LocalObjectIndexRef,
@@ -87,10 +98,6 @@ pub struct Import {
     name: FName,
 }
 
-pub trait DeserializeUnrealObject: Sized {
-    fn deserialize(class: &Class, data: &[u8]) -> UPKResult<Self>;
-}
-
 pub type ExportRef = Arc<Export>;
 pub type ImportRef = Arc<Import>;
 
@@ -102,7 +109,7 @@ impl PackageFile {
         let mut signature_buf = [0; 12];
 
         file.read_exact(&mut signature_buf).await?;
-        let (_, (version, licensee, header_size)) = parse_signature(&signature_buf)?;
+        let (_, (version, _licensee, header_size)) = parse_signature(&signature_buf)?;
 
         // read header
         let mut header_buf = vec![0; header_size as usize];
@@ -126,8 +133,9 @@ impl PackageFile {
 
         // create export table from header data
         let mut exports = Vec::new();
-        for entry in header.export_table {
+        for (idx, entry) in header.export_table.into_iter().enumerate() {
             exports.push(Arc::new(Export {
+                self_ref: LocalObjectIndexRef::Export(idx),
                 obj_type_ref: LocalObjectIndexRef::from_idx(entry.obj_type_ref),
                 parent_class_ref: LocalObjectIndexRef::from_idx(entry.parent_class_ref),
                 owner_ref: LocalObjectIndexRef::from_idx(entry.owner_ref),
@@ -137,7 +145,7 @@ impl PackageFile {
                 name_count: if entry.name_count == 0 {
                     None
                 } else {
-                    Some(format!("{}_{}", names[entry.name_table_idx as usize], entry.name_count))
+                    Some(format!("{}_{}", names[entry.name_table_idx as usize], entry.name_count - 1))
                 },
                 data_offset: entry.data_offset as usize,
                 data_size: entry.data_size as usize,
@@ -150,6 +158,7 @@ impl PackageFile {
 
         Ok(PackageFile {
             file: RwLock::new(file),
+            version,
             name,
             id: header.id,
             names,
@@ -160,6 +169,10 @@ impl PackageFile {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub fn version(&self) -> u16 {
+        self.version
     }
 
     pub fn id(&self) -> &Uuid {
@@ -178,18 +191,38 @@ impl PackageFile {
         self.exports.get(idx).cloned()
     }
 
+    pub fn lookup_name(&self, idx: usize) -> FName {
+        self.names.get(idx).cloned().unwrap()
+    }
+
     pub fn lookup_export_by_name(&self, name: &str) -> Option<ExportRef> {
         self.exports.iter()
             .find(|entry| entry.name() == name)
             .cloned()
     }
 
-    pub fn lookup_import(&self, idx: usize) -> Option<ObjectImportRef> {
-        self.imports.get(idx)
-            .map(|import| { ObjectImportRef((import.package.clone(), import.name.clone())) })
+    pub fn lookup_import(&self, idx: usize) -> Option<ImportRef> {
+        self.imports.get(idx).cloned()
+        /*.map(|import| { 
+            ObjectImportRef((import.package.clone(), import.name.clone(), import.owner_ref.clone())) 
+        })*/
     }
 
-    pub async fn read_export_raw(&self, export: &Export) -> UPKResult<Vec<u8>> {
+    pub fn lookup_local_ref(&self, local_ref: &LocalObjectIndexRef) -> Option<LocalObject> {
+        match local_ref {
+            LocalObjectIndexRef::Null => Some(LocalObject::Null),
+            LocalObjectIndexRef::Export(idx) => {
+                self.lookup_export_by_idx(*idx)
+                    .map(LocalObject::Export)
+            },
+            LocalObjectIndexRef::Import(idx) => {
+                self.lookup_import(*idx)
+                    .map(LocalObject::Import)
+            }
+        }
+    }
+
+    pub async fn read_object_data(&self, export: &Export) -> UPKResult<Vec<u8>> {
         let mut buffer = vec![0; export.data_size];
         
         let mut file_writer = self.file.write().await;
@@ -198,23 +231,23 @@ impl PackageFile {
         
         Ok(buffer)
     }
-
-    pub async fn deserialize_export<'a, T>(&self, class: &Class, export: &Export) -> UPKResult<T> 
-    where 
-        T: DeserializeUnrealObject
-    {
-        let buffer = self.read_export_raw(export).await?;
-        T::deserialize(class, &buffer)
-    }
 }
 
 impl Export {
+    pub fn self_ref(&self) -> LocalObjectIndexRef {
+        self.self_ref.clone()
+    }
+
     pub fn name(&self) -> &str {
         if let Some(name) = self.name_count.as_ref() {
             name
         } else {
             &self.name
         }
+    }
+
+    pub fn fname(&self) -> &FName {
+        &self.name
     }
 
     pub fn class_ref(&self) -> LocalObjectIndexRef {
@@ -224,11 +257,31 @@ impl Export {
     pub fn owner_ref(&self) -> LocalObjectIndexRef {
         self.owner_ref.clone()
     }
+
+    pub fn additional_fields(&self) -> &[u32] {
+        &self.additional_fields
+    }
+
+    pub fn flags(&self) -> u64 {
+        self.flags
+    }
 }
 
 impl Import {
     pub fn package_name(&self) -> &str {
         &self.package
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn owner(&self) -> &LocalObjectIndexRef {
+        &self.owner_ref
+    }
+
+    pub fn class_name(&self) -> &str {
+        &self.class_name
     }
 }
 

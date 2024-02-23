@@ -13,9 +13,35 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::Object;
-
-pub struct Class {
-
+pub enum Intrinsic {
+    Class,
+    Package,
+    ArrayProperty,
+    BoolProperty,
+    ByteProperty,
+    ClassProperty,
+    ComponentProperty,
+    Const,
+    DelegateProperty,
+    Enum,
+    FloatProperty,
+    Function,
+    InterfaceProperty,
+    IntProperty,
+    MapProperty,
+    MetaData,
+    Model,
+    NameProperty,
+    ObjectProperty,
+    ScriptStruct,
+    State,
+    StrProperty,
+    StructProperty,
+    ShaderCache,
+    StaticMesh,
+    FracturedStaticMesh,
+    Level,
+    LightMapTexture2D,
+    Polys,
+    World,
 }
-

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use nom::{bytes::complete::tag, combinator::map, multi::{count, length_count}, number::complete::{le_i32, le_u16, le_u32, le_u64, u8}, sequence::tuple, IResult, Slice};
+use nom::{bytes::complete::tag, combinator::map, multi::{count, length_count}, number::complete::{le_i32, le_u16, le_u32, le_u64, u8}, sequence::tuple, IResult};
 use uuid::Uuid;
 
 // raw data structures

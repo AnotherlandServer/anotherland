@@ -13,6 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod class;
+mod intrinsics;
+mod script_object;
+mod script_class;
+mod struct_property;
 
-pub use class::*;
+pub use intrinsics::*;
+pub use script_object::*;
+pub use script_class::*;
+pub use struct_property::*;

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{fmt::{Debug, Display, Pointer}, ops::Deref, sync::Arc};
+use std::{fmt::{Debug, Display}, ops::Deref, sync::Arc, hash::Hash};
 
 struct FNameInner {
     name: String,
@@ -57,3 +57,17 @@ impl <'a>From<&'a FName> for &'a str {
         value.0.name.as_str()
     }
 }
+
+impl Hash for FName {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.name.hash(state);
+    }
+}
+
+impl PartialEq for FName {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.name == other.0.name
+    }
+}
+
+impl Eq for FName {}

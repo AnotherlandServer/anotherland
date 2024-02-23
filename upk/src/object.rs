@@ -13,13 +13,47 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{any::Any, cell::{Cell, RefCell}, ops::Deref, sync::Arc};
+use std::{any::Any, cell::RefCell, ops::Deref, sync::Arc};
+use std::fmt::Debug;
+use bitflags::bitflags;
 
-use crate::{types::Class, DeserializeUnrealObject, ExportRef, PackageFile, UPKResult};
+use crate::{types::Intrinsic, ExportRef, FName, PackageFile, CLASS};
 
 enum ObjectSource {
     Export(Arc<PackageFile>, ExportRef),
     Intrinsic(String),
+}
+
+bitflags! {
+    #[derive(Debug)]
+    pub struct Flags: u64 {
+        // lo
+        const TRANSACTIONAL = 0x00000001;
+        const IN_SINGULAR_FUNC = 0x00000002;
+        const PUBLIC = 0x00000004;
+        const PRIVATE = 0x00000080;
+        const AUTOMATED = 0x00000100;
+        const PROTECTED = 0x00000800;
+        const TRANSIENT = 0x00004000;
+        const LOAD_FOR_CLIENT = 0x00010000;
+        const LOAD_FOR_SERVER = 0x00020000;
+        const LOAD_FOR_EDIT = 0x00040000;
+        const STANDALONE = 0x00080000;
+        const NOT_FOR_CLIENT = 0x00100000;
+        const NOT_FOR_SERVER = 0x00200000;
+        const NOT_FOR_EDIT = 0x00400000;
+        const HAS_STACK = 0x02000000;
+        const NATIVE = 0x04000000;
+        const MARKED = 0x08000000;
+
+        // hi
+        const OBSOLETE = 0x0000002000000000;
+        const FINAL = 0x0000008000000000;
+        const PER_OBJECT_LOCALIZED = 0x0000010000000000;
+        const PROPERTIES_OBJECT =  0x0000020000000000;
+        const ARCHETYPE_OBJECT = 0x0000040000000000;
+        const REMAPPED_NAME = 0x0000080000000000;
+    }
 }
 
 pub struct Object {
@@ -28,55 +62,59 @@ pub struct Object {
     parent: Option<ObjectRef>,
     class: Option<ObjectRef>,
     children: RefCell<Vec<ObjectRef>>,
-    deserialized: Option<Box<dyn Any>>,
+    object_data: RefCell<Option<Box<dyn Any>>>,
+    flags: Flags,
 }
 
 unsafe impl Send for Object {}
 unsafe impl Sync for Object {}
 
 impl Object {
-    pub fn new(file: Arc<PackageFile>, export: ExportRef, class: ObjectRef, parent: Option<ObjectRef>) -> Self {
+    pub fn new(file: Arc<PackageFile>, export: ExportRef, fqn: String, class: ObjectRef, parent: Option<ObjectRef>) -> Self {
         Self {
             source: ObjectSource::Export(file.clone(), export.clone()),
-            fqn: Self::build_fqn(Some(file.as_ref()), Some(&class), export.name(), parent.as_ref()),
+            fqn,
             parent,
             class: Some(class),
             children: RefCell::new(Vec::new()),
-            deserialized: None,
+            object_data: RefCell::new(None),
+            flags: Flags::from_bits_retain(export.flags())
         }
     }
 
-    pub fn new_intrinsic(name: &str, class: ObjectRef, parent: Option<ObjectRef>) -> Self {
+    pub fn new_class(file: Arc<PackageFile>, export: ExportRef) -> Self {
+        Self {
+            source: ObjectSource::Export(file.clone(), export.clone()),
+            fqn: format!("Core/{}", export.name()),
+            parent: None,
+            class: None,
+            children: RefCell::new(Vec::new()),
+            object_data: RefCell::new(None),
+            flags: Flags::empty(),
+        }
+    }
+
+    pub fn new_intrinsic<T: Send + Sync + Any + 'static>(name: &str, fqn: &str, class: ObjectRef, parent: Option<ObjectRef>, data: T) -> Self {
         Self {
             source: ObjectSource::Intrinsic(name.to_owned()),
-            fqn: Self::build_fqn(None, Some(&class), name, parent.as_ref()),
+            fqn: fqn.to_owned(),
             parent,
             class: Some(class),
             children: RefCell::new(Vec::new()),
-            deserialized: None,
+            object_data: RefCell::new(Some(Box::new(data))),
+            flags: Flags::empty(),
         }
     }
 
-    pub fn new_classless_intrinsic(name: &str, parent: Option<ObjectRef>) -> Self {
-        Self { 
-            source: ObjectSource::Intrinsic(name.to_owned()), 
-            fqn: Self::build_fqn(None, None, name, parent.as_ref()),
-            parent: None, 
-            class: None, 
-            children: RefCell::new(Vec::new()), 
-            deserialized: None,
-        }
-    }
-
-    fn build_fqn(package: Option<&PackageFile>, class: Option<&ObjectRef>, object_name: &str, parent: Option<&ObjectRef>) -> String {
-        if let Some(parent) = parent {
-            format!("{}/{}", parent.fqn, object_name)
-        } else if let Some(class) = class && class.name() == "Class" {
-            format!("Core/{}", object_name)
-        }else if let Some(package) = package {
-            format!("{}/{}", package.name(), object_name)
-        } else {
-            format!("Core/{}", object_name)
+    pub fn new_intrinsic_class(name: &str, intrinsic: Intrinsic) -> Self {
+        Self {
+            source: ObjectSource::Intrinsic(name.to_owned()),
+            fqn: format!("Class/{}", name), //Self::build_fqn(None, None, name, None),
+            parent: None,
+            class: None,
+            children: RefCell::new(Vec::new()),
+            object_data: RefCell::new(Some(Box::new(intrinsic))),
+            flags: Flags::empty(),
         }
     }
 
@@ -95,7 +133,14 @@ impl Object {
     pub fn name(&self) -> &str {
         match &self.source {
             ObjectSource::Export(_, export) => export.name(),
-            ObjectSource::Intrinsic(name) => &name,
+            ObjectSource::Intrinsic(name) => name,
+        }
+    }
+
+    pub(crate) fn fname(&self) -> &FName {
+        match &self.source {
+            ObjectSource::Export(_, export) => export.fname(),
+            ObjectSource::Intrinsic(_) => panic!("itrinsics don't have fnames!"),
         }
     }
 
@@ -103,47 +148,78 @@ impl Object {
         &self.fqn
     }
 
-    pub fn class(&self) -> &Class {
-        self.class.as_ref().unwrap().deserialized()
-            .expect("object does not have a valid class")
+    pub fn class(&self) -> &ObjectRef {
+        self.class.as_ref()
+            .unwrap_or(&CLASS)
+    }
+
+    pub fn is_class(&self) -> bool {
+        self.class.is_none()
     }
 
     pub fn children(&self) -> &[ObjectRef] {
         unsafe { (*self.children.as_ptr()).as_slice() }
     }
 
-    pub(crate) fn append_child(&mut self, obj: ObjectRef) {
+    pub(crate) fn append_child(&self, obj: ObjectRef) {
         self.children.borrow_mut().push(obj)
-    }
-
-    pub async fn deserialize<T: DeserializeUnrealObject + Send + Sync + Any + 'static>(&mut self) -> UPKResult<()> {
-        if let ObjectSource::Export(file, export) = &self.source {
-            let deserialized = file.deserialize_export::<T>(self.class(), export).await?;
-            self.deserialized = Some(Box::new(deserialized));
-
-            Ok(())
-        } else {
-            panic!("Can't deserialize an intrinsic object")
-        }
-
-    }
-
-    pub fn deserialized<T: 'static>(&self) -> Option<&T> {
-        self.deserialized.as_ref().and_then(|d| d.downcast_ref())
     }
 
     pub fn into_ref(self) -> ObjectRef {
         ObjectRef(Arc::new(self))
+    }
+
+    pub(crate) fn export(&self) -> Option<&ExportRef> {
+        if let ObjectSource::Export(_, export) = &self.source {
+            Some(export)
+        } else {
+            None
+        }
+    }
+
+    pub fn has_data(&self) -> bool {
+        self.object_data.borrow().is_some()
+    }
+
+    pub fn is<T: 'static>(&self) -> bool {
+        if let Some(data) = self.object_data.borrow().as_ref() {
+            data.is::<T>()
+        } else {
+            false
+        }
+    }
+
+    pub fn data<T: 'static>(&self) -> Option<&T> {
+        unsafe { (*self.object_data.as_ptr()).as_ref() }
+            .and_then(|d| d.downcast_ref())
+    }
+
+    pub fn set_data<T: Any + 'static>(&self, data: T) {
+        if self.has_data() { panic!("object already constains data") }
+        self.object_data.replace(Some(Box::new(data)));
+    }
+
+    pub fn flags(&self) -> &Flags {
+        &self.flags
     }
 }
 
 #[derive(Clone)]
 pub struct ObjectRef(Arc<Object>);
 
+unsafe impl Send for ObjectRef {}
+unsafe impl Sync for ObjectRef {}
+
 impl Deref for ObjectRef {
     type Target = Object;
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Debug for ObjectRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("ObjectRef({})", self.fqn))
     }
 }
