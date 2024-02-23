@@ -13,15 +13,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::path::{Path, PathBuf};
+use std::{collections::HashMap, fs, path::{Path, PathBuf}};
 
+use bevy::log::debug;
 use chrono::{DateTime, Utc};
+use futures::{future::AndThen, StreamExt, TryStreamExt};
+use glam::Vec3;
 use log::info;
 use mongodb::{IndexModel, options::IndexOptions, bson::doc};
 use tokio::runtime::Handle;
 
-use crate::{util::AnotherlandResult, db::{Content, WorldDef, ZoneDef, realm_database, cluster_database, CashShopVendor, CashShopItem, CashShopBundle, RawInstance}};
+use crate::{db::{cluster_database, realm_database, CashShopBundle, CashShopItem, CashShopVendor, Content, ControlPoint, DatabaseRecord, FlightTube, RawInstance, WorldDef, ZoneDef}, util::AnotherlandResult};
 use atlas::{ParamBox, ParamSetBox, Uuid};
+use upk::{types::{ObjectProperty, ScriptObject}, Container};
 
 async fn import_content_table(game_client_path: &Path, src_table: &str, target_table: &str) -> AnotherlandResult<()> {
     tokio::task::block_in_place(move || {
@@ -450,7 +454,135 @@ async fn import_shop_bundles(game_client_path: &Path) -> AnotherlandResult<()> {
     })
 }
 
+pub async fn import_flighttubes(game_client_path: &Path) -> AnotherlandResult<()> {
+    let tube_collection = FlightTube::collection(realm_database().await);
+    let mut worlds = WorldDef::collection(realm_database().await).find(None, None).await?;
 
+    let mut upk_collection = Container::new(game_client_path.join("UnrealEngine3/AmunGame/CookedPCConsole"));
+
+    let mut documents = HashMap::new();
+
+    while let Some(world) = worlds.try_next().await? {
+        let _ = upk_collection.mount_package(&world.name).await;
+
+        info!("Importing FlightTubes from {}...", world.name);
+
+        // scan for flight tube actors
+        for obj in upk_collection.objects() {
+            if obj.class().name() == "OLFlightTubeActor" && !obj.name().contains("Default__") {
+                let so = upk_collection.deserialize::<ScriptObject>(obj).await?;
+                
+                let id = so.attrib("UniqueGUID")
+                    .and_then(|attrib| {
+                        if let ObjectProperty::Guid(guid) = attrib {
+                            Some(Uuid::from_uuid_1(*guid))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap();
+
+                let travel_target = so.attrib("TravelTargetGUID")
+                    .and_then(|attrib| {
+                        if let ObjectProperty::Guid(guid) = attrib {
+                            Some(Uuid::from_uuid_1(*guid))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap();
+
+                let surfing_speed = so.attrib("SurfingSpeed")
+                    .and_then(|attrib| {
+                        if let ObjectProperty::Float(val) = attrib {
+                            Some(*val)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(1500.0);
+
+                let location = so.attrib("Location")
+                    .and_then(|attrib| {
+                        if let ObjectProperty::Vector(val) = attrib {
+                            Some(Vec3::from_array(*val))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap();
+
+                let control_points = so.attrib("ControlPoints")
+                    .and_then(|attrib| {
+                        (if let ObjectProperty::Array(control_points) = attrib {
+                            Some(control_points)
+                        } else {
+                            None
+                        })
+                        .map(|control_points| {
+                            control_points
+                                .iter()
+                                .filter_map(|property| {
+                                    if let ObjectProperty::Struct(_, obj) = property {
+                                        Some(obj)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .map(|control_points| {
+                            control_points.iter().map(|control_point| {
+                                let point = control_point.attrib("Point")
+                                    .and_then(|attrib| {
+                                        if let ObjectProperty::Vector(val) = attrib {
+                                            Some(Vec3::from_array(*val))
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap();
+
+                                let tangent = control_point.attrib("Point")
+                                    .and_then(|attrib| {
+                                        if let ObjectProperty::Vector(val) = attrib {
+                                            Some(Vec3::from_array(*val))
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap();
+
+                                ControlPoint {
+                                    point,
+                                    tangent
+                                }
+                            })
+                            .collect()
+                        })
+                    })
+                    .unwrap();
+
+                documents.insert(id, FlightTube {
+                    id,
+                    name: obj.name().to_owned(),
+                    travel_target,
+                    surfing_speed,
+                    location,
+                    control_points,
+                });
+            }
+        }
+
+        upk_collection.umount_package(&world.name);
+    }
+
+    if !documents.is_empty() {
+        tube_collection.insert_many(documents.values(), None).await?;
+    }
+
+    Ok(())
+}
 
 pub async fn import_client_data(game_client_path: PathBuf) -> AnotherlandResult<()> {
     tokio::task::spawn(async move {
@@ -478,6 +610,8 @@ pub async fn import_client_data(game_client_path: PathBuf) -> AnotherlandResult<
         import_vendor_data(&game_client_path).await?;
         import_shop_items(&game_client_path).await?;
         import_shop_bundles(&game_client_path).await?;
+
+        import_flighttubes(&game_client_path).await?;
 
         Ok(())
     }).await?

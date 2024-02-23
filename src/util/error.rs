@@ -37,6 +37,7 @@ pub enum AnotherlandErrorKind {
     QuinnConnection,
     QuinnRead,
     QuinnWrite,
+    Upk,
 
     // Application errors
     Application,
@@ -59,6 +60,7 @@ impl AnotherlandErrorKind {
             QuinnConnection => "quinn connection error",
             QuinnRead => "quinn read error",
             QuinnWrite => "quinn write error",
+            Upk => "upk error",
         }
     }
 }
@@ -253,6 +255,12 @@ impl From<quinn::ReadError> for AnotherlandError {
 impl From<quinn::WriteError> for AnotherlandError {
     fn from(value: quinn::WriteError) -> Self {
         Self::new(AnotherlandErrorKind::QuinnWrite, value)
+    }
+}
+
+impl From<upk::UPKError> for AnotherlandError {
+    fn from(value: upk::UPKError) -> Self {
+        Self::new(AnotherlandErrorKind::Upk, format!("{:?}", value))
     }
 }
 
