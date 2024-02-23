@@ -44,4 +44,5 @@ pub enum Intrinsic {
     LightMapTexture2D,
     Polys,
     World,
+    ShadowMap1D,
 }

@@ -14,7 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::{collections::{hash_map::Iter, HashMap}, sync::Arc};
-use nom::{bytes::complete::take, combinator::{fail, map}, multi::{count, many_till}, number::complete::{le_f32, le_i32, le_u32, le_u64}, IResult};
+use log::debug;
+use nom::{bytes::complete::take, combinator::{fail, map}, multi::{count, many_till}, number::complete::{le_f32, le_i32, le_u32, le_u64, le_u8}, IResult};
 use async_trait::async_trait;
 use uuid::Uuid;
 use crate::{types::StructProperty, Container, DeserializeUnrealObject, FName, LocalObjectIndexRef, ObjectRef, PackageFile, UPKResult};
@@ -30,6 +31,13 @@ impl ScriptObject {
     pub fn attribs(&self) -> Iter<FName, ObjectProperty> {
         self.attributes.iter()
     }
+
+    pub fn attrib(&self, name: &str) -> Option<&ObjectProperty> {
+        self.attributes
+            .iter()
+            .find(|(key, _)| &***key == name)
+            .map(|(_, attrib)| attrib)
+    }
 }
 
 #[derive(Debug)]
@@ -37,7 +45,7 @@ pub enum ObjectProperty {
     None,
     Array(Vec<ObjectProperty>),
     Bool(bool),
-    Byte(u8),
+    Bytes(Vec<u8>),
     Class(ObjectRef),
     Component(ObjectRef),
     Delegate(ObjectRef),
@@ -47,10 +55,11 @@ pub enum ObjectProperty {
     Map(ObjectRef),
     Name(FName),
     Object(ObjectRef),
-    Struct(Option<ObjectRef>, HashMap<FName, ObjectProperty>),
+    Struct(Option<ObjectRef>, ScriptObject),
     String(String),
     Vector([f32; 3]),
     Guid(Uuid),
+    Enum(FName, FName),
 }
 
 fn parse_attribute<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object: &'a ObjectRef, attribute: &'a ObjectRef, class_override: Option<&'a ObjectRef>, in_array: bool)
@@ -72,8 +81,40 @@ fn parse_attribute<'a>(file: &'a Arc<PackageFile>, container: &'a Container, obj
             "StrProperty" => parse_string(file, container, object, attribute)(i),
             "FloatProperty" => parse_float(file, container, object, attribute)(i),
             "NameProperty" => parse_name(file, container, object, attribute)(i),
+            "ByteProperty" => parse_bytes(file, container, object, attribute)(i),
+            "BoolProperty" => parse_bool(file, container, object, attribute)(i),
             _ => unimplemented!("unimplemented property type: {}", attribute.class().name()),
         }
+    }
+}
+
+fn parse_bool<'a>(_file: &'a Arc<PackageFile>, _container: &'a Container, _object: &'a ObjectRef, _attribute: &'a ObjectRef)
+    -> impl FnMut(&'a [u8]) 
+    -> IResult<&'a [u8], ObjectProperty> 
+{
+    move |i: &[u8]| {
+        let (i, val) = le_u8(i)?;
+
+        Ok((i, ObjectProperty::Bool(val != 0)))
+    }
+}
+
+fn parse_bytes<'a>(file: &'a Arc<PackageFile>, _container: &'a Container, _object: &'a ObjectRef, attribute: &'a ObjectRef)
+    -> impl FnMut(&'a [u8]) 
+    -> IResult<&'a [u8], ObjectProperty> 
+{
+    move |i: &[u8]| {
+        // todo: upk seems to encode enums as ByteProperty. how can we detect if the attribute does not decode an enum?
+
+        let (i, enum_name) = map(le_u64, |idx| {
+            file.lookup_name(idx as usize)
+        })(i)?;
+        
+        let (i, val_name) = map(le_u64, |idx| {
+            file.lookup_name(idx as usize)
+        })(i)?;
+
+        Ok((i, ObjectProperty::Enum(enum_name, val_name)))
     }
 }
 
@@ -82,8 +123,6 @@ fn parse_name<'a>(file: &'a Arc<PackageFile>, _container: &'a Container, _object
     -> IResult<&'a [u8], ObjectProperty> 
 {
     move |i: &[u8]| {
-        // attribute data size
-        let (i, _) = le_u64(i)?;
         let (i, name) = le_u64(i)?;
 
         Ok((i, ObjectProperty::Name(file.lookup_name(name as usize))))
@@ -95,8 +134,6 @@ fn parse_float<'a>(_file: &'a Arc<PackageFile>, _container: &'a Container, _obje
     -> IResult<&'a [u8], ObjectProperty> 
 {
     move |i: &[u8]| {
-        // attribute data size
-        let (i, _) = le_u64(i)?;
         let (i, val) = le_f32(i)?;
 
         Ok((i, ObjectProperty::Float(val)))
@@ -108,8 +145,6 @@ fn parse_string<'a>(_file: &'a Arc<PackageFile>, _container: &'a Container, _obj
     -> IResult<&'a [u8], ObjectProperty> 
 {
     move |i: &[u8]| {
-        // attribute data size
-        let (i, _) = le_u64(i)?;
         let (i, len) = le_u32(i)?;
         let (i, data) = take(len)(i)?;
 
@@ -134,13 +169,15 @@ fn parse_object<'a>(file: &'a Arc<PackageFile>, container: &'a Container, _objec
     -> IResult<&'a [u8], ObjectProperty> 
 {
     move |i: &[u8]| {
-        // attribute data size
-        let (i, _) = le_u64(i)?;
-
         let (i, idx) = le_i32(i)?;
-        Ok((i, ObjectProperty::Object(
-            container.resolve_object(file.to_owned(), LocalObjectIndexRef::from_idx(idx)).unwrap()
-        )))
+        if idx == 0 {
+            Ok((i, ObjectProperty::None))
+        } else {
+            debug!("{:?}", LocalObjectIndexRef::from_idx(idx));
+            Ok((i, ObjectProperty::Object(
+                container.resolve_object(file.to_owned(), LocalObjectIndexRef::from_idx(idx)).unwrap()
+            )))
+        }
     }
 }
 
@@ -150,9 +187,6 @@ fn parse_array<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object:
 {
     move |i: &[u8]| {
         let child = attribute.children().iter().next().unwrap();
-
-        // attribute data size
-        let (i, _) = le_u64(i)?;
 
         // element count
         let (i, elements) = le_u32(i)?;
@@ -183,7 +217,7 @@ fn tag_struct_end<'a>(file: &'a Arc<PackageFile>)
     }
 }
 
-fn parse_struct_attribute<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object: &'a ObjectRef, ) 
+fn parse_struct_attribute<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object: &'a ObjectRef) 
     -> impl FnMut(&'a [u8]) 
     -> IResult<&'a [u8], (FName, ObjectProperty)> 
 {
@@ -191,6 +225,8 @@ fn parse_struct_attribute<'a>(file: &'a Arc<PackageFile>, container: &'a Contain
         let (i, name) = map(le_u64, |idx| {
             file.lookup_name(idx as usize)
         })(i)?;
+
+        debug!("{}", name);
 
         let attribute_def = object.data::<ScriptClass>()
             .unwrap()
@@ -201,7 +237,10 @@ fn parse_struct_attribute<'a>(file: &'a Arc<PackageFile>, container: &'a Contain
             file.lookup_name(idx as usize)
         })(i)?;
 
-        let attribute_class = container.lookup_object(&format!("Core/{}", datatype)).unwrap();
+        // attribute data size
+        let (i, _) = le_u64(i)?;
+
+        let attribute_class = container.lookup_object(&datatype).unwrap();
         let (i, attribute) = parse_attribute(file, container, object, attribute_def, Some(attribute_class), false)(i)?;
 
         Ok((i, (name, attribute)))
@@ -225,9 +264,6 @@ fn parse_struct<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object
                 panic!()
             }
         } else {
-            // attribute data size
-            let (i, _) = le_u64(i)?;
-
             let (i, class) = map(le_u64, |idx| {
                 file.lookup_name(idx as usize)
             })(i)?;
@@ -251,7 +287,9 @@ fn parse_struct<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object
         match class {
             StructClass::Class(class) => {
                 map(many_till(parse_struct_attribute(file, container, class), tag_struct_end(file)), |(properties, _)| {
-                    ObjectProperty::Struct(Some(class.clone()), properties.into_iter().collect())
+                    ObjectProperty::Struct(Some(class.clone()), ScriptObject {
+                        attributes: properties.into_iter().collect()
+                    })
                 })(i)
             },
             StructClass::Intrinsic(intrinsic) => {

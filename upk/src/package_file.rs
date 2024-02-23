@@ -15,6 +15,7 @@
 
 use std::{ path::Path, slice::Iter, sync::Arc};
 
+use log::debug;
 use tokio::{fs::File, io::{AsyncReadExt, AsyncSeekExt}, sync::RwLock};
 use uuid::Uuid;
 
@@ -103,7 +104,7 @@ pub type ImportRef = Arc<Import>;
 
 impl PackageFile {
     pub async fn open<P: AsRef<Path>>(path: P) -> UPKResult<PackageFile> {
-        println!("Open file: {}", path.as_ref().to_string_lossy());
+        debug!("Open file: {}", path.as_ref().to_string_lossy());
 
         let mut file = File::open(path.as_ref()).await?;
         let mut signature_buf = [0; 12];

@@ -85,7 +85,7 @@ impl Object {
     pub fn new_class(file: Arc<PackageFile>, export: ExportRef) -> Self {
         Self {
             source: ObjectSource::Export(file.clone(), export.clone()),
-            fqn: format!("Core/{}", export.name()),
+            fqn: export.name().to_owned(), //format!("Core/{}", export.name()),
             parent: None,
             class: None,
             children: RefCell::new(Vec::new()),
@@ -109,7 +109,7 @@ impl Object {
     pub fn new_intrinsic_class(name: &str, intrinsic: Intrinsic) -> Self {
         Self {
             source: ObjectSource::Intrinsic(name.to_owned()),
-            fqn: format!("Class/{}", name), //Self::build_fqn(None, None, name, None),
+            fqn: name.to_owned(), //Self::build_fqn(None, None, name, None),
             parent: None,
             class: None,
             children: RefCell::new(Vec::new()),

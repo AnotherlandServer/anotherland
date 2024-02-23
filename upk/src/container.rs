@@ -13,10 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::{HashMap, VecDeque}, path::{Path, PathBuf}, sync::Arc};
+use std::{collections::{hash_map::Values, HashMap, VecDeque}, path::{Path, PathBuf}, sync::Arc};
 
 use futures::{future::BoxFuture, Future, FutureExt};
 use async_trait::async_trait;
+use log::{debug, warn};
 use once_cell::sync::Lazy;
 
 use crate::{types::{Intrinsic, ScriptClass, StructProperty}, LocalObject, LocalObjectIndexRef, Object, ObjectRef, PackageFile, UPKResult};
@@ -42,38 +43,39 @@ impl Container {
 
         let mut intrinsic_objects = HashMap::new();
         
-        intrinsic_objects.insert("Core/Class".to_owned(), CLASS.clone());
-        intrinsic_objects.insert("Core/Package".to_string(), Object::new_intrinsic_class("Package", Intrinsic::Package).into_ref());
-        intrinsic_objects.insert("Core/ArrayProperty".to_owned(), Object::new_intrinsic_class("ArrayProperty", Intrinsic::ArrayProperty).into_ref());
-        intrinsic_objects.insert("Core/BoolProperty".to_owned(), Object::new_intrinsic_class("BoolProperty", Intrinsic::BoolProperty).into_ref());
-        intrinsic_objects.insert("Core/ByteProperty".to_owned(), Object::new_intrinsic_class("ByteProperty", Intrinsic::ByteProperty).into_ref());
-        intrinsic_objects.insert("Core/ClassProperty".to_owned(), Object::new_intrinsic_class("ClassProperty", Intrinsic::ClassProperty).into_ref());
-        intrinsic_objects.insert("Core/ComponentProperty".to_owned(), Object::new_intrinsic_class("ComponentProperty", Intrinsic::ComponentProperty).into_ref());
-        intrinsic_objects.insert("Core/Const".to_owned(), Object::new_intrinsic_class("Const", Intrinsic::Const).into_ref());
-        intrinsic_objects.insert("Core/DelegateProperty".to_owned(), Object::new_intrinsic_class("DelegateProperty", Intrinsic::DelegateProperty).into_ref());
-        intrinsic_objects.insert("Core/Enum".to_owned(), Object::new_intrinsic_class("Enum", Intrinsic::Enum).into_ref());
-        intrinsic_objects.insert("Core/FloatProperty".to_owned(), Object::new_intrinsic_class("FloatProperty", Intrinsic::FloatProperty).into_ref());
-        intrinsic_objects.insert("Core/Function".to_owned(), Object::new_intrinsic_class("Function", Intrinsic::Function).into_ref());
-        intrinsic_objects.insert("Core/InterfaceProperty".to_owned(), Object::new_intrinsic_class("InterfaceProperty", Intrinsic::InterfaceProperty).into_ref());
-        intrinsic_objects.insert("Core/IntProperty".to_owned(), Object::new_intrinsic_class("IntProperty", Intrinsic::IntProperty).into_ref());
-        intrinsic_objects.insert("Core/MapProperty".to_owned(), Object::new_intrinsic_class("MapProperty", Intrinsic::ArrayProperty).into_ref());
-        intrinsic_objects.insert("Core/MetaData".to_owned(), Object::new_intrinsic_class("MetaData", Intrinsic::MapProperty).into_ref());
-        intrinsic_objects.insert("Core/Model".to_owned(), Object::new_intrinsic_class("Model", Intrinsic::Model).into_ref());
-        intrinsic_objects.insert("Core/NameProperty".to_owned(), Object::new_intrinsic_class("NameProperty", Intrinsic::NameProperty).into_ref());
-        intrinsic_objects.insert("Core/ObjectProperty".to_owned(), Object::new_intrinsic_class("ObjectProperty", Intrinsic::ObjectProperty).into_ref());
-        intrinsic_objects.insert("Core/ScriptStruct".to_owned(), Object::new_intrinsic_class("ScriptStruct", Intrinsic::ScriptStruct).into_ref());
-        intrinsic_objects.insert("Core/State".to_owned(), Object::new_intrinsic_class("State", Intrinsic::State).into_ref());
-        intrinsic_objects.insert("Core/StrProperty".to_owned(), Object::new_intrinsic_class("StrProperty", Intrinsic::StrProperty).into_ref());
-        intrinsic_objects.insert("Core/StructProperty".to_owned(), Object::new_intrinsic_class("StructProperty", Intrinsic::StructProperty).into_ref());
-        intrinsic_objects.insert("Core/ShaderCache".to_owned(), Object::new_intrinsic_class("ShaderCache", Intrinsic::ShaderCache).into_ref());
-        intrinsic_objects.insert("Core/StaticMesh".to_owned(), Object::new_intrinsic_class("StaticMesh", Intrinsic::StaticMesh).into_ref());
-        intrinsic_objects.insert("Core/FracturedStaticMesh".to_owned(), Object::new_intrinsic_class("FracturedStaticMesh", Intrinsic::FracturedStaticMesh).into_ref());
-        intrinsic_objects.insert("Core/Level".to_owned(), Object::new_intrinsic_class("Level", Intrinsic::Level).into_ref());
-        intrinsic_objects.insert("Core/LightMapTexture2D".to_owned(), Object::new_intrinsic_class("LightMapTexture2D", Intrinsic::LightMapTexture2D).into_ref());
-        intrinsic_objects.insert("Core/Polys".to_owned(), Object::new_intrinsic_class("Polys", Intrinsic::Polys).into_ref());
-        intrinsic_objects.insert("Core/World".to_owned(), Object::new_intrinsic_class("World", Intrinsic::World).into_ref());
+        intrinsic_objects.insert("Class".to_owned(), CLASS.clone());
+        intrinsic_objects.insert("Package".to_string(), Object::new_intrinsic_class("Package", Intrinsic::Package).into_ref());
+        intrinsic_objects.insert("ArrayProperty".to_owned(), Object::new_intrinsic_class("ArrayProperty", Intrinsic::ArrayProperty).into_ref());
+        intrinsic_objects.insert("BoolProperty".to_owned(), Object::new_intrinsic_class("BoolProperty", Intrinsic::BoolProperty).into_ref());
+        intrinsic_objects.insert("ByteProperty".to_owned(), Object::new_intrinsic_class("ByteProperty", Intrinsic::ByteProperty).into_ref());
+        intrinsic_objects.insert("ClassProperty".to_owned(), Object::new_intrinsic_class("ClassProperty", Intrinsic::ClassProperty).into_ref());
+        intrinsic_objects.insert("ComponentProperty".to_owned(), Object::new_intrinsic_class("ComponentProperty", Intrinsic::ComponentProperty).into_ref());
+        intrinsic_objects.insert("Const".to_owned(), Object::new_intrinsic_class("Const", Intrinsic::Const).into_ref());
+        intrinsic_objects.insert("DelegateProperty".to_owned(), Object::new_intrinsic_class("DelegateProperty", Intrinsic::DelegateProperty).into_ref());
+        intrinsic_objects.insert("Enum".to_owned(), Object::new_intrinsic_class("Enum", Intrinsic::Enum).into_ref());
+        intrinsic_objects.insert("FloatProperty".to_owned(), Object::new_intrinsic_class("FloatProperty", Intrinsic::FloatProperty).into_ref());
+        intrinsic_objects.insert("Function".to_owned(), Object::new_intrinsic_class("Function", Intrinsic::Function).into_ref());
+        intrinsic_objects.insert("InterfaceProperty".to_owned(), Object::new_intrinsic_class("InterfaceProperty", Intrinsic::InterfaceProperty).into_ref());
+        intrinsic_objects.insert("IntProperty".to_owned(), Object::new_intrinsic_class("IntProperty", Intrinsic::IntProperty).into_ref());
+        intrinsic_objects.insert("MapProperty".to_owned(), Object::new_intrinsic_class("MapProperty", Intrinsic::ArrayProperty).into_ref());
+        intrinsic_objects.insert("MetaData".to_owned(), Object::new_intrinsic_class("MetaData", Intrinsic::MapProperty).into_ref());
+        intrinsic_objects.insert("Model".to_owned(), Object::new_intrinsic_class("Model", Intrinsic::Model).into_ref());
+        intrinsic_objects.insert("NameProperty".to_owned(), Object::new_intrinsic_class("NameProperty", Intrinsic::NameProperty).into_ref());
+        intrinsic_objects.insert("ObjectProperty".to_owned(), Object::new_intrinsic_class("ObjectProperty", Intrinsic::ObjectProperty).into_ref());
+        intrinsic_objects.insert("ScriptStruct".to_owned(), Object::new_intrinsic_class("ScriptStruct", Intrinsic::ScriptStruct).into_ref());
+        intrinsic_objects.insert("State".to_owned(), Object::new_intrinsic_class("State", Intrinsic::State).into_ref());
+        intrinsic_objects.insert("StrProperty".to_owned(), Object::new_intrinsic_class("StrProperty", Intrinsic::StrProperty).into_ref());
+        intrinsic_objects.insert("StructProperty".to_owned(), Object::new_intrinsic_class("StructProperty", Intrinsic::StructProperty).into_ref());
+        intrinsic_objects.insert("ShaderCache".to_owned(), Object::new_intrinsic_class("ShaderCache", Intrinsic::ShaderCache).into_ref());
+        intrinsic_objects.insert("StaticMesh".to_owned(), Object::new_intrinsic_class("StaticMesh", Intrinsic::StaticMesh).into_ref());
+        intrinsic_objects.insert("FracturedStaticMesh".to_owned(), Object::new_intrinsic_class("FracturedStaticMesh", Intrinsic::FracturedStaticMesh).into_ref());
+        intrinsic_objects.insert("Level".to_owned(), Object::new_intrinsic_class("Level", Intrinsic::Level).into_ref());
+        intrinsic_objects.insert("LightMapTexture2D".to_owned(), Object::new_intrinsic_class("LightMapTexture2D", Intrinsic::LightMapTexture2D).into_ref());
+        intrinsic_objects.insert("Polys".to_owned(), Object::new_intrinsic_class("Polys", Intrinsic::Polys).into_ref());
+        intrinsic_objects.insert("World".to_owned(), Object::new_intrinsic_class("World", Intrinsic::World).into_ref());
+        intrinsic_objects.insert("ShadowMap1D".to_owned(), Object::new_intrinsic_class("ShadowMap1D", Intrinsic::ShadowMap1D).into_ref());
 
-        intrinsic_objects.insert("Core".to_string(), Object::new_intrinsic("Core", "Core", intrinsic_objects.get("Core/Package").cloned().unwrap(), None, ()).into_ref());
+        intrinsic_objects.insert("Core".to_string(), Object::new_intrinsic("Core", "Core", intrinsic_objects.get("Package").cloned().unwrap(), None, ()).into_ref());
 
         Self {
             base: base.as_ref().to_path_buf(),
@@ -85,7 +87,7 @@ impl Container {
     pub fn mount_package<'a>(&'a mut self, name: &'a str) -> BoxFuture<'a, UPKResult<()>> {
         async move {
             if !self.packages.contains_key(name) {
-                println!("*** Loading package: {}", name);
+                debug!("*** Loading package: {}", name);
 
                 // open file
                 let file = Arc::new(PackageFile::open(
@@ -101,7 +103,7 @@ impl Container {
                 }
 
                 // add exports to object map
-                println!("*** Processing package: {}", name);
+                debug!("*** Processing package: {}", name);
 
                 // fo a first pass to instantiate all the classes
                 for export in  file.iter_exports().filter(|export| matches!(export.class_ref(), LocalObjectIndexRef::Null)) {
@@ -156,8 +158,10 @@ impl Container {
                             parent.append_child(object.clone());
                         }
 
-                        if self.objects.insert(object.fully_qualified_name().to_owned(), object.clone()).is_some() {
-                            panic!("Duplicated object entry: {:?}:{}", export.self_ref(), object.fully_qualified_name());
+                        if self.objects.contains_key(object.fully_qualified_name()) {
+                            debug!("Duplicated object entry: {:?}:{}", export.self_ref(), object.fully_qualified_name());
+                        } else {
+                            self.objects.insert(object.fully_qualified_name().to_owned(), object.clone());
                         }
                     } else {
                         panic!("Failed to resolve class: {:?}", self.build_object_fqn(file.clone(), export.class_ref()))
@@ -182,18 +186,25 @@ impl Container {
         }.boxed()
     }
 
-    pub fn build_object_fqn(&self, package: Arc<PackageFile>, mut local_ref: LocalObjectIndexRef) -> Option<String> {
+    pub fn build_object_fqn(&self, package: Arc<PackageFile>, original_ref: LocalObjectIndexRef) -> Option<String> {
         let mut segments = Vec::new();
         let mut prev_object = None;
+
+        let mut local_ref = original_ref.clone();
 
         while let Some(object_ref) = package.lookup_local_ref(&local_ref) {
             match &object_ref {
                 LocalObject::Null => {
-                    if let Some(prev_object) = prev_object {
+                    /*if let Some(prev_object) = prev_object {
                         match prev_object {
-                            LocalObject::Import(_) => {},
+                            LocalObject::Import(_) => {
+                                if let Some(LocalObject::Import(import)) = package.lookup_local_ref(&original_ref) {
+                                    segments.push(import.package_name().to_string());
+                                }
+                            },
                             LocalObject::Export(obj_export) => {
-                                let class_object = self.resolve_class(&package, &obj_export.class_ref()).unwrap();
+                                let class_object = self.resolve_class(&package, &obj_export.class_ref())
+                                    .unwrap_or_else(|| panic!("Failed to resolve class: {:?}", self.build_object_fqn(package.clone(), obj_export.class_ref())));
 
                                 if class_object.name() == "Class" {
                                     segments.push("Core".to_owned());
@@ -203,7 +214,7 @@ impl Container {
                             },
                             _ => unreachable!(),
                         }
-                    }
+                    }*/
                     break;
                 },
                 LocalObject::Export(obj_export) => {                   
@@ -213,7 +224,7 @@ impl Container {
                 LocalObject::Import(obj_import) => {
                     segments.push(obj_import.name().to_owned());
                     if obj_import.class_name() == "Class" {
-                        segments.push("Core".to_owned());
+                        //segments.push("Core".to_owned());
                         break;
                     } else {
                         local_ref = obj_import.owner().clone();
@@ -235,15 +246,15 @@ impl Container {
 
     pub(crate) fn resolve_class(&self, package: &Arc<PackageFile>, local_ref: &LocalObjectIndexRef) -> Option<ObjectRef> {
         match local_ref {
-            LocalObjectIndexRef::Null => self.objects.get("Core/Class").cloned(),
+            LocalObjectIndexRef::Null => Some(CLASS.clone()),
             LocalObjectIndexRef::Export(idx) => {
                 let export = package.lookup_export_by_idx(*idx).unwrap();
 
-                self.objects.get(&format!("Core/{}", export.name())).cloned()
+                self.objects.get(export.name()).cloned()
             },
             LocalObjectIndexRef::Import(idx) => {
                 let import = package.lookup_import(*idx).unwrap();
-                self.objects.get(&format!("Core/{}", import.name())).cloned()
+                self.objects.get(import.name()).cloned()
             }
         }
     }
@@ -253,7 +264,7 @@ impl Container {
             if let Some(pkg) = o.package() {
                 pkg.name() != name
             } else {
-                false
+                true
             }
         })
         .collect();
@@ -263,6 +274,11 @@ impl Container {
         self.objects.get(name)
     }
 
+    pub async fn read_raw_object(&self, object: &ObjectRef) -> UPKResult<Vec<u8>> {
+        let package = object.package().expect("Triet to deserialize intrinsic");
+        package.read_object_data(object.export().unwrap()).await
+    }
+
     pub fn deserialize<'a, T: DeserializeUnrealObject + 'a>(&'a self, object: &'a ObjectRef) -> impl Future<Output = UPKResult<T>> + Send + 'a {
         async move {
             let package = object.package().expect("Triet to deserialize intrinsic");
@@ -270,5 +286,9 @@ impl Container {
             
             T::deserialize(object, self, &data).await
         }.boxed()
+    }
+
+    pub fn objects(&self) -> Values<String, ObjectRef> {
+        self.objects.values()
     }
 }
