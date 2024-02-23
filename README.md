@@ -5,14 +5,21 @@ Welcome to the Anotherland Server Emulator project, a community-driven initiativ
 
 ## Prerequisites
 Before you begin, ensure you have the following installed:
-- A legally acquired copy of the game (Otherland)
+- Rust 1.78.0-nightly
+- A legally acquired copy of the game (Otherland Next)
 - MongoDB
-- RabbitMQ (only required for distributed execution)
 
-## Installation
+## Compilation
 Clone the repository to your local machine:
 ```bash
 git clone https://github.com/AnotherlandServer/anotherland.git
+```
+
+Make sure to set the environment variable `OTHERLAND_CLIENT_PATH` to the path of your game client installation.
+
+Build using cargo:
+```bash
+cargo build
 ```
 
 ## Usage
@@ -24,14 +31,8 @@ anotherland [OPTIONS] --external-ip <EXTERNAL_IP> --mongo-uri <MONGO_URI> <COMMA
 ```
 
 ### Commands
-- `init-db` - Initialize the database.
+- `init-db` - Initialize an empty database.
 - `data-import` - Import game data from the client.
-- `login-server` - Start the login server.
-- `realm-server` - Start a realm server.
-- `frontend-server` - Start the frontend server.
-- `node-server` - Start a node server.
-- `instance-pool-server` - Start an instance pool server.
-- `api-server` - Start the API server.
 - `standalone-server` - Run all components in a single process.
 - `help` - Display help information.
 
@@ -48,6 +49,13 @@ Configure the server by setting the necessary environment variables. Examples in
 - `MONGO_URI=mongodb://localhost:27017`
 - `MONGO_CLUSTER_DB=anotherland`
 - `MAX_ACTIVE_SESSIONS=10`
+
+## Populating the database
+Before running the server, the database needs to be populated. 
+This is done by extracing data from the game client. For this to succeed, you first need to decompress the games UPK files. Gildor's Unreal Package Decompressor can be used for this: https://www.gildor.org/downloads
+
+Afterwards, run antotherland with the `data-import` command and provide the game client path as last parameter.
+Run `anotherland data-import --help` for additional options. 
 
 ## Running the Server
 To run the server in standalone mode, use the following command:
