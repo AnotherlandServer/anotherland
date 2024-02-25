@@ -106,6 +106,7 @@ dependencies = [
  "bevy_ecs",
  "bitstream-io",
  "bson",
+ "bspline",
  "chrono",
  "clap",
  "config",
@@ -126,6 +127,7 @@ dependencies = [
  "rabbitmq-stream-client",
  "rand",
  "rcgen",
+ "regex",
  "rustls",
  "serde",
  "serde_derive",
@@ -136,6 +138,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "upk",
 ]
 
 [[package]]
@@ -859,6 +862,16 @@ dependencies = [
  "serde_with 3.6.0",
  "time",
  "uuid",
+]
+
+[[package]]
+name = "bspline"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af7483eaaefe53f63b5b140f639c5ed6749f8e545768803dc5b89f43acb8ee84"
+dependencies = [
+ "num-traits",
+ "trait-set",
 ]
 
 [[package]]
@@ -3829,6 +3842,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "trait-set"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "875c4c873cc824e362fa9a9419ffa59807244824275a44ad06fec9684fff08f2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "trust-dns-proto"
 version = "0.21.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3986,6 +4010,20 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
+
+[[package]]
+name = "upk"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitflags 2.4.2",
+ "futures",
+ "log",
+ "nom",
+ "once_cell",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "url"

@@ -16,4 +16,6 @@ loggers:
     level: debug
   quinn:
     level: info
+  upk:
+    level: info
   
