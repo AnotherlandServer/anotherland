@@ -15,10 +15,10 @@
 
 use std::{collections::{hash_map::Iter, HashMap}, sync::Arc};
 use log::debug;
-use nom::{bytes::complete::take, combinator::{fail, map}, multi::{count, many_till}, number::complete::{le_f32, le_i32, le_u32, le_u64, le_u8}, IResult};
+use nom::{bytes::complete::take, combinator::{fail, map}, error::Error, multi::{count, many_till}, number::complete::{be_u32, le_f32, le_i32, le_u32, le_u64, le_u8}, IResult};
 use async_trait::async_trait;
 use uuid::Uuid;
-use crate::{types::StructProperty, Container, DeserializeUnrealObject, FName, LocalObjectIndexRef, ObjectRef, PackageFile, UPKResult};
+use crate::{types::StructProperty, Container, DeserializeUnrealObject, FName, LocalObjectIndexRef, Object, ObjectRef, PackageFile, UPKResult};
 
 use super::ScriptClass;
 
@@ -58,8 +58,11 @@ pub enum ObjectProperty {
     Struct(Option<ObjectRef>, ScriptObject),
     String(String),
     Vector([f32; 3]),
+    Vector2D([f32; 2]),
+    Rotator([f32; 3]),
     Guid(Uuid),
-    Enum(FName, FName),
+    Enum(FName, Box<ObjectProperty>),
+    Color(u32),
 }
 
 fn parse_attribute<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object: &'a ObjectRef, attribute: &'a ObjectRef, class_override: Option<&'a ObjectRef>, in_array: bool)
@@ -83,10 +86,36 @@ fn parse_attribute<'a>(file: &'a Arc<PackageFile>, container: &'a Container, obj
             "NameProperty" => parse_name(file, container, object, attribute)(i),
             "ByteProperty" => parse_bytes(file, container, object, attribute)(i),
             "BoolProperty" => parse_bool(file, container, object, attribute)(i),
+            "IntProperty" => parse_int(file, container, object, attribute)(i),
+            "ClassProperty" => parse_class(file, container, object, attribute)(i),
             _ => unimplemented!("unimplemented property type: {}", attribute.class().name()),
         }
     }
 }
+
+fn parse_class<'a>(file: &'a Arc<PackageFile>, container: &'a Container, _object: &'a ObjectRef, _attribute: &'a ObjectRef)
+    -> impl FnMut(&'a [u8]) 
+    -> IResult<&'a [u8], ObjectProperty> 
+{
+    move |i: &[u8]| {
+        let (i, idx) = le_i32(i)?;
+        Ok((i, ObjectProperty::Class(
+            container.resolve_object(file.to_owned(), LocalObjectIndexRef::from_idx(idx)).unwrap()
+        )))
+    }
+}
+
+fn parse_int<'a>(_file: &'a Arc<PackageFile>, _container: &'a Container, _object: &'a ObjectRef, _attribute: &'a ObjectRef)
+    -> impl FnMut(&'a [u8]) 
+    -> IResult<&'a [u8], ObjectProperty> 
+{
+    move |i: &[u8]| {
+        let (i, val) = le_i32(i)?;
+
+        Ok((i, ObjectProperty::Int(val)))
+    }
+}
+
 
 fn parse_bool<'a>(_file: &'a Arc<PackageFile>, _container: &'a Container, _object: &'a ObjectRef, _attribute: &'a ObjectRef)
     -> impl FnMut(&'a [u8]) 
@@ -110,11 +139,17 @@ fn parse_bytes<'a>(file: &'a Arc<PackageFile>, _container: &'a Container, _objec
             file.lookup_name(idx as usize)
         })(i)?;
         
-        let (i, val_name) = map(le_u64, |idx| {
-            file.lookup_name(idx as usize)
-        })(i)?;
+        if &*enum_name == "None" {
+            let (i, val) = le_u8(i)?;
 
-        Ok((i, ObjectProperty::Enum(enum_name, val_name)))
+            Ok((i, ObjectProperty::Enum(enum_name, Box::new(ObjectProperty::Int(val as i32)))))
+        } else {
+            let (i, val_name) = map(le_u64, |idx| {
+                file.lookup_name(idx as usize)
+            })(i)?;
+
+            Ok((i, ObjectProperty::Enum(enum_name, Box::new(ObjectProperty::Name(val_name)))))
+        }
     }
 }
 
@@ -173,7 +208,6 @@ fn parse_object<'a>(file: &'a Arc<PackageFile>, container: &'a Container, _objec
         if idx == 0 {
             Ok((i, ObjectProperty::None))
         } else {
-            debug!("{:?}", LocalObjectIndexRef::from_idx(idx));
             Ok((i, ObjectProperty::Object(
                 container.resolve_object(file.to_owned(), LocalObjectIndexRef::from_idx(idx)).unwrap()
             )))
@@ -270,7 +304,15 @@ fn parse_struct<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object
 
             match class.as_ref() {
                 "Vector" => (i, StructClass::Intrinsic(class)),
+                "Vector2D" => (i, StructClass::Intrinsic(class)),
+                "Rotator" => (i, StructClass::Intrinsic(class)),
                 "Guid" => (i, StructClass::Intrinsic(class)),
+                "Color" => (i, StructClass::Intrinsic(class)),
+                "ViewTargetTransitionParams" => {
+                    (i, StructClass::Class(
+                        container.lookup_object("Camera/ViewTargetTransitionParams").unwrap()
+                    ))
+                },
                 _ => {
                     // lookup struct property class
                     (i, StructClass::Class(
@@ -278,7 +320,7 @@ fn parse_struct<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object
                         .children()
                         .iter()
                         .find(|p| p.fname() == &class)
-                        .unwrap()
+                        .unwrap_or_else(|| panic!("Unable to find property class: {}", class))
                     ))
                 }
             }
@@ -300,9 +342,21 @@ fn parse_struct<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object
                         let (i, data) = count(le_f32, 3)(i)?;
                         Ok((i, ObjectProperty::Vector(data.try_into().unwrap())))
                     },
+                    "Vector2D" => {
+                        let (i, data) = count(le_f32, 2)(i)?;
+                        Ok((i, ObjectProperty::Vector2D(data.try_into().unwrap())))
+                    },
+                    "Rotator" => {
+                        let (i, data) = count(le_f32, 3)(i)?;
+                        Ok((i, ObjectProperty::Vector(data.try_into().unwrap())))
+                    },
                     "Guid" => {
                         let (i, data) = take(16_usize)(i)?;
                         Ok((i, ObjectProperty::Guid(Uuid::from_bytes_le(data.try_into().unwrap()))))
+                    },
+                    "Color" => {
+                        let (i, val) = le_u32(i)?;
+                        Ok((i, ObjectProperty::Color(val)))
                     },
                     _ => unimplemented!("Unimplemented intrinsic: {}", intrinsic),
                 }
@@ -314,9 +368,18 @@ fn parse_struct<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object
 #[async_trait]
 impl DeserializeUnrealObject for ScriptObject {
     async fn deserialize(object: &ObjectRef, container: &Container, data: &[u8]) -> UPKResult<Self> {
-        let data = &data[26..];
+        let (data, marker) = be_u32::<_, Error<_>>(data)?;
+        let data = if marker == 0x3FFFFFFF {
+            &data[22..]
+        } else {
+            data
+        };
+
         let file = object.package().unwrap();
         let script_class = object.class().clone();
+
+        println!("Deserialize object: {}", object.fully_qualified_name());
+        println!("Flags: {:?}", object.flags());
 
         let (_, res) = map(many_till(parse_struct_attribute(&file, container, &script_class), tag_struct_end(&file)), |(properties, _)| {
             Self {

@@ -28,31 +28,31 @@ bitflags! {
     #[derive(Debug)]
     pub struct Flags: u64 {
         // lo
-        const TRANSACTIONAL = 0x00000001;
-        const IN_SINGULAR_FUNC = 0x00000002;
-        const PUBLIC = 0x00000004;
-        const PRIVATE = 0x00000080;
-        const AUTOMATED = 0x00000100;
-        const PROTECTED = 0x00000800;
-        const TRANSIENT = 0x00004000;
-        const LOAD_FOR_CLIENT = 0x00010000;
-        const LOAD_FOR_SERVER = 0x00020000;
-        const LOAD_FOR_EDIT = 0x00040000;
-        const STANDALONE = 0x00080000;
-        const NOT_FOR_CLIENT = 0x00100000;
-        const NOT_FOR_SERVER = 0x00200000;
-        const NOT_FOR_EDIT = 0x00400000;
-        const HAS_STACK = 0x02000000;
-        const NATIVE = 0x04000000;
-        const MARKED = 0x08000000;
+        const TRANSACTIONAL = 0x0000000100000000;
+        const IN_SINGULAR_FUNC = 0x0000000200000000;
+        const PUBLIC = 0x0000000400000000;
+        const PRIVATE = 0x0000008000000000;
+        const AUTOMATED = 0x0000010000000000;
+        const PROTECTED = 0x0000080000000000;
+        const TRANSIENT = 0x0000400000000000;
+        const LOAD_FOR_CLIENT = 0x0001000000000000;
+        const LOAD_FOR_SERVER = 0x0002000000000000;
+        const LOAD_FOR_EDIT = 0x0004000000000000;
+        const STANDALONE = 0x0008000000000000;
+        const NOT_FOR_CLIENT = 0x0010000000000000;
+        const NOT_FOR_SERVER = 0x0020000000000000;
+        const NOT_FOR_EDIT = 0x0040000000000000;
+        const HAS_STACK = 0x0200000000000000;
+        const NATIVE = 0x0400000000000000;
+        const MARKED = 0x0800000000000000;
 
         // hi
-        const OBSOLETE = 0x0000002000000000;
-        const FINAL = 0x0000008000000000;
-        const PER_OBJECT_LOCALIZED = 0x0000010000000000;
-        const PROPERTIES_OBJECT =  0x0000020000000000;
-        const ARCHETYPE_OBJECT = 0x0000040000000000;
-        const REMAPPED_NAME = 0x0000080000000000;
+        const OBSOLETE = 0x00000020;
+        const FINAL = 0x00000080;
+        const PER_OBJECT_LOCALIZED = 0x00000100;
+        const PROPERTIES_OBJECT =  0x00000200;
+        const ARCHETYPE_OBJECT = 0x00000400;
+        const REMAPPED_NAME = 0x00000800;
     }
 }
 
