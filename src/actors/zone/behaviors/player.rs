@@ -15,13 +15,15 @@
 
 use std::sync::Arc;
 
-use atlas::{NonClientBaseParams, Param, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, StartingPointClass};
+use atlas::{oaPkt_SplineSurfing_Acknowledge, NonClientBaseParams, Param, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, StartingPointClass, Uuid};
 use bevy::app::Plugin;
-use bevy_ecs::{entity::Entity, event::EventWriter, query::{With, Without}, system::{In, Query, Res}};
+use bevy_ecs::{entity::Entity, event::EventWriter, query::{With, Without}, system::{Commands, In, Query, Res}};
 use glam::{Quat, Vec3};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
+use regex::Regex;
 
-use crate::{actors::{get_player_height, zone::{behavior::{BehaviorArguments, BehaviorExt}, resources::Broadcaster, zone_events::AvatarEventFired}, AvatarComponent, AvatarEvent, DefaultPos, EntityType, Movement, PhysicsState, Position, ServerAction, ZoneEvent}, util::OtherlandQuatExt};
+use crate::{actors::{get_player_height, zone::{behavior::{BehaviorArguments, BehaviorExt}, resources::Broadcaster, zone_events::AvatarEventFired}, AvatarComponent, AvatarEvent, DefaultPos, EntityType, Movement, PhysicsState, Position, ServerAction, SplineSurfing, ZoneEvent}, util::OtherlandQuatExt};
+use crate::actors::zone::FLIGHT_TUBES;
 
 pub struct PlayerBehaviors;
 
@@ -53,6 +55,7 @@ impl Plugin for PlayerBehaviors {
         app.add_behavior(EntityType::Player, "ConfirmInGame", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "travel", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "ModParam", unimplemented_behavior);
+        app.add_behavior(EntityType::Player, "FlightTube", start_spline_surfing);
         app.add_behavior(EntityType::Player, "SplineTurn", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "SplineBrake", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "SplineJump", unimplemented_behavior);
@@ -158,5 +161,50 @@ fn disable_invulnerability(
             avatar_id: avatar.id, 
             params: update.into_box(),
         }));
+    }
+}
+
+fn start_spline_surfing(
+    In((instigator, _target, behavior)): In<BehaviorArguments>,
+    player_query: Query<(&PlayerClass, &AvatarComponent, Without<SplineSurfing>)>,
+    mut ev_sender: EventWriter<AvatarEventFired>,
+    mut commands: Commands,
+) {
+    if let Ok((_, avatar, _)) = player_query.get(instigator) {
+
+        let re = Regex::new(r"SplineID=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) InverseTravel=([0-1]) Loc=\[ -?(\d+\.?\d*) -?(\d+\.?\d*) -?(\d+\.?\d*) \]").unwrap();
+        if let Some(captures) = re.captures(behavior.get(1).unwrap()) {
+            let spline_id = Uuid::parse_str(&captures[1]).unwrap();
+            let inverse_travel = &captures[2] == "1";
+            let loc = Vec3::new(
+                captures[3].parse().unwrap(), 
+                captures[4].parse().unwrap(), 
+                captures[5].parse().unwrap(),
+            );
+
+            // lookup flight tube
+            if let Some(spline) = FLIGHT_TUBES.get().unwrap().get(&spline_id) {
+                // start moving along the spline
+                commands.entity(instigator).insert(SplineSurfing::new(spline.to_owned(), inverse_travel));
+
+                ev_sender.send(AvatarEventFired(instigator, AvatarEvent::Message(oaPkt_SplineSurfing_Acknowledge {
+                    avatar_id: avatar.id.as_u64(),
+                    spline_id,
+                    acknowledged: true,
+                    inverse_travel,
+                    loc: loc.into(),
+                    ..Default::default()
+                }.into_message())));
+            } else {
+                ev_sender.send(AvatarEventFired(instigator, AvatarEvent::Message(oaPkt_SplineSurfing_Acknowledge {
+                    avatar_id: avatar.id.as_u64(),
+                    spline_id,
+                    acknowledged: false,
+                    inverse_travel,
+                    loc: loc.into(),
+                    ..Default::default()
+                }.into_message())));
+            }
+        }
     }
 }

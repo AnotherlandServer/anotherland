@@ -18,9 +18,11 @@ mod respawn;
 mod special_event_controller;
 mod chat;
 mod send_messages;
+mod surf_spline;
 
 pub use update_interests::*;
 pub use respawn::*;
 pub use special_event_controller::*;
 pub use chat::*;
 pub use send_messages::*;
+pub use surf_spline::*;

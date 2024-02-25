@@ -13,22 +13,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod avatar_component;
-mod entity_type;
-mod interest_list;
-mod position;
-mod markers;
-mod spawner_state;
-mod event_sender;
-mod portal_nodelink;
-mod spline_surfing;
+use std::sync::Arc;
 
-pub use avatar_component::*;
-pub use entity_type::*;
-pub use interest_list::*;
-pub use position::*;
-pub use markers::*;
-pub use spawner_state::*;
-pub use event_sender::*;
-pub use portal_nodelink::*;
-pub use spline_surfing::*;
+use bevy_ecs::component::Component;
+
+use crate::db::FlightTube;
+
+#[derive(Component)]
+pub struct SplineSurfing {
+    pub progress: f32,
+    pub speed_multiplier: f32,
+    pub spline: Arc<FlightTube>,
+}
+
+impl SplineSurfing {
+    pub fn new(spline: Arc<FlightTube>, inverse: bool) -> Self {
+        Self {
+            progress: if inverse { 1.0 } else { 0.0 },
+            speed_multiplier: if inverse { -1.0 } else { 1.0 },
+            spline,
+        }
+    }
+}

@@ -13,12 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, sync::Arc, time::{Duration, Instant}};
+use std::{sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
 use atlas::{ oaPktServerAction, raknet::Message, AvatarId, NonClientBaseComponent, NonClientBaseParams, NpcOtherlandAttribute, NpcOtherlandClass, NpcOtherlandComponent, OaZoneConfigParams, ParamBox, ParamClass, ParamSet, ParamSetBox, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointClass, Uuid};
-use bevy::{app::{App, Update}, MinimalPlugins};
+use bevy::{app::{App, Update}, utils::HashMap, MinimalPlugins};
 use glam::{Vec3, Quat};
 use log::{debug, info, warn};
 use mongodb::Database;
@@ -26,7 +26,7 @@ use tokio::{runtime::Handle, select, sync::{broadcast, mpsc, OnceCell}, task::Jo
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use bevy_ecs::{prelude::*, schedule::ScheduleLabel};
 
-use crate::{actors::{get_player_height, zone::{behavior::AvatarBehaviorPlugin, behaviors::BehaviorsPlugin, resources::{EventInfo, EventInfos}, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, update_interests}}, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::Character, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, zone::{behavior::AvatarBehaviorPlugin, behaviors::BehaviorsPlugin, resources::{EventInfo, EventInfos}, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::{Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
 use super::{behavior::BehaviorExt, components::{AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, resources::{Broadcaster, Tasks}, zone_events::{AvatarEventFired, ProximityChatEvent}, AvatarEventSender, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
@@ -81,7 +81,8 @@ impl ServerAction {
     }
 }
 
-static SPECIAL_EVENTS: OnceCell<SpecialEvents> = OnceCell::const_new();
+pub(super) static SPECIAL_EVENTS: OnceCell<SpecialEvents> = OnceCell::const_new();
+pub(in crate::actors::zone) static FLIGHT_TUBES: OnceCell<HashMap<Uuid, Arc<FlightTube>>> = OnceCell::const_new();
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone)]
 struct SlowUpdate;
@@ -106,7 +107,7 @@ pub struct Zone {
 
     event_sender: broadcast::Sender<Arc<ZoneEvent>>,
     avatar_id_to_entity_lookup: HashMap<AvatarId, Entity>,
-    uuid_to_entity_lookup: HashMap<Uuid, Entity>,
+    pub(super) uuid_to_entity_lookup: HashMap<Uuid, Entity>,
 }
 
 impl Zone {
@@ -139,6 +140,7 @@ impl Actor for Zone {
     async fn starting(&mut self) -> AnotherlandResult<()> {
         // load special event config
         let special_events = SPECIAL_EVENTS.get_or_try_init(SpecialEvents::load).await.unwrap();
+        FLIGHT_TUBES.get_or_try_init(Zone::load_flight_tubes).await.unwrap();
 
         // setup bevy app
         self.app
@@ -149,6 +151,7 @@ impl Actor for Zone {
                 send_proximity_chat,
                 update_interests,
                 send_messages,
+                surf_spline,
             ))
             .add_systems(SlowUpdate, (
                 respawn,
@@ -178,8 +181,7 @@ impl Actor for Zone {
             });
 
         // load in content
-        self.load_content().await?;
-
+        self.load_content_instances().await?;
 
         // lookup starting point
         {
@@ -474,7 +476,7 @@ impl Zone {
                 self.app.world.despawn(*entity);
 
                 self.avatar_id_to_entity_lookup.remove(&avatar_id);
-            let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarDespawned { avatar_id }));
+                let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarDespawned { avatar_id }));
 
                 Some(player)
             } else {

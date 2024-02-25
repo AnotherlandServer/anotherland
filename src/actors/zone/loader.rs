@@ -13,15 +13,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{BilliardBallClass, ChessMetaGameLogicClass, ChessPieceClass, CtfGameFlagClass, CustomTriggerClass, DoorClass, EdnaContainerClass, InteractObjectClass, MinigameInfoClass, MinigameScoreBoardClass, MyLandSettingsClass, MypadRoomDoorClass, NonClientBaseParams, NonSpawnPlacementClass, NpcOtherlandClass, OtherlandStructureClass, ParamClass, PatrolNodeClass, PlanetClass, PortalClass, PresetPointClass, QuestBeaconClass, ServerGatewayClass, ServerGatewayExitPhaseClass, ShipClass, SpawnNodeClass, SpawnerClass, StartingPointClass, StructureClass, TriggerClass, Uuid, WorldDisplayClass};
-use log::error;
+use std::sync::Arc;
 
-use crate::{db::{DatabaseRecord, Instance, RawInstance}, util::AnotherlandResult};
+use atlas::{BilliardBallClass, ChessMetaGameLogicClass, ChessPieceClass, CtfGameFlagClass, CustomTriggerClass, DoorClass, EdnaContainerClass, InteractObjectClass, MinigameInfoClass, MinigameScoreBoardClass, MyLandSettingsClass, MypadRoomDoorClass, NonClientBaseParams, NonSpawnPlacementClass, NpcOtherlandClass, OtherlandStructureClass, ParamClass, PatrolNodeClass, PlanetClass, PortalClass, PresetPointClass, QuestBeaconClass, ServerGatewayClass, ServerGatewayExitPhaseClass, ShipClass, SpawnNodeClass, SpawnerClass, StartingPointClass, StructureClass, TriggerClass, Uuid, WorldDisplayClass};
+use bevy::utils::hashbrown::HashMap;
+use log::{error, info};
+
+use crate::{db::{self, realm_database, DatabaseRecord, FlightTube, Instance, RawInstance}, util::AnotherlandResult};
 
 use super::{components::EntityType, PortalNodelink, Zone};
 
 impl Zone {
-    pub(super) async fn load_content(&mut self) -> AnotherlandResult<()> {
+    pub(super) async fn load_content_instances(&mut self) -> AnotherlandResult<()> {
         let factory = self.factory.clone();
 
         for (instance, id) in factory.instances() {
@@ -218,5 +221,16 @@ impl Zone {
         }
 
         Ok(())
+    }
+
+    pub(super) async fn load_flight_tubes() -> AnotherlandResult<HashMap<Uuid, Arc<FlightTube>>> {
+        let tubes = db::FlightTube::list(realm_database().await).await?;
+        let mut tube_map = HashMap::new();
+
+        for tube in tubes {
+            tube_map.insert(tube.id, Arc::new(tube));
+        }
+
+        Ok(tube_map)
     }
 }
