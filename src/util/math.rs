@@ -19,6 +19,7 @@ use glam::{Quat, Vec3};
 
 pub trait OtherlandQuatExt {
     fn from_unit_vector(val: Vec3) -> Quat;
+    fn as_unit_vector(&self) -> Vec3;
 }
 
 impl OtherlandQuatExt for Quat {
@@ -28,5 +29,17 @@ impl OtherlandQuatExt for Quat {
     
         Quat::from_euler(glam::EulerRot::XYZ, PI / 2.0, 0.0, 0.0)
             .mul_quat(Quat::from_euler(glam::EulerRot::XYZ, a, b, 0.0))
+    }
+
+    fn as_unit_vector(&self) -> Vec3 {
+        let (a, b, _) = Quat::from_euler(glam::EulerRot::XYZ, -PI / 2.0, 0.0, 0.0)
+            .mul_quat(*self)
+            .to_euler(glam::EulerRot::XYZ);
+
+        let x = a.cos() * b.cos();
+        let y = a.sin() * b.cos();
+        let z = b.sin();
+
+        Vec3::new(x, y, -z)
     }
 }

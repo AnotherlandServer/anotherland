@@ -221,6 +221,8 @@ struct ZoneSession {
     server_actions: VecDeque<ServerAction>,
 
     target_avatar: Option<AvatarId>,
+
+    dont_save_on_disconnect: bool,
 }
 
 impl ZoneSession {
@@ -251,6 +253,7 @@ impl ZoneSession {
             ignore_interest_updates: false,
             server_actions: VecDeque::new(),
             target_avatar: None,
+            dont_save_on_disconnect: false,
         };
 
         session.run(&tasks, token)
@@ -341,8 +344,20 @@ impl ZoneSession {
                 }
             }
 
-            // despawn avatar
-            self.instance.zone().despawn_avatar(self.avatar_id).await;
+            // despawn and save avatar
+            if let Some(player) = self.instance.zone().despawn_player(self.avatar_id).await {
+                if !self.dont_save_on_disconnect {
+                    let session = self.session_ref.lock().await;
+                    let db = realm_database().await;
+    
+                    if let Some(mut character) = Character::get(db.clone(), &session.session().character_id.unwrap()).await.unwrap() {
+                        character.data = player;
+                        character.save(db).await.unwrap();
+                    } else {
+                        error!("Despawned character {:?} does not exist anymore!", session.session().character_id);
+                    }
+                }
+            }
 
             // stop instance
             if let ZoneInstance::Instance(zone) = self.instance {
@@ -724,17 +739,7 @@ impl ZoneSession {
             AtlasPkt(CPkt::CPktRequestAvatarBehaviors(pkt)) => {
                 debug!("Request behavior: {:#?}", pkt);
 
-                if pkt.behaviour == "FlightTube" {
-                    
-
-                    self.send(oaPkt_SplineSurfing_Acknowledge {
-                        avatar_id: self.avatar_id.as_u64(),
-                        spline_id: Uuid::parse_str("2851e8fe-6810-4281-b296-52b10cbb307d").unwrap(),
-                        acknowledged: true,
-                        loc: Vec3::new(1_199.960_7, -397.063_2, 33.211296).into(),
-                        ..Default::default()
-                    }.into_message()).await?;
-                }
+                self.instance.zone().request_behavior(pkt.avatar_id.into(), pkt.behaviour, pkt.data).await;
             },
             AtlasPkt(CPkt::oaPktAvatarTellBehavior(pkt)) => {
                 if pkt.instigator != self.avatar_id.as_u64() {
@@ -789,6 +794,9 @@ impl ZoneSession {
 
         // stop accepting interest updates
         self.ignore_interest_updates = true;
+
+        // disable save on disconnect, to avoid racing the destination zone frontend
+        self.dont_save_on_disconnect = true;
 
         // unload all interests
         let interests: Vec<_> = self.interest_list.drain().collect();

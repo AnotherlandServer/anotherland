@@ -458,10 +458,31 @@ impl Zone {
         }
     }
 
-    pub fn despawn_avatar(&mut self, avatar_id: AvatarId) {
-        if let Some(entity) = self.avatar_id_to_entity_lookup.remove(&avatar_id) {
-            self.app.world.despawn(entity);
+    pub fn despawn_player(&mut self, avatar_id: AvatarId) -> Option<PlayerClass> {
+        if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) {
+            let mut query = self.app.world.query::<(&Position, &mut PlayerClass)>();
+            if let Ok((position, player)) = query.get(&self.app.world, *entity) {
+                let mut player = player.to_owned();
+
+                // save player position
+                player.set_pos((0, position.position));
+                player.set_rot(position.rotation.as_unit_vector());
+
+                // drop references to world
+                drop(query);
+
+                self.app.world.despawn(*entity);
+
+                self.avatar_id_to_entity_lookup.remove(&avatar_id);
             let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarDespawned { avatar_id }));
+
+                Some(player)
+            } else {
+                warn!("Avatar  {:?} is not a player!", avatar_id);
+                None
+            }
+        } else {
+            None
         }
     }
 
