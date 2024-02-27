@@ -1,5 +1,7 @@
 # Anotherland
 
+![Anotherland Logo](/images/anotherland-logo.jpg)
+
 ## Introduction
 Welcome to the Anotherland Server Emulator project, a community-driven initiative to resurrect the MMORPG, Otherland. This emulator aims to recreate the experience of Otherland by providing tools and instructions to set up and run your own server for the game.
 
