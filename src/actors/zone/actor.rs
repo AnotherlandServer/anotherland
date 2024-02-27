@@ -561,6 +561,13 @@ impl Zone {
             let pos: Vec3 = entity.get::<Position>().unwrap().position;
             let sender = entity.get::<AvatarComponent>().unwrap().name.clone();
 
+            info!(
+                channel = "speak", 
+                range = range,
+                sender = sender; 
+                "{}: {}", sender, message
+            );
+
             self.app.world.send_event(ProximityChatEvent {
                 range,
                 pos,

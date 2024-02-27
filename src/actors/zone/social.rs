@@ -13,11 +13,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use log::kv::ToValue;
+
 #[derive(Clone, Copy)]
 pub enum ProximityChatRange {
     Say,
     TeamSay,
     Shout,
+}
+
+impl ToValue for ProximityChatRange {
+    fn to_value(&self) -> log::kv::Value {
+        match self {
+            Self::Say => "say",
+            Self::TeamSay => "teamsay",
+            Self::Shout => "shout",
+        }.to_value()
+    }
 }
 
 impl ProximityChatRange {

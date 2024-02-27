@@ -13,16 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
 use atlas::{AvatarId, PlayerParams, Uuid};
+use log::info;
 use mongodb::Database;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 use crate::{cluster::actor::Actor, db::{realm_database, Character, DatabaseRecord}, util::AnotherlandResult, NODE};
-use crate::cluster::RemoteActorRef;
 
 use super::SessionManager;
 
@@ -126,6 +126,13 @@ impl Social {
                 ChatChannel::Officer => {},
                 ChatChannel::Party => {},
                 ChatChannel::Whisper { receiver } => {
+                    info!(
+                        channel = "whisper", 
+                        receiver = receiver, 
+                        sender = state.character_name.as_ref().unwrap(); 
+                        "{}: {}", state.character_name.as_ref().unwrap(), message
+                    );
+
                     if let Some(receiver) = self.avatars.values().find(|v| {
                         if let Some(name) = v.character_name.as_ref() {
                             name == receiver.as_str()
@@ -145,6 +152,13 @@ impl Social {
                     }
                 },
                 ChatChannel::Generic(channel) => {
+                    info!(
+                        channel = "generic", 
+                        channel_name = channel,
+                        sender = state.character_name.as_ref().unwrap(); 
+                        "{}: {}", state.character_name.as_ref().unwrap(), message
+                    );
+
                     let message = SocialEvent::Chat(ChatMessage { 
                         channel: ChatChannel::Generic(channel), 
                         sender: state.character_name.as_ref().unwrap().clone(), 
