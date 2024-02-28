@@ -369,7 +369,7 @@ fn parse_struct<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object
 impl DeserializeUnrealObject for ScriptObject {
     async fn deserialize(object: &ObjectRef, container: &Container, data: &[u8]) -> UPKResult<Self> {
         let (data, marker) = be_u32::<_, Error<_>>(data)?;
-        let data = if marker >= 0xFFFFFF {
+        let data = if marker & 0xFFFFFF != 0 && marker != 0xFFFFFFFF {
             &data[22..]
         } else {
             data
