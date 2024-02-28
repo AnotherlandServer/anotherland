@@ -100,7 +100,11 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                 plot.push_str(format!("state \"{}\" as {} {{\n",  obj.name(), obj_name).as_str());
                 plot.push_str(&plot_subsequence(container, obj).await);
                 plot.push_str("}\n");
-            } else if obj.class().name().contains("SeqAct") || obj.class().name().contains("SeqEvent") || obj.class().name().contains("SeqCond")  {
+            } else if obj.class().name().contains("SeqAct") 
+                || obj.class().name().contains("SeqEvent") 
+                || obj.class().name().contains("SeqCond") 
+                || obj.class().name().contains("RUSequenceFunction")  
+            {
                 let seq = container.deserialize::<ScriptObject>(obj).await
                     .expect("deserialization failed");
 
@@ -232,8 +236,6 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                     },
                     _ => {},
                 }
-            } else {
-                
             }
         }
 
@@ -241,7 +243,11 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
         for obj in sequence.children() {
             let obj_name = format!("{}_{}", obj.parent().unwrap().name(), obj.name());
 
-            if obj.class().name().contains("SeqAct") || obj.class().name().contains("SeqEvent") || obj.class().name().contains("SeqCond") {
+            if obj.class().name().contains("SeqAct") 
+                || obj.class().name().contains("SeqEvent") 
+                || obj.class().name().contains("SeqCond")
+                || obj.class().name().contains("RUSequenceFunction")
+            {
                 let seq = container.deserialize::<ScriptObject>(obj).await
                     .expect("deserialization failed");
 
