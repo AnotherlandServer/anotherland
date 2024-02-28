@@ -31,13 +31,34 @@ impl QueryRoot {
             .await?;
         Ok(account.into())
     }
+
+    async fn find_account(&self, ctx: &Context<'_>, username_or_email: String) -> Result<Account> {
+        let account = ctx.data::<RemoteActorRef<Authenticator>>()?
+            .find_account(username_or_email).await?;
+
+        Ok(account.into())
+    }
 }
 
 #[Object]
 impl MutationRoot {
-    async fn create_account(&self, ctx: &Context<'_>, name: String, email: Option<String>, password: String) -> Result<Account> {
+    async fn create_account(&self, ctx: &Context<'_>, name: String, email: Option<String>, password: Option<String>) -> Result<Account> {
         let account = ctx.data::<RemoteActorRef<Authenticator>>()?
             .register(name, email, password).await?;
+
+        Ok(account.into())
+    }
+
+    async fn set_password(&self, ctx: &Context<'_>, id: String, password: String) -> Result<Account> {
+        let account = ctx.data::<RemoteActorRef<Authenticator>>()?
+            .set_password(Uuid::parse_str(&id)?, password).await?;
+
+        Ok(account.into())
+    }
+
+    async fn set_one_time_password(&self, ctx: &Context<'_>, id: String, password: String) -> Result<Account> {
+        let account = ctx.data::<RemoteActorRef<Authenticator>>()?
+            .set_one_time_password(Uuid::parse_str(&id)?, password).await?;
 
         Ok(account.into())
     }

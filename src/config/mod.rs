@@ -22,6 +22,7 @@ use serde_derive::Deserialize;
 pub struct ConfLoginServer {
     pub listen_address: SocketAddrV4,
     pub queue_listen_address: SocketAddrV4,
+    pub one_time_password_duration: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]

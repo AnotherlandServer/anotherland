@@ -22,9 +22,42 @@ use mongodb::{Database, options::IndexOptions, IndexModel, Collection};
 use serde::{Serialize, Deserialize};
 use sha1::{Sha1, Digest};
 
-use crate::util::AnotherlandResult;
+use crate::{util::AnotherlandResult, CONF};
 
 use super::DatabaseRecord;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum PasswordHash {
+    Unset,
+    Password(String),
+    OneTimePassword(DateTime<Utc>, String),
+}
+
+impl PasswordHash {
+    pub fn hash_password(password: String) -> Self {
+        Self::Password(bcrypt::hash(password, bcrypt::DEFAULT_COST)
+            .expect("failed to hash password"))
+    }
+
+    pub fn hash_one_time_password(password: String) -> Self {
+        Self::OneTimePassword(Utc::now(), bcrypt::hash(password, bcrypt::DEFAULT_COST)
+            .expect("failed to hash password"))
+    }
+
+    pub fn check_password(&self, password: String) -> bool {
+        match self {
+            PasswordHash::Unset => false,
+            PasswordHash::Password(hash) => bcrypt::verify(password, hash).expect("failed to verify password"),
+            PasswordHash::OneTimePassword(date, hash) => {
+                if Utc::now().signed_duration_since(date).num_seconds() < CONF.login_server.one_time_password_duration.unwrap_or(900).into() {
+                    bcrypt::verify(password, hash).expect("failed to verify password")
+                } else {
+                    false
+                }
+            },
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Account {
@@ -32,7 +65,7 @@ pub struct Account {
     pub numeric_id: u32,
     pub username: String,
     pub email: Option<String>,
-    pub password: String,
+    pub password: PasswordHash,
     pub created: DateTime<Utc>,
     pub last_login: Option<DateTime<Utc>>,
     pub banned: bool,
@@ -56,7 +89,7 @@ impl Account {
          None).await?)
     }
 
-    pub async fn create(db: Database, username: String, email: Option<String>, password: String) -> AnotherlandResult<Account> {
+    pub async fn create(db: Database, username: String, email: Option<String>, password: Option<String>) -> AnotherlandResult<Account> {
         let collection = db.collection::<Account>("accounts");
         let id = Uuid::new();
 
@@ -72,7 +105,9 @@ impl Account {
             numeric_id,
             username,
             email,
-            password: bcrypt::hash(password, bcrypt::DEFAULT_COST)?,
+            password: password
+                .map(PasswordHash::hash_password)
+                .unwrap_or(PasswordHash::Unset),
             created: Utc::now(),
             last_login: None,
             banned: false,
@@ -85,8 +120,23 @@ impl Account {
         Ok(account)
     }
 
-    pub async fn update_last_login(&mut self, _db: Database) -> AnotherlandResult<()> {
-        todo!()
+    pub fn record_login(&mut self) {
+        self.last_login = Some(Utc::now());
+
+        // reset password if one-time-password is used
+        if matches!(self.password, PasswordHash::OneTimePassword(_, _)) {
+            self.password = PasswordHash::Unset;
+        }
+    }
+
+    pub fn set_password(&mut self, password: String) -> AnotherlandResult<()> {
+        self.password = PasswordHash::hash_password(password);
+        Ok(())
+    }
+
+    pub fn set_one_time_password(&mut self, password: String) -> AnotherlandResult<()> {
+        self.password = PasswordHash::hash_one_time_password(password);
+        Ok(())
     }
 
     pub async fn init_collection(db: Database) -> AnotherlandResult<()> {
@@ -95,28 +145,28 @@ impl Account {
             IndexModel::builder()
             .keys(doc!("id": 1))
             .options(IndexOptions::builder().unique(true).build())
-            .build(), 
+            .build(),
             None).await?;
 
         collection.create_index(
             IndexModel::builder()
             .keys(doc!("numeric_id": 1))
             .options(IndexOptions::builder().unique(true).build())
-            .build(), 
+            .build(),
             None).await?;
         
         collection.create_index(
             IndexModel::builder()
             .keys(doc!("username": 1))
             .options(IndexOptions::builder().unique(true).build())
-            .build(), 
+            .build(),
             None).await?;
 
         collection.create_index(
             IndexModel::builder()
             .keys(doc!("email": 1))            
             .options(IndexOptions::builder().unique(true).partial_filter_expression(doc!("email":{"$type":"string"})).build())
-            .build(), 
+            .build(),
             None).await?;
 
         Ok(())

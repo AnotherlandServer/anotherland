@@ -17,10 +17,11 @@ use actor_macros::actor_actions;
 use async_trait::async_trait;
 use atlas::Uuid;
 use bson::doc;
+use log::warn;
 use mongodb::{Database, options::UpdateOptions};
 use serde_derive::{Serialize, Deserialize};
 
-use crate::{cluster::actor::Actor, util::{AnotherlandResult, AnotherlandError}, db::{Account, Session, cluster_database}, NODE};
+use crate::{cluster::actor::Actor, db::{cluster_database, Account, DatabaseRecord, Session}, util::{AnotherlandError, AnotherlandErrorKind, AnotherlandResult}, NODE};
 
 use super::SessionManager;
 
@@ -92,8 +93,28 @@ pub enum LoginResult {
 #[actor_actions]
 impl Authenticator {
     #[rpc]
-    pub async fn register(&self, username: String, email: Option<String>, password: String) -> AnotherlandResult<Account> {
+    pub async fn register(&self, username: String, email: Option<String>, password: Option<String>) -> AnotherlandResult<Account> {
         let account = Account::create(self.cluster_db.clone(), username, email, password).await?;
+        Ok(account)
+    }
+
+    #[rpc]
+    pub async fn set_password(&self, account_id: Uuid, password: String) -> AnotherlandResult<Account> {
+        let mut account = Account::get_by_id(self.cluster_db.clone(), &account_id).await?
+            .ok_or(AnotherlandError::new(AnotherlandErrorKind::Application, "account not found"))?;
+        account.set_password(password)?;
+        account.save(self.cluster_db.clone()).await?;
+
+        Ok(account)
+    }
+
+    #[rpc]
+    pub async fn set_one_time_password(&self, account_id: Uuid, password: String) -> AnotherlandResult<Account> {
+        let mut account = Account::get_by_id(self.cluster_db.clone(), &account_id).await?
+            .ok_or(AnotherlandError::new(AnotherlandErrorKind::Application, "account not found"))?;
+        account.set_one_time_password(password)?;
+        account.save(self.cluster_db.clone()).await?;
+
         Ok(account)
     }
 
@@ -104,22 +125,31 @@ impl Authenticator {
     }
 
     #[rpc]
+    pub async fn find_account(&self, username_or_email: String) -> AnotherlandResult<Account> {
+        let account = Account::get_by_username_or_mail(self.cluster_db.clone(), &username_or_email).await?;
+        account.ok_or(AnotherlandError::app_err("account not found"))
+    }
+
+    #[rpc]
     pub async fn login(&mut self, username_or_email: String, password: String) -> AnotherlandResult<LoginResult> {
-        if let Some(account) = Account::get_by_username_or_mail(self.cluster_db.clone(), &username_or_email).await? {
-            if bcrypt::verify(&password, &account.password)? {
-                if account.banned {
-                    Ok(LoginResult::Banned)
-                } else if self.servers_locked && !account.is_gm {
-                    // only allow gm logins when servers are locked
-                    Ok(LoginResult::ServersLocked)
-                } else {
-                    let session = self.session_manager_mut().create_session(account.id).await?;
-                    Ok(LoginResult::Session(session))
-                }
+        if let Some(mut account) = Account::get_by_username_or_mail(self.cluster_db.clone(), &username_or_email).await? && 
+            account.password.check_password(password)
+        {
+            // record login in account
+            account.record_login();
+            account.save(self.cluster_db.clone()).await?;
+
+            if account.banned {
+                Ok(LoginResult::Banned)
+            } else if self.servers_locked && !account.is_gm {
+                // only allow gm logins when servers are locked
+                Ok(LoginResult::ServersLocked)
             } else {
-                Ok(LoginResult::InvalidCredentials)
+                let session = self.session_manager_mut().create_session(account.id).await?;
+                Ok(LoginResult::Session(session))
             }
         } else {
+            warn!("Invalid credentials for username: {}", username_or_email);
             Ok(LoginResult::InvalidCredentials)
         }
     }
