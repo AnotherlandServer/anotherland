@@ -244,7 +244,7 @@ impl ZoneSession {
             session_ref,
             instance,
             downstream,
-            load_state: ClientLoadState::EarlyLoadSequence,
+            load_state: ClientLoadState::Offline,
             avatar_event_sender,
             avatar_events: Some(avatar_event_receiver),
             interest_list: HashSet::new(),
@@ -535,6 +535,13 @@ impl ZoneSession {
             AtlasPkt(CPkt::oaPktRequestEnterGame(_pkt)) => {
                 let session_s = self.session_ref.lock().await;
 
+                // Set loading state
+                self.send(oaPktS2XConnectionState {
+                    field_1: ClientLoadState::Transition.into(),
+                    field_2: 0,
+                    ..Default::default()
+                }.into_message()).await?;
+
                 // Send resource notification 
                 let _ = self.send(CPktResourceNotify {
                     resource_type: CpktResourceNotifyResourceType::WorldDef,
@@ -587,18 +594,29 @@ impl ZoneSession {
             },
             AtlasPkt(CPkt::oaPktC2SConnectionState(pkt)) => {
                 self.load_state = match pkt.field_1 {
-                    5 => ClientLoadState::RequestAvatarStream,
-                    6 => ClientLoadState::StreamedAvatars,
-                    7 => ClientLoadState::RequestSpawn,
-                    8 => ClientLoadState::Spawned,
+                    0 => ClientLoadState::Offline,
+                    1 => ClientLoadState::Transition,
+                    2 => ClientLoadState::PlayerReceived,
+                    3 => ClientLoadState::MapLoaded,
+                    4 => ClientLoadState::PlayerLoaded,
+                    5 => ClientLoadState::WaitingForInitialInterests,
+                    6 => ClientLoadState::ReceivedInitialInterests,
+                    7 => ClientLoadState::InitialInterestsLoaded,
+                    8 => ClientLoadState::InGame,
                     _ => {
                         warn!(
                             session = self.session_id.to_string(), 
                             avatar = self.avatar_id.to_string(); 
                             "Invalid client loadstate: {}", pkt.field_1);
-                        ClientLoadState::EarlyLoadSequence
+                        ClientLoadState::Offline
                     }
                 };
+
+                debug!(
+                    session = self.session_id.to_string(), 
+                    avatar = self.avatar_id.to_string();
+                    "New connection state = {:?}", self.load_state
+                );
 
                 // Confirm loading state
                 let mut response = pkt.clone();
@@ -822,7 +840,7 @@ impl ZoneSession {
     async fn update(&mut self) -> AnotherlandResult<()> {
         // Only start transmitting interests once the client left
         // the early load sequence.
-        if self.load_state != ClientLoadState::EarlyLoadSequence {
+        if self.load_state >= ClientLoadState::WaitingForInitialInterests {
             // remove avatars we are not interested in anymore
             while let Some(avatar_id) = self.interest_removed_queue.pop_front() {
                 self.send(CPktAvatarClientNotify {
@@ -869,12 +887,12 @@ impl ZoneSession {
                             ..Default::default()
                         }.into_message()).await?;
                     }
-                } else if self.load_state == ClientLoadState::RequestAvatarStream {
+                } else if self.load_state == ClientLoadState::WaitingForInitialInterests {
                     // Update client loading state if we are in the initial streaming phase
-                    self.load_state = ClientLoadState::StreamedAvatars;
+                    self.load_state = ClientLoadState::ReceivedInitialInterests;
 
                     self.send(oaPktS2XConnectionState {
-                        field_1: ClientLoadState::StreamedAvatars.into(),
+                        field_1: ClientLoadState::ReceivedInitialInterests.into(),
                         field_2: 0,
                         ..Default::default()
                     }.into_message()).await?;
@@ -882,7 +900,7 @@ impl ZoneSession {
             }
         }
 
-        if self.load_state == ClientLoadState::RequestSpawn {
+        if self.load_state == ClientLoadState::InitialInterestsLoaded {
             // Synchronize time
             {
                 self.send(CPktServerNotify {
@@ -902,17 +920,17 @@ impl ZoneSession {
 
             // Update loadstate
             {
-                self.load_state = ClientLoadState::Spawned;
+                self.load_state = ClientLoadState::InGame;
                 
                 self.send(oaPktS2XConnectionState {
-                    field_1: ClientLoadState::Spawned.into(),
+                    field_1: ClientLoadState::InGame.into(),
                     field_2: 0,
                     ..Default::default()
                 }.into_message()).await?;
             }
         }
 
-        if self.load_state == ClientLoadState::Spawned {
+        if self.load_state == ClientLoadState::InGame {
             while let Some(action) = self.server_actions.pop_front() {
                 self.send(action.into_message()).await?;
             }

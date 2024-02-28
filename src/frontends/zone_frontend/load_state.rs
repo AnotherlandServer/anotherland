@@ -13,23 +13,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(super) enum ClientLoadState {
-    EarlyLoadSequence,
-    RequestAvatarStream,
-    StreamedAvatars,
-    RequestSpawn,
-    Spawned
+    Offline,
+    Transition,
+    PlayerReceived,
+    MapLoaded,
+    PlayerLoaded,
+    WaitingForInitialInterests,
+    ReceivedInitialInterests,
+    InitialInterestsLoaded,
+    InGame,
 }
 
 impl From<ClientLoadState> for u32 {
     fn from(val: ClientLoadState) -> u32 {
         match val {
-            ClientLoadState::EarlyLoadSequence => 0,
-            ClientLoadState::RequestAvatarStream => 5,
-            ClientLoadState::StreamedAvatars => 6,
-            ClientLoadState::RequestSpawn => 7,
-            ClientLoadState::Spawned => 8,
+            ClientLoadState::Offline => 0,
+            ClientLoadState::Transition => 1,
+            ClientLoadState::PlayerReceived => 2,
+            ClientLoadState::MapLoaded => 3,
+            ClientLoadState::PlayerLoaded => 4,
+            ClientLoadState::WaitingForInitialInterests => 5,
+            ClientLoadState::ReceivedInitialInterests => 6,
+            ClientLoadState::InitialInterestsLoaded => 7,
+            ClientLoadState::InGame => 8,
         }
     }
 }
