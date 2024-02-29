@@ -18,7 +18,7 @@ use atlas::Uuid;
 use chrono::{DateTime, Utc};
 use serde_derive::{Serialize, Deserialize};
 
-use crate::{cluster::RemoteActorRef, actors::Authenticator};
+use crate::{actors::Authenticator, cluster::RemoteActorRef, util::{AnotherlandError, AnotherlandErrorKind}};
 
 pub struct QueryRoot;
 pub struct MutationRoot;
@@ -47,6 +47,24 @@ impl MutationRoot {
             .register(name, email, password).await?;
 
         Ok(account.into())
+    }
+
+    async fn find_or_create_account(&self, ctx: &Context<'_>, name: String, email: Option<String>, password: Option<String>) -> Result<Account> {
+        match ctx.data::<RemoteActorRef<Authenticator>>()?
+            .find_account(name.clone()).await
+        {
+            Ok(account) => Ok(account.into()),
+            Err(e) => {
+                if matches!(e.kind(), AnotherlandErrorKind::Application) {
+                    let account = ctx.data::<RemoteActorRef<Authenticator>>()?
+                        .register(name, email, password).await?;
+        
+                    Ok(account.into())
+                } else {
+                    Err(e.into())
+                }
+            },
+        }
     }
 
     async fn set_password(&self, ctx: &Context<'_>, id: String, password: String) -> Result<Account> {
