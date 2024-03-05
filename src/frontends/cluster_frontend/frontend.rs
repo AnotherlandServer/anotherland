@@ -22,7 +22,7 @@ use rand::random;
 use tokio::{select, sync::{mpsc::Receiver, Mutex, RwLock}, time};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{actors::{ChatChannel, Realm, Social, SocialEvent}, cluster::{frontend::Frontend, ActorRef, CommunityMessage}, components::{SessionHandler, SessionRef}, db::{realm_database, CashShopBundle, CashShopItem, CashShopVendor, WorldDef, ZoneDef}, frontends::TravelType, util::AnotherlandResult, ARGS, CONF, NODE};
+use crate::{actors::{ChatChannel, Realm, Social, SocialEvent}, cluster::{frontend::Frontend, ActorRef, CommunityMessage}, components::{SessionHandler, SessionRef}, db::{realm_database, CashShopBundle, CashShopItem, CashShopVendor, WorldDef, ZoneDef}, frontends::TravelType, util::AnotherlandResult, ARGS, CONF, NODE, RAKNET_PRIVATE_KEY};
 use crate::db::DatabaseRecord;
 
 use super::{ZoneRouter, ZoneRouterConnection, ZoneRouterMessage};
@@ -51,7 +51,14 @@ impl Frontend for ClusterFrontend {
     fn name(&self) -> &str { "cluster" }
 
     async fn run(&mut self, token: CancellationToken) -> AnotherlandResult<()> {
-        let mut listener = RakNetListener::bind(CONF.frontend.listen_address).await?;
+        let mut listener = RakNetListener::bind(
+            CONF.frontend.listen_address, 
+            if ARGS.insecure_raknet { 
+                None 
+            } else { 
+                Some(RAKNET_PRIVATE_KEY.clone()) 
+            }
+        ).await?;
 
         let mut realm = NODE.get_remote_actor::<Realm>("realm").unwrap();
         let session_handler = SessionHandler::new();

@@ -23,7 +23,7 @@ use mongodb::Database;
 use tokio::{time::{self, Interval}, select, sync::RwLock};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, MessageQueueProducer, connect_queue, MessageChannel, ClusterMessage, RemoteActorRef}, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}, actors::Realm, CONF, NODE, db::{WorldDef, realm_database, DatabaseRecord}, ARGS, components::SessionHandler};
+use crate::{actors::Realm, cluster::{connect_queue, frontend::Frontend, ClusterMessage, MessageChannel, MessageQueueProducer, RemoteActorRef}, components::SessionHandler, db::{realm_database, DatabaseRecord, WorldDef}, util::{AnotherlandError, AnotherlandErrorKind, AnotherlandResult}, ARGS, CONF, NODE, RAKNET_PRIVATE_KEY};
 
 
 pub struct RealmFrontend {
@@ -73,7 +73,14 @@ impl Frontend for RealmFrontend {
     }
 
     async fn run(&mut self, token: CancellationToken) -> AnotherlandResult<()> {
-        let mut listener = RakNetListener::bind(CONF.realm.listen_address).await?;
+        let mut listener = RakNetListener::bind(
+            CONF.realm.listen_address, 
+            if ARGS.insecure_raknet { 
+                None 
+            } else { 
+                Some(RAKNET_PRIVATE_KEY.clone()) 
+            }
+        ).await?;
 
         loop {
             select! {

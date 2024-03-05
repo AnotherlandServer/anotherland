@@ -21,7 +21,7 @@ use log::{error, debug};
 use tokio::{select, sync::RwLock};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{cluster::{frontend::Frontend, RemoteActorRef}, util::{AnotherlandResult, AnotherlandError}, actors::{Authenticator, LoginResult, RealmList}, CONF, NODE, components::SessionHandler};
+use crate::{actors::{Authenticator, LoginResult, RealmList}, cluster::{frontend::Frontend, RemoteActorRef}, components::SessionHandler, util::{AnotherlandError, AnotherlandResult}, ARGS, CONF, NODE, RAKNET_PRIVATE_KEY};
 
 pub struct LoginFrontend {
     //listener: RakNetListener,
@@ -65,7 +65,14 @@ impl Frontend for LoginFrontend {
     }
 
     async fn run(&mut self, token: CancellationToken) -> AnotherlandResult<()> {
-        let mut listener = RakNetListener::bind(CONF.login_server.listen_address).await?;
+        let mut listener = RakNetListener::bind(
+            CONF.login_server.listen_address, 
+            if ARGS.insecure_raknet { 
+                None 
+            } else { 
+                Some(RAKNET_PRIVATE_KEY.clone()) 
+            }
+        ).await?;
 
         loop {
             select! {

@@ -26,7 +26,7 @@ mod frontends;
 
 // Import modules
 use std::net::Ipv4Addr;
-use atlas::{CommonConfigClass, OaCommonConfigParams};
+use atlas::{raknet::RakNetEncryptionKey, CommonConfigClass, OaCommonConfigParams};
 use clap::{Parser, Subcommand};
 use cluster::ClusterNode;
 use actors::{Realm, RealmList, Social, ZoneRegistry};
@@ -52,6 +52,9 @@ use crate::actors::Authenticator;
 pub struct Args {
     #[arg(long, env = "EXTERNAL_IP")]
     external_ip: Ipv4Addr,
+
+    #[arg(long)]
+    insecure_raknet: bool,
 
     #[arg(long, env = "MONGO_URI")]
     mongo_uri: String,
@@ -176,8 +179,8 @@ static CONF: Lazy<ConfMain> = Lazy::new(|| {
 });
 
 static NODE: Lazy<ClusterNode> = Lazy::new(ClusterNode::new);
-
 static CLUSTER_CERT: Lazy<Certificate> = Lazy::new(||rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap());
+static RAKNET_PRIVATE_KEY: Lazy<RakNetEncryptionKey> = Lazy::new(RakNetEncryptionKey::generate_random);
 
 async fn init_database() -> AnotherlandResult<()> {
     
