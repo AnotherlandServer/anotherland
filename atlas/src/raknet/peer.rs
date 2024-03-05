@@ -15,16 +15,22 @@
 
 use crate::{raknet::MAX_MTU_SIZE, Uuid};
 
-use super::{RakNetErrorKind, PeerAddress, MessageFragment, MessageNumber, Reliability, PacketSplit, Message, OnlineMessage, RakNetError, RakNetResult};
-use std::{time::{Instant, SystemTime}, time::{Duration, UNIX_EPOCH}, net::SocketAddr, collections::{VecDeque, HashMap}, sync::Arc};
-use bitstream_io::{BitWriter, BigEndian, BitWrite};
-use log::{debug, trace};
+use super::{checksum::Checksum, Message, MessageFragment, MessageNumber, OnlineMessage, PacketSplit, PeerAddress, RakNetError, RakNetErrorKind, RakNetResult, Reliability};
+use std::{collections::{HashMap, VecDeque}, mem::swap, net::SocketAddr, sync::Arc, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+use aes::{cipher::{generic_array::GenericArray, BlockDecrypt, BlockEncrypt, KeyInit}, Aes128};
+use bitstream_io::{BigEndian, BitWrite, BitWriter};
+use log::{debug, trace, warn};
+use rand::{thread_rng, Rng};
+use rsa::{rand_core::{OsRng, RngCore}, traits::PublicKeyParts, BigUint, RsaPrivateKey};
+use sha1::{Sha1, Digest};
 use tokio::{net::UdpSocket, io, sync::RwLock};
 use async_recursion::async_recursion;
+use rsa::hazmat::rsa_decrypt_and_check;
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, PartialOrd, Clone, Copy)]
 pub enum State {
     Unconnected,
+    EcryptionHandshake,
     Connected,
     HalfClosed,
     Disconnected,
@@ -77,6 +83,12 @@ pub(crate) struct RakNetPeerData {
     next_send_message_id: u32,
     next_recv_message_id: u32,
     split_packet_id: u16,
+
+    server_key: Option<Arc<RsaPrivateKey>>,
+    encryption_key: Option<[u8; 16]>,
+    new_random_number: [u8; 20],
+    old_random_number: [u8; 20],
+    random_number_expiration_time: Instant,
 }
 
 #[allow(unused)]
@@ -91,10 +103,10 @@ impl RakNetPeerData {
         vec
     }
 
-    pub(crate) fn new(socket: Arc<UdpSocket>, remote_addr: SocketAddr, local_addr: SocketAddr) -> RakNetResult<Self> {
+    pub(crate) fn new(socket: Arc<UdpSocket>, remote_addr: SocketAddr, local_addr: SocketAddr, server_key: Option<Arc<RsaPrivateKey>>) -> RakNetResult<Self> {
         match remote_addr {
             SocketAddr::V4(a) => {
-                Ok(Self {
+                let mut peer = Self {
                     guid: Uuid::new(),
                     remote_address: PeerAddress::new(a.ip(), a.port()),
                     local_address: match local_addr {
@@ -115,10 +127,28 @@ impl RakNetPeerData {
                     next_send_message_id: 0,
                     next_recv_message_id: 0,
                     split_packet_id: 0,
-                })
+
+                    server_key,
+                    encryption_key: None,
+
+                    new_random_number: [0; 20],
+                    old_random_number: [0; 20],
+                    random_number_expiration_time: Instant::now(),
+                };
+
+                peer.generate_syn_cookie_random_number();
+
+                Ok(peer)
             },
             _ => Err(RakNetError::from_kind(RakNetErrorKind::InvalidAddressFormat)),
         }
+    }
+
+    fn generate_syn_cookie_random_number(&mut self) {
+        swap(&mut self.new_random_number, &mut self.old_random_number);
+        OsRng.fill_bytes(&mut self.new_random_number);
+
+        self.random_number_expiration_time = Instant::now() + Duration::from_millis(5000);
     }
 
     pub(crate) async fn send(&mut self, priority: Priority, reliability: Reliability, message: Message) -> RakNetResult<()> {
@@ -143,9 +173,16 @@ impl RakNetPeerData {
                 Ok(())
             },
             Reliability::Reliable => {
+                let max_mtu_size = if self.encryption_key.is_some() && self.state == State::Connected {
+                    // account for encryption overhead
+                    MAX_MTU_SIZE - 16
+                } else {
+                    MAX_MTU_SIZE
+                };
+
                 // do we have to split the message?
-                if message_data.len() > MAX_MTU_SIZE {
-                    let chunks = message_data.chunks(MAX_MTU_SIZE).collect::<Vec<&[u8]>>();
+                if message_data.len() > max_mtu_size {
+                    let chunks = message_data.chunks(max_mtu_size).collect::<Vec<&[u8]>>();
                     let chunk_count = chunks.len() as u32;
 
                     self.split_packet_id = self.split_packet_id.wrapping_add(1);
@@ -174,6 +211,12 @@ impl RakNetPeerData {
                 }
             },
             _ => todo!()
+        }
+    }
+
+    pub fn activate_encryption(&mut self) {
+        if self.state == State::EcryptionHandshake && self.encryption_key.is_some() {
+            self.state = State::Connected;
         }
     }
 
@@ -259,14 +302,35 @@ impl RakNetPeerData {
                                     },
                                     Message::ConnectionRequest { .. } => {
                                         debug!("Got connection request from {:?}", self.remote_address());
-        
-                                        self.state = State::Connected;
-                                        self.send_internal(Priority::System, Reliability::Reliable, Message::ConnectionRequestAccepted { 
-                                            index: 0, 
-                                            peer_addr: self.remote_address, 
-                                            own_addr: self.local_address, 
-                                            guid: self.guid 
-                                        }).await?;
+
+                                        if let Some(server_key) = self.server_key.as_ref() {
+                                            // generate syn-cookie
+                                            let mut hasher = Sha1::new();
+                                            hasher.update(self.remote_address.ip.octets());
+                                            hasher.update(self.remote_address.port.to_be_bytes());
+                                            hasher.update(self.new_random_number);
+                                            let hash = hasher.finalize();
+                                            
+                                            let public_key = server_key.to_public_key();
+
+                                            self.state = State::EcryptionHandshake;
+
+                                            // initiate key exchange
+                                            self.send_internal(Priority::System, Reliability::Unreliable, Message::SecuredConnectionResponse { 
+                                                syn_cookie: hash[..].try_into().unwrap(), 
+                                                e: public_key.e().get_limb(0) as u32,
+                                                modulus: public_key.n().to_bytes_le().try_into().unwrap(), 
+                                            }).await?;
+                                        } else {
+                                            self.state = State::Connected;
+
+                                            self.send_internal(Priority::System, Reliability::Reliable, Message::ConnectionRequestAccepted { 
+                                                index: 0, 
+                                                peer_addr: self.remote_address, 
+                                                own_addr: self.local_address, 
+                                                guid: self.guid 
+                                            }).await?;
+                                        }
                                     },
                                     Message::ConnectedPong { .. } => {
                                     },
@@ -274,7 +338,71 @@ impl RakNetPeerData {
                                         self.state = State::HalfClosed;
                                         self.resend_queue.clear();
                                         self.send_internal(Priority::System, Reliability::Reliable, Message::DisconnectionNotification).await?;
-                                    }
+                                    },
+                                    Message::SecuredConnectionConfirmation { syn_cookie, mut encrypted_rsa_key } => {
+                                        if let Some(server_key) = self.server_key.as_ref() {
+                                            let mut confirmed_hash = false;
+                                            let mut new_rand_number = false;
+
+                                            // generate syn-cookie
+                                            let mut hasher = Sha1::new();
+                                            hasher.update(self.remote_address.ip.octets());
+                                            hasher.update(self.remote_address.port.to_be_bytes());
+                                            hasher.update(self.new_random_number);
+                                            let hash = hasher.finalize();
+
+                                            if hash[..20] == syn_cookie {
+                                                confirmed_hash = true;
+                                                new_rand_number = true;
+                                            } else if self.random_number_expiration_time <  Instant::now() {
+                                                let mut hasher = Sha1::new();
+                                                hasher.update(self.remote_address.ip.octets());
+                                                hasher.update(self.remote_address.port.to_be_bytes());
+                                                hasher.update(self.old_random_number);
+                                                let hash = hasher.finalize();
+
+                                                if hash[..20] == syn_cookie {
+                                                    confirmed_hash = true;
+                                                }
+                                            }
+
+                                            if confirmed_hash {
+                                                // decrypt and save key
+                                                match rsa_decrypt_and_check(
+                                                    server_key.as_ref(), 
+                                                    Option::<&mut OsRng>::None, 
+                                                    &BigUint::from_bytes_le(&encrypted_rsa_key)
+                                                ) {
+                                                    Ok(random_number) => {
+                                                        let random_number = random_number.to_bytes_le();
+                                                        let mut aes_key = [0; 16];
+
+                                                        // compute aes key
+                                                        for i in 0usize..16 {
+                                                            aes_key[i] = syn_cookie[i] ^ random_number[i];
+                                                        }
+
+                                                        self.encryption_key = Some(aes_key);
+
+                                                        // accept connection
+                                                        self.send_internal(Priority::System, Reliability::Reliable, Message::ConnectionRequestAccepted { 
+                                                            index: 0, 
+                                                            peer_addr: self.remote_address, 
+                                                            own_addr: self.local_address, 
+                                                            guid: self.guid 
+                                                        }).await?;
+                                                    },
+                                                    Err(e) => {
+                                                        warn!("Failed to decrypt client key: {:?}", e);
+                                                    }
+                                                }
+
+                                                if new_rand_number {
+                                                    self.generate_syn_cookie_random_number();
+                                                }
+                                            }
+                                        }
+                                    },
                                     _ => {
                                         if self.state == State::Connected {
                                             messages.push(message);
@@ -294,6 +422,8 @@ impl RakNetPeerData {
 
         Ok(messages)
     }
+
+
 
     async fn digest_online_message(&mut self, message: &OnlineMessage) -> RakNetResult<Option<Message>> {
         match message.reliability {
@@ -499,7 +629,7 @@ impl RakNetPeerData {
             self.send_raw(remainder.as_slice()).await?;
         }
 
-        if self.state == State::HalfClosed && self.resend_queue.is_empty(){
+        if self.state == State::HalfClosed && self.resend_queue.is_empty() {
             self.state = State::Disconnected;
         }
 
@@ -507,8 +637,171 @@ impl RakNetPeerData {
     }
 
     async fn send_raw(&self, data: &[u8]) -> RakNetResult<()> {
-        self.socket.send_to(data, self.remote_address.as_socket_addr()).await?;
+        if let Some(key) = self.encryption_key.as_ref() && self.state >= State::Connected {
+            self.socket.send_to(&Self::encrypt_message(key, data), self.remote_address.as_socket_addr()).await?;
+            Ok(())
+        } else {
+            self.socket.send_to(data, self.remote_address.as_socket_addr()).await?;
+            Ok(())
+        }
+    }
+
+    pub(crate) fn encrypt_message(key: &[u8; 16], data: &[u8]) -> Vec<u8> {
+        let padding_bytes = 16 - (((data.len() + 6 - 1) % 16) + 1);
+        let mut checksum = Checksum::new();
+        let mut message_buffer = vec![0; data.len() + 6 + padding_bytes];
+
+        if message_buffer.len() % 16 != 0 { panic!(); }
+
+        // generate random based message part
+        {
+            let mut rng = thread_rng();
+
+            // pad size
+            let mut encoded_pad = rng.gen::<u8>();
+            encoded_pad <<= 4;
+            encoded_pad |= padding_bytes as u8;
+
+            // write random char
+            message_buffer[4] = rng.gen::<u8>();
+
+            // write padding size
+            message_buffer[5] = encoded_pad;
+
+            // write padding
+            let buffer_len = message_buffer.len();
+            rng.fill_bytes(&mut message_buffer[6..6 + padding_bytes]);
+        }
+
+        // copy data
+        message_buffer[6 + padding_bytes..].copy_from_slice(data);
+
+        // generate checksum
+        checksum.write(&message_buffer[4..]);
+        message_buffer[..4].copy_from_slice(&checksum.finish().to_le_bytes());
+
+        // initialize encryption
+        let mut blocks: Vec<&mut [u8]> = message_buffer.chunks_mut(16).collect();
+        let cipher = Aes128::new(GenericArray::from_slice(key));
+        let mut prev_block = 0;
+
+        // encrypt first block
+        cipher.encrypt_block(GenericArray::from_mut_slice(blocks[0]));
+
+        // encrypt remaining blocks, starting from the end
+        for index in (1..blocks.len()).rev() {
+            for byte_index in 0..16 {
+                blocks[index][byte_index] ^= blocks[prev_block][byte_index];
+            }
+
+            cipher.encrypt_block(GenericArray::from_mut_slice(blocks[index]));
+            prev_block = index;
+        }
+
+        message_buffer
+    }
+
+    pub(crate) fn optional_message_decrypt(&self, message: &mut Vec<u8>) -> RakNetResult<()> {
+        if let Some(key) = self.encryption_key && (self.state >= State::Connected) {
+            Self::decrypt_message(&key, message)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn decrypt_message(key: &[u8; 16], message: &mut Vec<u8>) -> RakNetResult<()> {
+        if message.len() % 16 != 0 || message.is_empty() {
+            return Err(RakNetError::new(RakNetErrorKind::IOError, "invalid message len"));
+        }
+
+        // initialize decryption
+        let mut blocks: Vec<&mut [u8]> = message.chunks_mut(16).collect();
+        let cipher = Aes128::new(GenericArray::from_slice(key));
+
+        // decrypt blocks following the first one
+        for index in 1..blocks.len() {
+            cipher.decrypt_block(GenericArray::from_mut_slice(blocks[index]));
+
+            for byte_index in 0..16 {
+                if index == blocks.len() - 1 {
+                    blocks[index][byte_index] ^= blocks[0][byte_index];
+                } else {
+                    blocks[index][byte_index] ^= blocks[index + 1][byte_index];
+                }
+            }
+        }
+
+        // decrypt first block
+        cipher.decrypt_block(GenericArray::from_mut_slice(blocks[0]));
+
+        // read size of padding
+        let paddingbytes = (message[5] & 0x0F) as usize;
+
+        // compute original message length
+        let message_len = message.len() - 6 - paddingbytes;
+
+        // validate checksum
+        let mut checksum = Checksum::new();
+        checksum.write(&message[4..]);
+
+        if u32::from_le_bytes(message[..4].to_owned().try_into().unwrap()) != checksum.finish() {
+            debug!("Expected: {}", u32::from_le_bytes(message[..4].to_owned().try_into().unwrap()));
+            debug!("Computed: {}", checksum.finish());
+            return Err(RakNetError::new(RakNetErrorKind::IOError, "checksum error"));
+        }
+
+        // move decrypted message to the front of the buffer
+        message.copy_within(6 + paddingbytes..6 + paddingbytes + message_len, 0);
+
+        // truncate message buffer
+        message.resize(message_len, 0);
+
         Ok(())
     }
 }
 
+#[cfg(test)]
+mod test {
+    use rand::{thread_rng, Rng};
+
+    use super::RakNetPeerData;
+
+    #[test]
+    pub fn test_aes() {
+        let mut key: [u8; 16] = [0; 16];
+        let mut rng = thread_rng();
+        rng.fill(&mut key);
+
+        let message = b"Test message";
+        let mut encrypted = RakNetPeerData::encrypt_message(&key, message);
+        RakNetPeerData::decrypt_message(&key, &mut encrypted).expect("decryption failed");
+
+        assert_eq!(encrypted, message);
+    }
+
+    #[test]
+    pub fn test_aes1() {
+        let mut key: [u8; 16] = [0; 16];
+        let mut rng = thread_rng();
+        rng.fill(&mut key);
+
+        let message = b"Test";
+        let mut encrypted = RakNetPeerData::encrypt_message(&key, message);
+        RakNetPeerData::decrypt_message(&key, &mut encrypted).expect("decryption failed");
+
+        assert_eq!(encrypted, message);
+    }
+
+    #[test]
+    pub fn test_aes_2() {
+        let mut key: [u8; 16] = [0; 16];
+        let mut rng = thread_rng();
+        rng.fill(&mut key);
+
+        let message = b"Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.";
+        let mut encrypted = RakNetPeerData::encrypt_message(&key, message);
+        RakNetPeerData::decrypt_message(&key, &mut encrypted).expect("decryption failed");
+
+        assert_eq!(encrypted, message);
+    }
+}

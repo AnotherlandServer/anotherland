@@ -19,6 +19,7 @@ mod error;
 mod message_fragment;
 mod peer;
 mod listener;
+mod checksum;
 
 pub use address::*;
 pub use message::*;

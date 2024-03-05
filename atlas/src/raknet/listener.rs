@@ -17,6 +17,7 @@ use std::{sync::Arc, net::SocketAddr, time::Duration, collections::HashMap};
 
 use log::{error, trace, debug};
 use nom::{IResult, error::{VerboseError, context}, bits, combinator::{map, flat_map, cond}, sequence::tuple, multi::many0};
+use rsa::RsaPrivateKey;
 use tokio::{net::{ToSocketAddrs, UdpSocket}, time, sync::{mpsc, oneshot}, select, task::JoinHandle};
 use futures::future::join_all;
 
@@ -66,9 +67,19 @@ impl Drop for RakNetListener {
     }
 }
 
+#[derive(Clone)]
+pub struct RakNetEncryptionKey(RsaPrivateKey);
+
+impl RakNetEncryptionKey {
+    pub fn generate_random() -> Self {
+        let mut rng = rand::thread_rng();
+        Self(RsaPrivateKey::new(&mut rng, 512).unwrap())
+    }
+}
+
 #[allow(unused)]
 impl RakNetListener {
-    pub async fn bind<'a, A: ToSocketAddrs>(address: A) -> RakNetResult<Self> {
+    pub async fn bind<'a, A: ToSocketAddrs>(address: A, key: Option<RakNetEncryptionKey>) -> RakNetResult<Self> {
         let (command_sender, mut command_receiver) = mpsc::channel(10);
         let (connection_sender, connection_receiver) = mpsc::channel(10);
 
@@ -76,6 +87,8 @@ impl RakNetListener {
         
         let task_command_sender = command_sender.clone();
         let task_socket = socket.clone();
+
+        let key = key.map(|k| Arc::new(k.0));
 
         let mut stopping = false;
         let mut peers: HashMap<SocketAddr, mpsc::Sender<RakNetPeerCommand>> = HashMap::new();
@@ -134,104 +147,116 @@ impl RakNetListener {
                     result = task_socket.recv_from(&mut buf) => {
                         match result {
                             Ok((len, addr)) => {
-                                match Self::parse_datagram(&buf[..len]) {
-                                    Ok((_, fragments)) => {
-                                        // is there a task running for this peer?
-                                        if let Some(cmd) = peers.get(&addr) {
-                                            // let the peer task handle to fragments
-                                            if cmd.send(RakNetPeerCommand::Digest(fragments)).await.is_err() {
-                                                peers.remove(&addr);
-                                            }
-                                        } else {
-                                            let (peer_cmd_sender, mut peer_cmd_receiver) = mpsc::channel(10);
-                                            let (peer_event_sender, peer_event_receiver) = mpsc::channel(10);
+                                // is there a task running for this peer?
+                                if let Some(cmd) = peers.get(&addr) {
+                                    // let the peer task handle to fragments
+                                    if cmd.send(RakNetPeerCommand::Received(buf[..len].to_owned())).await.is_err() {
+                                        peers.remove(&addr);
+                                    }
+                                } else {
+                                    let (peer_cmd_sender, mut peer_cmd_receiver) = mpsc::channel(10);
+                                    let (peer_event_sender, peer_event_receiver) = mpsc::channel(10);
 
-                                            let task_command_sender = task_command_sender.clone();
+                                    let task_command_sender = task_command_sender.clone();
 
-                                            let mut update_interval = time::interval(Duration::from_millis(10));
+                                    let mut update_interval = time::interval(Duration::from_millis(10));
+                                    let mut prev_state = State::Unconnected;
 
-                                            let mut prev_state = State::Unconnected;
- 
-                                            if let Ok(mut peer) = RakNetPeerData::new(
-                                                    task_socket.clone(), 
-                                                    addr, 
-                                                    task_socket.local_addr().unwrap()
-                                                ) {
+                                    // push received packet
+                                    peer_cmd_sender.send(RakNetPeerCommand::Received(buf[..len].to_owned())).await
+                                        .expect("failed to send to newly created peer");
 
-                                                debug!("Got new connection from {}", addr.to_string());
-                                                peers.insert(addr, peer_cmd_sender.clone());
+                                    if let Ok(mut peer) = RakNetPeerData::new(
+                                            task_socket.clone(), 
+                                            addr, 
+                                            task_socket.local_addr().unwrap(),
+                                            key.clone(),
+                                        ) {
 
-                                                let mut peet_handle = Some(RakNetPeer::new(*peer.guid(), peer_event_receiver, peer_cmd_sender.clone()));
+                                        debug!("Got new connection from {}", addr.to_string());
+                                        peers.insert(addr, peer_cmd_sender.clone());
 
-                                                tokio::spawn(async move {
-                                                    loop {
-                                                        select! {
-                                                            Some(cmd) = peer_cmd_receiver.recv() => {
-                                                                trace!("Peer command: {:#?}", cmd);
+                                        let mut peet_handle = Some(RakNetPeer::new(*peer.guid(), peer_event_receiver, peer_cmd_sender.clone()));
 
-                                                                match cmd {
-                                                                    RakNetPeerCommand::Disconnect(ret) => { 
-                                                                        peer.disconnect().await;
+                                        tokio::spawn(async move {
+                                            loop {
+                                                select! {
+                                                    Some(cmd) = peer_cmd_receiver.recv() => {
+                                                        trace!("Peer command: {:?}", cmd);
 
-                                                                        let _ = ret.send(());
-                                                                    },
-                                                                    RakNetPeerCommand::Send(priority, reliability, message, ret) => { 
-                                                                        if peer.send(priority, reliability, message).await.is_ok() {
-                                                                            // run update once to immediately send messages
-                                                                            let _ = peer.run_update().await;
+                                                        match cmd {
+                                                            RakNetPeerCommand::Disconnect(ret) => { 
+                                                                peer.disconnect().await;
 
-                                                                            ret.send(Ok(()));
-                                                                        } else {
-                                                                            ret.send(Err(RakNetError::from_kind(RakNetErrorKind::IOError)));
-                                                                        }
-                                                                    },
-                                                                    RakNetPeerCommand::Digest(fragments) => { 
-                                                                        match peer.digest_message_fragments(fragments).await {
-                                                                            Ok(messages) => {
-                                                                                for message in messages {
-                                                                                    let _ = peer_event_sender.send(RakNetPeerEvent::Message(message)).await;
-                                                                                }
+                                                                let _ = ret.send(());
+                                                            },
+                                                            RakNetPeerCommand::Send(priority, reliability, message, ret) => { 
+                                                                if peer.send(priority, reliability, message).await.is_ok() {
+                                                                    // run update once to immediately send messages
+                                                                    let _ = peer.run_update().await;
 
-                                                                                // run update once immediately after digesting the messages
-                                                                                let _ = peer.run_update().await;
-
-                                                                                // check connection state
-                                                                                if *peer.state() == State::Connected && prev_state == State::Unconnected {
-                                                                                    let _ = task_command_sender.send(RakNetCommand::PeerConnected(peet_handle.take().unwrap())).await;
-                                                                                    prev_state = *peer.state();
-                                                                                } else if *peer.state() == State::Disconnected {
-                                                                                    let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr)).await;
-                                                                                    break;
-                                                                                }
-                                                                            },
-                                                                            Err(e) => {
-                                                                                error!("Error while digesting message fragments: {:#?}", e);
-                                                                            }
-                                                                        }
-                                                                    },
+                                                                    ret.send(Ok(()));
+                                                                } else {
+                                                                    ret.send(Err(RakNetError::from_kind(RakNetErrorKind::IOError)));
                                                                 }
                                                             },
-                                                            _ = update_interval.tick() => {
-                                                                if let Err(e) = peer.run_update().await {
-                                                                    error!("Peer update failed. Closing. Error: {}", e.to_string());
-                                        
-                                                                    peer.disconnect_immediate();
+                                                            RakNetPeerCommand::Received(mut message) => {
+                                                                if message.len() >= 16 {
+                                                                    peer.activate_encryption();
                                                                 }
 
-                                                                // stop loop on disconnect
-                                                                if *peer.state() == State::Disconnected {
-                                                                    let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr)).await;
-                                                                    break;
+                                                                if let Err(e) = peer.optional_message_decrypt(&mut message) {
+                                                                    error!("Failed to decrypt message: {:?}", e);
+                                                                } else {
+                                                                    match Self::parse_datagram(&message) {
+                                                                        Ok((_, fragments)) => {
+                                                                            match peer.digest_message_fragments(fragments).await {
+                                                                                Ok(messages) => {
+                                                                                    for message in messages {
+                                                                                        let _ = peer_event_sender.send(RakNetPeerEvent::Message(message)).await;
+                                                                                    }
+            
+                                                                                    // run update once immediately after digesting the messages
+                                                                                    let _ = peer.run_update().await;
+            
+                                                                                    // check connection state
+                                                                                    if *peer.state() == State::Connected && (prev_state == State::Unconnected || prev_state == State::EcryptionHandshake) {
+                                                                                        let _ = task_command_sender.send(RakNetCommand::PeerConnected(peet_handle.take().unwrap())).await;
+                                                                                        prev_state = *peer.state();
+                                                                                    } else if *peer.state() == State::Disconnected {
+                                                                                        let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr)).await;
+                                                                                        break;
+                                                                                    }
+                                                                                },
+                                                                                Err(e) => {
+                                                                                    error!("Error while digesting message fragments: {:#?}", e);
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        Err(e) => {
+                                                                            error!("Received malformed packet: {}", e.to_string());
+                                                                        }
+                                                                    }
                                                                 }
-                                                            }
+                                                            },
+                                                        }
+                                                    },
+                                                    _ = update_interval.tick() => {
+                                                        if let Err(e) = peer.run_update().await {
+                                                            error!("Peer update failed. Closing. Error: {}", e.to_string());
+                                
+                                                            peer.disconnect_immediate();
+                                                        }
+
+                                                        // stop loop on disconnect
+                                                        if *peer.state() == State::Disconnected {
+                                                            let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr)).await;
+                                                            break;
                                                         }
                                                     }
-                                                });
+                                                }
                                             }
-                                        }
-                                    },
-                                    Err(e) => {
-                                        error!("Received malformed packet: {}", e.to_string());
+                                        });
                                     }
                                 }
                             },
@@ -309,7 +334,7 @@ impl RakNetListener {
 enum RakNetPeerCommand {
     Disconnect(oneshot::Sender<()>),
     Send(Priority, Reliability, Message, oneshot::Sender<RakNetResult<()>>),
-    Digest(Vec<MessageFragment>),
+    Received(Vec<u8>),
 }
 
 enum RakNetPeerEvent {

@@ -51,6 +51,8 @@ pub const ID_DISCONNECTION_NOTIFICATION: u8 = 16;
 #[allow(unused)]
 pub const ID_CONNECTION_LOST: u8 = 17;
 #[allow(unused)]
+pub const ID_RSA_PUBLIC_KEY_MISMATCH: u8 = 18;
+#[allow(unused)]
 pub const ID_INVALID_PASSWORD: u8 = 19;
 #[allow(unused)]
 pub const ID_MODIFIED_PACKET: u8 = 20;
@@ -71,8 +73,8 @@ pub enum Message {
     Ping,
     ConnectedPong{remote_time: Duration, local_time: Duration},
     ConnectionRequest{password: String},
-    SecuredConnectionResponse{hash: [u8; 20], e: u32, modulus: [u8; 64]},
-    SecuredConnectionConfirmation,
+    SecuredConnectionResponse{syn_cookie: [u8; 20], e: u32, modulus: [u8; 64]},
+    SecuredConnectionConfirmation{syn_cookie: [u8; 20], encrypted_rsa_key: [u8; 64]},
     OpenConnectionRequest{version: u8},
     OpenConnectionReply,
     ConnectionRequestAccepted{index: u16, peer_addr: PeerAddress, own_addr: PeerAddress, guid: Uuid},
@@ -93,7 +95,7 @@ pub enum Message {
 
 impl Message {
     pub fn test_offline_message(data: &[u8]) -> bool {
-        data[0] == ID_OPEN_CONNECTION_REQUEST || data[0] == ID_OPEN_CONNECTION_REPLY
+        (data[0] == ID_OPEN_CONNECTION_REQUEST || data[0] == ID_OPEN_CONNECTION_REPLY) && data.len() == 2
     }
 }
 
@@ -169,9 +171,22 @@ impl Message {
         )),
         |(_, hash, exponent, modulus): (_, &[u8],_,&[u8])| 
             Message::SecuredConnectionResponse { 
-                hash: hash.try_into().unwrap(), 
+                syn_cookie: hash.try_into().unwrap(), 
                 e: exponent, modulus: 
                 modulus.try_into().unwrap() 
+            }))(data)
+    }
+
+    fn parse_secured_connection_confirmation(data: &[u8]) -> IResult<&[u8], Message, VerboseError<&[u8]>> {
+        context("parse_secured_connection_confirmation", map(tuple((
+            tag([ID_SECURED_CONNECTION_CONFIRMATION]),
+            take(20usize),
+            take(64usize),
+        )),
+        |(_, syn_cookie, encrypted_rsa_key): (_, &[u8], &[u8])| 
+            Message::SecuredConnectionConfirmation { 
+                syn_cookie: syn_cookie.try_into().unwrap(), 
+                encrypted_rsa_key: encrypted_rsa_key.try_into().unwrap() 
             }))(data)
     }
 
@@ -239,6 +254,7 @@ impl Message {
                     ID_CONNECTED_PONG => Self::parse_connected_pong,
                     ID_CONNECTION_REQUEST => Self::parse_connection_request,
                     ID_SECURED_CONNECTION_RESPONSE => Self::parse_secured_connection_response,
+                    ID_SECURED_CONNECTION_CONFIRMATION => Self::parse_secured_connection_confirmation,
                     ID_OPEN_CONNECTION_REQUEST => Self::parse_open_connection_request,
                     ID_OPEN_CONNECTION_REPLY => Self::parse_open_connection_reply,
                     ID_CONNECTION_REQUEST_ACCEPTED => Self::parse_connection_request_accepted,
@@ -267,9 +283,9 @@ impl Message {
                 writer.write(ID_CONNECTION_REQUEST)?;
                 writer.write_bytes(password.as_bytes())?;
             },
-            Self::SecuredConnectionResponse { hash, e, modulus } => {
+            Self::SecuredConnectionResponse { syn_cookie, e, modulus } => {
                 writer.write(ID_SECURED_CONNECTION_RESPONSE)?;
-                writer.write_bytes(hash)?;
+                writer.write_bytes(syn_cookie)?;
                 writer.write(*e)?;
                 writer.write_bytes(modulus)?;
             },
