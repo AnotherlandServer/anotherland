@@ -47,10 +47,17 @@ pub struct ConfApiServer {
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
+pub struct ConfMetricsServer {
+    pub listen_address: SocketAddr,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
 pub struct ConfMain {
     pub login_server: ConfLoginServer,
     pub realm: ConfRealmServer,
     pub frontend: ConfFrontendServer,
     pub api: ConfApiServer,
+    pub metrics: ConfMetricsServer,
 }
 

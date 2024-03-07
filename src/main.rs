@@ -43,7 +43,7 @@ use tokio::signal;
 
 use tokio_stream::StreamExt;
 use util::AnotherlandResult;
-use crate::{config::ConfMain, data_import::import_client_data, db::{database, initalize_db, realm_database, ZoneDef, DatabaseRecord, MiscContent}, actors::SessionManager, frontends::LoginFrontend};
+use crate::{actors::SessionManager, config::ConfMain, data_import::import_client_data, db::{database, initalize_db, realm_database, DatabaseRecord, MiscContent, ZoneDef}, frontends::{LoginFrontend, MetricsFrontend}};
 use crate::actors::Authenticator;
 //use crate::{login_server::LoginServer, realm_server::RealmServer, frontend_server::FrontendServer, node_server::{NodeServer, NodeServerOptions}, api_server::ApiServer};
 
@@ -260,6 +260,8 @@ async fn main() -> AnotherlandResult<()> {
     match &ARGS.start_command {
         StartCommand::InitDb => {
             init_database().await?;
+
+            return Ok(());
         },
         StartCommand::DataImport { path_to_client, .. } => {
             init_database().await?;
@@ -355,6 +357,9 @@ async fn main() -> AnotherlandResult<()> {
             }
         }
     }
+
+    // always add a metrics frontend
+    NODE.add_frontend(MetricsFrontend::initialize().await?);
 
     NODE.start().await;
 

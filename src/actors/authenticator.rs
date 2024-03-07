@@ -19,7 +19,9 @@ use atlas::Uuid;
 use bson::doc;
 use log::warn;
 use mongodb::{Database, options::UpdateOptions};
+use prometheus::{register_int_counter, register_int_gauge, IntCounter, IntGauge};
 use serde_derive::{Serialize, Deserialize};
+use lazy_static::lazy_static;
 
 use crate::{cluster::actor::Actor, db::{cluster_database, Account, DatabaseRecord, Session}, util::{AnotherlandError, AnotherlandErrorKind, AnotherlandResult}, NODE};
 
@@ -28,6 +30,14 @@ use super::SessionManager;
 #[derive(Default, Serialize, Deserialize)]
 struct Status {
     servers_locked: Option<bool>,
+}
+
+// metrics
+lazy_static! {
+    static ref SUCCESSFUL_LOGINS: IntCounter = register_int_counter!("successful_logins", "successful login attempts").unwrap();
+    static ref BLOCKED_LOGINS: IntCounter = register_int_counter!("blocked_logins", "successful login attempts from banned accounts").unwrap();
+    static ref FAILED_LOGINS: IntCounter = register_int_counter!("failed_logins", "failed login attempts").unwrap();
+    static ref SERVER_LOCKED: IntGauge = register_int_gauge!("server_locked", "state of server lock flag").unwrap();
 }
 
 pub struct Authenticator {
@@ -41,6 +51,12 @@ impl Authenticator {
         let cluster_db = cluster_database().await;
 
         let status_record = cluster_db.collection::<Status>("authenticator_status").find_one(None, None).await?.unwrap_or_default();
+
+        // initialize metrics
+        lazy_static::initialize(&SUCCESSFUL_LOGINS);
+        lazy_static::initialize(&BLOCKED_LOGINS);
+        lazy_static::initialize(&FAILED_LOGINS);
+        lazy_static::initialize(&SERVER_LOCKED);
 
         Ok(Self {
             cluster_db: cluster_db.clone(),
@@ -74,6 +90,8 @@ impl Actor for Authenticator {
     fn name(&self) -> Option<&str> { Some("authenticator") }
 
     async fn starting(&mut self) -> AnotherlandResult<()> { 
+        SERVER_LOCKED.set(if self.servers_locked { 1 } else { 0 });
+
         self.session_manager = Some(NODE.get_actor("session_manager").unwrap());
 
         // Update status record, in case we changed or added any defaults
@@ -140,16 +158,19 @@ impl Authenticator {
             account.save(self.cluster_db.clone()).await?;
 
             if account.banned {
+                BLOCKED_LOGINS.inc();
                 Ok(LoginResult::Banned)
             } else if self.servers_locked && !account.is_gm {
                 // only allow gm logins when servers are locked
                 Ok(LoginResult::ServersLocked)
             } else {
+                SUCCESSFUL_LOGINS.inc();
                 let session = self.session_manager_mut().create_session(account.id).await?;
                 Ok(LoginResult::Session(session))
             }
         } else {
             warn!("Invalid credentials for username: {}", username_or_email);
+            FAILED_LOGINS.inc();
             Ok(LoginResult::InvalidCredentials)
         }
     }
@@ -159,6 +180,8 @@ impl Authenticator {
         self.servers_locked = true;
         self.update_status_record().await?;
 
+        SERVER_LOCKED.set(1);
+
         Ok(())
     }
 
@@ -166,6 +189,8 @@ impl Authenticator {
     pub async fn unlock_servers(&mut self) -> AnotherlandResult<()> {
         self.servers_locked = false;
         self.update_status_record().await?;
+
+        SERVER_LOCKED.set(0);
 
         Ok(())
     }

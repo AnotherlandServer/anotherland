@@ -19,9 +19,16 @@ use atlas::Uuid;
 use bson::doc;
 use log::debug;
 use mongodb::Database;
+use prometheus::{register_int_gauge, IntGauge};
 use tokio_stream::StreamExt;
+use lazy_static::lazy_static;
 
 use crate::{cluster::{actor::{Actor}, connect_queue, MessageChannel, MessageQueueProducer, ClusterMessage}, util::{AnotherlandResult, AnotherlandError}, db::{Account, Session, cluster_database, DatabaseRecord}};
+
+// metrics
+lazy_static! {
+    static ref ACTIVE_SESSIONS: IntGauge = register_int_gauge!("active_sessions", "number of concurrent sessions").unwrap();
+}
 
 pub struct SessionManager {
     cluster_db: Database,
@@ -32,14 +39,13 @@ impl SessionManager {
     pub async fn initialize() -> AnotherlandResult<Self> {
         let (producer, _) = connect_queue(MessageChannel::ClusterChannel).await?;
 
+        // initialize metrics
+        lazy_static::initialize(&ACTIVE_SESSIONS);
+
         Ok(Self {
             cluster_db: cluster_database().await,
             cluster_channel_producer: producer
         })
-    }
-
-    async fn starting(&mut self) -> AnotherlandResult<()> { 
-        Ok(()) 
     }
 }
 
@@ -48,13 +54,30 @@ impl Actor for SessionManager {
     type ActorType = Self;
 
     fn name(&self) -> Option<&str> { Some("session_manager") }
+
+    async fn starting(&mut self) -> AnotherlandResult<()> { 
+        // drop all sessions, we always start at zero
+        let collection = self.cluster_db.collection::<Session>("sessions");
+        let mut result = collection.find(doc!{}, None).await?;
+
+        while let Some(session) = result.try_next().await? {
+            // increate active sessions so counter won't get negative
+            // when sessions are dropped
+            ACTIVE_SESSIONS.inc();
+            self.destroy_session(session.id).await?;
+        }
+
+        Ok(()) 
+    }
 }
 
 #[actor_actions]
 impl SessionManager {
     pub async fn create_session(&mut self, account_id: Uuid) -> AnotherlandResult<Session> {
-        if let Some(account) = Account::get(self.cluster_db.clone(), &account_id).await? {
+        if let Some(account) = Account::get(self.cluster_db.clone(), &account_id).await? {           
             self.force_logout_account(account_id).await?;
+
+            ACTIVE_SESSIONS.inc();
             Ok(Session::create(self.cluster_db.clone(), &account).await?)
         } else {
             Err(AnotherlandError::app_err("account not found"))
@@ -128,6 +151,8 @@ impl SessionManager {
 
     #[rpc]
     pub async fn destroy_session(&mut self, session_id: Uuid) -> AnotherlandResult<()> {
+        ACTIVE_SESSIONS.dec();
+
         // first we tell all session handlers, that this session became invalid
         self.cluster_channel_producer.send(ClusterMessage::SessionDestroyed { session_id }).await?;
 
