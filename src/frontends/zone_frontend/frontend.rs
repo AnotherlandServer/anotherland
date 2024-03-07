@@ -407,6 +407,21 @@ impl ZoneSession {
             player.data.write_to_client(&mut writer)?;
         }
 
+        // Set loading state
+        self.send(oaPktS2XConnectionState {
+            field_1: ClientLoadState::Transition.into(),
+            field_2: 0,
+            ..Default::default()
+        }.into_message()).await?;
+
+        // Send resource notification so pathengine can initialize
+        let _ = self.send(CPktResourceNotify {
+            resource_type: CpktResourceNotifyResourceType::WorldDef,
+            field_2: self.zone_factory.world_def().guid,
+            field_3: "".to_owned(),
+            ..Default::default()
+        }.into_message()).await;
+
         // Update player character on client
         self.send(CPktAvatarUpdate {
             full_update: true,
