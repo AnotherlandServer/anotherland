@@ -15,9 +15,9 @@
 
 use std::{collections::{HashSet, HashMap}, io};
 
-use bitstream_io::ByteWrite;
+use bitstream_io::{ByteWrite, Primitive};
 use glam::{Vec4, Vec3, Quat};
-use nom::{IResult, error::{VerboseError, context}, number::{self, complete::le_i32}, bytes::complete::take, combinator::{fail, map}, multi::{count, self}};
+use nom::{bytes::complete::take, combinator::{fail, map}, error::{context, VerboseError}, multi::{self, count}, number::{self, complete::{le_f32, le_i32, le_i64}}, IResult};
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 
@@ -29,90 +29,141 @@ use crate::{serialize::{serialize_string, deserialize_string, serialize_json, de
 #[serde(tag = "t", content = "v")]
 pub enum Param {
     None,
-    #[serde(
-        serialize_with = "serialize_string", 
-        deserialize_with = "deserialize_string"
-    )]
-    String(String, Option<u8>), // 1, 22, 23, 24, 25, 26, 43
-    Int64(i64), // 19
+    String(String), // 1
+    StringPair((String, String)), // 2
+    StringFloatPair((String, f32)), // 3
+    StringSet(HashSet<String>), // 4
+    Guid(Uuid), // 5
+    GuidPair((Uuid, Uuid)), // 6
     Bool(bool), // 7
-    AvatarId(AvatarId), // 16
-    Uuid(Uuid), // 5
-    LocalizedString(Uuid), // 15
-    Class(u32, Vec<u8>), // 41
-    Positionable(Vec4, Vec3), // 21
+    Int(i32), // 8
+    BitField128(u128), // 9
+    BitSetFilter(u32), // 10
+    Float(f32), // 11
+    FloatRange((f32, f32)), // 12
     Vector3(Vec3), // 13
     Vector3Uts((u32, Vec3)), // 13
     Vector4(Vec4), // 14
-    FloatPair((f32, f32)), // 12
-    IntArray4((i32, i32, i32, i32)), // 9
-
-    #[serde(
-        serialize_with = "serialize_json", 
-        deserialize_with = "deserialize_json"
-    )]
-    JsonValue(
-        Value, 
-        Option<String>
-    ), // 18
+    LocalizedString(Uuid), // 15
+    AvatarId(AvatarId), // 16
+    UniqueId(i32), // 17
+    JsonValue(Value), // 18
+    Int64(i64), // 19
     Quarternion(Quat), // 20
-    Bitset(u32), // 10
+    Positionable(Quat, Vec3), // 21
+    ContentRef(String), // 22
+    ContentRefAndInt(String), // 23
+    ContentRefAndFloat(String), // 24
+    ContentRefList(String), // 25
+    ClassRefPowerRangeList(String), // 26
+    VectorInt(Vec<i32>), // 29
+    VectorInt64(Vec<i64>), // 30
+    VectorFloat(Vec<f32>), // 31
+    VectorString(Vec<String>), // 32
     AvatarIdSet(HashSet<AvatarId>), // 35
+    VectorAvatarId(Vec<AvatarId>), // 36
     GuidSet(HashSet<Uuid>), // 37
-    StringSet(HashSet<String>), // 4
-    Int64Array(Vec<i64>), // 30
-    AvatarIdArray(Vec<AvatarId>), // 36
-
-    #[serde(
-        serialize_with = "serialize_vec_uuid", 
-        deserialize_with = "deserialize_vec_uuid"
-    )]
-    GuidArray(
-        Vec<Uuid>, 
-        Option<u8>
-    ), // 38, 42
-    StringArray(Vec<String>), // 32
-    FloatArray(Vec<f32>), // 31
-    IntArray(Vec<i32>), // 29
-    StringMap(HashMap<String, String>), // 40
-    IntMap(HashMap<String, u32>), // 39
-    Float(f32), // 11
-
-    #[serde(
-        serialize_with = "serialize_i32", 
-        deserialize_with = "deserialize_i32"
-    )]
-    Int32(i32, Option<u8>), // 8, 17
-    GuidPair((Uuid, Uuid)), // 6
-    StringPair((String, String)), // 2
-    StringFloatPair((String, f32)), // 3
+    VectorGuid(Vec<Uuid>), // 38
+    HashmapStringInt(HashMap<String, i32>), // 39
+    HashmapStringString(HashMap<String, String>), // 40
+    Any(u32, Vec<u8>), // 41
+    VectorLocalizedString(Vec<Uuid>), // 42
+    InstanceGroup(String), // 43
 }
 
 impl Param {
     pub fn read<'a>(i: &'a [u8], flags: &[ParamFlag]) -> IResult<&'a [u8], Param, VerboseError<&'a [u8]>> {
         let (i, type_id) = number::complete::le_u8(i)?;
         match type_id & 0x7F {
-            1 | 22 | 23 | 24 | 25 | 26 | 43 => {
+            1 => {
                 context("String", |i: &'a [u8]| {
                     let (i, len) = number::complete::le_u16(i)?;
                     let (i, bytes) = take(len as usize)(i)?;
     
                     if let Ok(string) = String::from_utf8(bytes.to_vec()) {
-                        Ok((i, Param::String(string, Some(type_id))))
+                        Ok((i, Param::String(string)))
                     } else {
                         println!("Failed to parse string: {:#?}", bytes);
                         fail(i)
                     }
                 })(i)
-            }
+            },
+            2 => {
+                // todo: validate the binary layout
+                context("StringPair", |i: &'a [u8]| {
+                    let (i, len_a) = number::complete::le_u16(i)?;
+                    let (i, bytes_a) = take(len_a as usize)(i)?;
+    
+                    let (i, len_b) = number::complete::le_u16(i)?;
+                    let (i, bytes_b) = take(len_b as usize)(i)?;
+
+                    if let Ok(string_a) = String::from_utf8(bytes_a.to_vec()) && 
+                        let Ok(string_b) = String::from_utf8(bytes_b.to_vec()) 
+                    {
+                        Ok((i, Param::StringPair((string_a, string_b))))
+                    } else {
+                        println!("Failed to parse string: {:#?} / {:#?}", bytes_a, bytes_b);
+                        fail(i)
+                    }
+                })(i)
+            },
+            3 => {
+                // todo: validate the binary layout
+                context("StringFloatPair", |i: &'a [u8]| {
+                    let (i, len) = number::complete::le_u16(i)?;
+                    let (i, bytes) = take(len as usize)(i)?;
+    
+                    let (i, val) = number::complete::le_f32(i)?;
+
+                    if let Ok(string) = String::from_utf8(bytes.to_vec()) {
+                        Ok((i, Param::StringFloatPair((string, val))))
+                    } else {
+                        println!("Failed to parse string: {:#?}", bytes);
+                        fail(i)
+                    }
+                })(i)
+            },
+            4 => {
+                // todo: validate the binary layout
+                context("StringSet", |i| {
+                    let (i, count) = number::complete::le_u32(i)?;
+                    let (i, data) = multi::count(|i: &'a [u8]| {
+                        let (i, len) = number::complete::le_u16(i)?;
+                        let (i, bytes) = take(len as usize)(i)?;
+        
+                        if let Ok(string) = String::from_utf8(bytes.to_vec()) {
+                            Ok((i, string))
+                        } else {
+                            println!("Failed to parse string: {:#?}", bytes);
+                            fail(i)
+                        }
+                    }, count as usize)(i)?;
+                    Ok((i, Param::StringSet(data.into_iter().collect())))
+                })(i)
+            },
             5 => {
-                context("Uuid", |i| {
+                context("Guid", |i| {
                     let (i, uuid) = map(
                         take(16usize), 
                         |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
                     )(i)?;
 
-                    Ok((i, Param::Uuid(uuid)))
+                    Ok((i, Param::Guid(uuid)))
+                })(i)
+            },
+            6 => {
+                context("GuidPair", |i| {
+                    let (i, uuid_a) = map(
+                        take(16usize), 
+                        |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                    )(i)?;
+
+                    let (i, uuid_b) = map(
+                        take(16usize), 
+                        |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                    )(i)?;
+
+                    Ok((i, Param::GuidPair((uuid_a, uuid_b))))
                 })(i)
             },
             7 => {
@@ -121,10 +172,22 @@ impl Param {
                     Ok((i, Param::Bool(val != 0)))
                 })(i)
             },
-            8 | 17 => {
-                context("Int32", |i| {
+            8 => {
+                context("Int", |i| {
                     let (i, val) = number::complete::le_i32(i)?;
-                    Ok((i, Param::Int32(val, Some(type_id))))
+                    Ok((i, Param::Int(val)))
+                })(i)
+            },
+            9 => {
+                context("BitField128", |i| {
+                    let (i, val) = number::complete::le_u128(i)?;
+                    Ok((i, Param::BitField128(val)))
+                })(i)
+            },
+            10 => {
+                context("BitSetFilter", |i| {
+                    let (i, val) = number::complete::le_u32(i)?;
+                    Ok((i, Param::BitSetFilter(val)))
                 })(i)
             },
             11 => {
@@ -134,9 +197,9 @@ impl Param {
                 })(i)
             },
             12 => {
-                context("FloatPair", |i| {
+                context("FloatRange", |i| {
                     let (i, val) = count(number::complete::le_f32, 2usize)(i)?;
-                    Ok((i, Param::FloatPair((val[0], val[1]))))
+                    Ok((i, Param::FloatRange((val[0], val[1]))))
                 })(i)
             },
             13 => {
@@ -176,15 +239,22 @@ impl Param {
                     Ok((i, Param::AvatarId(id.into())))
                 })(i)
             },
+            17 => {
+                context("UniqueId", |i| {
+                    let (i, id) = number::complete::le_i32(i)?;
+
+                    Ok((i, Param::UniqueId(id)))
+                })(i)
+            },
             18 => {
                 context("JsonValue", |i: &'a [u8]| {
                     let (i, len) = number::complete::le_u16(i)?;
                     let (i, bytes) = take(len as usize)(i)?;
 
                     if bytes.is_empty() {
-                        Ok((i, Param::JsonValue(Value::Null, Some("".to_owned()))))
+                        Ok((i, Param::JsonValue(Value::Null)))
                     } else if let Ok(json) = serde_json::from_slice(bytes) {
-                        Ok((i, Param::JsonValue(json, Some(String::from_utf8_lossy(bytes).to_string()))))
+                        Ok((i, Param::JsonValue(json)))
                     } else {
                         // Try to fixup the json, as serde_json seems to be more strict than whatever parser otherland 
                         // is using. Or they just ignored those errors...
@@ -195,7 +265,7 @@ impl Param {
                             .replace("\"QuestID\":,\"QuestTag\":,", "\"QuestID\":null,\"QuestTag\":null,");
 
                         if let Ok(json) = serde_json::from_str(&fixed_json) {
-                            Ok((i, Param::JsonValue(json, Some(String::from_utf8_lossy(bytes).to_string()))))
+                            Ok((i, Param::JsonValue(json)))
                         } else {
                             println!("Failed to parse json: \"{}\"", String::from_utf8_lossy(bytes));
                             fail(i)
@@ -209,15 +279,112 @@ impl Param {
                     Ok((i, Param::Int64(val)))
                 })(i)
             },
+            20 => {
+                // todo: validate the binary layout
+                context("Quarternion", |i| {
+                    let (i, val) = count(number::complete::le_f32, 4usize)(i)?;
+                    Ok((i, Param::Quarternion(Quat::from_xyzw(val[0], val[1], val[2], val[3]))))
+                })(i)
+            },
+            21 => {
+                // todo: validate the binary layout
+                context("Positionable", |i| {
+                    let (i, quat_val) = count(number::complete::le_f32, 4usize)(i)?;
+                    let (i, vec_val) = count(number::complete::le_f32, 3usize)(i)?;
+                    Ok((i, Param::Positionable(
+                        Quat::from_xyzw(quat_val[0], quat_val[1], quat_val[2], quat_val[3]), 
+                        Vec3::new(vec_val[0], vec_val[1], vec_val[2])
+                    )))
+                })(i)
+            },
+            22 => {
+                context("ContentRef", |i: &'a [u8]| {
+                    let (i, len) = number::complete::le_u16(i)?;
+                    let (i, bytes) = take(len as usize)(i)?;
+    
+                    if let Ok(string) = String::from_utf8(bytes.to_vec()) {
+                        Ok((i, Param::ContentRef(string)))
+                    } else {
+                        println!("Failed to parse ContentRef: {:#?}", bytes);
+                        fail(i)
+                    }
+                })(i)
+            },
+            23 => {
+                context("ContentRefAndInt", |i: &'a [u8]| {
+                    let (i, len) = number::complete::le_u16(i)?;
+                    let (i, bytes) = take(len as usize)(i)?;
+    
+                    if let Ok(string) = String::from_utf8(bytes.to_vec()) {
+                        Ok((i, Param::ContentRefAndInt(string)))
+                    } else {
+                        println!("Failed to parse ContentRefAndInt: {:#?}", bytes);
+                        fail(i)
+                    }
+                })(i)
+            },
+            24 => {
+                context("ContentRefAndFloat", |i: &'a [u8]| {
+                    let (i, len) = number::complete::le_u16(i)?;
+                    let (i, bytes) = take(len as usize)(i)?;
+    
+                    if let Ok(string) = String::from_utf8(bytes.to_vec()) {
+                        Ok((i, Param::ContentRefAndFloat(string)))
+                    } else {
+                        println!("Failed to parse ContentRefAndFloat: {:#?}", bytes);
+                        fail(i)
+                    }
+                })(i)
+            },
+            25 => {
+                context("ContentRefList", |i: &'a [u8]| {
+                    let (i, len) = number::complete::le_u16(i)?;
+                    let (i, bytes) = take(len as usize)(i)?;
+    
+                    if let Ok(string) = String::from_utf8(bytes.to_vec()) {
+                        Ok((i, Param::ContentRefList(string)))
+                    } else {
+                        println!("Failed to parse ContentRefList: {:#?}", bytes);
+                        fail(i)
+                    }
+                })(i)
+            },
+            26 => {
+                context("ClassRefPowerRangeList", |i: &'a [u8]| {
+                    let (i, len) = number::complete::le_u16(i)?;
+                    let (i, bytes) = take(len as usize)(i)?;
+    
+                    if let Ok(string) = String::from_utf8(bytes.to_vec()) {
+                        Ok((i, Param::ClassRefPowerRangeList(string)))
+                    } else {
+                        println!("Failed to parse ClassRefPowerRangeList: {:#?}", bytes);
+                        fail(i)
+                    }
+                })(i)
+            },
             29 => {
-                context("IntArray", |i| {
+                context("VectorInt", |i| {
                     let (i, count) = number::complete::le_u32(i)?;
                     let (i, data) = multi::count(le_i32, count as usize)(i)?;
-                    Ok((i, Param::IntArray(data)))
+                    Ok((i, Param::VectorInt(data)))
                 })(i)
-            }
+            },
+            30 => {
+                context("VectorInt64", |i| {
+                    let (i, count) = number::complete::le_u32(i)?;
+                    let (i, data) = multi::count(le_i64, count as usize)(i)?;
+                    Ok((i, Param::VectorInt64(data)))
+                })(i)
+            },
+            31 => {
+                context("VectorFloat", |i| {
+                    let (i, count) = number::complete::le_u32(i)?;
+                    let (i, data) = multi::count(le_f32, count as usize)(i)?;
+                    Ok((i, Param::VectorFloat(data)))
+                })(i)
+            },
             32 => {
-                context("StringArray", |i| {
+                context("VectorString", |i| {
                     let (i, count) = number::complete::le_u32(i)?;
                     let (i, data) = multi::count(|i: &'a [u8]| {
                         let (i, len) = number::complete::le_u16(i)?;
@@ -230,11 +397,11 @@ impl Param {
                             fail(i)
                         }
                     }, count as usize)(i)?;
-                    Ok((i, Param::StringArray(data)))
+                    Ok((i, Param::VectorString(data)))
                 })(i)
             },
-            38 | 42 => {
-                context("GuidArray", |i| {
+            37 => {
+                context("GuidSet", |i| {
                     let (i, count) = number::complete::le_u32(i)?;
                     let (i, data) = multi::count(
                         map(
@@ -242,16 +409,53 @@ impl Param {
                             |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
                         ), count as usize)(i)?;
 
-                    Ok((i, Param::GuidArray(data, Some(type_id))))
+                    Ok((i, Param::GuidSet(data.into_iter().collect())))
+                })(i)
+            },
+            38 => {
+                context("VectorGuid", |i| {
+                    let (i, count) = number::complete::le_u32(i)?;
+                    let (i, data) = multi::count(
+                        map(
+                            take(16usize), 
+                            |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                        ), count as usize)(i)?;
+
+                    Ok((i, Param::VectorGuid(data)))
                 })(i)
             },
             41 => {
-                context("Class", |i: &'a [u8]| {
+                context("Any", |i: &'a [u8]| {
                     let (i, len) = number::complete::le_u32(i)?;
                     let (i, class) = number::complete::le_u32(i)?;
                     let (i, data) = take(len as usize)(i)?;
 
-                    Ok((i, Param::Class(class, data.to_vec())))
+                    Ok((i, Param::Any(class, data.to_vec())))
+                })(i)
+            },
+            42 => {
+                context("VectorLocalizedString", |i| {
+                    let (i, count) = number::complete::le_u32(i)?;
+                    let (i, data) = multi::count(
+                        map(
+                            take(16usize), 
+                            |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                        ), count as usize)(i)?;
+
+                    Ok((i, Param::VectorLocalizedString(data)))
+                })(i)
+            },
+            43 => {
+                context("InstanceGroup", |i: &'a [u8]| {
+                    let (i, len) = number::complete::le_u16(i)?;
+                    let (i, bytes) = take(len as usize)(i)?;
+    
+                    if let Ok(string) = String::from_utf8(bytes.to_vec()) {
+                        Ok((i, Param::InstanceGroup(string)))
+                    } else {
+                        println!("Failed to parse InstanceGroup: {:#?}", bytes);
+                        fail(i)
+                    }
                 })(i)
             },
             _ => {
@@ -267,34 +471,64 @@ impl Param {
         where T: ByteWrite
     {
         match self {
-            Self::String(val, orig_type) => {
-                match orig_type {
-                    Some(type_id) => writer.write(*type_id)?,
-                    None => writer.write(1u8)?,
-                }
+            Self::String(val) => {
+                writer.write(1u8)?;
                 writer.write(val.len() as u16)?;
                 writer.write_bytes(val.as_bytes())?;
             },
-            Self::Uuid(val) => {
+            Self::StringPair((val_a, val_b)) => {
+                writer.write(2u8)?;
+                writer.write(val_a.len() as u16)?;
+                writer.write_bytes(val_a.as_bytes())?;
+                writer.write(val_b.len() as u16)?;
+                writer.write_bytes(val_b.as_bytes())?;
+            },
+            Self::StringFloatPair((string, val)) => {
+                writer.write(3u8)?;
+                writer.write(string.len() as u16)?;
+                writer.write_bytes(string.as_bytes())?;
+                writer.write_bytes(val.to_le_bytes().as_slice())?;
+            },
+            Self::StringSet(val) => {
+                writer.write(4u8)?;
+                writer.write(val.len() as u32)?;
+                for s in val {
+                    let bytes = s.as_bytes();
+
+                    writer.write(bytes.len() as u16)?;
+                    writer.write_bytes(bytes)?;
+                }
+            }
+            Self::Guid(val) => {
                 writer.write(5u8)?;
                 writer.write_bytes(val.to_uuid_1().to_bytes_le().as_slice())?;
+            },
+            Self::GuidPair((val_a, val_b)) => {
+                writer.write(6u8)?;
+                writer.write_bytes(val_a.to_uuid_1().to_bytes_le().as_slice())?;
+                writer.write_bytes(val_b.to_uuid_1().to_bytes_le().as_slice())?;
             },
             Self::Bool(val) => {
                 writer.write(7u8)?;
                 writer.write(if *val { 1u8 } else { 0u8 })?;
             },
-            Self::Int32(val, orig_type) => {
-                match orig_type {
-                    Some(type_id) => writer.write(*type_id)?,
-                    None => writer.write(8u8)?,
-                }
+            Self::Int(val) => {
+                writer.write(8u8)?;
                 writer.write(*val)?;
+            },
+            Self::BitField128(val) => {
+                writer.write(9u8)?;
+                writer.write_bytes(val.to_le_bytes().as_slice())?;
+            },
+            Self::BitSetFilter(val) => {
+                writer.write(10u8)?;
+                writer.write_bytes(val.to_le_bytes().as_slice())?;
             },
             Self::Float(val) => {
                 writer.write(11u8)?;
                 writer.write_bytes(val.to_le_bytes().as_slice())?;
             },
-            Self::FloatPair(val) => {
+            Self::FloatRange(val) => {
                 writer.write(12u8)?;
                 writer.write_bytes(val.0.to_le_bytes().as_slice())?;
                 writer.write_bytes(val.1.to_le_bytes().as_slice())?;
@@ -327,12 +561,12 @@ impl Param {
                 writer.write(16u8)?;
                 writer.write(val.as_u64())?;
             },
-            Self::JsonValue(val, orig) => {
-                let json = if orig.is_some() {
-                    orig.as_ref().unwrap().to_owned()
-                 } else {
-                    serde_json::to_string(val).unwrap()
-                 };
+            Self::UniqueId(val) => {
+                writer.write(17u8)?;
+                writer.write(*val)?;
+            },
+            Self::JsonValue(val) => {
+                let json = serde_json::to_string(val).unwrap();
 
                 writer.write(18u8)?;
                 writer.write(json.len() as u16)?;
@@ -342,14 +576,70 @@ impl Param {
                 writer.write(19u8)?;
                 writer.write(*val)?;
             },
-            Self::IntArray(val) => {
+            Self::Quarternion(val) => {
+                writer.write(20u8)?;
+                writer.write_bytes(val.x.to_le_bytes().as_slice())?;
+                writer.write_bytes(val.y.to_le_bytes().as_slice())?;
+                writer.write_bytes(val.z.to_le_bytes().as_slice())?;
+                writer.write_bytes(val.w.to_le_bytes().as_slice())?;
+            },
+            Self::Positionable(rot, pos) => {
+                writer.write(21u8)?;
+                writer.write_bytes(rot.x.to_le_bytes().as_slice())?;
+                writer.write_bytes(rot.y.to_le_bytes().as_slice())?;
+                writer.write_bytes(rot.z.to_le_bytes().as_slice())?;
+                writer.write_bytes(rot.w.to_le_bytes().as_slice())?;
+                writer.write_bytes(pos.x.to_le_bytes().as_slice())?;
+                writer.write_bytes(pos.y.to_le_bytes().as_slice())?;
+                writer.write_bytes(pos.z.to_le_bytes().as_slice())?;
+            },
+            Self::ContentRef(val) => {
+                writer.write(22u8)?;
+                writer.write(val.len() as u16)?;
+                writer.write_bytes(val.as_bytes())?;
+            },
+            Self::ContentRefAndInt(val) => {
+                writer.write(23u8)?;
+                writer.write(val.len() as u16)?;
+                writer.write_bytes(val.as_bytes())?;
+            },
+            Self::ContentRefAndFloat(val) => {
+                writer.write(24u8)?;
+                writer.write(val.len() as u16)?;
+                writer.write_bytes(val.as_bytes())?;
+            },
+            Self::ContentRefList(val) => {
+                writer.write(25u8)?;
+                writer.write(val.len() as u16)?;
+                writer.write_bytes(val.as_bytes())?;
+            },
+            Self::ClassRefPowerRangeList(val) => {
+                writer.write(26u8)?;
+                writer.write(val.len() as u16)?;
+                writer.write_bytes(val.as_bytes())?;
+            },
+            Self::VectorInt(val) => {
                 writer.write(29u8)?;
                 writer.write(val.len() as u32)?;
                 for &i in val {
                     writer.write(i)?;
                 }
             },
-            Self::StringArray(val) => {
+            Self::VectorInt64(val) => {
+                writer.write(30u8)?;
+                writer.write(val.len() as u32)?;
+                for &i in val {
+                    writer.write(i)?;
+                }
+            },
+            Self::VectorFloat(val) => {
+                writer.write(31u8)?;
+                writer.write(val.len() as u32)?;
+                for &i in val {
+                    writer.write_bytes(i.to_le_bytes().as_slice())?;
+                }
+            },
+            Self::VectorString(val) => {
                 writer.write(32u8)?;
                 writer.write(val.len() as u32)?;
                 for s in val {
@@ -359,21 +649,23 @@ impl Param {
                     writer.write_bytes(bytes)?;
                 }
             }
-            Self::GuidArray(val, orig_type) => {
-                match orig_type {
-                    Some(type_id) => writer.write(*type_id)?,
-                    None => writer.write(38u8)?,
-                }
+            Self::VectorGuid(val) => {
+                writer.write(38u8)?;
                 writer.write(val.len() as u32)?;
                 for i in val.iter() {
                     writer.write_bytes(&i.to_uuid_1().to_bytes_le())?;
                 }
             },
-            Self::Class(class, val) => {
+            Self::Any(class, val) => {
                 writer.write(41u8)?;
                 writer.write(*class)?;
                 writer.write(val.len() as u32)?;
                 writer.write_bytes(val)?;
+            },
+            Self::InstanceGroup(val) => {
+                writer.write(43u8)?;
+                writer.write(val.len() as u16)?;
+                writer.write_bytes(val.as_bytes())?;
             },
             _ => todo!(),
         }
@@ -383,24 +675,14 @@ impl Param {
 
     pub(super) fn should_skip(&self) -> bool {
         match self {
-            Self::Int64Array(val) => val.is_empty(),
-            Self::AvatarIdArray(val) => val.is_empty(),
-            Self::StringArray(val) => val.is_empty(),
-            Self::FloatArray(val) => val.is_empty(),
-            Self::IntArray(val) => val.is_empty(),
+            Self::VectorAvatarId(val) => val.is_empty(),
+            Self::VectorString(val) => val.is_empty(),
+            Self::VectorFloat(val) => val.is_empty(),
+            Self::VectorInt(val) => val.is_empty(),
+            Self::VectorInt64(val) => val.is_empty(),
+            Self::VectorGuid(val) => val.is_empty(),
+            Self::VectorLocalizedString(val) => val.is_empty(),
             _ => false,
-        }
-    }
-
-    /// Original data is usefol to test serializing/deserializing of params. 
-    /// Normally we'd strip those infos for general use.
-    pub fn strip_original_data(self) -> Self {
-        match self {
-            Self::String(val, _) => Self::String(val, None),
-            Self::JsonValue(val, _) => Self::JsonValue(val, None),
-            Self::GuidArray(val, _) => Self::GuidArray(val, None),
-            Self::Int32(val, _) => Self::Int32(val, None),
-            _ => self,
         }
     }
 
@@ -435,31 +717,31 @@ impl From<Vec4> for Param {
 
 impl From<i32> for Param {
     fn from(value: i32) -> Self {
-        Param::Int32(value, None)
+        Param::Int(value)
     }
 }
 
 impl From<&i32> for Param {
     fn from(value: &i32) -> Self {
-        Param::Int32(value.to_owned(), None)
+        Param::Int(value.to_owned())
     }
 }
 
 impl From<String> for Param {
     fn from(value: String) -> Self {
-        Param::String(value, None)
+        Param::String(value)
     }
 }
 
 impl From<&str> for Param {
     fn from(value: &str) -> Self {
-        Param::String(value.to_owned(), None)
+        Param::String(value.to_owned())
     }
 }
 
 impl From<Uuid> for Param {
     fn from(value: Uuid) -> Self {
-        Param::Uuid(value)
+        Param::Guid(value)
     }
 }
 
@@ -477,25 +759,25 @@ impl From<i64> for Param {
 
 impl From<Vec<Uuid>> for Param {
     fn from(value: Vec<Uuid>) -> Self {
-        Param::GuidArray(value, None)
+        Param::VectorGuid(value)
     }
 }
 
 impl From<Vec<i32>> for Param {
     fn from(value: Vec<i32>) -> Self {
-        Param::IntArray(value)
+        Param::VectorInt(value)
     }
 }
 
 impl From<Vec<AvatarId>> for Param {
     fn from(value: Vec<AvatarId>) -> Self {
-        Param::AvatarIdArray(value)
+        Param::VectorAvatarId(value)
     }
 }
 
 impl From<Vec<String>> for Param {
     fn from(value: Vec<String>) -> Self {
-        Param::StringArray(value)
+        Param::VectorString(value)
     }
 }
 
@@ -507,13 +789,13 @@ impl From<HashMap<String, i32>> for Param {
 
 impl From<HashMap<String, String>> for Param {
     fn from(value: HashMap<String, String>) -> Self {
-        Param::StringMap(value)
+        Param::HashmapStringString(value)
     }
 }
 
 impl From<Value> for Param {
     fn from(value: Value) -> Self {
-        Param::JsonValue(value, None)
+        Param::JsonValue(value)
     }
 }
 
@@ -537,13 +819,13 @@ impl From<HashSet<AvatarId>> for Param {
 
 impl From<Vec<f32>> for Param {
     fn from(value: Vec<f32>) -> Self {
-        Param::FloatArray(value)
+        Param::VectorFloat(value)
     }
 }
 
 impl From<Vec<i64>> for Param {
     fn from(value: Vec<i64>) -> Self {
-        Param::Int64Array(value)
+        Param::VectorInt64(value)
     }
 }
 
@@ -555,13 +837,13 @@ impl From<(Uuid, Uuid)> for Param {
 
 impl From<u32> for Param {
     fn from(value: u32) -> Self {
-        Param::Bitset(value)
+        Param::BitSetFilter(value)
     }
 }
 
 impl From<(f32, f32)> for Param {
     fn from(value: (f32, f32)) -> Self {
-        Param::FloatPair(value)
+        Param::FloatRange(value)
     }
 }
 
@@ -604,7 +886,7 @@ impl <'a>TryInto<&'a Uuid> for &'a Param {
 
     fn try_into(self) -> Result<&'a Uuid, Self::Error> {
         match self {
-            Param::Uuid(val) => Ok(val),
+            Param::Guid(val) => Ok(val),
             _ => Err(ParamError(()))
         }
     }
@@ -682,7 +964,7 @@ impl <'a>TryInto<&'a Value> for &'a Param {
 
     fn try_into(self) -> Result<&'a Value, Self::Error> {
         match self {
-            Param::JsonValue(val, _) => Ok(val),
+            Param::JsonValue(val) => Ok(val),
             _ => Err(ParamError(()))
         }
     }
@@ -693,7 +975,7 @@ impl <'a>TryInto<&'a [AvatarId]> for &'a Param {
 
     fn try_into(self) -> Result<&'a [AvatarId], Self::Error> {
         match self {
-            Param::AvatarIdArray(val) => Ok(val.as_slice()),
+            Param::VectorAvatarId(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
@@ -704,7 +986,7 @@ impl <'a>TryInto<&'a [i32]> for &'a Param {
 
     fn try_into(self) -> Result<&'a [i32], Self::Error> {
         match self {
-            Param::IntArray(val) => Ok(val.as_slice()),
+            Param::VectorInt(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
@@ -715,7 +997,7 @@ impl <'a>TryInto<&'a str> for &'a Param {
 
     fn try_into(self) -> Result<&'a str, Self::Error> {
         match self {
-            Param::String(val, _) => Ok(val.as_str()),
+            Param::String(val) => Ok(val.as_str()),
             _ => Err(ParamError(()))
         }
     }
@@ -726,7 +1008,7 @@ impl <'a>TryInto<&'a [String]> for &'a Param {
 
     fn try_into(self) -> Result<&'a [String], Self::Error> {
         match self {
-            Param::StringArray(val) => Ok(val.as_slice()),
+            Param::VectorString(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
@@ -737,7 +1019,7 @@ impl <'a>TryInto<&'a i32> for &'a Param {
 
     fn try_into(self) -> Result<&'a i32, Self::Error> {
         match self {
-            Param::Int32(val, _) => Ok(val),
+            Param::Int(val) => Ok(val),
             _ => Err(ParamError(()))
         }
     }
@@ -748,7 +1030,7 @@ impl TryInto<i32> for &Param {
 
     fn try_into(self) -> Result<i32, Self::Error> {
         match self {
-            Param::Int32(val, _) => Ok(val.to_owned()),
+            Param::Int(val) => Ok(val.to_owned()),
             _ => Err(ParamError(()))
         }
     }
@@ -805,7 +1087,7 @@ impl <'a>TryInto<&'a [Uuid]> for &'a Param {
 
     fn try_into(self) -> Result<&'a  [Uuid], Self::Error> {
         match self {
-            Param::GuidArray(val, _) => Ok(val.as_slice()),
+            Param::VectorGuid(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
@@ -838,7 +1120,7 @@ impl <'a>TryInto<&'a u32> for &'a Param {
 
     fn try_into(self) -> Result<&'a u32, Self::Error> {
         match self {
-            Param::Bitset(val) => Ok(val),
+            Param::BitSetFilter(val) => Ok(val),
             _ => Err(ParamError(()))
         }
     }
@@ -849,7 +1131,7 @@ impl TryInto<u32> for &Param {
 
     fn try_into(self) -> Result<u32, Self::Error> {
         match self {
-            Param::Bitset(val) => Ok(*val),
+            Param::BitSetFilter(val) => Ok(*val),
             _ => Err(ParamError(()))
         }
     }
@@ -860,7 +1142,7 @@ impl <'a>TryInto<&'a [i64]> for &'a Param {
 
     fn try_into(self) -> Result<&'a [i64], Self::Error> {
         match self {
-            Param::Int64Array(val) => Ok(val.as_slice()),
+            Param::VectorInt64(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }
@@ -871,7 +1153,7 @@ impl <'a>TryInto<&'a (f32, f32)> for &'a Param {
 
     fn try_into(self) -> Result<&'a (f32, f32), Self::Error> {
         match self {
-            Param::FloatPair(val) => Ok(val),
+            Param::FloatRange(val) => Ok(val),
             _ => Err(ParamError(()))
         }
     }
@@ -882,7 +1164,7 @@ impl <'a>TryInto<&'a [f32]> for &'a Param {
 
     fn try_into(self) -> Result<&'a [f32], Self::Error> {
         match self {
-            Param::FloatArray(val) => Ok(val.as_slice()),
+            Param::VectorFloat(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }

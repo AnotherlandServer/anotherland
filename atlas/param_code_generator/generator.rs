@@ -136,10 +136,10 @@ impl ParamType {
             ParamType::AvatarIDVector => quote!([AvatarId]),
             ParamType::BitSetFilter => quote!(u32),
             ParamType::Bool => quote!(bool),
-            ParamType::ClassRefPowerRangeList => quote!(()),
-            ParamType::ContentRef => quote!(Uuid),
-            ParamType::ContentRefAndInt => quote!(()),
-            ParamType::ContentRefList => quote!(()),
+            ParamType::ClassRefPowerRangeList => quote!(str),
+            ParamType::ContentRef => quote!(str),
+            ParamType::ContentRefAndInt => quote!(str),
+            ParamType::ContentRefList => quote!(str),
             ParamType::Float => quote!(f32),
             ParamType::FloatRange => quote!((f32, f32)),
             ParamType::FloatVector => quote!([f32]),
@@ -151,9 +151,9 @@ impl ParamType {
             ParamType::IntVector => quote!([i32]),
             ParamType::Json => quote!(Value),
             ParamType::LocalizedString => quote!(Uuid),
-            ParamType::OAInstanceGroup => quote!(()),
-            ParamType::OASetGuid => quote!(()),
-            ParamType::OAVactorLocalizedString => quote!(()),
+            ParamType::OAInstanceGroup => quote!(str),
+            ParamType::OASetGuid => quote!(HashSet<Uuid>),
+            ParamType::OAVactorLocalizedString => quote!([Uuid]),
             ParamType::OAVectorGuid => quote!([Uuid]),
             ParamType::String => quote!(str),
             ParamType::StringFloatPair => quote!((String, f32)),
@@ -184,6 +184,9 @@ impl ParamType {
         matches!(self, ParamType::AvatarIDSet |
             ParamType::AvatarIDVector |
             ParamType::ContentRef |
+            ParamType::ContentRefAndInt |
+            ParamType::ContentRefList |
+            ParamType::ClassRefPowerRangeList |
             ParamType::FloatRange |
             ParamType::FloatVector |
             ParamType::Guid |
@@ -198,7 +201,8 @@ impl ParamType {
             ParamType::StringIntHashmap |
             ParamType::StringStringHashmap |
             ParamType::StringVector |
-            ParamType::Vector3)
+            ParamType::Vector3
+        )
     }
 }
 
@@ -355,21 +359,21 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             ParamType::AvatarIDVector => None,
                             ParamType::BitSetFilter => None,
                             ParamType::Bool => if default_str == "true" { Some(quote!{ Param::Bool(true) }) } else { Some(quote!{ Param::Bool(false) }) },
-                            ParamType::ClassRefPowerRangeList => None,
-                            ParamType::ContentRef => None,
-                            ParamType::ContentRefAndInt => None,
-                            ParamType::ContentRefList => None,
+                            ParamType::ClassRefPowerRangeList => Some(quote! { Param::ClassRefPowerRangeList(#default_str.to_owned()) }),
+                            ParamType::ContentRef => Some(quote! { Param::ContentRef(#default_str.to_owned()) }),
+                            ParamType::ContentRefAndInt => Some(quote! { Param::ContentRefAndInt(#default_str.to_owned()) }),
+                            ParamType::ContentRefList => Some(quote! { Param::ContentRefList(#default_str.to_owned()) }),
                             ParamType::Float => {
                                 let val: f32 = default_str.parse().expect("failed to parse float");
                                 Some(quote! { Param::Float(#val) })
                             },
                             ParamType::FloatRange => None,
                             ParamType::FloatVector => None,
-                            ParamType::Guid => Some(quote!{ Param::Uuid(Uuid::parse_str(#default_str).unwrap()) }),
+                            ParamType::Guid => Some(quote!{ Param::Guid(Uuid::parse_str(#default_str).unwrap()) }),
                             ParamType::GuidPair => None,
                             ParamType::Int => {
                                 let val: i32 = default_str.parse().expect("failed to parse int");
-                                Some(quote! { Param::Int32(#val, None) })
+                                Some(quote! { Param::Int(#val) })
                             },
                             ParamType::Int64 => {
                                 let val: i64 = default_str.parse().expect("failed to parse int64");
@@ -379,10 +383,10 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             ParamType::IntVector => None,
                             ParamType::Json => {
                                 let json = default_str.replace("\\\"", "\"");
-                                Some(quote! { Param::JsonValue(serde_json::from_str(#json).unwrap(), None) })
+                                Some(quote! { Param::JsonValue(serde_json::from_str(#json).unwrap()) })
                             },
                             ParamType::LocalizedString => Some(quote! { Param::LocalizedString(Uuid::parse_str(#default_str).unwrap()) }),
-                            ParamType::String => Some(quote! { Param::String(#default_str.to_owned(), None) }),
+                            ParamType::String => Some(quote! { Param::String(#default_str.to_owned()) }),
                             ParamType::StringFloatPair => None,
                             ParamType::StringStringHashmap => None,
                             ParamType::StringIntHashmap => None,
@@ -600,34 +604,34 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 ParamType::Any => quote!(ParamType::Any),
                 ParamType::AvatarID => quote!(ParamType::AvatarId),
                 ParamType::AvatarIDSet => quote!(ParamType::AvatarIdSet),
-                ParamType::AvatarIDVector => quote!(ParamType::AvatarIdArray),
-                ParamType::BitSetFilter => quote!(ParamType::Bitset),
+                ParamType::AvatarIDVector => quote!(ParamType::VectorAvatarId),
+                ParamType::BitSetFilter => quote!(ParamType::BitSetFilter),
                 ParamType::Bool => quote!(ParamType::Bool),
-                ParamType::ClassRefPowerRangeList => quote!(ParamType::ContentRefArray), // not sure about this
+                ParamType::ClassRefPowerRangeList => quote!(ParamType::ClassRefPowerRangeList), 
                 ParamType::ContentRef => quote!(ParamType::ContentRef),
-                ParamType::ContentRefAndInt => quote!(ParamType::ContentRef), // not sure about this
-                ParamType::ContentRefList => quote!(ParamType::ContentRefArray),
+                ParamType::ContentRefAndInt => quote!(ParamType::ContentRefAndInt), 
+                ParamType::ContentRefList => quote!(ParamType::ContentRefList),
                 ParamType::Float => quote!(ParamType::Float),
-                ParamType::FloatRange => quote!(ParamType::FloatPair),
-                ParamType::FloatVector => quote!(ParamType::FloatArray),
-                ParamType::Guid => quote!(ParamType::Uuid),
-                ParamType::GuidPair => quote!(ParamType::UuidPair),
-                ParamType::Int => quote!(ParamType::Int32),
+                ParamType::FloatRange => quote!(ParamType::FloatRange),
+                ParamType::FloatVector => quote!(ParamType::VectorFloat),
+                ParamType::Guid => quote!(ParamType::Guid),
+                ParamType::GuidPair => quote!(ParamType::GuidPair),
+                ParamType::Int => quote!(ParamType::Int),
                 ParamType::Int64 => quote!(ParamType::Int64),
-                ParamType::Int64Vector => quote!(ParamType::Int64Array),
-                ParamType::IntVector => quote!(ParamType::IntArray),
+                ParamType::Int64Vector => quote!(ParamType::VectorInt64),
+                ParamType::IntVector => quote!(ParamType::VectorInt),
                 ParamType::Json => quote!(ParamType::JsonValue),
                 ParamType::LocalizedString => quote!(ParamType::LocalizedString),
                 ParamType::String => quote!(ParamType::String),
                 ParamType::StringFloatPair => quote!(ParamType::StringFloatPair),
-                ParamType::StringStringHashmap => quote!(ParamType::StringMap),
-                ParamType::StringIntHashmap => quote!(ParamType::IntMap),
-                ParamType::StringVector => quote!(ParamType::StringArray),
+                ParamType::StringStringHashmap => quote!(ParamType::HashmapStringString),
+                ParamType::StringIntHashmap => quote!(ParamType::HashmapStringInt),
+                ParamType::StringVector => quote!(ParamType::VectorString),
                 ParamType::Vector3 => quote!(ParamType::Vector3),
-                ParamType::OAInstanceGroup => quote!(ParamType::String),
-                ParamType::OASetGuid => quote!(ParamType::UuidSet),
-                ParamType::OAVectorGuid => quote!(ParamType::UuidArray),
-                ParamType::OAVactorLocalizedString => quote!(ParamType::UuidArray),
+                ParamType::OAInstanceGroup => quote!(ParamType::InstanceGroup),
+                ParamType::OASetGuid => quote!(ParamType::GuidSet),
+                ParamType::OAVectorGuid => quote!(ParamType::VectorGuid),
+                ParamType::OAVactorLocalizedString => quote!(ParamType::VectorLocalizedString),
             };
 
             quote!(Self::#entry_name => #type_ident,)
@@ -840,16 +844,16 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             fn #set_field_name(&mut self, val: bool);
                         }),
                         ParamType::ClassRefPowerRangeList => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ());
+                            fn #set_field_name(&mut self, _val: &str);
                         }),
                         ParamType::ContentRef => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, val: Uuid);
+                            fn #set_field_name(&mut self, val: &str);
                         }),
                         ParamType::ContentRefAndInt => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ());
+                            fn #set_field_name(&mut self, _val: &str);
                         }),
                         ParamType::ContentRefList => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ());
+                            fn #set_field_name(&mut self, _val: &str);
                         }),
                         ParamType::Float => tokens.push(quote! { 
                             fn #set_field_name(&mut self, val: f32);
@@ -885,13 +889,13 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             fn #set_field_name(&mut self, val: Uuid);
                         }),
                         ParamType::OAInstanceGroup => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ());
+                            fn #set_field_name(&mut self, _val: &str);
                         }),
                         ParamType::OASetGuid => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ());
+                            fn #set_field_name(&mut self, _val: HashSet<Uuid>);
                         }),
                         ParamType::OAVactorLocalizedString => tokens.push(quote! { 
-                            fn #set_field_name(&mut self, _val: ());
+                            fn #set_field_name(&mut self, _val: Vec<Uuid>);
                         }),
                         ParamType::OAVectorGuid => tokens.push(quote! { 
                             fn #set_field_name(&mut self, val: Vec<Uuid>);
@@ -1092,100 +1096,100 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                     { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::AvatarID => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: AvatarId) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: AvatarId) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::AvatarId(val)) }
                                 }),
                                 ParamType::AvatarIDSet => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: HashSet<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: HashSet<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::AvatarIdSet(val)) }
                                 }),
                                 ParamType::AvatarIDVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: Vec<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorAvatarId(val)) }
                                 }),
                                 ParamType::BitSetFilter => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: u32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: u32) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::BitSetFilter(val)) }
                                 }),
                                 ParamType::Bool => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: bool) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: bool) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Bool(val)) }
                                 }),
                                 ParamType::ClassRefPowerRangeList => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::ClassRefPowerRangeList(val.to_owned())) }
                                 }),
                                 ParamType::ContentRef => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::ContentRef(val.to_owned())) }
                                 }),
                                 ParamType::ContentRefAndInt => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::ContentRefAndInt(val.to_owned())) }
                                 }),
                                 ParamType::ContentRefList => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::ContentRefList(val.to_owned())) }
                                 }),
                                 ParamType::Float => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: f32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: f32) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Float(val)) }
                                 }),
                                 ParamType::FloatRange => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: (f32, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: (f32, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::FloatRange(val)) }
                                 }),
                                 ParamType::FloatVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<f32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: Vec<f32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorFloat(val)) }
                                 }),
                                 ParamType::Guid => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Guid(val)) }
                                 }),
                                 ParamType::GuidPair => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: (Uuid, Uuid)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: (Uuid, Uuid)) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::GuidPair(val)) }
                                 }),
                                 ParamType::Int => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: i32) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: i32) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Int(val)) }
                                 }),
                                 ParamType::Int64 => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: i64) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: i64) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Int64(val)) }
                                 }),
                                 ParamType::Int64Vector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<i64>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: Vec<i64>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorInt64(val)) }
                                 }),
                                 ParamType::IntVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: Vec<i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorInt(val)) }
                                 }),
                                 ParamType::Json => tokens.push(quote! { 
                                     fn #set_field_name(&mut self, val: Value) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
                                 }),
                                 ParamType::LocalizedString => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::LocalizedString(val)) }
                                 }),
                                 ParamType::OAInstanceGroup => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::InstanceGroup(val.to_owned())) }
                                 }),
                                 ParamType::OASetGuid => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                    fn #set_field_name(&mut self, val: HashSet<Uuid>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::GuidSet(val)) }
                                 }),
                                 ParamType::OAVactorLocalizedString => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, _val: ()) { todo!() }
+                                    fn #set_field_name(&mut self, val: Vec<Uuid>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorLocalizedString(val)) }
                                 }),
                                 ParamType::OAVectorGuid => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<Uuid>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: Vec<Uuid>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorGuid(val)) }
                                 }),
                                 ParamType::String => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::String(val.to_owned())) }
                                 }),
                                 ParamType::StringFloatPair => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: (String, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: (String, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::StringFloatPair(val)) }
                                 }),
                                 ParamType::StringIntHashmap => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: HashMap<String, i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: HashMap<String, i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::HashmapStringInt(val)) }
                                 }),
                                 ParamType::StringStringHashmap => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: HashMap<String, String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: HashMap<String, String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::HashmapStringString(val)) }
                                 }),
                                 ParamType::StringVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: Vec<String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorString(val)) }
                                 }),
                                 ParamType::Vector3 => {
                                     if options.flags.contains(&ParamFlag::Uts) {
                                         tokens.push(quote! {
-                                            fn #set_field_name(&mut self, val: (u32, Vec3)) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                            fn #set_field_name(&mut self, val: (u32, Vec3)) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Vector3Uts(val)) }
                                         })
                                     } else {
                                         tokens.push(quote! {
-                                            fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                            fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Vector3(val)) }
                                         })
                                     }
                                 },
