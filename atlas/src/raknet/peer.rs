@@ -77,6 +77,7 @@ pub(crate) struct RakNetPeerData {
     send_queue_prioritized: Arc<RwLock<Vec<VecDeque<SendQueueItem>>>>,
     remote_time: Duration,
     created: Instant,
+    last_update: Instant,
 
     split_packet_channel: HashMap<u16, Vec<Option<OnlineMessage>>>,
 
@@ -121,6 +122,7 @@ impl RakNetPeerData {
                     send_queue_prioritized: Arc::new(RwLock::new(Self::create_prioritized_send_queue())),
                     remote_time: Duration::default(),
                     created: Instant::now(),
+                    last_update: Instant::now(),
 
                     split_packet_channel: HashMap::new(),
 
@@ -243,9 +245,13 @@ impl RakNetPeerData {
                 },
                 MessageFragment::SystemTime(remote_time) => {
                     self.remote_time = remote_time;
+                    self.last_update = Instant::now();
                 },
                 MessageFragment::OfflineMessage(Message::OpenConnectionRequest { version }) => {
-                    if version != 3 {
+                    if self.state != State::Unconnected {
+                        warn!("Got connection request from already connected peer {}. Disconnecting...", self.guid);
+                        self.disconnect_immediate();
+                    } else if version != 3 {
                         debug!("Got unexpected raknet version from peer {:#?}. Got {} expected 3!", self.remote_address(), version);
                         self.disconnect().await;
                     } else {
@@ -394,12 +400,18 @@ impl RakNetPeerData {
                                                     },
                                                     Err(e) => {
                                                         warn!("Failed to decrypt client key: {:?}", e);
+                                                        self.disconnect_immediate();
+                                                        break;
                                                     }
                                                 }
 
                                                 if new_rand_number {
                                                     self.generate_syn_cookie_random_number();
                                                 }
+                                            } else {
+                                                warn!("Invalid syn cookie from peer {}!", self.guid);
+                                                self.disconnect_immediate();
+                                                break;
                                             }
                                         }
                                     },
@@ -546,13 +558,23 @@ impl RakNetPeerData {
         let mut buf = Vec::new();
         let mut writer = BitWriter::endian(&mut buf, BigEndian);
 
+        let current_time = Instant::now();
+
+        // check for connection timeout
+        if current_time.duration_since(self.last_update).as_millis() >= 10000 {
+            warn!("Peer {} timed out.", self.guid);
+
+            self.disconnect_immediate();
+            return Ok(());
+        }
+
         // resend pending messages not yet acknowledged
         let mut pending_ids = self.resend_queue.keys().map(|v| v.to_owned()).collect::<Vec<_>>();
         pending_ids.sort();
 
         for id in pending_ids {
             let (sent) = self.resend_queue.get(&id).map(|(sent, _)| sent.to_owned()).unwrap();
-            if Instant::now().duration_since(sent).as_millis() > 1000 {
+            if current_time.duration_since(sent).as_millis() > 1000 {
                 let (id, (_, message)) = self.resend_queue.remove_entry(&id).unwrap();
 
                 trace!("Resending message id {}:{}", self.guid.to_string(), id);
@@ -702,7 +724,7 @@ impl RakNetPeerData {
     }
 
     pub(crate) fn optional_message_decrypt(&self, message: &mut Vec<u8>) -> RakNetResult<()> {
-        if let Some(key) = self.encryption_key && (self.state >= State::Connected) {
+        if let Some(key) = self.encryption_key && (self.state >= State::Connected) && message.len() >= 16 {
             Self::decrypt_message(&key, message)
         } else {
             Ok(())
