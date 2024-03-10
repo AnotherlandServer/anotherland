@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{AvatarId, PlayerParams, Uuid};
+use atlas::{AvatarId, PlayerParams, Uuid, UUID_NIL};
 use log::info;
 use mongodb::Database;
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -107,7 +107,7 @@ impl Social {
             
             if let Some(character) = Character::get(self.db.clone(), &session.character_id.unwrap()).await? {
                 state.zone_id = session.zone_guid;
-                state.clan_id = if *character.data.clan_guid() != Uuid::default() {
+                state.clan_id = if *character.data.clan_guid() != *UUID_NIL {
                     Some(*character.data.clan_guid())
                 } else {
                     None

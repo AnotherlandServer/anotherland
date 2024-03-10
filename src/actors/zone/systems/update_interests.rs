@@ -15,32 +15,37 @@
 
 use std::collections::HashSet;
 
-use atlas::{NonClientBaseComponent, PlayerClass, PlayerParams};
+use atlas::{NonClientBaseComponent, PlayerClass, PlayerParams, SpawnerClass};
 use bevy_ecs::{entity::Entity, event::EventWriter, query::{With, Without}, system::Query};
 
 use crate::actors::{zone::{components::{AvatarComponent, AvatarEvent, InterestList, Position}, zone_events::AvatarEventFired}, Spawned};
 
 #[allow(clippy::type_complexity)]
 pub fn update_interests(
-    mut players: Query<(Entity, &AvatarComponent, &PlayerClass, &Position, &mut InterestList), Without<NonClientBaseComponent>>,
-    non_player_avatars: Query<(&AvatarComponent, &Position, &NonClientBaseComponent), (With<Spawned>, Without<PlayerClass>)>,
+    mut players: Query<(Entity, &PlayerClass, &mut InterestList)>,
+    positioned: Query<(Entity, &AvatarComponent, &Position, Option<&NonClientBaseComponent>), (With<Spawned>, Without<SpawnerClass>)>,
     mut ev_avatar_event: EventWriter<AvatarEventFired>,
 ) {
-    for (entity, avatar, player, position, mut interests) in players.iter_mut() {
+    for (entity, player, mut interests) in players.iter_mut() {
         let mut new_interests = HashSet::new();
 
+        let (_, _, position, _) = positioned.get(entity).unwrap();
+
         // determine interests
-        for (other_avatar, other_pos, base) in non_player_avatars.iter() {
-            if other_avatar.id == avatar.id {
-                continue;
-            }
+        for (other_ent, other_avatar, other_pos, base) in positioned.iter() {
+            // skip over self
+            if other_ent == entity { continue; }
 
-            if (position.position.distance(other_pos.position) <= player.aware_dist() || base.always_visible_to_players()) && 
-                base.visible_on_quest_available().is_none() && 
-                base.visible_on_quest_complete().is_none() && 
-                base.visible_on_quest_finished().is_none() && 
-                base.visible_on_quest_in_progress().is_none() {
-
+            if let Some(base) = base {
+                if (position.position.distance(other_pos.position) <= player.aware_dist() || base.always_visible_to_players()) && 
+                    base.visible_on_quest_available().is_none() && 
+                    base.visible_on_quest_complete().is_none() && 
+                    base.visible_on_quest_finished().is_none() && 
+                    base.visible_on_quest_in_progress().is_none()
+                {
+                    new_interests.insert(other_avatar.id.to_owned());
+                }
+            } else if position.position.distance(other_pos.position) <= player.aware_dist() {
                 new_interests.insert(other_avatar.id.to_owned());
             }
         }

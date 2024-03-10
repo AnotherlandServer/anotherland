@@ -16,7 +16,7 @@
 use std::{borrow::Borrow, collections::{HashMap, HashSet, VecDeque}, net::{Ipv6Addr, SocketAddr}, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use async_trait::async_trait;
-use atlas::{oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPkt_Combat_HpUpdate, oaPkt_SplineSurfing_Acknowledge, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktChat, CPktResourceNotify, CPktServerNotify, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid};
+use atlas::{oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPkt_Combat_HpUpdate, oaPkt_SplineSurfing_Acknowledge, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktChat, CPktResourceNotify, CPktServerNotify, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid, UUID_NIL};
 use bitstream_io::{ByteWriter, LittleEndian};
 use glam::{Quat, Vec3};
 use log::{debug, error, trace, warn, info};
@@ -113,20 +113,20 @@ impl Frontend for ZoneFrontend {
 
                                                 // if this zone is instanced, spin up a new zone and move the player to that
                                                 // use the primary zone otherwise.
-                                                let zone = if factory.config().is_instance() {
+                                                let zone = if factory.config().force_generate_guid_key() {
                                                     debug!("Spinning up new instance of zone {}", factory.zone_def().guid);
 
                                                     ZoneInstance::Instance(factory.spawn_zone().await)
                                                 } else {
                                                     let mut instances_s = instances.lock().await;
 
-                                                    if let Some(zone) = instances_s.get(&Uuid::default()) {
+                                                    if let Some(zone) = instances_s.get(&UUID_NIL) {
                                                         zone.clone()
                                                     } else {
                                                         debug!("Spinning up persistent zone {}", factory.zone_def().guid);
 
                                                         let zone = ZoneInstance::Persistent(factory.spawn_zone().await);
-                                                        instances_s.insert(Uuid::default(), zone.clone());
+                                                        instances_s.insert(*UUID_NIL, zone.clone());
 
                                                         zone
                                                     }

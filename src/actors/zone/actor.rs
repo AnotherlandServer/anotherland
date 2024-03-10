@@ -506,7 +506,7 @@ impl Zone {
     }
 
 
-    pub async fn move_player_avatar(&mut self, avatar_id: AvatarId, movement: Movement) {
+    pub fn move_player_avatar(&mut self, avatar_id: AvatarId, movement: Movement) {
         if let Some(mut position) = self.avatar_id_to_entity_lookup.get(&avatar_id)
             .and_then(|ent| self.app.world.get_mut::<Position>(*ent)) {
 
