@@ -17,7 +17,7 @@ use bevy::{app::{App, Plugin, PreUpdate}, utils::HashMap};
 use bevy_ecs::{entity::Entity, event::{Event, Events}, system::{IntoSystem, Resource, System}, world::{Mut, World}};
 use log::warn;
 
-use super::EntityType;
+use super::{AvatarComponent, EntityType};
 
 #[derive(Event)]
 pub struct RequestBehavior {
@@ -106,7 +106,8 @@ fn perform_told_behavior(world: &mut World) {
                     behavior.run((ev.instigator, ev.target, ev.behavior), world);
                     behavior.apply_deferred(world);
                 } else {
-                    warn!("No behaviors defined for entity type: {:?}. But client calls for it!", entity_type)
+                    let avatar = world.get::<AvatarComponent>(ev.target).unwrap();
+                    warn!("No behaviors defined for entity {:?}:{}. But client calls for it!", entity_type, avatar.name)
                 }
             }
         });
