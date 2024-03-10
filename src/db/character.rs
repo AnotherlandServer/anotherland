@@ -29,6 +29,17 @@ use atlas::{PlayerClass, Uuid, PlayerParams};
 
 use super::{DatabaseRecord, ItemContent};
 
+pub enum Race {
+    Simuloid, // 0
+    Human, // 1
+    Alien, // 2
+}
+
+pub enum Gender {
+    Male, // 0
+    Female, // 1
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Character {
     pub id: u32,
@@ -48,9 +59,33 @@ impl Character {
             player.set_world_map_guid("f6b8f8b7-a726-4d36-9634-f6d403943fff");
             player.set_zone_guid(Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
             player.set_zone("ClassSelection_P");
+
+            player.set_tutorial_mode(true);
         
             // default customization
-            player.set_visible_item_info(vec![3840]);
+            player.set_current_skin("Simuloid");
+            player.set_visible_item_info(vec![
+                20647, // PlayerCharSkinSimuloid0001Default0004
+                21190, // SkinColorSimuloid0006Default0002
+                21566, // TattooFace0001Default0002
+                21550, // Scars0002Default0002
+                21633, // CharFaceMale0012Default0002
+                21184, // EyeColor0015Default0002
+                21571, // LipColor0011Default0002
+                21585, // HairSkin0002Default0002
+                21638, // HairColor0017Default0002
+            ]);
+            player.set_default_items_content_guid(vec![
+                20647, // PlayerCharSkinSimuloid0001Default0004
+                21190, // SkinColorSimuloid0006Default0002
+                21566, // TattooFace0001Default0002
+                21550, // Scars0002Default0002
+                21633, // CharFaceMale0012Default0002
+                21184, // EyeColor0015Default0002
+                21571, // LipColor0011Default0002
+                21585, // HairSkin0002Default0002
+                21638, // HairColor0017Default0002
+            ]);
             player.set_customization_gender(1.0);
             player.set_customization_height(0.5);
             player.set_customization_bust_size(0.5);
@@ -72,12 +107,15 @@ impl Character {
 
         let mut avatar_data = template.clone();
         let default_items = ItemContent::list_by_categories(db.clone(), vec![
-            Uuid::parse_str("6B74CF2D-79A3-48B8-B752-995179A064BD").unwrap()
+            Uuid::parse_str("B1F4F5F2-E3E1-46d3-8E13-BF87769F18EA").unwrap(),
+            Uuid::parse_str("6B74CF2D-79A3-48B8-B752-995179A064BD").unwrap(),
+            Uuid::parse_str("393B5E54-457F-41a4-A60E-7DF834FFFB13").unwrap(),
+            Uuid::parse_str("557F6393-B875-4af0-86A3-6107FE1225BB").unwrap(),
         ].as_slice()).await?;
 
         debug!("Default item count: {}", default_items.len());
 
-        avatar_data.set_default_items_content_guid(default_items.into_iter().map(|v| v.id as i32).collect());
+        avatar_data.set_metamorph_item_list(default_items.into_iter().map(|v| v.guid).collect());
 
         let character = Character {
             id: numeric_id,

@@ -176,7 +176,7 @@ impl ItemContent {
         let collection = Self::collection(db);
         let mut items = Vec::new();
 
-        let string_categories: Vec<_> = categories.iter().collect();
+        let string_categories: Vec<_> = categories.iter().map(|id| id.to_string()).collect();
 
         let mut result = collection.find(doc!{"data.ednaModule.Category.v": {"$in":string_categories}}, None).await?;
         while let Some(item) = result.try_next().await? {
