@@ -30,6 +30,7 @@ use rsa::hazmat::rsa_decrypt_and_check;
 #[derive(PartialEq, Eq, PartialOrd, Clone, Copy)]
 pub enum State {
     Unconnected,
+    Connecting,
     EcryptionHandshake,
     Connected,
     HalfClosed,
@@ -227,6 +228,16 @@ impl RakNetPeerData {
         let mut messages = Vec::new();
         
         for fragment in fragments {
+            trace!("Fragment: {:?}", fragment);
+
+            // if we receive anyting than an offline message while the peer is unconnected,
+            // this indicates our and the peers stocket state are out of sync. Fore disconnected and
+            // let the client try again.
+            if self.state == State::Unconnected && !matches!(fragment, MessageFragment::OfflineMessage(_)) {
+                self.disconnect().await;
+                return Err(RakNetError::new(RakNetErrorKind::IOError, "peer not connected"));
+            }
+
             match fragment {
                 MessageFragment::Ack(_, ranges) => {
                     for range in ranges {
@@ -255,6 +266,7 @@ impl RakNetPeerData {
                         debug!("Got unexpected raknet version from peer {:#?}. Got {} expected 3!", self.remote_address(), version);
                         self.disconnect().await;
                     } else {
+                        self.state = State::Connecting;
                         self.send_internal(Priority::System, Reliability::Unreliable, Message::OpenConnectionReply).await?;
                     }
                 },
@@ -296,6 +308,7 @@ impl RakNetPeerData {
                                 match message {
                                     Message::InternalPing { time } => {
                                         self.remote_time = time;
+                                        self.last_update = Instant::now();
                                         self.send_internal(Priority::System, Reliability::Unreliable, Message::ConnectedPong { 
                                             remote_time: self.remote_time, 
                                             local_time: Instant::now().duration_since(self.created), 
@@ -503,7 +516,12 @@ impl RakNetPeerData {
 
     pub(crate) async fn disconnect(&mut self) {
         match self.state {
-            State::Unconnected => self.state = State::Disconnected,
+            State::Unconnected | State::Connecting => {
+                self.state = State::Disconnected;
+
+                // force disconnect by sending a disconnection notification as an offline message
+                self.send_raw(&Message::DisconnectionNotification.to_bytes()).await;
+            },
             _ => {
                 self.state = State::HalfClosed;
                 self.send_internal(Priority::System, Reliability::Unreliable, Message::DisconnectionNotification).await;
@@ -591,7 +609,7 @@ impl RakNetPeerData {
         for queue in self.send_queue_prioritized.clone().write().await.iter_mut() {              
             while let Some(message) = queue.pop_front() {
                 // Offline? Then just send the raw message
-                if self.state == State::Unconnected {
+                if self.state <= State::Connecting {
                     trace!("Sending offline message to client {:#?}: {:#?}", self.guid.to_string(), message);
 
                     let data = message.data;

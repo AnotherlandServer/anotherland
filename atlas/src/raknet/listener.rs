@@ -140,7 +140,7 @@ impl RakNetListener {
                                 }
                             },
                             RakNetCommand::PeerDisconnected(addr) => {
-                                trace!("Removing peer with address {:?}", addr);
+                                debug!("Removing peer with address {:?}", addr);
                                 peers.remove(&addr);
                             }
                         }
@@ -221,11 +221,10 @@ impl RakNetListener {
                                                                                     let _ = peer.run_update().await;
             
                                                                                     // check connection state
-                                                                                    if *peer.state() == State::Connected && (prev_state == State::Unconnected || prev_state == State::EcryptionHandshake) {
+                                                                                    if *peer.state() == State::Connected && prev_state < State::Connected {
                                                                                         let _ = task_command_sender.send(RakNetCommand::PeerConnected(peet_handle.take().unwrap())).await;
                                                                                         prev_state = *peer.state();
                                                                                     } else if *peer.state() == State::Disconnected {
-                                                                                        let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr)).await;
                                                                                         break 'peer_event_loop;
                                                                                     }
                                                                                 },
@@ -251,12 +250,15 @@ impl RakNetListener {
 
                                                         // stop loop on disconnect
                                                         if *peer.state() == State::Disconnected {
-                                                            let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr)).await;
                                                             break 'peer_event_loop;
                                                         }
                                                     }
                                                 }
                                             }
+
+                                            tokio::spawn(async move {
+                                                let _ = task_command_sender.send(RakNetCommand::PeerDisconnected(addr)).await;
+                                            });
                                         });
                                     }
                                 }
