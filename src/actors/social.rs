@@ -85,7 +85,7 @@ impl Actor for Social {
 #[actor_actions]
 impl Social {
     pub async fn register_avatar(&mut self, id: AvatarId) -> Receiver<SocialEvent> {
-        let (sender, receiver) = mpsc::channel(10);
+        let (sender, receiver) = mpsc::channel(100);
 
         self.avatars.insert(id, SocialState { 
             sender,

@@ -80,8 +80,8 @@ impl RakNetEncryptionKey {
 #[allow(unused)]
 impl RakNetListener {
     pub async fn bind<'a, A: ToSocketAddrs>(address: A, key: Option<RakNetEncryptionKey>) -> RakNetResult<Self> {
-        let (command_sender, mut command_receiver) = mpsc::channel(10);
-        let (connection_sender, connection_receiver) = mpsc::channel(10);
+        let (command_sender, mut command_receiver) = mpsc::channel(100);
+        let (connection_sender, connection_receiver) = mpsc::channel(100);
 
         let mut socket = Arc::new(UdpSocket::bind(address).await?);
         
@@ -155,8 +155,8 @@ impl RakNetListener {
                                         peers.remove(&addr);
                                     }
                                 } else {
-                                    let (peer_cmd_sender, mut peer_cmd_receiver) = mpsc::channel(10);
-                                    let (peer_event_sender, peer_event_receiver) = mpsc::channel(10);
+                                    let (peer_cmd_sender, mut peer_cmd_receiver) = mpsc::channel(100);
+                                    let (peer_event_sender, peer_event_receiver) = mpsc::channel(100);
 
                                     let task_command_sender = task_command_sender.clone();
 

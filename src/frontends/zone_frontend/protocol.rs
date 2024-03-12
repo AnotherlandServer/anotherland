@@ -168,7 +168,7 @@ impl<S, R> ZoneServerClient<S, R>
 
     async fn accept(incoming: Connecting) -> AnotherlandResult<ZoneServerClient<S,R>> {
         let connection = incoming.await?;
-        let (sender, receiver) = mpsc::channel(10);
+        let (sender, receiver) = mpsc::channel(100);
 
         let tasks = TaskTracker::new();
         let token = CancellationToken::new();
@@ -199,7 +199,7 @@ impl<S, R> ZoneServerClient<S, R>
         let connection = endpoint
             .connect(addr, "localhost")?
             .await?;
-        let (sender, receiver) = mpsc::channel(10);
+        let (sender, receiver) = mpsc::channel(100);
 
         let tasks = TaskTracker::new();
         let token = CancellationToken::new();

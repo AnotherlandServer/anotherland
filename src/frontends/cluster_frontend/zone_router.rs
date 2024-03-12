@@ -55,7 +55,7 @@ impl ZoneRouter {
         let token = CancellationToken::new();
         let tasks = TaskTracker::new();
 
-        let (command_sender, mut command_receiver) = mpsc::channel(10);
+        let (command_sender, mut command_receiver) = mpsc::channel(100);
 
         tokio::spawn({
             let token = token.clone();
@@ -86,7 +86,7 @@ impl ZoneRouter {
                                                 
                                                 let _ = retval.send(Err(AnotherlandError::app_err("failed to enter zone")));
                                             } else {
-                                                let (message_sender, message_receiver) = mpsc::channel(10);
+                                                let (message_sender, message_receiver) = mpsc::channel(100);
             
                                                 trace!(
                                                     session_id = session_id.to_string(), 
@@ -241,7 +241,7 @@ impl ZoneConnectionRegistry {
 
             if let Some(addr) = self.zone_registry.resolve_zone_address(*zone_id).await {
                 let mut client = ZoneServerClient::connect(addr).await?;
-                let (zone_message_sender, mut zone_message_receiver) = mpsc::channel(10);
+                let (zone_message_sender, mut zone_message_receiver) = mpsc::channel(100);
 
                 self.connections.insert(*zone_id, zone_message_sender.clone());
 

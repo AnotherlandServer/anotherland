@@ -97,7 +97,7 @@ impl ClusterNode {
 
         let name = actor.name().map(|v| v.to_owned());
 
-        let (tx, mut rx) = mpsc::channel(10);
+        let (tx, mut rx) = mpsc::channel(100);
         let actor_token = CancellationToken::new();
 
         let actor_ref = ActorRef { 

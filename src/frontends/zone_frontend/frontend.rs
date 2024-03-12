@@ -101,7 +101,7 @@ impl Frontend for ZoneFrontend {
                         let mut sessions = HashMap::new();
         
                         self.tasks.spawn(async move {
-                            let (downstream_sender, mut downstream_receiver) = mpsc::channel(10);
+                            let (downstream_sender, mut downstream_receiver) = mpsc::channel(100);
                             let connection_token = CancellationToken::new();
         
                             'accept_loop: loop {
@@ -234,7 +234,7 @@ impl ZoneSession {
         // invalidates during the zone enter stage.
         let session_ref = session_handler.write().await.initiate_trusted(*session_id, *session_id).await.unwrap();
 
-        let (avatar_event_sender, avatar_event_receiver) = mpsc::channel(10);
+        let (avatar_event_sender, avatar_event_receiver) = mpsc::channel(100);
 
         let session = ZoneSession {
             session_id: session_id.to_owned(),
@@ -260,7 +260,7 @@ impl ZoneSession {
     }
 
     fn run(mut self, tasks: &TaskTracker, token: CancellationToken) -> Sender<ZoneUpstreamMessage> {
-        let (request_sender, mut request_receiver) = mpsc::channel(10);
+        let (request_sender, mut request_receiver) = mpsc::channel(100);
 
         tasks.spawn(async move {
             let session_ref = self.session_ref.clone();
