@@ -412,6 +412,7 @@ dependencies = [
  "futures",
  "glam",
  "itertools",
+ "lazy_static",
  "linked-hash-map",
  "log",
  "nom",
