@@ -25,11 +25,12 @@ use crate::{serialize::{serialize_string, deserialize_string, serialize_json, de
 
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "t", content = "v")]
 pub enum Param {
     None,
     String(String), // 1
+    StaticString(#[serde(skip)] &'static str), // 1
     StringPair((String, String)), // 2
     StringFloatPair((String, f32)), // 3
     StringSet(HashSet<String>), // 4
@@ -52,10 +53,15 @@ pub enum Param {
     Quarternion(Quat), // 20
     Positionable(Quat, Vec3), // 21
     ContentRef(String), // 22
+    StaticContentRef(#[serde(skip)] &'static str), // 22
     ContentRefAndInt(String), // 23
+    StaticContentRefAndInt(#[serde(skip)] &'static str), // 23
     ContentRefAndFloat(String), // 24
+    StaticContentRefAndFloat(#[serde(skip)] &'static str), // 24
     ContentRefList(String), // 25
+    StaticContentRefList(#[serde(skip)] &'static str), // 25
     ClassRefPowerRangeList(String), // 26
+    StaticClassRefPowerRangeList(#[serde(skip)] &'static str), // 26
     VectorInt(Vec<i32>), // 29
     VectorInt64(Vec<i64>), // 30
     VectorFloat(Vec<f32>), // 31
@@ -69,6 +75,7 @@ pub enum Param {
     Any(u32, Vec<u8>), // 41
     VectorLocalizedString(Vec<Uuid>), // 42
     InstanceGroup(String), // 43
+    StaticInstanceGroup(#[serde(skip)] &'static str), // 43
 }
 
 impl Param {
@@ -691,6 +698,61 @@ impl Param {
     }
 }
 
+impl Clone for Param {
+    fn clone(&self) -> Self {
+        match self {
+            Self::None => Self::None,
+            Self::String(arg0) => Self::String(arg0.clone()),
+            Self::StaticString(arg0) => Self::String(arg0.to_string()),
+            Self::StringPair(arg0) => Self::StringPair(arg0.clone()),
+            Self::StringFloatPair(arg0) => Self::StringFloatPair(arg0.clone()),
+            Self::StringSet(arg0) => Self::StringSet(arg0.clone()),
+            Self::Guid(arg0) => Self::Guid(*arg0),
+            Self::GuidPair(arg0) => Self::GuidPair(*arg0),
+            Self::Bool(arg0) => Self::Bool(*arg0),
+            Self::Int(arg0) => Self::Int(*arg0),
+            Self::BitField128(arg0) => Self::BitField128(*arg0),
+            Self::BitSetFilter(arg0) => Self::BitSetFilter(*arg0),
+            Self::Float(arg0) => Self::Float(*arg0),
+            Self::FloatRange(arg0) => Self::FloatRange(*arg0),
+            Self::Vector3(arg0) => Self::Vector3(*arg0),
+            Self::Vector3Uts(arg0) => Self::Vector3Uts(*arg0),
+            Self::Vector4(arg0) => Self::Vector4(*arg0),
+            Self::LocalizedString(arg0) => Self::LocalizedString(*arg0),
+            Self::AvatarId(arg0) => Self::AvatarId(*arg0),
+            Self::UniqueId(arg0) => Self::UniqueId(*arg0),
+            Self::JsonValue(arg0) => Self::JsonValue(arg0.clone()),
+            Self::Int64(arg0) => Self::Int64(*arg0),
+            Self::Quarternion(arg0) => Self::Quarternion(*arg0),
+            Self::Positionable(arg0, arg1) => Self::Positionable(*arg0, *arg1),
+            Self::ContentRef(arg0) => Self::ContentRef(arg0.clone()),
+            Self::StaticContentRef(arg0) => Self::ContentRef(arg0.to_string()),
+            Self::ContentRefAndInt(arg0) => Self::ContentRefAndInt(arg0.clone()),
+            Self::StaticContentRefAndInt(arg0) => Self::ContentRefAndInt(arg0.to_string()),
+            Self::ContentRefAndFloat(arg0) => Self::ContentRefAndFloat(arg0.clone()),
+            Self::StaticContentRefAndFloat(arg0) => Self::ContentRefAndFloat(arg0.to_string()),
+            Self::ContentRefList(arg0) => Self::ContentRefList(arg0.clone()),
+            Self::StaticContentRefList(arg0) => Self::ContentRefList(arg0.to_string()),
+            Self::ClassRefPowerRangeList(arg0) => Self::ClassRefPowerRangeList(arg0.clone()),
+            Self::StaticClassRefPowerRangeList(arg0) => Self::ClassRefPowerRangeList(arg0.to_string()),
+            Self::VectorInt(arg0) => Self::VectorInt(arg0.clone()),
+            Self::VectorInt64(arg0) => Self::VectorInt64(arg0.clone()),
+            Self::VectorFloat(arg0) => Self::VectorFloat(arg0.clone()),
+            Self::VectorString(arg0) => Self::VectorString(arg0.clone()),
+            Self::AvatarIdSet(arg0) => Self::AvatarIdSet(arg0.clone()),
+            Self::VectorAvatarId(arg0) => Self::VectorAvatarId(arg0.clone()),
+            Self::GuidSet(arg0) => Self::GuidSet(arg0.clone()),
+            Self::VectorGuid(arg0) => Self::VectorGuid(arg0.clone()),
+            Self::HashmapStringInt(arg0) => Self::HashmapStringInt(arg0.clone()),
+            Self::HashmapStringString(arg0) => Self::HashmapStringString(arg0.clone()),
+            Self::Any(arg0, arg1) => Self::Any(*arg0, arg1.clone()),
+            Self::VectorLocalizedString(arg0) => Self::VectorLocalizedString(arg0.clone()),
+            Self::InstanceGroup(arg0) => Self::InstanceGroup(arg0.clone()),
+            Self::StaticInstanceGroup(arg0) => Self::InstanceGroup(arg0.to_string()),
+        }
+    }
+}
+
 impl From<bool> for Param {
     fn from(value: bool) -> Self {
         Param::Bool(value)
@@ -887,6 +949,7 @@ impl <'a>TryInto<&'a Uuid> for &'a Param {
     fn try_into(self) -> Result<&'a Uuid, Self::Error> {
         match self {
             Param::Guid(val) => Ok(val),
+            Param::LocalizedString(val) => Ok(val),
             _ => Err(ParamError(()))
         }
     }
@@ -998,6 +1061,7 @@ impl <'a>TryInto<&'a str> for &'a Param {
     fn try_into(self) -> Result<&'a str, Self::Error> {
         match self {
             Param::String(val) => Ok(val.as_str()),
+            Param::StaticString(val) => Ok(val),
             _ => Err(ParamError(()))
         }
     }

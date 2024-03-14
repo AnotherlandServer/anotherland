@@ -14,8 +14,5 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub type Uuid = bson::Uuid;
-use lazy_static::lazy_static;
 
-lazy_static! {
-    pub static ref UUID_NIL: Uuid = Uuid::from_uuid_1(uuid::uuid!("00000000-0000-0000-0000-000000000000"));
-}
+pub static UUID_NIL: Uuid = Uuid::from_bytes([0; 16]);

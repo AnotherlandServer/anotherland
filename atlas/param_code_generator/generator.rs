@@ -16,10 +16,14 @@
 use std::{path::Path, io, fs, collections::HashMap, rc::Rc, cell::RefCell};
 
 use nom::{IResult, character::complete, error::Error};
-use proc_macro2::TokenStream;
-use quote::format_ident;
+use proc_macro2::{Group, TokenStream};
+use quote::ToTokens;
+use quote::{format_ident, TokenStreamExt};
 use regex::Regex;
 use ::quote::quote;
+use uuid::Uuid;
+use proc_macro2::Punct;
+use proc_macro2::Spacing;
 
 use convert_case::{Converter, Boundary, Pattern, Case, Casing};
 
@@ -234,6 +238,19 @@ struct ParamOptions {
     flags: Vec<ParamFlag>,
 }
 
+trait ArrayToTokenStream {
+    fn to_token_stream(&self) -> TokenStream;
+}
+
+impl ArrayToTokenStream for &[u8; 16] {
+    fn to_token_stream(&self) -> TokenStream {
+        let mut stream = TokenStream::new();
+
+        stream.append_separated(self.iter(), Punct::new(',', Spacing::Joint));
+        Group::new(proc_macro2::Delimiter::Bracket, stream).into_token_stream()
+    }
+}
+
 pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
     let paramlist_path = client_path.join("Atlas/data/otherlandgame/content/dbbba21e-2342-4357-a777-302ed11b978b/paramlist.ini");
 
@@ -353,23 +370,26 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             ParamType::Any => None,
                             ParamType::AvatarID => {
                                 let val: u64 = default_str.strip_prefix('#').unwrap().parse().expect("failed to parse avatar id");
-                                Some(quote! { Param::AvatarId(#val.into()) })
+                                Some(quote! { Param::AvatarId(AvatarId::from_u64_literal(#val)) })
                             },
                             ParamType::AvatarIDSet => None,
                             ParamType::AvatarIDVector => None,
                             ParamType::BitSetFilter => None,
                             ParamType::Bool => if default_str == "true" { Some(quote!{ Param::Bool(true) }) } else { Some(quote!{ Param::Bool(false) }) },
-                            ParamType::ClassRefPowerRangeList => Some(quote! { Param::ClassRefPowerRangeList(#default_str.to_owned()) }),
-                            ParamType::ContentRef => Some(quote! { Param::ContentRef(#default_str.to_owned()) }),
-                            ParamType::ContentRefAndInt => Some(quote! { Param::ContentRefAndInt(#default_str.to_owned()) }),
-                            ParamType::ContentRefList => Some(quote! { Param::ContentRefList(#default_str.to_owned()) }),
+                            ParamType::ClassRefPowerRangeList => Some(quote! { Param::StaticClassRefPowerRangeList(#default_str) }),
+                            ParamType::ContentRef => Some(quote! { Param::StaticContentRef(#default_str) }),
+                            ParamType::ContentRefAndInt => Some(quote! { Param::StaticContentRefAndInt(#default_str) }),
+                            ParamType::ContentRefList => Some(quote! { Param::StaticContentRefList(#default_str) }),
                             ParamType::Float => {
                                 let val: f32 = default_str.parse().expect("failed to parse float");
                                 Some(quote! { Param::Float(#val) })
                             },
                             ParamType::FloatRange => None,
                             ParamType::FloatVector => None,
-                            ParamType::Guid => Some(quote!{ Param::Guid(Uuid::parse_str(#default_str).unwrap()) }),
+                            ParamType::Guid => {
+                                let uuid_bytes = Uuid::parse_str(default_str).unwrap().as_bytes().to_token_stream();
+                                Some(quote!{ Param::Guid(Uuid::from_bytes(#uuid_bytes)) })
+                            },
                             ParamType::GuidPair => None,
                             ParamType::Int => {
                                 let val: i32 = default_str.parse().expect("failed to parse int");
@@ -382,11 +402,17 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             ParamType::Int64Vector => None,
                             ParamType::IntVector => None,
                             ParamType::Json => {
-                                let json = default_str.replace("\\\"", "\"");
-                                Some(quote! { Param::JsonValue(serde_json::from_str(#json).unwrap()) })
+                                println!("Parse: {}", default_str);
+                                let default_str = default_str
+                                    .replace("\\\"", "\"")
+                                    .replace("\\\\", "\\");
+                                Some(quote! { Param::JsonValue(serde_json::from_str(#default_str).unwrap()) })
                             },
-                            ParamType::LocalizedString => Some(quote! { Param::LocalizedString(Uuid::parse_str(#default_str).unwrap()) }),
-                            ParamType::String => Some(quote! { Param::String(#default_str.to_owned()) }),
+                            ParamType::LocalizedString => {
+                                let uuid_bytes = Uuid::parse_str(default_str).unwrap().as_bytes().to_token_stream();
+                                Some(quote! { Param::LocalizedString(Uuid::from_bytes(#uuid_bytes)) })
+                            },
+                            ParamType::String => Some(quote! { Param::StaticString(#default_str) }),
                             ParamType::StringFloatPair => None,
                             ParamType::StringStringHashmap => None,
                             ParamType::StringIntHashmap => None,
@@ -637,10 +663,24 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             quote!(Self::#entry_name => #type_ident,)
         }).collect();
 
+        let static_defaults: Vec<_> = class.paramoption.iter().map(|v| {
+            let entry_name = format_ident!("{}", v.0.to_case(Case::UpperSnake));
+            if let Some(default_literal) = v.1.default_literal.as_ref() {
+                if matches!(v.1.param_type, ParamType::Json) {
+                    quote!{static #entry_name: Lazy<Param> = Lazy::new(|| #default_literal);}
+                } else {
+                    quote!{static #entry_name: Param = #default_literal;}
+                }
+            } else {
+                quote!()
+            }
+        }).collect();
+
         let enum_defaults: Vec<_> = class.paramoption.iter().map(|v| {
             let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
+            let static_name = format_ident!("{}", v.0.to_case(Case::UpperSnake));
             if let Some(default_literal) = v.1.default_literal.as_ref() {
-                quote!{Self::#entry_name => Some(#default_literal),}
+                quote!{Self::#entry_name => Some(&#static_name),}
             } else {
                 quote!{Self::#entry_name => None,}
             }
@@ -713,7 +753,9 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     }
                 }
 
-                fn default(&self) -> Option<Param> { 
+                fn default(&self) -> Option<&Param> { 
+                    #(#static_defaults)*
+
                     match self {
                         #(#enum_defaults)*
                         #enum_non_option
@@ -1263,7 +1305,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 _ => field_name.as_str(),
             });
 
-            options.default_literal.as_ref().map(|default_literal| quote!(set.insert(#attrib_name::#field_name_ident, #default_literal);))
+            if options.default_literal.is_some() {
+                Some(quote!(set.insert(#attrib_name::#field_name_ident, #attrib_name::#field_name_ident.default().unwrap().clone());))
+            } else {
+                None
+            }
         })
         .collect();
 
@@ -1483,6 +1529,9 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use serde::Deserialize;
         use serde::Deserializer;
         use bevy_ecs::prelude::*;
+        use uuid::uuid;
+        use serde_json::json;
+        use once_cell::sync::Lazy;
 
         use crate::AvatarId;
         use crate::Uuid;
