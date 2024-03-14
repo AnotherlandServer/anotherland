@@ -107,7 +107,7 @@ impl Social {
             
             if let Some(character) = Character::get(self.db.clone(), &session.character_id.unwrap()).await? {
                 state.zone_id = session.zone_guid;
-                state.clan_id = if *character.data.clan_guid() != *UUID_NIL {
+                state.clan_id = if *character.data.clan_guid() != UUID_NIL {
                     Some(*character.data.clan_guid())
                 } else {
                     None

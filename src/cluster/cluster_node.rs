@@ -132,7 +132,8 @@ impl ClusterNode {
                 let _ = state_signal_wait.wait_for(|v| *v >= ClusterNodeState::Starting).await;
 
                 // Run start lifecycle
-                actor.starting().await?;
+                actor.starting().await
+                    .expect("failed to start actor");
 
                 // Notify cluster we've started
                 let _ = starting_notify.send(());

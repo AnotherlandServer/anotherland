@@ -72,29 +72,29 @@ impl SpecialEvents {
             .ok_or(AnotherlandError::app_err("Invalid SpecialEventConfig"))?;
         
         for json_event in json_event_array {
-            let event_name = json_event.get("EventName").and_then(|v| v.as_str()).unwrap();
+            if let Some(event_name) = json_event.get("EventName").and_then(|v| v.as_str()) {
+                let event_start = NaiveDate::parse_from_str(
+                    json_event.get("EventStart").unwrap().as_str().unwrap(), 
+                    "%Y/%m/%-d").unwrap()
+                    .and_hms_opt(0, 0, 0).unwrap()
+                    .and_local_timezone(Local).unwrap();
+                let event_end = NaiveDate::parse_from_str(
+                    json_event.get("EventEnd").unwrap().as_str().unwrap(), 
+                    "%Y/%m/%-d").unwrap()
+                    .and_hms_opt(23, 59, 59).unwrap()
+                    .and_local_timezone(Local).unwrap();
+                let quests = json_event.get("Quests")
+                    .and_then(|v| v.as_array())
+                    .map(|v| v.iter().flat_map(|v| v.as_number().map(|v| v.as_u64().unwrap() as u32)).collect::<Vec<_>>())
+                    .unwrap_or(Vec::new());
 
-            let event_start = NaiveDate::parse_from_str(
-                json_event.get("EventStart").unwrap().as_str().unwrap(), 
-                "%Y/%m/%-d").unwrap()
-                .and_hms_opt(0, 0, 0).unwrap()
-                .and_local_timezone(Local).unwrap();
-            let event_end = NaiveDate::parse_from_str(
-                json_event.get("EventEnd").unwrap().as_str().unwrap(), 
-                "%Y/%m/%-d").unwrap()
-                .and_hms_opt(23, 59, 59).unwrap()
-                .and_local_timezone(Local).unwrap();
-            let quests = json_event.get("Quests")
-                .and_then(|v| v.as_array())
-                .map(|v| v.iter().flat_map(|v| v.as_number().map(|v| v.as_u64().unwrap() as u32)).collect::<Vec<_>>())
-                .unwrap_or(Vec::new());
-
-            events.push(Arc::new(SpecialEvent {
-                name: event_name.to_owned(),
-                start_date: event_start,
-                end_date: event_end,
-                quests
-            }));
+                events.push(Arc::new(SpecialEvent {
+                    name: event_name.to_owned(),
+                    start_date: event_start,
+                    end_date: event_end,
+                    quests
+                }));
+            }
         }
 
         Ok(SpecialEvents {
@@ -113,8 +113,8 @@ impl SpecialEvents {
             .and_then(|mut v| v.data.take())
             .and_then(|v| v.take::<CommonConfigClass>().ok()) {
             
-            if let Some(value) = event.value() {
-                let config = serde_json::from_value::<JsonMapEventConfig>(value.to_owned())?;
+            if let Some(value) = event.value() &&
+                let Ok(config) = serde_json::from_value::<JsonMapEventConfig>(value.to_owned()){
                 // lookup event
                 let event = self.events.iter()
                     .find(|v| v.name == config.event_name)
