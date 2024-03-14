@@ -26,6 +26,7 @@ mod cash_shop_bundle;
 mod cash_shop_item;
 mod cash_shop_vendor;
 mod flight_tube;
+mod display_names;
 pub use account::*;
 pub use session::*;
 pub use content::*;
@@ -38,6 +39,7 @@ pub use cash_shop_bundle::*;
 pub use cash_shop_item::*;
 pub use cash_shop_vendor::*;
 pub use flight_tube::*;
+pub use display_names::*;
 
 use crate::{util::AnotherlandResult, ARGS};
 
