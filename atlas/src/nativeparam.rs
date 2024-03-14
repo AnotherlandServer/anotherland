@@ -167,6 +167,9 @@ impl NativeParam {
                     let _ = writer.write_bytes(&val.to_bytes());
                 }
             },
+            Self::Invalid => {
+                let _ = writer.write(0u8);
+            }
             _ => panic!(),
         }
 
