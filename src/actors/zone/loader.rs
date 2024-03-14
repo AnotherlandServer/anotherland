@@ -15,13 +15,64 @@
 
 use std::sync::Arc;
 
-use atlas::{BilliardBallClass, ChessMetaGameLogicClass, ChessPieceClass, CtfGameFlagClass, CustomTriggerClass, DoorClass, EdnaContainerClass, InteractObjectClass, MinigameInfoClass, MinigameScoreBoardClass, MyLandSettingsClass, MypadRoomDoorClass, NonClientBaseParams, NonSpawnPlacementClass, NpcOtherlandClass, OtherlandStructureClass, ParamClass, PatrolNodeClass, PlanetClass, PortalClass, PresetPointClass, QuestBeaconClass, ServerGatewayClass, ServerGatewayExitPhaseClass, ShipClass, SpawnNodeClass, SpawnerClass, StartingPointClass, StructureClass, TriggerClass, Uuid, WorldDisplayClass};
+use atlas::{BilliardBallClass, ChessMetaGameLogicClass, ChessPieceClass, CtfGameFlagClass, CustomTriggerClass, DoorClass, EdnaContainerClass, InteractObjectClass, MinigameInfoClass, MinigameScoreBoardClass, MyLandSettingsClass, MypadRoomDoorClass, NonClientBaseParams, NonSpawnPlacementClass, NpcOtherlandClass, OtherlandStructureClass, ParamClass, PatrolNodeClass, PlanetClass, PortalAttribute, PortalClass, PortalParams, PresetPointClass, QuestBeaconClass, ServerGatewayClass, ServerGatewayExitPhaseClass, ShipClass, SpawnNodeClass, SpawnerClass, StartingPointClass, StructureClass, TriggerClass, Uuid, WorldDisplayClass, UUID_NIL};
 use bevy::utils::hashbrown::HashMap;
-use log::{error, info};
+use bson::{doc, Regex};
+use futures::TryStreamExt;
+use log::{debug, error};
+use mongodb::options::FindOptions;
 
-use crate::{db::{self, realm_database, DatabaseRecord, FlightTube, Instance, RawInstance}, util::AnotherlandResult};
+use crate::{actors::get_display_name, db::{self, realm_database, DatabaseRecord, DisplayName, FlightTube, Instance, RawInstance, StructureContent, WorldDef, ZoneDef}, util::AnotherlandResult};
 
-use super::{components::EntityType, PortalNodelink, Zone};
+use super::{components::EntityType, PortalHiveDestination, PortalNodelink, Zone};
+
+static MAP_WHITELIST: &[&str; 45] = &[
+    "WhiteCity_P",
+    "Newbie_P",
+    "NewbieInst_P",
+    "MyPadRooms_P",
+    "MrJ_P",
+    "MonasteryInst_P",
+    "MonasteryInstBattle_P",
+    "MLRedValley_P",
+    "MarsDock_P",
+    "LMPlatform_P",
+    "LMInteriors_P",
+    "LMInteriors02_P",
+    "LimboNew_P",
+    "LanternDistrict_P",
+    "GameEntry_P",
+    "Dungeon02_P",
+    "Dungeon01_P",
+    "CollectiveBar_P",
+    "ClassTest01_P",
+    "ClassSelection_P",
+    "Challenges10_P",
+    "Challenges08_P",
+    "Challenges07_P",
+    "Challenges06_P",
+    "Challenges05_P",
+    "Challenges04_P",
+    "Challenges01_P",
+    "BugWorldRuins_P",
+    "BugWorldResearchComplex_P",
+    "BugWorldJungle_P",
+    "Bazaar_P",
+    "BattlegroundOasis01_P",
+    "BarClub101_P",
+    "BarBlackRoom_P",
+    "BadSector_P",
+    "ArenaBad_P",
+    "AeroWood_P",
+    "AeroWater_P",
+    "AeroWaterFirewall_P",
+    "AeroShipBattle_P",
+    "AeroFire_P",
+    "AeroFireStart_P",
+    "8Squared_P",
+    "8SquaredRedCastle_P",
+    "8SquaredKOTH01_P",
+];
 
 impl Zone {
     pub(super) async fn load_content_instances(&mut self) -> AnotherlandResult<()> {
@@ -57,7 +108,9 @@ impl Zone {
                     let mut portal = self.spawn_non_player_avatar(id.to_owned(), EntityType::Portal, name, phase_tag, instance.guid().to_owned(), content.guid, params);
                     
                     if let Some(nodelink) = nodelink {
-                        if let Ok(Some(node)) = RawInstance::get(db, &Uuid::parse_str(&nodelink).unwrap()).await {
+                        if let Ok(instance_id) = Uuid::parse_str(&nodelink) &&
+                            let Ok(Some(node)) = RawInstance::get(db, &instance_id).await 
+                        {
                             portal.insert(PortalNodelink::RemotePortal { 
                                 zone: node.zone_guid, 
                                 portal: node.guid,
@@ -232,5 +285,82 @@ impl Zone {
         }
 
         Ok(tube_map)
+    }
+
+    pub(super) async fn load_portal_hive_destinations() -> AnotherlandResult<HashMap<String, PortalHiveDestination>> {
+        let db = realm_database().await;
+        let structures = StructureContent::collection(db.clone());
+        let instances = RawInstance::collection(db.clone());
+
+        let mut destinations = HashMap::new();
+
+        // lookup all portal objects
+        let re = Regex {
+            pattern: "PortalHive".to_string(),
+            options: "i".to_string(),
+        };
+        let mut result = structures.find(doc! {
+            "data.portal.tags.v": {
+                "$regex": re
+            }
+        }, FindOptions::builder()
+            .sort(doc! {
+                "editor_name": 1
+            })
+            .build()
+        ).await?;
+
+        while let Some(portal) = result.try_next().await? {
+            // lookup all instances of the portal
+            let mut result = instances.find(doc! {
+                "content_guid": portal.guid
+            }, None).await?;
+
+            while let Some(instance) = result.try_next().await? {
+                if let Some(instance_data) = instance.data {
+                    let mut portal_data = portal.data.clone()
+                        .and_then(|d| d.take::<PortalClass>().ok())
+                        .unwrap();
+
+                    portal_data.apply(instance_data.take::<PortalAttribute>()?);
+
+                    /*let display_name = portal_data.as_set().get(&PortalAttribute::DisplayName)
+                        .map(|v| *<&atlas::Param as TryInto<&Uuid>>::try_into(v).unwrap())
+                        .unwrap_or(UUID_NIL);*/
+                    if let Some(exit_point) = portal_data.exit_point() &&
+                        !exit_point.is_empty() &&
+                        let Some(zone) = ZoneDef::get(db.clone(), &instance.zone_guid).await? &&
+                        let Some(world) = WorldDef::get_by_guid(db.clone(), &zone.worlddef_guid).await? 
+                    {
+                        if MAP_WHITELIST.contains(&world.name.as_str()) {
+                            debug!("Found hive portal: {}-{} ({})", instance.zone_guid, instance.editor_name, *portal_data.display_name());
+
+                            destinations.insert(instance.editor_name.clone(), PortalHiveDestination {
+                                name: instance.editor_name,
+                                world_name: world.name[..world.name.len()-2].to_owned(),
+                                display_name: *portal_data.display_name(),
+                                zone: instance.zone_guid,
+                                link: PortalNodelink::RemotePortal { zone: instance.zone_guid, portal: instance.guid }
+                            });
+                        } else {
+                            debug!("Ignoring portal from {}: {}-{} ({})", world.name.as_str(), instance.zone_guid, instance.editor_name, *portal_data.display_name());
+                        }
+                    };
+                }
+            }
+        }
+
+        Ok(destinations)
+    }
+
+    pub(super) async fn load_display_names() -> AnotherlandResult<HashMap<Uuid, String>> {
+        let mut display_names = HashMap::new();
+
+        let names = DisplayName::list(realm_database().await).await?.into_iter();
+        for name in names {
+            display_names.insert(name.id, name.name);
+        }
+
+        Ok(display_names)
     }
 }

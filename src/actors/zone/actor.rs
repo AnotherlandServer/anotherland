@@ -26,10 +26,10 @@ use tokio::{runtime::Handle, select, sync::{broadcast, mpsc, OnceCell}, task::Jo
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use bevy_ecs::{prelude::*, schedule::ScheduleLabel};
 
-use crate::{actors::{get_player_height, zone::{behavior::AvatarBehaviorPlugin, behaviors::BehaviorsPlugin, resources::{EventInfo, EventInfos}, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::{Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, zone::{ behaviors::BehaviorsPlugin, plugins::{AvatarBehaviorPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
-use super::{behavior::BehaviorExt, components::{AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, resources::{Broadcaster, Tasks}, zone_events::{AvatarEventFired, ProximityChatEvent}, AvatarEventSender, Movement, PlayerSpawnMode, ProximityChatRange, SpawnerState, ZoneEvent};
+use super::{components::{AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, plugins::{BehaviorExt, SubjectivityExt}, resources::{Broadcaster, Tasks}, zone_events::{AvatarEventFired, ProximityChatEvent}, AvatarEventSender, Movement, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState, ZoneEvent};
 
 pub enum ServerAction {
     DirectTravel(AvatarId, Option<Position>),
@@ -83,6 +83,17 @@ impl ServerAction {
 
 pub(super) static SPECIAL_EVENTS: OnceCell<SpecialEvents> = OnceCell::const_new();
 pub(in crate::actors::zone) static FLIGHT_TUBES: OnceCell<HashMap<Uuid, Arc<FlightTube>>> = OnceCell::const_new();
+
+pub struct PortalHiveDestination {
+    pub name: String,
+    pub world_name: String,
+    pub display_name: Uuid,
+    pub zone: Uuid,
+    pub link: PortalNodelink,
+}
+
+pub static PORTAL_HIVE_DESTINATIONS: OnceCell<HashMap<String, PortalHiveDestination>> = OnceCell::const_new();
+pub static DISPLAY_NAMES: OnceCell<HashMap<Uuid, String>> = OnceCell::const_new();
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone)]
 struct SlowUpdate;
@@ -142,6 +153,9 @@ impl Actor for Zone {
         let special_events = SPECIAL_EVENTS.get_or_try_init(SpecialEvents::load).await.unwrap();
         FLIGHT_TUBES.get_or_try_init(Zone::load_flight_tubes).await.unwrap();
 
+        // load display names
+        DISPLAY_NAMES.get_or_try_init(Zone::load_display_names).await.unwrap();
+
         // setup bevy app
         self.app
             .add_plugins(MinimalPlugins)
@@ -184,6 +198,9 @@ impl Actor for Zone {
 
         // load in content
         self.load_content_instances().await?;
+
+        // load portal hive destinations
+        PORTAL_HIVE_DESTINATIONS.get_or_try_init(Zone::load_portal_hive_destinations).await?;
 
         // lookup starting point
         {
@@ -636,5 +653,12 @@ impl Zone {
                 }));
             }
         }
+    }
+}
+
+pub fn get_display_name(id: Uuid) -> &'static str {
+    match DISPLAY_NAMES.get().unwrap().get(&id) {
+        Some(name) => name.as_str(),
+        None => "- Translation missing -",
     }
 }
