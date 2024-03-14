@@ -3,7 +3,8 @@
         "./Cargo.toml",
         "./atlas/Cargo.toml",
         "./actor_macros/Cargo.toml",
-        "./upk/Cargo.toml"
+        "./upk/Cargo.toml",
+        "./tools/kismet-plotter/Cargo.toml"
     ],
     "yaml.schemas": {
         "otherland-proto": "${workspaceFolder}/packet_definitions/otherproto.schema.yaml"
