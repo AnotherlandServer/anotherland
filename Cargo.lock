@@ -416,6 +416,7 @@ dependencies = [
  "linked-hash-map",
  "log",
  "nom",
+ "once_cell",
  "parking_lot",
  "prettyplease",
  "proc-macro2",
