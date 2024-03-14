@@ -13,21 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod actor;
-mod components;
-mod events;
-mod player;
-mod social;
-mod loader;
-mod resources;
-mod systems;
-mod zone_events;
-mod behaviors;
-mod plugins;
-mod subjective_lenses;
+mod behavior;
+mod subjectivity;
 
-pub use actor::*;
-pub use events::*;
-pub use player::*;
-pub use social::*;
-pub use components::*;
+pub use behavior::*;
+pub use subjectivity::*;

@@ -17,12 +17,12 @@ use std::sync::Arc;
 
 use atlas::{oaPkt_SplineSurfing_Acknowledge, NonClientBaseParams, Param, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, StartingPointClass, Uuid};
 use bevy::app::Plugin;
-use bevy_ecs::{entity::Entity, event::EventWriter, query::{With, Without}, system::{Commands, In, Query, Res}};
+use bevy_ecs::{event::EventWriter, query::{With, Without}, system::{Commands, In, Query, Res}};
 use glam::{Quat, Vec3};
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use regex::Regex;
 
-use crate::{actors::{get_player_height, zone::{behavior::{BehaviorArguments, BehaviorExt}, resources::Broadcaster, zone_events::AvatarEventFired}, AvatarComponent, AvatarEvent, DefaultPos, EntityType, Movement, PhysicsState, Position, ServerAction, SplineSurfing, ZoneEvent}, util::OtherlandQuatExt};
+use crate::{actors::{get_player_height, zone::{plugins::{BehaviorArguments, BehaviorExt}, resources::Broadcaster, zone_events::AvatarEventFired}, AvatarComponent, AvatarEvent, DefaultPos, EntityType, Movement, PhysicsState, Position, ServerAction, SplineSurfing, ZoneEvent}, util::OtherlandQuatExt};
 use crate::actors::zone::FLIGHT_TUBES;
 
 pub struct PlayerBehaviors;

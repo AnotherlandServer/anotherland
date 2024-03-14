@@ -126,7 +126,7 @@ impl Frontend for ZoneFrontend {
                                                         debug!("Spinning up persistent zone {}", factory.zone_def().guid);
 
                                                         let zone = ZoneInstance::Persistent(factory.spawn_zone().await);
-                                                        instances_s.insert(*UUID_NIL, zone.clone());
+                                                        instances_s.insert(UUID_NIL, zone.clone());
 
                                                         zone
                                                     }
@@ -870,7 +870,7 @@ impl ZoneSession {
             // limit to push up to 10 avatars per tick
             for _ in 0..10 {
                 if let Some(avatar_id) = self.interest_added_queue.pop_front() {
-                    if let Some((name, params)) = self.instance.zone().get_avatar_params(avatar_id).await {
+                    if let Some((name, params)) = self.instance.zone().get_subjective_avatar_params(self.avatar_id, avatar_id).await {
                         let movement = self.instance.zone().get_avatar_move_state(avatar_id).await.unwrap();
 
                         // add to interest list, so the client will receive updates

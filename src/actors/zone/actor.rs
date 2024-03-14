@@ -147,6 +147,8 @@ impl Actor for Zone {
             .add_plugins(MinimalPlugins)
             .add_plugins(AvatarBehaviorPlugin)
             .add_plugins(BehaviorsPlugin)
+            .add_plugins(SubjectivityPlugin)
+            .add_plugins(SubjectiveLensesPlugin)
             .add_systems(Update, (
                 send_proximity_chat,
                 update_interests,
@@ -526,6 +528,21 @@ impl Zone {
         self.avatar_id_to_entity_lookup.get(&avatar_id)
             .and_then(|ent| self.app.world.get_entity(*ent))
             .map(|ent| (ent.get::<AvatarComponent>().unwrap().name.clone(), ent.get::<ParamBox>().unwrap().clone()))
+    }
+
+    pub fn get_subjective_avatar_params(&mut self, player_id: AvatarId, avatar_id: AvatarId) -> Option<(String, ParamBox)> {
+        if let Some(player_id) = self.avatar_id_to_entity_lookup.get(&player_id) &&
+            let Some(target_id) = self.avatar_id_to_entity_lookup.get(&avatar_id) &&
+            let Some(avatar_component) = self.app.world.get::<AvatarComponent>(*target_id) 
+        {
+            let name = avatar_component.name.to_owned();
+            drop(avatar_component);
+            
+            self.app.get_subjective_params(*player_id, *target_id)
+                .map(|p| (name, p))
+        } else {
+            None
+        }
     }
 
     pub fn get_avatar_params_by_uuid(&mut self, uuid: Uuid) -> Option<(String, ParamBox)> {

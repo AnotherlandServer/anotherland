@@ -13,21 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod actor;
-mod components;
-mod events;
-mod player;
-mod social;
-mod loader;
-mod resources;
-mod systems;
-mod zone_events;
-mod behaviors;
-mod plugins;
-mod subjective_lenses;
+mod portal;
 
-pub use actor::*;
-pub use events::*;
-pub use player::*;
-pub use social::*;
-pub use components::*;
+use bevy::app::Plugin;
+use portal::*;
+
+pub struct SubjectiveLensesPlugin;
+
+impl Plugin for SubjectiveLensesPlugin {
+    fn build(&self, app: &mut bevy::prelude::App) {
+        app.add_plugins(SubjectivePortals);
+    }
+}
