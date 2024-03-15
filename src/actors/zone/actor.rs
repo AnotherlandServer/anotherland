@@ -17,7 +17,7 @@ use std::{sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ oaPktServerAction, raknet::Message, AvatarId, NonClientBaseComponent, NonClientBaseParams, NpcOtherlandAttribute, NpcOtherlandClass, NpcOtherlandComponent, OaZoneConfigParams, ParamBox, ParamClass, ParamSet, ParamSetBox, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, PortalParams, SpawnNodeClass, StartingPointClass, Uuid};
+use atlas::{ oaPktServerAction, raknet::Message, AvatarId, NonClientBaseComponent, NonClientBaseParams, NpcOtherlandAttribute, NpcOtherlandClass, NpcOtherlandComponent, OaZoneConfigParams, ParamBox, ParamClass, ParamSet, ParamSetBox, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, PortalParams, RespawnOption, SpawnNodeClass, StartingPointClass, Uuid};
 use bevy::{app::{App, Update}, utils::HashMap, MinimalPlugins};
 use glam::{Vec3, Quat};
 use log::{debug, info, warn};
@@ -29,7 +29,7 @@ use bevy_ecs::{prelude::*, schedule::ScheduleLabel};
 use crate::{actors::{get_player_height, zone::{ behaviors::BehaviorsPlugin, plugins::{AvatarBehaviorPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
-use super::{components::{AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, plugins::{BehaviorExt, SubjectivityExt}, resources::{Broadcaster, Tasks}, zone_events::{AvatarEventFired, ProximityChatEvent}, AvatarEventSender, Movement, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState, ZoneEvent};
+use super::{components::{self, AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, plugins::{BehaviorExt, SubjectivityExt}, resources::{Broadcaster, Tasks}, zone_events::{AvatarEventFired, ProximityChatEvent}, AvatarEventSender, Movement, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState, ZoneEvent};
 
 pub enum ServerAction {
     DirectTravel(AvatarId, Option<Position>),
@@ -104,6 +104,19 @@ pub struct DefaultPos {
     pub rot: Vec3,
 }
 
+#[derive(Resource, Default)]
+pub struct UuidToEntityLookup(HashMap<Uuid, Entity>);
+
+impl UuidToEntityLookup {
+    pub fn find_entity(&self, id: &Uuid) -> Option<&Entity> {
+        self.0.get(id)
+    }
+
+    pub fn insert(&mut self, id: Uuid, entity: Entity) {
+        self.0.insert(id, entity);
+    }
+}
+
 pub struct Zone {
     pub(super) realm_db: Database,
     pub(super) factory: ZoneFactory,
@@ -118,7 +131,6 @@ pub struct Zone {
 
     event_sender: broadcast::Sender<Arc<ZoneEvent>>,
     avatar_id_to_entity_lookup: HashMap<AvatarId, Entity>,
-    pub(super) uuid_to_entity_lookup: HashMap<Uuid, Entity>,
 }
 
 impl Zone {
@@ -133,7 +145,6 @@ impl Zone {
             update_task: None,
             event_sender: broadcast::channel(500).0,
             avatar_id_to_entity_lookup: HashMap::new(),
-            uuid_to_entity_lookup: HashMap::new(),
         }
     }
 }
@@ -194,7 +205,8 @@ impl Actor for Zone {
             .insert_resource(DefaultPos {
                 pos: self.default_pos,
                 rot: self.default_rot,
-            });
+            })
+            .insert_resource(UuidToEntityLookup::default());
 
         // load in content
         self.load_content_instances().await?;
@@ -260,58 +272,76 @@ impl Zone {
         id: Uuid, 
         content_id: Uuid, 
         entity_params: T
-    ) -> EntityWorldMut<'_> 
+    ) -> Entity
         where T: ParamClass + Clone + ?Sized
     {
-        // spawn entity
-        let entity = self.app.world
-            .spawn(entity_params.as_bundle())
-            .insert(entity_type)
-            .insert(AvatarComponent {
-                id: avatar_id,
-                instance_id: Some(id),
-                content_id: Some(content_id),
-                name: name.to_owned(),
-                phase_tag: phase_tag.to_owned(),
-            })
-            .id();
-
-        let mut entity_ref = self.app.world.get_entity_mut(entity).unwrap();
-
-        // insert position component for npcs & structures
-        if let Some(base) = entity_ref.get::<NonClientBaseComponent>() {
-            let position = base.pos().to_owned();
-            let rotation = base.rot().to_owned();
-
-            entity_ref
-                .insert(SpawnerState { 
-                    despawn_instant: None, 
-                    respawn_instant: None 
+        self.app.world.resource_scope(|world, mut uuid_to_entity: Mut<UuidToEntityLookup>| {
+            // spawn entity
+            let entity = world
+                .spawn(entity_params.as_bundle())
+                .insert(entity_type)
+                .insert(AvatarComponent {
+                    id: avatar_id,
+                    instance_id: Some(id),
+                    content_id: Some(content_id),
+                    name: name.to_owned(),
+                    phase_tag: phase_tag.to_owned(),
                 })
-                .insert(Position {
-                    mover_key: 0,
-                    replica: 7,
-                    version: 1,
-                    position,
-                    rotation: Quat::from_unit_vector(rotation),
-                    velocity: Vec3::default(),
-                });
-        } else {
-            // assume the entity is always spawned
-            entity_ref.insert(Spawned);
+                .id();
 
-            // notify clients
-            let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarSpawned { 
-                avatar_id, 
-                params: entity_params.clone().into_box(),
-            }));
-        }
+            let mut entity_ref = world.get_entity_mut(entity).unwrap();
 
-        // update lookup map
-        self.avatar_id_to_entity_lookup.insert(avatar_id, entity);
-        self.uuid_to_entity_lookup.insert(id, entity);
+            // add tags
+            if let Some(non_client_base) = entity_ref.take::<NonClientBaseComponent>() {
+                if let Some(tags) = non_client_base.tags() { 
+                    for tag in tags.split(' ') {
+                        match tag {
+                            "RespawnPoint" => { entity_ref.insert(components::RespawnPoint); }
+                            "PortalHive" => { entity_ref.insert(components::PortalHive); }
+                            "InteractionTell" => { entity_ref.insert(components::InteractionTell); }
+                            _ => (),
+                        };
+                    }
+                };
 
-        entity_ref
+                entity_ref.insert(non_client_base);
+            }
+
+            // insert position component for npcs & structures
+            if let Some(base) = entity_ref.get::<NonClientBaseComponent>() {
+                let position = base.pos().to_owned();
+                let rotation = base.rot().to_owned();
+
+                entity_ref
+                    .insert(SpawnerState { 
+                        despawn_instant: None, 
+                        respawn_instant: None 
+                    })
+                    .insert(Position {
+                        mover_key: 0,
+                        replica: 7,
+                        version: 1,
+                        position,
+                        rotation: Quat::from_unit_vector(rotation),
+                        velocity: Vec3::default(),
+                    });
+            } else {
+                // assume the entity is always spawned
+                entity_ref.insert(Spawned);
+
+                // notify clients
+                let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarSpawned { 
+                    avatar_id, 
+                    params: entity_params.clone().into_box(),
+                }));
+            }
+
+            // update lookup map
+            self.avatar_id_to_entity_lookup.insert(avatar_id, entity);
+            uuid_to_entity.insert(id, entity);
+
+            entity
+        })
     }
 }
 
@@ -338,133 +368,138 @@ impl Zone {
 
     pub async fn spawn_player(&mut self, spawn_mode: PlayerSpawnMode, avatar_id: AvatarId, character_id: u32, avatar_event_sender: mpsc::Sender<AvatarEvent>) -> AnotherlandResult<(Character, ServerAction)> {
         let mut spawn_mode = spawn_mode;
-        let action;
-
-        let position;
         
         if let Some(mut character) = Character::get(self.realm_db.clone(), &character_id).await? {
-            // do some first time spawn setup
-            if character.data.first_time_spawn() {
-                character.data.set_spawn_mode(PlayerSpawnMode::LoginFirstTime.into());
-                character.data.set_first_time_spawn(false);
+            let (entity, action) = self.app.world.resource_scope(|world, uuid_to_entity: Mut<UuidToEntityLookup>| {
+                let action;
+                let position;
 
-                spawn_mode = PlayerSpawnMode::LoginFirstTime;
-            }
+                // do some first time spawn setup
+                if character.data.first_time_spawn() {
+                    character.data.set_spawn_mode(PlayerSpawnMode::LoginFirstTime.into());
+                    character.data.set_first_time_spawn(false);
 
-            if self.factory.config().only_spawn_to_entry_point() {
-                spawn_mode = PlayerSpawnMode::TravelDirect;
-            }
+                    spawn_mode = PlayerSpawnMode::LoginFirstTime;
+                }
 
-            // update zone if stored zone differs or we force spawn to entry point
-            match spawn_mode {
-                PlayerSpawnMode::LoginFirstTime |
-                PlayerSpawnMode::TravelDirect => {
-                    // special case if the player comes from class selection,
-                    // perform some setup in that case.
-                    if *character.data.zone_guid() == Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap() {
-                        character.data.set_hp_cur(character.data.hp_max());
-                    }
+                if self.factory.config().only_spawn_to_entry_point() {
+                    spawn_mode = PlayerSpawnMode::TravelDirect;
+                }
 
-                    debug!("Updating player avatar zone");
+                // update zone if stored zone differs or we force spawn to entry point
+                match spawn_mode {
+                    PlayerSpawnMode::LoginFirstTime |
+                    PlayerSpawnMode::TravelDirect => {
+                        // special case if the player comes from class selection,
+                        // perform some setup in that case.
+                        if *character.data.zone_guid() == Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap() {
+                            character.data.set_hp_cur(character.data.hp_max());
+                        }
 
-                    character.data.set_pos((0, self.default_pos));
-                    character.data.set_rot(self.default_rot);
-
-                    character.data.set_zone(&self.factory.zone_def().zone);
-                    character.data.set_zone_guid(self.factory.zone_def().guid);
-                    character.data.set_world_map_guid(&self.factory.world_def().guid.to_string());
-                    character.world_id = self.factory.world_def().id as u32;
-
-                    position = Position { 
-                        mover_key: 0,
-                        replica: 7,
-                        version: 1,
-                        position: character.data.pos().to_owned().1,
-                        rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
-                        velocity: Vec3::default(),
-                    };
-
-                    action = ServerAction::DirectTravel(AvatarId::default(), Some(position.clone()));
-                },
-                PlayerSpawnMode::LoginNormal => {
-                    position = Position { 
-                        mover_key: 0,
-                        replica: 7,
-                        version: 1,
-                        position: character.data.pos().to_owned().1,
-                        rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
-                        velocity: Vec3::default(),
-                    };
-
-                    action = ServerAction::DirectTravel(AvatarId::default(), Some(position.clone()));
-                },
-                PlayerSpawnMode::TravelPortal(portal_uuid) => {
-                    let (portal, portal_avatar) = self.uuid_to_entity_lookup.get(&portal_uuid).map(|entity| {
-                        (
-                            self.app.world.get::<PortalClass>(*entity).unwrap(), 
-                            self.app.world.get::<AvatarComponent>(*entity).unwrap()
-                        )
-                    }).unwrap();
-
-                    // get exit node
-                    if let Some(exit_point) = portal.exit_point() {
-                        let exit = self.uuid_to_entity_lookup.get(&Uuid::parse_str(&*exit_point).unwrap())
-                            .and_then(|entity| self.app.world.get::<SpawnNodeClass>(*entity))
-                            .unwrap();
-
-                        character.data.set_pos((0, exit.pos().to_owned() + Vec3::new(0.0, 0.0, get_player_height(&character.data) / 2.0)));
-                        character.data.set_rot(exit.rot().to_owned());
-                    } else {
-                        warn!("Exit node not found on portal {}", portal_uuid);
+                        debug!("Updating player avatar zone");
 
                         character.data.set_pos((0, self.default_pos));
                         character.data.set_rot(self.default_rot);
-                    }
 
-                    // move to zone
-                    character.data.set_zone(&self.factory.zone_def().zone);
-                    character.data.set_zone_guid(self.factory.zone_def().guid);
-                    character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
-                    character.world_id = self.factory.world_def().id as u32;
+                        character.data.set_zone(&self.factory.zone_def().zone);
+                        character.data.set_zone_guid(self.factory.zone_def().guid);
+                        character.data.set_world_map_guid(&self.factory.world_def().guid.to_string());
+                        character.world_id = self.factory.world_def().id as u32;
 
-                    position = Position { 
-                        mover_key: 0,
-                        replica: 7,
-                        version: 1,
-                        position: character.data.pos().to_owned().1,
-                        rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
-                        velocity: Vec3::default(),
-                    };
+                        position = Position { 
+                            mover_key: 0,
+                            replica: 7,
+                            version: 1,
+                            position: character.data.pos().to_owned().1,
+                            rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
+                            velocity: Vec3::default(),
+                        };
 
-                    action = ServerAction::DirectTravel(portal_avatar.id, Some(position.clone()));
-                },
-                _ => unimplemented!(),
-            }
+                        action = ServerAction::DirectTravel(AvatarId::default(), Some(position.clone()));
+                    },
+                    PlayerSpawnMode::LoginNormal => {
+                        position = Position { 
+                            mover_key: 0,
+                            replica: 7,
+                            version: 1,
+                            position: character.data.pos().to_owned().1,
+                            rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
+                            velocity: Vec3::default(),
+                        };
 
-            character.data.set_spawn_mode(spawn_mode.into());
-            character.data.set_client_ready(false);
-            character.data.set_player_loading(true);
-            character.data.set_player_node_state(2);
+                        action = ServerAction::DirectTravel(AvatarId::default(), Some(position.clone()));
+                    },
+                    PlayerSpawnMode::TravelPortal(portal_uuid) => {
+                        let (portal, portal_avatar) = uuid_to_entity.find_entity(&portal_uuid).map(|entity| {
+                            (
+                                world.get::<PortalClass>(*entity).unwrap(), 
+                                world.get::<AvatarComponent>(*entity).unwrap()
+                            )
+                        }).unwrap();
+
+                        // get exit node
+                        if let Some(exit_point) = portal.exit_point() {
+                            let exit = uuid_to_entity.find_entity(&Uuid::parse_str(&*exit_point).unwrap())
+                                .and_then(|entity| world.get::<SpawnNodeClass>(*entity))
+                                .unwrap();
+
+                            character.data.set_pos((0, exit.pos().to_owned() + Vec3::new(0.0, 0.0, get_player_height(&character.data) / 2.0)));
+                            character.data.set_rot(exit.rot().to_owned());
+                        } else {
+                            warn!("Exit node not found on portal {}", portal_uuid);
+
+                            character.data.set_pos((0, self.default_pos));
+                            character.data.set_rot(self.default_rot);
+                        }
+
+                        // move to zone
+                        character.data.set_zone(&self.factory.zone_def().zone);
+                        character.data.set_zone_guid(self.factory.zone_def().guid);
+                        character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
+                        character.world_id = self.factory.world_def().id as u32;
+
+                        position = Position { 
+                            mover_key: 0,
+                            replica: 7,
+                            version: 1,
+                            position: character.data.pos().to_owned().1,
+                            rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
+                            velocity: Vec3::default(),
+                        };
+
+                        action = ServerAction::DirectTravel(portal_avatar.id, Some(position.clone()));
+                    },
+                    _ => unimplemented!(),
+                }
+
+                character.data.set_spawn_mode(spawn_mode.into());
+                character.data.set_client_ready(false);
+                character.data.set_player_loading(true);
+                character.data.set_player_node_state(2);
+
+                (
+                    world.spawn(character.data.as_bundle())
+                    .insert(AvatarComponent {
+                        id: avatar_id,
+                        instance_id: None,
+                        content_id: None,
+                        name: character.name.clone(),
+                        phase_tag: "".to_owned(),
+                    })
+                    .insert(position)
+                    .insert(InterestList {
+                        interests: Vec::new(),
+                    })
+                    .insert(AvatarEventSender(avatar_event_sender))
+                    .insert(EntityType::Player)
+                    .insert(Spawned)
+                    .id(),
+                    action
+                )
+            });
 
             // save character changes
             character.save(self.realm_db.clone()).await?;
-
-            let entity = self.app.world.spawn(character.data.as_bundle())
-                .insert(AvatarComponent {
-                    id: avatar_id,
-                    instance_id: None,
-                    content_id: None,
-                    name: character.name.clone(),
-                    phase_tag: "".to_owned(),
-                })
-                .insert(position)
-                .insert(InterestList {
-                    interests: Vec::new(),
-                })
-                .insert(AvatarEventSender(avatar_event_sender))
-                .insert(EntityType::Player)
-                .insert(Spawned)
-                .id();
 
             self.avatar_id_to_entity_lookup.insert(avatar_id, entity);
 
@@ -563,7 +598,7 @@ impl Zone {
     }
 
     pub fn get_avatar_params_by_uuid(&mut self, uuid: Uuid) -> Option<(String, ParamBox)> {
-        self.uuid_to_entity_lookup.get(&uuid)
+        self.app.world.get_resource::<UuidToEntityLookup>().unwrap().find_entity(&uuid)
             .and_then(|ent| self.app.world.get_entity(*ent))
             .map(|ent| (ent.get::<AvatarComponent>().unwrap().name.clone(), ent.get::<ParamBox>().unwrap().clone()))
     }

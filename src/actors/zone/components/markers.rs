@@ -17,3 +17,12 @@ use bevy_ecs::prelude::*;
 
 #[derive(Component)]
 pub struct Spawned;
+
+#[derive(Component)]
+pub struct RespawnPoint;
+
+#[derive(Component)]
+pub struct PortalHive;
+
+#[derive(Component)]
+pub struct InteractionTell;

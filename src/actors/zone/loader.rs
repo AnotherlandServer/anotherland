@@ -24,7 +24,7 @@ use mongodb::options::FindOptions;
 
 use crate::{actors::get_display_name, db::{self, realm_database, DatabaseRecord, DisplayName, FlightTube, Instance, RawInstance, StructureContent, WorldDef, ZoneDef}, util::AnotherlandResult};
 
-use super::{components::EntityType, PortalHiveDestination, PortalNodelink, Zone};
+use super::{components::EntityType, PortalExitPoint, PortalHiveDestination, PortalNodelink, Zone};
 
 static MAP_WHITELIST: &[&str; 45] = &[
     "WhiteCity_P",
@@ -103,21 +103,28 @@ impl Zone {
                     params.apply(data.to_owned());
                     
                     let nodelink = params.nodelink().map(|v| v.to_owned());
+                    let exitpoint = params.exit_point().map(|v| v.to_owned());
                     let db = self.realm_db.clone();
 
-                    let mut portal = self.spawn_non_player_avatar(id.to_owned(), EntityType::Portal, name, phase_tag, instance.guid().to_owned(), content.guid, params);
+                    let portal = self.spawn_non_player_avatar(id.to_owned(), EntityType::Portal, name, phase_tag, instance.guid().to_owned(), content.guid, params);
                     
                     if let Some(nodelink) = nodelink {
                         if let Ok(instance_id) = Uuid::parse_str(&nodelink) &&
                             let Ok(Some(node)) = RawInstance::get(db, &instance_id).await 
                         {
-                            portal.insert(PortalNodelink::RemotePortal { 
-                                zone: node.zone_guid, 
-                                portal: node.guid,
-                            });
+                            self.app.world.get_entity_mut(portal).unwrap()
+                                .insert(PortalNodelink::RemotePortal { 
+                                    zone: node.zone_guid, 
+                                    portal: node.guid,
+                                });
                         } else {
                             error!("Failed to read node {}", nodelink)
                         }
+                    }
+
+                    if let Some(exitpoint) = exitpoint && let Ok(exitpoint) = Uuid::parse_str(&exitpoint)  {
+                        self.app.world.get_entity_mut(portal).unwrap()
+                            .insert(PortalExitPoint(exitpoint));
                     }
                 },
                 Instance::StartingPoint { name, data, phase_tag, content, .. } => {

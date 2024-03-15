@@ -15,14 +15,15 @@
 
 use std::sync::Arc;
 
-use atlas::{oaPkt_SplineSurfing_Acknowledge, NonClientBaseParams, Param, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, StartingPointClass, Uuid};
+use atlas::{oaPkt_SplineSurfing_Acknowledge, NonClientBaseParams, Param, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, SpawnNodeClass, StartingPointClass, Uuid};
 use bevy::app::Plugin;
 use bevy_ecs::{event::EventWriter, query::{With, Without}, system::{Commands, In, Query, Res}};
+use components::{PortalExitPoint, Spawned};
 use glam::{Quat, Vec3};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use regex::Regex;
 
-use crate::{actors::{get_player_height, zone::{plugins::{BehaviorArguments, BehaviorExt}, resources::Broadcaster, zone_events::AvatarEventFired}, AvatarComponent, AvatarEvent, DefaultPos, EntityType, Movement, PhysicsState, Position, ServerAction, SplineSurfing, ZoneEvent}, util::OtherlandQuatExt};
+use crate::{actors::{get_player_height, zone::{components, plugins::{BehaviorArguments, BehaviorExt}, resources::Broadcaster, zone_events::AvatarEventFired}, AvatarComponent, AvatarEvent, DefaultPos, EntityType, Movement, PhysicsState, Position, ServerAction, SplineSurfing, UuidToEntityLookup, ZoneEvent}, util::OtherlandQuatExt};
 use crate::actors::zone::FLIGHT_TUBES;
 
 pub struct PlayerBehaviors;
@@ -72,11 +73,13 @@ fn unimplemented_behavior(In((_, _, behavior)): In<BehaviorArguments>) {
 }
 
 fn respawn_now(
-    In((instigator, target, behavior)): In<BehaviorArguments>,
-    mut player_query: Query<(&mut Position, &mut PlayerClass, &AvatarComponent), Without<StartingPointClass>>,
-    starting_points: Query<&StartingPointClass, With<StartingPointClass>>,
+    In((instigator, _target, behavior)): In<BehaviorArguments>,
+    mut player_query: Query<(&mut Position, &mut PlayerClass, &AvatarComponent)>,
+    portals: Query<(&PortalClass, &PortalExitPoint), (With<components::RespawnPoint>, With<Spawned>)>,
+    exit_points: Query<&SpawnNodeClass>,
     default_pos: Res<DefaultPos>,
     broadcaster: Res<Broadcaster>,
+    uuid_to_entity: Res<UuidToEntityLookup>,
     mut ev_sender: EventWriter<AvatarEventFired>,
 ) {
     if let Some(mode) = behavior.get(1).map(|v| v.as_str()) {
@@ -84,7 +87,13 @@ fn respawn_now(
             "NearestPortal" => {
                 let (mut player_pos, mut player, avatar) = player_query.get_mut(instigator).unwrap();
 
-                let mut positions: Vec<_> = starting_points.iter()
+                let mut positions: Vec<_> = portals.iter()
+                    .filter_map(|(_, exitpoint)| {
+                        info!("Got exitpoint: {}", exitpoint.0);
+
+                        uuid_to_entity.find_entity(&exitpoint.0)
+                            .and_then(|entity| exit_points.get(*entity).ok())
+                    })
                     .map(|starting_point| (starting_point.pos(), starting_point.rot())).collect();
 
                 positions.sort_by(|a, b| {

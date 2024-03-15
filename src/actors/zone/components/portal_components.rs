@@ -20,3 +20,6 @@ use bevy_ecs::component::Component;
 pub enum PortalNodelink {
     RemotePortal { zone: Uuid, portal: Uuid }
 }
+
+#[derive(Component)]
+pub struct PortalExitPoint(pub Uuid);

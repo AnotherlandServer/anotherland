@@ -20,7 +20,7 @@ mod position;
 mod markers;
 mod spawner_state;
 mod event_sender;
-mod portal_nodelink;
+mod portal_components;
 mod spline_surfing;
 
 pub use avatar_component::*;
@@ -30,5 +30,5 @@ pub use position::*;
 pub use markers::*;
 pub use spawner_state::*;
 pub use event_sender::*;
-pub use portal_nodelink::*;
+pub use portal_components::*;
 pub use spline_surfing::*;
