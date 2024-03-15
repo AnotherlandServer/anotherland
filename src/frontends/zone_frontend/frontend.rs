@@ -641,9 +641,8 @@ impl ZoneSession {
                 self.send(response.into_message()).await?;
             },
             AtlasPkt(CPkt::CPktRouted(pkt)) => {
-                match Message::from_bytes(&pkt.field_4).unwrap().1 {
-                    AtlasPkt(CPkt::oaPktMoveManagerPosUpdate(pkt)) => {
-
+                match pkt.field_4 {
+                    Some(CPkt::oaPktMoveManagerPosUpdate(pkt)) => {
                         self.instance.zone().move_player_avatar(
                             self.avatar_id, 
                             Movement {
@@ -657,7 +656,7 @@ impl ZoneSession {
                         ).await;
                     },
                     _ => {
-                        warn!("Unhandled routed packet: {:#?}", Message::from_bytes(&pkt.field_4).unwrap());
+                        warn!("Unhandled routed packet: {:#?}", pkt.field_4);
                     },
                 }
             },

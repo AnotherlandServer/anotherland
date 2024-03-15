@@ -84,7 +84,8 @@ pub enum GeneratedFieldType {
     NativeParam,
     Array(Box<GeneratedFieldType>),
     Struct(GeneratedStructReference),
-    Enum(GeneratedEnumReference)
+    Enum(GeneratedEnumReference),
+    Packet
 }
 
 impl GeneratedStruct {
@@ -276,6 +277,7 @@ impl GeneratedFieldType {
                 },
             FieldTypeDefinition::Enum { .. } => 
                 GeneratedFieldType::Enum(GeneratedEnumReference::Unresolved(definition.clone())),
+            FieldTypeDefinition::Packet => GeneratedFieldType::Packet,
         }
     }
 

@@ -217,7 +217,7 @@ pub fn generate_packet_code() -> io::Result<()> {
             use crate::Uuid;
 
             #[allow(non_camel_case_types)]
-            #[derive(Debug)]
+            #[derive(Debug, Clone)]
             pub enum CPkt {
                 #(#packet_struct_enums)*
             }

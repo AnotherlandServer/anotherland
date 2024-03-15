@@ -77,6 +77,7 @@ pub enum FieldTypeDefinition {
     WString { maxlen: Option<usize> },
     Array { len: FieldLengthDefinition, r#type: Box<FieldTypeDefinition> },
     Enum { primitive: Box<FieldTypeDefinition>, values: Vec<(usize, String)> },
+    Packet,
 }
 
 impl DefinitionFile {
@@ -471,6 +472,7 @@ impl FieldTypeDefinition {
                     let r#type = FieldTypeDefinition::load_from_yaml(&yaml["type"])?;
                     Ok(Self::Array { len, r#type: Box::new(r#type) })
                 },
+                "packet" => Ok(Self::Packet),
                 _ => Err(io::Error::new(io::ErrorKind::Other, format!("invalid type defition: {}", type_name)))
             }
         }

@@ -98,6 +98,7 @@ fn generate_field_type_code(r#type: &GeneratedFieldType) -> TokenStream {
         GeneratedFieldType::F64 => quote! {f64},
         GeneratedFieldType::Uuid => quote! {Uuid},
         GeneratedFieldType::NativeParam => quote! {NativeParam},
+        GeneratedFieldType::Packet => quote! {Option<CPkt>},
     }
 }
 
@@ -295,6 +296,9 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
                         },
                         _ => panic!("Generated field type does not match field definition"),
                     }
+                },
+                FieldTypeDefinition::Packet => {
+                    quote! { map(CPkt::from_bytes, |v| Some(v)) }
                 }
             }
         },
@@ -740,6 +744,16 @@ pub fn generate_field_writer_code(generated_struct: &GeneratedStruct, field_def:
                             for v in &self.#generated_field_ident {
                                 #value_writer
                             }
+                        }
+                    }
+                },
+                FieldTypeDefinition::Packet => {
+                    quote! { 
+                        if let Some(v) = self.#generated_field_ident.as_ref() {
+                            let (id, subid) = v.get_id();
+                            writer.write(id)?;
+                            writer.write(subid)?;
+                            writer.write_bytes(v.to_bytes().as_slice())?;
                         }
                     }
                 }
