@@ -16,7 +16,9 @@
 mod tasks;
 mod broadcaster;
 mod event_infos;
+mod zone_info;
 
 pub use tasks::*;
 pub use broadcaster::*;
 pub use event_infos::*;
+pub use zone_info::*;

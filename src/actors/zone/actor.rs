@@ -26,7 +26,7 @@ use tokio::{runtime::Handle, select, sync::{broadcast, mpsc, OnceCell}, task::Jo
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use bevy_ecs::{prelude::*, schedule::ScheduleLabel};
 
-use crate::{actors::{get_player_height, zone::{ behaviors::BehaviorsPlugin, plugins::{AvatarBehaviorPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, zone::{ behaviors::BehaviorsPlugin, plugins::{AvatarBehaviorPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::{Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
 use super::{components::{self, AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, plugins::{BehaviorExt, SubjectivityExt}, resources::{Broadcaster, Tasks}, zone_events::{AvatarEventFired, ProximityChatEvent}, AvatarEventSender, Movement, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState, ZoneEvent};
@@ -34,7 +34,9 @@ use super::{components::{self, AvatarComponent, AvatarEvent, EntityType, Interes
 pub enum ServerAction {
     DirectTravel(AvatarId, Option<Position>),
     NonPortalTravel(AvatarId, Option<Position>),
-    Teleport(AvatarId, Position)
+    Portal(AvatarId, Option<Position>),
+    LocalPortal(AvatarId, Position),
+    Teleport(AvatarId, Position),
 }
 
 impl ServerAction {
@@ -51,6 +53,18 @@ impl ServerAction {
                 "TRAVEL:NonPortalTravel|NonPortalTravelDefault".to_owned(),
                 4,
                 teleport_override
+            ),
+            Self::Portal(instigator, teleport_override) => (
+                instigator,
+                "TRAVEL:DirectTravel|PortalArriveDefault".to_owned(),
+                4,
+                teleport_override
+            ),
+            Self::LocalPortal(instigator, teleport_override) => (
+                instigator,
+                "TRAVEL:LocalPortalArrive|PortalArriveDefault".to_owned(),
+                4,
+                Some(teleport_override)
             ),
             Self::Teleport(instigator, position) => (
                 instigator,
@@ -186,6 +200,7 @@ impl Actor for Zone {
             ))
             .add_event::<ProximityChatEvent>()
             .add_event::<AvatarEventFired>()
+            .insert_resource(ZoneInfo(self.factory.clone()))
             .insert_resource(Broadcaster {
                 sender: self.event_sender.clone()
             })
@@ -453,6 +468,8 @@ impl Zone {
                         }
 
                         // move to zone
+                        let source_world = character.data.world_map_guid().to_string();
+
                         character.data.set_zone(&self.factory.zone_def().zone);
                         character.data.set_zone_guid(self.factory.zone_def().guid);
                         character.data.set_world_map_guid(&self.factory.world_def().umap_guid.to_string());
@@ -467,7 +484,12 @@ impl Zone {
                             velocity: Vec3::default(),
                         };
 
-                        action = ServerAction::DirectTravel(portal_avatar.id, Some(position.clone()));
+                        // if we are still on the same map, use local travel
+                        if source_world == *character.data.world_map_guid() {
+                            action = ServerAction::LocalPortal(portal_avatar.id, position.clone());
+                        } else {
+                            action = ServerAction::Portal(portal_avatar.id, Some(position.clone()));
+                        }
                     },
                     _ => unimplemented!(),
                 }

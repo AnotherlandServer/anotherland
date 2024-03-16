@@ -13,12 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{oaPktConfirmTravel, oaPktPortalRequestAck, NativeParam, PortalAckPartA, PortalClass, UUID_NIL};
-use bevy::app::Plugin;
-use bevy_ecs::{entity::Entity, event::EventWriter, system::{In, Query}};
-use log::{error, warn};
+use std::sync::Arc;
 
-use crate::{actors::{get_display_name, zone::{plugins::{BehaviorArguments, BehaviorExt}, zone_events::AvatarEventFired}, AvatarComponent, AvatarEvent, EntityType, PortalNodelink, DISPLAY_NAMES, PORTAL_HIVE_DESTINATIONS}, frontends::TravelType};
+use atlas::{oaPktConfirmTravel, oaPktPortalRequestAck, NativeParam, NonClientBaseParams, Param, ParamSet, PlayerAttribute, PlayerClass, PortalAckPartA, PortalClass, SpawnNodeClass, StartingPointClass, UUID_NIL};
+use bevy::app::Plugin;
+use bevy_ecs::{event::EventWriter, system::{In, Query, Res}};
+use glam::{Quat, Vec3};
+use log::{debug, error, warn};
+use atlas::ParamClass;
+
+use crate::{actors::{get_display_name, zone::{plugins::{BehaviorArguments, BehaviorExt}, resources::Broadcaster, zone_events::AvatarEventFired}, AvatarComponent, AvatarEvent, EntityType, Movement, PhysicsState, PortalExitPoint, PortalNodelink, Position, ServerAction, UuidToEntityLookup, ZoneEvent, DISPLAY_NAMES, PORTAL_HIVE_DESTINATIONS}, frontends::TravelType, util::OtherlandQuatExt};
 
 pub struct PortalBehaviors;
 
@@ -50,31 +54,76 @@ fn confirm_travel_request(
 fn do_travel(
     In((instigator, target, args)): In<BehaviorArguments>,
     mut ev_sender: EventWriter<AvatarEventFired>,
-    portal: Query<&PortalNodelink>,
+    uuid_to_entity: Res<UuidToEntityLookup>,
+    broadcaster: Res<Broadcaster>,
+    mut player: Query<(&mut PlayerClass, &AvatarComponent, &mut Position)>,
+    portals: Query<&PortalNodelink>,
+    exit_points: Query<&PortalExitPoint>,
+    spawn_nodes: Query<&SpawnNodeClass>,
 ) {
-    if let Some(destination) = args.get(1) {
+    let nodelink = if let Some(destination) = args.get(1) {
         if let Some(dest) = PORTAL_HIVE_DESTINATIONS.get().unwrap().get(destination) {
-            travel_to_link(instigator, &mut ev_sender, &dest.link);
+            Some(&dest.link)
         } else {
             warn!("Portal destination {} not found!", destination);
+            None
         }
-    } else if let Ok(nodelink) = portal.get(target) {
-        travel_to_link(instigator, &mut ev_sender, nodelink);
+    } else if let Ok(nodelink) = portals.get(target) {
+        Some(nodelink)
     } else {
         warn!("No nodelink for portal set");
-    }
-}
+        None
+    };
 
-fn travel_to_link(instigator: Entity, sender: &mut EventWriter<AvatarEventFired>, link: &PortalNodelink) {
-    match link {
-        PortalNodelink::RemotePortal { zone, portal } => {
-            sender.send(AvatarEventFired(instigator, AvatarEvent::Travel { 
+    match nodelink {
+        Some(PortalNodelink::RemotePortal { zone, portal }) => {
+            ev_sender.send(AvatarEventFired(instigator, AvatarEvent::Travel { 
                 zone: *zone, 
                 destination: TravelType::Portal { 
                     uuid: *portal
                 }
             }));
-        }
+        },
+        Some(PortalNodelink::LocalPortal(id)) => {
+            debug!("Local portal travel!");
+
+            let (mut player, avatar, mut player_pos) = player.get_mut(instigator).unwrap();
+
+            let starting_point = uuid_to_entity.find_entity(id)
+                .and_then(|ent| exit_points.get(*ent).ok())
+                .and_then(|exit_point| uuid_to_entity.find_entity(&exit_point.0))
+                .and_then(|ent| spawn_nodes.get(*ent).ok());
+
+            if let Some(starting_point) = starting_point {
+                let mut update = ParamSet::<PlayerAttribute>::new();
+                update.insert(PlayerAttribute::Pos, Param::Vector3Uts((0, *starting_point.pos())));
+                update.insert(PlayerAttribute::Rot, *starting_point.rot());
+
+                player.apply(update.clone());
+
+                player_pos.version = player_pos.version.wrapping_add(1);
+                    player_pos.position = *starting_point.pos();
+                    player_pos.rotation = Quat::from_unit_vector(*starting_point.rot());
+
+                // update clients
+                ev_sender.send(AvatarEventFired(instigator, AvatarEvent::ServerAction(
+                    ServerAction::LocalPortal(avatar.id, player_pos.to_owned()))
+                ));
+
+                let _ = broadcaster.sender.send(Arc::new(ZoneEvent::AvatarMoved { 
+                    avatar_id: avatar.id, 
+                    movement: Movement { 
+                        position: *starting_point.pos(), 
+                        rotation: Quat::from_unit_vector(*starting_point.rot()), 
+                        velocity: Vec3::default(), 
+                        physics_state: PhysicsState::Walking, 
+                        mover_key: 0, 
+                        seconds: 0.0 
+                    } 
+                }));
+            }
+        },
+        None => (),
     }
 }
 

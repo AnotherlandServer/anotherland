@@ -377,9 +377,6 @@ impl ZoneSession {
         let session_s = self.session_ref.lock().await;
 
         // Spawn player character
-        let mut param_buffer = Vec::new();
-        let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
-
         let (player, server_action) = self.instance.zone().spawn_player(
             match destination {
                 TravelType::EntryPoint => PlayerSpawnMode::TravelDirect,
@@ -390,22 +387,10 @@ impl ZoneSession {
             session_s.session().character_id.unwrap(), 
             self.avatar_event_sender.clone()).await?;
 
-        self.server_actions.push_back(server_action);
-
-        player.data.write_to_client(&mut writer)?;
-
         info!(
             session = self.session_id.to_string(), 
             avatar = self.avatar_id.to_string(); 
             "Spawning player: {}", player.name);
-
-        let movement = self.instance.zone().get_avatar_move_state(self.avatar_id).await.unwrap();
-
-        let mut data = Vec::new();
-        {
-            let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-            player.data.write_to_client(&mut writer)?;
-        }
 
         // Set loading state
         self.send(oaPktS2XConnectionState {
@@ -414,33 +399,49 @@ impl ZoneSession {
             ..Default::default()
         }.into_message()).await?;
 
-        // Send resource notification so pathengine can initialize
-        let _ = self.send(CPktResourceNotify {
-            resource_type: CpktResourceNotifyResourceType::WorldDef,
-            field_2: self.zone_factory.world_def().guid,
-            field_3: "".to_owned(),
-            ..Default::default()
-        }.into_message()).await;
+        let movement = self.instance.zone().get_avatar_move_state(self.avatar_id).await.unwrap();
+    
+        let mut data = Vec::new();
+        {
+            let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+            player.data.write_to_client(&mut writer)?;
+        }
 
-        // Update player character on client
-        self.send(CPktAvatarUpdate {
-            full_update: true,
-            avatar_id: Some(self.avatar_id.as_u64()),
-            field_2: Some(false),
-            name: Some(player.name),
-            class_id: Some(PlayerAttribute::class_id().into()),
-            field_6: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
-            params: data.into(),
-            update_source: 0,
-            movement: Some(MoveManagerInit {
-                pos: movement.position.into(),
-                rot: movement.rotation.into(),
-                vel: movement.velocity.into(),
-                physics: PhysicsState::Walking.into(),
+        if matches!(server_action, ServerAction::LocalPortal(_, _)) {
+            // perform maplocal spawn
+            self.send(server_action.into_message()).await?;
+        } else {
+            // perform complete spawn
+            self.server_actions.push_back(server_action);
+    
+            // Send resource notification so pathengine can initialize
+            let _ = self.send(CPktResourceNotify {
+                resource_type: CpktResourceNotifyResourceType::WorldDef,
+                field_2: self.zone_factory.world_def().guid,
+                field_3: "".to_owned(),
                 ..Default::default()
-            }.to_bytes().into()),
-            ..Default::default()
-        }.into_message()).await?;
+            }.into_message()).await;
+
+            // Update player character on client
+            self.send(CPktAvatarUpdate {
+                full_update: true,
+                avatar_id: Some(self.avatar_id.as_u64()),
+                field_2: Some(false),
+                name: Some(player.name),
+                class_id: Some(PlayerAttribute::class_id().into()),
+                field_6: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
+                params: data.into(),
+                update_source: 0,
+                movement: Some(MoveManagerInit {
+                    pos: movement.position.into(),
+                    rot: movement.rotation.into(),
+                    vel: movement.velocity.into(),
+                    physics: PhysicsState::Walking.into(),
+                    ..Default::default()
+                }.to_bytes().into()),
+                ..Default::default()
+            }.into_message()).await?;
+        }
 
         Ok(())
     }

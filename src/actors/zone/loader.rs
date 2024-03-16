@@ -19,7 +19,7 @@ use atlas::{BilliardBallClass, ChessMetaGameLogicClass, ChessPieceClass, CtfGame
 use bevy::utils::hashbrown::HashMap;
 use bson::{doc, Regex};
 use futures::TryStreamExt;
-use log::{debug, error};
+use log::{debug, error, info};
 use mongodb::options::FindOptions;
 
 use crate::{actors::get_display_name, db::{self, realm_database, DatabaseRecord, DisplayName, FlightTube, Instance, RawInstance, StructureContent, WorldDef, ZoneDef}, util::AnotherlandResult};
@@ -112,11 +112,18 @@ impl Zone {
                         if let Ok(instance_id) = Uuid::parse_str(&nodelink) &&
                             let Ok(Some(node)) = RawInstance::get(db, &instance_id).await 
                         {
-                            self.app.world.get_entity_mut(portal).unwrap()
-                                .insert(PortalNodelink::RemotePortal { 
-                                    zone: node.zone_guid, 
-                                    portal: node.guid,
-                                });
+                            if node.zone_guid == self.factory.zone_def().guid {
+                                info!("Found local portal!");
+
+                                self.app.world.get_entity_mut(portal).unwrap()
+                                    .insert(PortalNodelink::LocalPortal(instance_id));
+                            } else {
+                                self.app.world.get_entity_mut(portal).unwrap()
+                                    .insert(PortalNodelink::RemotePortal { 
+                                        zone: node.zone_guid, 
+                                        portal: node.guid,
+                                    });
+                            }
                         } else {
                             error!("Failed to read node {}", nodelink)
                         }

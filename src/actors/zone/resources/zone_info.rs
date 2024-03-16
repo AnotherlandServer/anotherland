@@ -13,15 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::Uuid;
-use bevy_ecs::component::Component;
-use glam::Vec3;
+use bevy_ecs::system::Resource;
 
-#[derive(Component)]
-pub enum PortalNodelink {
-    RemotePortal { zone: Uuid, portal: Uuid },
-    LocalPortal(Uuid),
-}
+use crate::components::ZoneFactory;
 
-#[derive(Component)]
-pub struct PortalExitPoint(pub Uuid);
+#[derive(Resource)]
+pub struct ZoneInfo(pub ZoneFactory);
