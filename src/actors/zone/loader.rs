@@ -106,6 +106,11 @@ impl Zone {
                     let exitpoint = params.exit_point().map(|v| v.to_owned());
                     let db = self.realm_db.clone();
 
+                    // foce enable all hive portals
+                    if params.tags().map(|v| v.contains("PortalHive")).unwrap_or_default() {
+                        params.set_enable_in_game(true);
+                    }
+
                     let portal = self.spawn_non_player_avatar(id.to_owned(), EntityType::Portal, name, phase_tag, instance.guid().to_owned(), content.guid, params);
                     
                     if let Some(nodelink) = nodelink {
