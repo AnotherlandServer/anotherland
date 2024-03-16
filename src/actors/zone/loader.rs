@@ -349,8 +349,10 @@ impl Zone {
                         if MAP_WHITELIST.contains(&world.name.as_str()) {
                             debug!("Found hive portal: {}-{} ({})", instance.zone_guid, instance.editor_name, *portal_data.display_name());
 
-                            destinations.insert(instance.editor_name.clone(), PortalHiveDestination {
-                                name: instance.editor_name,
+                            let portal_name = instance.editor_name.clone().replace(char::is_whitespace, "_");
+
+                            destinations.insert(portal_name.clone(), PortalHiveDestination {
+                                name: portal_name,
                                 world_name: world.name[..world.name.len()-2].to_owned(),
                                 display_name: *portal_data.display_name(),
                                 zone: instance.zone_guid,
