@@ -13,18 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{borrow::Borrow, collections::{HashMap, HashSet, VecDeque}, net::{Ipv6Addr, SocketAddr}, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{collections::{HashMap, HashSet, VecDeque}, net::{Ipv6Addr, SocketAddr}, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use async_trait::async_trait;
-use atlas::{oaPktMoveManagerPosUpdate, oaPktS2XConnectionState, oaPkt_Combat_HpUpdate, oaPkt_SplineSurfing_Acknowledge, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktChat, CPktResourceNotify, CPktServerNotify, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid, UUID_NIL};
+use atlas::{oaPktS2XConnectionState, oaPktSteamMicroTxn, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktItemUpdate, CPktResourceNotify, CPktServerNotify, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, EdnaModuleAttribute, EdnaModuleClass, ItemBaseParams, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid, UUID_NIL};
 use bitstream_io::{ByteWriter, LittleEndian};
-use glam::{Quat, Vec3};
 use log::{debug, error, trace, warn, info};
 use quinn::ServerConfig;
 use tokio::{sync::{Mutex, mpsc::{self, Sender}, RwLock}, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneEvent, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, ItemContent, WorldDef, ZoneDef}, util::{AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
+use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, ItemContent, WorldDef, ZoneDef}, util::{AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
 use crate::db::DatabaseRecord;
 
 use super::{load_state::ClientLoadState, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
@@ -211,8 +210,8 @@ struct ZoneSession {
     load_state: ClientLoadState,
     instance: ZoneInstance,
     
-    avatar_event_sender: mpsc::Sender<AvatarEvent>,
-    avatar_events: Option<mpsc::Receiver<AvatarEvent>>,
+    avatar_event_sender: mpsc::UnboundedSender<AvatarEvent>,
+    avatar_events: Option<mpsc::UnboundedReceiver<AvatarEvent>>,
     interest_list: HashSet<AvatarId>,
     interest_added_queue: VecDeque<AvatarId>,
     interest_removed_queue: VecDeque<AvatarId>,
@@ -234,7 +233,7 @@ impl ZoneSession {
         // invalidates during the zone enter stage.
         let session_ref = session_handler.write().await.initiate_trusted(*session_id, *session_id).await.unwrap();
 
-        let (avatar_event_sender, avatar_event_receiver) = mpsc::channel(100);
+        let (avatar_event_sender, avatar_event_receiver) = mpsc::unbounded_channel();
 
         let session = ZoneSession {
             session_id: session_id.to_owned(),
@@ -264,7 +263,7 @@ impl ZoneSession {
 
         tasks.spawn(async move {
             let session_ref = self.session_ref.clone();
-            let mut zone_events = self.instance.zone().subscribe().await;
+            //let mut zone_events = self.instance.zone().subscribe().await;
             let mut avatar_event_receiver = self.avatar_events.take().unwrap();
             let mut update_timer = time::interval(Duration::from_millis(250));
 
@@ -297,20 +296,6 @@ impl ZoneSession {
                             
                         } else {
                             break 'net_loop;
-                        }
-                    },
-                    event = zone_events.recv() => {
-                        match event {
-                            Ok(event) => {
-                                let _ = self.handle_zone_event(event).await;
-                            },
-                            Err(e) => {
-                                error!(
-                                    session = self.session_id.to_string(), 
-                                    avatar = self.avatar_id.to_string(); 
-                                    "Zone event error: {:#?}", e);
-                                break 'net_loop;
-                            }
                         }
                     },
                     Some(event) = avatar_event_receiver.recv() => {
@@ -377,7 +362,7 @@ impl ZoneSession {
         let session_s = self.session_ref.lock().await;
 
         // Spawn player character
-        let (player, server_action) = self.instance.zone().spawn_player(
+        let (name, player, server_action) = self.instance.zone().spawn_player(
             match destination {
                 TravelType::EntryPoint => PlayerSpawnMode::TravelDirect,
                 TravelType::Portal { uuid } => PlayerSpawnMode::TravelPortal(uuid),
@@ -390,7 +375,7 @@ impl ZoneSession {
         info!(
             session = self.session_id.to_string(), 
             avatar = self.avatar_id.to_string(); 
-            "Spawning player: {}", player.name);
+            "Spawning player: {}", name);
 
         // Set loading state
         self.send(oaPktS2XConnectionState {
@@ -404,7 +389,7 @@ impl ZoneSession {
         let mut data = Vec::new();
         {
             let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-            player.data.write_to_client(&mut writer)?;
+            player.write_to_client(&mut writer)?;
         }
 
         if matches!(server_action, ServerAction::LocalPortal(_, _)) {
@@ -427,7 +412,7 @@ impl ZoneSession {
                 full_update: true,
                 avatar_id: Some(self.avatar_id.as_u64()),
                 field_2: Some(false),
-                name: Some(player.name),
+                name: Some(name),
                 class_id: Some(PlayerAttribute::class_id().into()),
                 field_6: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
                 params: data.into(),
@@ -448,13 +433,13 @@ impl ZoneSession {
 
     async fn handle_avatar_event(&mut self, event: AvatarEvent) -> AnotherlandResult<()> {
         match event {
-            AvatarEvent::InterestAdded { ids } => {
+            AvatarEvent::InterestAdded(ids) => {
                 if !self.ignore_interest_updates {
                     self.interest_removed_queue = self.interest_removed_queue.drain(..).filter(|v| !ids.contains(v)).collect();
                     self.interest_added_queue.append(&mut ids.into_iter().collect());
                 }
             },
-            AvatarEvent::InterestRemoved { ids } => {
+            AvatarEvent::InterestRemoved(ids) => {
                 if !self.ignore_interest_updates {
                     self.interest_added_queue = self.interest_added_queue.drain(..).filter(|v| !ids.contains(v)).collect();
                     self.interest_removed_queue.append(&mut ids.into_iter().collect());
@@ -469,76 +454,6 @@ impl ZoneSession {
             AvatarEvent::ServerAction(action) => {
                 self.server_actions.push_back(action);
             },
-            AvatarEvent::ChatMessage { range, sender, message } => {
-                self.send(CPktChat {
-                    chat_type: match range {
-                        ProximityChatRange::Say => CpktChatChatType::Say,
-                        ProximityChatRange::TeamSay => CpktChatChatType::Say,
-                        ProximityChatRange::Shout => CpktChatChatType::Shout,
-                    },
-                    message,
-                    sender,
-                    ..Default::default()
-                }.into_message()).await?;
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn handle_zone_event(&mut self, event: Arc<ZoneEvent>) -> AnotherlandResult<()> {
-        match event.as_ref() {
-            ZoneEvent::AvatarSpawned { avatar_id, .. } => {
-                if *avatar_id != self.avatar_id {
-                    // todo: check if we need to add the character to our interest list
-                }
-            },
-            ZoneEvent::AvatarUpdated { avatar_id, params } => {
-                if self.interest_list.contains(avatar_id) || self.avatar_id == *avatar_id {
-                    let mut param_buffer = Vec::new();
-                    let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
-
-                    params.write_to_client(&mut writer)?;
-    
-                    self.send(CPktAvatarUpdate {
-                        full_update: false,
-                        avatar_id: Some(avatar_id.as_u64()),
-                        update_source: 0,
-                        params: param_buffer.into(),
-                        ..Default::default()
-                    }.into_message()).await?;
-                }
-            },
-            ZoneEvent::AvatarMoved { avatar_id, movement } => {
-                if self.interest_list.contains(avatar_id) {
-                    self.send(oaPktMoveManagerPosUpdate {
-                        pos: movement.position.into(),
-                        rot: movement.rotation.into(),
-                        vel: movement.velocity.into(),
-                        physics: movement.physics_state.into(),
-                        mover_key: movement.mover_key,
-                        avatar_id: avatar_id.as_u64(),
-                        seconds: movement.seconds,
-                        ..Default::default()
-                    }.into_message()).await?;
-                }
-            },
-            ZoneEvent::AvatarDespawned { avatar_id } => {
-                if self.interest_list.remove(avatar_id) {
-                    // tell client the avatar despawned
-                    self.send(CPktAvatarClientNotify {
-                        avatar_id: avatar_id.clone().as_u64(),
-                        ..Default::default()
-                    }.into_message()).await?;
-                }
-            },
-            ZoneEvent::CombatHpUpdate { avatar_id, hp } => {
-                self.send(oaPkt_Combat_HpUpdate {
-                    avatar_id: avatar_id.as_u64(),
-                    hp: *hp,
-                    ..Default::default()
-                }.into_message()).await?;
-            }
         }
 
         Ok(())
@@ -570,21 +485,21 @@ impl ZoneSession {
                 let mut param_buffer = Vec::new();
                 let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
-                let (player, server_action) = self.instance.zone().spawn_player(PlayerSpawnMode::LoginNormal, self.avatar_id, session_s.session().character_id.unwrap(), self.avatar_event_sender.clone()).await?;
+                let (name, player, server_action) = self.instance.zone().spawn_player(PlayerSpawnMode::LoginNormal, self.avatar_id, session_s.session().character_id.unwrap(), self.avatar_event_sender.clone()).await?;
                 self.server_actions.push_back(server_action);
 
-                player.data.write_to_client(&mut writer)?;
+                player.write_to_client(&mut writer)?;
 
                 let movement = self.instance.zone().get_avatar_move_state(self.avatar_id).await.unwrap();
 
                 info!(
                     session = self.session_id.to_string(), 
                     avatar = self.avatar_id.to_string(); 
-                    "Spawning player: {}", player.name);
+                    "Spawning player: {}", name);
 
                 self.send(CPktBlob {
                     avatar_id: self.avatar_id.as_u64(),
-                    avatar_name: player.name,
+                    avatar_name: name,
                     class_id: PlayerAttribute::class_id().into(),
                     params: param_buffer.into(),
                     movement: MoveManagerInit {
