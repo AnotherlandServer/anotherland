@@ -13,27 +13,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{any::Any, io, str::FromStr};
+use std::{any::Any, io};
 
 use bitstream_io::ByteWrite;
-use nom::{error::VerboseError, IResult};
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde_json::{Value, json};
 use bevy_ecs::prelude::*;
 
-use crate::{ClassId, ParamClass, ParamError};
+use crate::{ClassId, DynParamClass, MightIncludeParams, MightIncludeParamsMut, ParamClass, ParamError, ParamSetBox};
 
 #[derive(Component)]
 pub struct ParamBox {
-    class_id: ClassId,
-    class: Box<dyn Any>,
+    pub(crate) class_id: ClassId,
+    pub(crate) class: Box<dyn DynParamClass>,
 }
 
-unsafe impl Send for ParamBox {}
-unsafe impl Sync for ParamBox {}
-
 impl ParamBox {
-    pub(crate) fn new(class_id: ClassId, class: Box<dyn Any>) -> Self {
+    pub(crate) fn new(class_id: ClassId, class: Box<dyn DynParamClass>) -> Self {
         Self { class_id, class }
     }
 
@@ -44,63 +40,50 @@ impl ParamBox {
     }
 
     pub fn get<T>(&self) -> Result<&T, ParamError> where T: ParamClass {
-        self.class.downcast_ref().ok_or(ParamError(()))
+        self.class.get()
     }
 
     pub fn get_mut<T>(&mut self) -> Result<&mut T, ParamError> where T: ParamClass {
-        self.class.downcast_mut().ok_or(ParamError(()))
+        self.class.get_mut()
     }
 
     pub fn take<T>(self) -> Result<T, ParamError> where T: ParamClass {
-        self.class.downcast().map_err(|_| ParamError(())).map(|v| *v)
+        let class: Box<dyn Any> = self.class;
+        class.downcast().map_err(|_| ParamError(())).map(|v| *v)
     }
 
     pub fn as_persistent_json(&self) -> Value {
-        let serialized = self.class_id.class_into_json(self.class.as_ref());
+        let serialized = self.class.as_json();
 
         json!({ self.class_id.to_string(): serialized })
-    }
-
-    pub fn from_json(value: &Value) -> Result<Self, io::Error> {
-        let (class_name, value) = value.as_object()
-            .and_then(|v| v.iter().next())
-            .ok_or(io::Error::new(io::ErrorKind::InvalidData, ""))?;
-
-        let class_id = ClassId::from_str(class_name)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid class name"))?;
-
-        let value = class_id.class_from_json(value)?;
-
-        Ok(Self {
-            class_id,
-            class: value,
-        })
-    }
-
-    pub fn read(class_id: u16, i: &[u8]) -> IResult<&[u8], Self, VerboseError<&[u8]>> {
-        let class_id: ClassId = class_id.try_into().expect("unknown class id");
-        let (i, class) = class_id.read(i)?;
-
-        Ok((i, Self {
-            class_id,
-            class
-        }))
     }
 
     pub fn write<T>(&self, value: &mut T) -> Result<(), io::Error> 
     where T: ByteWrite
     {
-        self.class_id.write(self.class.as_ref(), value)
+        self.class.write(value)
     }
 
     pub fn write_to_client<T>(&self, value: &mut T) -> Result<(), io::Error> 
     where T: ByteWrite
     {
-        self.class_id.write_to_client(self.class.as_ref(), value)
+        self.class.write_to_client(value)
     }
 
-    pub fn strip_original_data(&mut self) {
+    pub fn get_impl<'a, T: ?Sized + 'static>(&'a self) -> Option<&'a T> 
+        where dyn DynParamClass: MightIncludeParams<'a, T> 
+    { 
+        self.class.as_ref().as_params() 
+    }
 
+    pub fn get_impl_mut<'a, T: ?Sized + 'static>(&'a mut self) -> Option<&'a mut T> 
+        where dyn DynParamClass: MightIncludeParamsMut<'a, T> 
+    {
+        self.class.as_mut().as_params_mut() 
+    }
+
+    pub fn diff(&self, other: &ParamBox) -> ParamSetBox {
+        self.class.diff(other.class.as_ref())
     }
 }
 
@@ -128,7 +111,7 @@ impl Clone for ParamBox {
     fn clone(&self) -> Self {
         Self { 
             class_id: self.class_id, 
-            class: self.class_id.clone_class(self.class.as_ref()),
+            class: self.class.cloned(),
         }
     }
 }

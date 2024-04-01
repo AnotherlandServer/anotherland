@@ -726,7 +726,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         }).collect();
 
         quote!{
-            #[derive(PartialEq, Eq, Hash, Clone)]
+            #[derive(PartialEq, Eq, Hash, Clone, Copy)]
             pub enum #enum_name {
                 #(#enum_entries),*
             }
@@ -799,8 +799,8 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         let class: std::cell::Ref<'_, ParamClass> = v.borrow();
 
         let trait_name = format_ident!("{}Params", class.name.to_case(Case::UpperCamel));
-        let view_name = format_ident!("{}View", class.name.to_case(Case::UpperCamel));
         let component_name = format_ident!("{}Component", class.name.to_case(Case::UpperCamel));
+        let might_be_trait_name = format_ident!("MightBe{}Params", class.name.to_case(Case::UpperCamel));
 
         let params: Vec<_> = v.borrow().paramid.iter().map(|(name, id)| {
             (name.to_owned(), *id, v.borrow().paramoption.iter().find(|p| &p.0 == name).map(|s| s.1.to_owned()))
@@ -834,7 +834,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
                     if options.param_type.is_any_type() {
                         tokens.push(quote! { 
-                            fn #field_name_ident(&self) -> Option<MappedRwLockReadGuard<#rust_type>>;
+                            fn #field_name_ident(&self) -> Option<&#rust_type>;
                         });
                     } else if options.param_type.is_copy_type() {
                         if options.default.is_some() {
@@ -849,11 +849,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     } else if options.param_type.is_ref_type() {
                         if options.default.is_some() {
                             tokens.push(quote! { 
-                                fn #field_name_ident(&self) -> MappedRwLockReadGuard<#rust_type>;
+                                fn #field_name_ident(&self) -> &#rust_type;
                             });
                         } else {
                             tokens.push(quote! { 
-                                fn #field_name_ident(&self) -> Option<MappedRwLockReadGuard<#rust_type>>;
+                                fn #field_name_ident(&self) -> Option<&#rust_type>;
                             });
                         }
                     } else {
@@ -980,48 +980,36 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             }
         }).collect();
 
+        let super_trait = if let Some(parent) = v.borrow().extends_ref.as_ref() {
+            let parent_ident = format_ident!("{}Params", parent.borrow().name.to_case(Case::UpperCamel));
+            quote!(: #parent_ident)
+        } else {
+            quote!()
+        };
+
         quote! {
-            pub trait #trait_name {
+            pub trait #trait_name #super_trait {
                 #(#getter_setter)*
             }
 
-            pub struct #view_name<P>(P) where P: ParamClass + #trait_name;
-
-            impl <P: ParamClass + #trait_name> #view_name<P> {
-                pub fn new(params: &P) -> Self 
-                where P: ParamClass + #trait_name
-                {
-                    Self(params.clone_ref())
-                }
+            impl<'a, T> MightIncludeParams<'a, dyn #trait_name + 'static> for T {
+                default fn as_params(&'a self) -> Option<&'a (dyn #trait_name + 'static)> { None }
             }
 
-            impl <P: ParamClass + #trait_name> Deref for #view_name<P> {
-                type Target = dyn #trait_name;
+            impl<'a, T> MightIncludeParams<'a, dyn #trait_name + 'static> for T where T: #trait_name + 'static {
+                fn as_params(&'a self) -> Option<&'a (dyn #trait_name + 'static)> { Some(self) }
+            }
 
-                fn deref(&self) -> &Self::Target {
-                    &self.0
-                }
+            impl<'a, T> MightIncludeParamsMut<'a, dyn #trait_name + 'static> for T {
+                default fn as_params_mut(&'a mut self) -> Option<&'a mut (dyn #trait_name + 'static)> { None }
+            }
+
+            impl<'a, T> MightIncludeParamsMut<'a, dyn #trait_name + 'static> for T where T: #trait_name + 'static {
+                fn as_params_mut(&'a mut self) -> Option<&'a mut (dyn #trait_name + 'static)> { Some(self) }
             }
 
             #[derive(Component)]
-            pub struct #component_name(Box<dyn #trait_name>);
-
-            unsafe impl Send for #component_name {}
-            unsafe impl Sync for #component_name {}
-
-            impl Deref for #component_name {
-                type Target = dyn #trait_name;
-
-                fn deref(&self) -> &Self::Target {
-                    self.0.as_ref()
-                }
-            }
-
-            impl DerefMut for #component_name {
-                fn deref_mut(&mut self) -> &mut Self::Target {
-                    self.0.as_mut()
-                }
-            }
+            pub struct #component_name;
         }
     }).collect();
 
@@ -1072,12 +1060,8 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
                             if options.param_type.is_any_type() {
                                 tokens.push(quote! { 
-                                    fn #field_name_ident(&self) -> Option<MappedRwLockReadGuard<#rust_type>> {
-                                        RwLockReadGuard::try_map::<Param, _>(self.0.read(), 
-                                        |v| 
-                                            v.get(&#attrib_name::#attrib_enum_name)
-                                        )
-                                        .ok()
+                                    fn #field_name_ident(&self) -> Option<&#rust_type> {
+                                        self.0.get(&#attrib_name::#attrib_enum_name)
                                     }
                                 })
                             } else if options.param_type.is_copy_type() {
@@ -1085,7 +1069,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                     tokens.push(quote!{
                                         fn #field_name_ident(&self) -> #rust_type { 
                                             self.0
-                                                .read()
                                                 .get(&#attrib_name::#attrib_enum_name)
                                                 .and_then(|v| v.try_into().ok())
                                                 .expect("param not defined")
@@ -1095,7 +1078,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                     tokens.push(quote!{
                                         fn #field_name_ident(&self) -> Option<#rust_type> { 
                                             self.0
-                                                .read()
                                                 .get(&#attrib_name::#attrib_enum_name)
                                                 .and_then(|v| v.try_into().ok())
                                         }
@@ -1104,25 +1086,18 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             } else if options.param_type.is_ref_type() {
                                 if options.default.is_some() {
                                     tokens.push(quote!{
-                                        fn #field_name_ident(&self) -> MappedRwLockReadGuard<#rust_type> {
-                                            RwLockReadGuard::try_map::<#rust_type, _>(self.0.read(), 
-                                            |v| 
-                                                v.get(&#attrib_name::#attrib_enum_name)
+                                        fn #field_name_ident(&self) -> &#rust_type {
+                                            self.0
+                                                .get(&#attrib_name::#attrib_enum_name)
                                                 .and_then(|v| v.try_into().ok())
-                                            )
-                                            .ok()
-                                            .expect("param not defined")
+                                                .expect("param not defined")
                                         }
                                     });
                                 } else {
                                     tokens.push(quote!{
-                                        fn #field_name_ident(&self) -> Option<MappedRwLockReadGuard<#rust_type>> {
-                                            RwLockReadGuard::try_map::<#rust_type, _>(self.0.read(), 
-                                            |v| 
-                                                v.get(&#attrib_name::#attrib_enum_name)
+                                        fn #field_name_ident(&self) -> Option<&#rust_type> {
+                                            self.0.get(&#attrib_name::#attrib_enum_name)
                                                 .and_then(|v| v.try_into().ok())
-                                            )
-                                            .ok()
                                         }
                                     });
                                 }
@@ -1135,103 +1110,103 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             match options.param_type {
                                 ParamType::Any => tokens.push(quote! { 
                                     fn #set_field_name(&mut self, val: Param)
-                                    { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    { self.0.insert(#attrib_name::#attrib_enum_name, val); }
                                 }),
                                 ParamType::AvatarID => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: AvatarId) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::AvatarId(val)) }
+                                    fn #set_field_name(&mut self, val: AvatarId) { self.0.insert(#attrib_name::#attrib_enum_name, Param::AvatarId(val)); }
                                 }),
                                 ParamType::AvatarIDSet => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: HashSet<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::AvatarIdSet(val)) }
+                                    fn #set_field_name(&mut self, val: HashSet<AvatarId>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::AvatarIdSet(val)); }
                                 }),
                                 ParamType::AvatarIDVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<AvatarId>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorAvatarId(val)) }
+                                    fn #set_field_name(&mut self, val: Vec<AvatarId>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::VectorAvatarId(val)); }
                                 }),
                                 ParamType::BitSetFilter => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: u32) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::BitSetFilter(val)) }
+                                    fn #set_field_name(&mut self, val: u32) { self.0.insert(#attrib_name::#attrib_enum_name, Param::BitSetFilter(val)); }
                                 }),
                                 ParamType::Bool => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: bool) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Bool(val)) }
+                                    fn #set_field_name(&mut self, val: bool) { self.0.insert(#attrib_name::#attrib_enum_name, Param::Bool(val)); }
                                 }),
                                 ParamType::ClassRefPowerRangeList => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::ClassRefPowerRangeList(val.to_owned())) }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.insert(#attrib_name::#attrib_enum_name, Param::ClassRefPowerRangeList(val.to_owned())); }
                                 }),
                                 ParamType::ContentRef => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::ContentRef(val.to_owned())) }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.insert(#attrib_name::#attrib_enum_name, Param::ContentRef(val.to_owned())); }
                                 }),
                                 ParamType::ContentRefAndInt => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::ContentRefAndInt(val.to_owned())) }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.insert(#attrib_name::#attrib_enum_name, Param::ContentRefAndInt(val.to_owned())); }
                                 }),
                                 ParamType::ContentRefList => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::ContentRefList(val.to_owned())) }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.insert(#attrib_name::#attrib_enum_name, Param::ContentRefList(val.to_owned())); }
                                 }),
                                 ParamType::Float => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: f32) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Float(val)) }
+                                    fn #set_field_name(&mut self, val: f32) { self.0.insert(#attrib_name::#attrib_enum_name, Param::Float(val)); }
                                 }),
                                 ParamType::FloatRange => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: (f32, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::FloatRange(val)) }
+                                    fn #set_field_name(&mut self, val: (f32, f32)) { self.0.insert(#attrib_name::#attrib_enum_name, Param::FloatRange(val)); }
                                 }),
                                 ParamType::FloatVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<f32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorFloat(val)) }
+                                    fn #set_field_name(&mut self, val: Vec<f32>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::VectorFloat(val)); }
                                 }),
                                 ParamType::Guid => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Guid(val)) }
+                                    fn #set_field_name(&mut self, val: Uuid) { self.0.insert(#attrib_name::#attrib_enum_name, Param::Guid(val)); }
                                 }),
                                 ParamType::GuidPair => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: (Uuid, Uuid)) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::GuidPair(val)) }
+                                    fn #set_field_name(&mut self, val: (Uuid, Uuid)) { self.0.insert(#attrib_name::#attrib_enum_name, Param::GuidPair(val)); }
                                 }),
                                 ParamType::Int => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: i32) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Int(val)) }
+                                    fn #set_field_name(&mut self, val: i32) { self.0.insert(#attrib_name::#attrib_enum_name, Param::Int(val)); }
                                 }),
                                 ParamType::Int64 => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: i64) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Int64(val)) }
+                                    fn #set_field_name(&mut self, val: i64) { self.0.insert(#attrib_name::#attrib_enum_name, Param::Int64(val)); }
                                 }),
                                 ParamType::Int64Vector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<i64>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorInt64(val)) }
+                                    fn #set_field_name(&mut self, val: Vec<i64>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::VectorInt64(val)); }
                                 }),
                                 ParamType::IntVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorInt(val)) }
+                                    fn #set_field_name(&mut self, val: Vec<i32>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::VectorInt(val)); }
                                 }),
                                 ParamType::Json => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Value) { self.0.write().insert(#attrib_name::#attrib_enum_name, val) }
+                                    fn #set_field_name(&mut self, val: Value) { self.0.insert(#attrib_name::#attrib_enum_name, val); }
                                 }),
                                 ParamType::LocalizedString => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Uuid) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::LocalizedString(val)) }
+                                    fn #set_field_name(&mut self, val: Uuid) { self.0.insert(#attrib_name::#attrib_enum_name, Param::LocalizedString(val)); }
                                 }),
                                 ParamType::OAInstanceGroup => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::InstanceGroup(val.to_owned())) }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.insert(#attrib_name::#attrib_enum_name, Param::InstanceGroup(val.to_owned())); }
                                 }),
                                 ParamType::OASetGuid => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: HashSet<Uuid>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::GuidSet(val)) }
+                                    fn #set_field_name(&mut self, val: HashSet<Uuid>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::GuidSet(val)); }
                                 }),
                                 ParamType::OAVactorLocalizedString => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<Uuid>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorLocalizedString(val)) }
+                                    fn #set_field_name(&mut self, val: Vec<Uuid>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::VectorLocalizedString(val)); }
                                 }),
                                 ParamType::OAVectorGuid => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<Uuid>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorGuid(val)) }
+                                    fn #set_field_name(&mut self, val: Vec<Uuid>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::VectorGuid(val)); }
                                 }),
                                 ParamType::String => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: &str) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::String(val.to_owned())) }
+                                    fn #set_field_name(&mut self, val: &str) { self.0.insert(#attrib_name::#attrib_enum_name, Param::String(val.to_owned())); }
                                 }),
                                 ParamType::StringFloatPair => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: (String, f32)) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::StringFloatPair(val)) }
+                                    fn #set_field_name(&mut self, val: (String, f32)) { self.0.insert(#attrib_name::#attrib_enum_name, Param::StringFloatPair(val)); }
                                 }),
                                 ParamType::StringIntHashmap => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: HashMap<String, i32>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::HashmapStringInt(val)) }
+                                    fn #set_field_name(&mut self, val: HashMap<String, i32>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::HashmapStringInt(val)); }
                                 }),
                                 ParamType::StringStringHashmap => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: HashMap<String, String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::HashmapStringString(val)) }
+                                    fn #set_field_name(&mut self, val: HashMap<String, String>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::HashmapStringString(val)); }
                                 }),
                                 ParamType::StringVector => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Vec<String>) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::VectorString(val)) }
+                                    fn #set_field_name(&mut self, val: Vec<String>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::VectorString(val)); }
                                 }),
                                 ParamType::Vector3 => {
                                     if options.flags.contains(&ParamFlag::Uts) {
                                         tokens.push(quote! {
-                                            fn #set_field_name(&mut self, val: (u32, Vec3)) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Vector3Uts(val)) }
+                                            fn #set_field_name(&mut self, val: (u32, Vec3)) { self.0.insert(#attrib_name::#attrib_enum_name, Param::Vector3Uts(val)); }
                                         })
                                     } else {
                                         tokens.push(quote! {
-                                            fn #set_field_name(&mut self, val: Vec3) { self.0.write().insert(#attrib_name::#attrib_enum_name, Param::Vector3(val)) }
+                                            fn #set_field_name(&mut self, val: Vec3) { self.0.insert(#attrib_name::#attrib_enum_name, Param::Vector3(val)); }
                                         })
                                     }
                                 },
@@ -1262,7 +1237,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             let mut components: Vec<TokenStream> = Vec::new();
 
             components.push(quote!(ParamBox));
-            components.push(quote!( #class_name ));
 
             let mut current_class = Some(v.to_owned().to_owned());
             while let Some(parent_class_ref) = current_class {
@@ -1279,8 +1253,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         let bundle_class = {
             let mut components: Vec<TokenStream> = Vec::new();
 
-            components.push(quote!{ self.clone_ref().into_box() });
-            components.push(quote!{ self.clone_ref() });
+            components.push(quote!{ self.into_box() });
 
             let mut current_class = Some(v.to_owned().to_owned());
             while let Some(parent_class_ref) = current_class {
@@ -1288,7 +1261,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
                 let component_name = format_ident!("{}Component", parent_class_ref.borrow().name.to_case(Case::UpperCamel));
 
-                components.push(quote!{ #component_name(Box::new(self.clone_ref())) });
+                components.push(quote!{ #component_name });
             }
 
             components
@@ -1314,45 +1287,40 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         .collect();
 
         let default_implt = if default_params.is_empty() {
-            quote!(Self(Arc::new(RwLock::new(ParamSet::new()))))
+            quote!(Self(ParamSet::new()))
         } else {
             quote!{
                 let mut set = ParamSet::new();
                 #(#default_params)*
 
-                Self(Arc::new(RwLock::new(set)))
+                Self(set)
             }
         };
 
         quote!{
-            #[derive(Component)]
-            pub struct #class_name(Arc<RwLock<ParamSet<#attrib_name>>>);
+            pub struct #class_name(ParamSet<#attrib_name>);
 
             impl ParamClass for #class_name {
                 type Attributes = #attrib_name;
                 type EntityBundle = #bundle_type;
 
                 fn from_set(set: ParamSet<Self::Attributes>) -> Self {
-                    Self(Arc::new(RwLock::new(set)))
+                    Self(set)
                 }
 
-                fn as_set(&self) -> RwLockReadGuard<ParamSet<Self::Attributes>> {
-                    self.0.read()
+                fn as_set(&self) -> &ParamSet<Self::Attributes> {
+                    &self.0
                 }
 
                 fn into_set(self) -> ParamSet<Self::Attributes> {
-                    Arc::into_inner(self.0).expect("Class must be the only reference to this instance").into_inner()
+                    self.0
                 }
             
                 fn apply(&mut self, set: ParamSet<Self::Attributes>) {
-                    self.0.write().extend(set)
+                    self.0.extend(set)
                 }
 
-                fn clone_ref(&self) -> Self {
-                    Self(self.0.clone())
-                }
-
-                fn as_bundle(&self) -> Self::EntityBundle {
+                fn into_bundle(self) -> Self::EntityBundle {
                     (#(#bundle_class),*)
                 }
 
@@ -1360,6 +1328,8 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     ParamBox::new(ClassId::#class_name, Box::new(self))
                 }
             }
+
+            impl <'a>MightIncludeBase<'a> for #class_name {}
 
             impl Default for #class_name {
                 fn default() -> Self {
@@ -1369,7 +1339,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
             impl Clone for #class_name {
                 fn clone(&self) -> Self {
-                    Self(Arc::new(RwLock::new(self.as_set().clone())))
+                    Self(self.as_set().clone())
                 }
             }
 
@@ -1392,7 +1362,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     Ok(#class_name::from_json(&json).unwrap())
                 }
             }
-            
 
             #(#trait_implementations)*
         }
@@ -1431,70 +1400,96 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
     let class_from_json: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => Ok(Box::new(#class_name::from_json(value)?)), }
+        quote! { ClassId::#class_name => Box::new(#class_name::from_json(value)?), }
     }).collect();
 
-    let class_into_json: Vec<_> = final_classes.iter().map(|v| {
+    let dyn_class_into_json: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => value.downcast_ref::<#class_name>().expect("class id mismatch").as_persistent_json(), }
+        quote! { ClassId::#class_name => self.get::<#class_name>().unwrap().as_persistent_json(), }
     }).collect();
 
     let class_read: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
         quote! { ClassId::#class_name => {
                 let (i, class) = #class_name::read(i)?;
-                Ok((i, Box::new(class)))
+                (i, Box::new(class))
             }, 
         }
     }).collect();
 
-    let class_write: Vec<_> = final_classes.iter().map(|v| {
+    let dyn_class_write: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => value.downcast_ref::<#class_name>().expect("class id mismatch").write(writer), }
+        quote! { ClassId::#class_name => self.get::<#class_name>().unwrap().write(writer), }
     }).collect();
 
-    let class_write_to_client: Vec<_> = final_classes.iter().map(|v| {
+    let dyn_class_write_to_client: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => value.downcast_ref::<#class_name>().expect("class id mismatch").write_to_client(writer), }
+        quote! { ClassId::#class_name => self.get::<#class_name>().unwrap().write_to_client(writer), }
     }).collect();
 
-    let class_from_json_set: Vec<_> = final_classes.iter().map(|v| {
-        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => Ok(Box::new(#attribute_name::deserialize_json_set(value)?)), }
-    }).collect();
-
-    let class_into_json_set: Vec<_> = final_classes.iter().map(|v| {
+    let set_from_json: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
         let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => #attribute_name::serialize_json_set(value.downcast_ref::<ParamSet<#attribute_name>>().expect("class id mismatch")), }
+        quote! { ClassId::#class_name => Box::new(#attribute_name::deserialize_json_set(value)?), }
     }).collect();
 
-    let class_read_set: Vec<_> = final_classes.iter().map(|v| {
+    let dyn_set_as_json: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => #attribute_name::serialize_json_set(self.get::<#attribute_name>().unwrap()), }
+    }).collect();
+
+    let dyn_set_clone: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => Box::new(self.get::<#attribute_name>().unwrap().clone()), }
+    }).collect();
+
+    let set_read: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
         let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
         quote! { ClassId::#class_name => {
                 let (i, set) = ParamSet::<#attribute_name>::read(i)?;
-                Ok((i, Box::new(set)))
+                (i, Box::new(set))
             }, 
         }
     }).collect();
 
-    let class_write_set: Vec<_> = final_classes.iter().map(|v| {
+    let dyn_set_write: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
         let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => value.downcast_ref::<ParamSet<#attribute_name>>().expect("class id mismatch").write(writer), }
+        quote! { ClassId::#class_name => self.get::<#attribute_name>().unwrap().write(writer), }
     }).collect();
 
-    let class_write_set_to_client: Vec<_> = final_classes.iter().map(|v| {
+    let dyn_set_write_to_client: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
         let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => value.downcast_ref::<ParamSet<#attribute_name>>().expect("class id mismatch").write_to_client(writer), }
+        quote! { ClassId::#class_name => self.get::<#attribute_name>().unwrap().write_to_client(writer), }
     }).collect();
     
-    let class_clone: Vec<_> = final_classes.iter().map(|v| {
+    let dyn_class_clone: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => Box::new(value.downcast_ref::<#class_name>().expect("class id mismatch").clone()), }
+        quote! { ClassId::#class_name => Box::new(self.get::<#class_name>().unwrap().clone()), }
+    }).collect();
+
+    let dyn_class_get_impl: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => (self.get::<#class_name>().unwrap() as &dyn MightIncludeParams<T>).as_params(), }
+    }).collect();
+
+    let dyn_class_get_impl_mut: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => (self.get_mut::<#class_name>().unwrap() as &mut dyn MightIncludeParamsMut<T>).as_params_mut(), }
+    }).collect();
+
+    let dyn_class_diff: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { 
+            ClassId::#class_name => 
+                self.get::<#class_name>()
+                .unwrap()
+                .diff(other.get::<#class_name>().unwrap())
+                .into_box(), }
     }).collect();
 
     let class_id_int: Vec<_> = final_classes.iter().map(|v| {
@@ -1505,22 +1500,32 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         quote!(ClassId::#class_name => #id_literal)
     }).collect();
 
+    let dyn_where: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { #class_name: MightIncludeParams<'a, T> }
+    }).collect();
+
+    let dyn_where_mut: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { #class_name: MightIncludeParamsMut<'a, T> }
+    }).collect();
+
+    let where_base: Vec<_> = paramlist.classes.iter().map(|v| {
+        let class_name = format_ident!("{}Params",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { MightIncludeParams<'a, dyn #class_name + 'static> + MightIncludeParamsMut<'a, dyn #class_name + 'static> }
+    }).collect();
+
     write_source("generated_params.rs", quote! {
         use glam::Vec3;
-        use std::sync::Arc;
         use std::collections::HashSet;
         use std::collections::HashMap;
         use serde_json::Value;
-        use std::any::Any;
         use std::str::FromStr;
         use std::io;
         use std::fmt::Display;
         use std::fmt::Formatter;
-        use std::ops::Deref;
-        use std::ops::DerefMut;
-        use parking_lot::RwLock;
-        use parking_lot::RwLockReadGuard;
-        use parking_lot::MappedRwLockReadGuard;
         use nom::IResult;
         use nom::error::VerboseError;
         use bitstream_io::ByteWrite;
@@ -1529,18 +1534,21 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use serde::Deserialize;
         use serde::Deserializer;
         use bevy_ecs::prelude::*;
-        use uuid::uuid;
-        use serde_json::json;
         use once_cell::sync::Lazy;
 
         use crate::AvatarId;
         use crate::Uuid;
+        use crate::DynParamClass;
+        use crate::DynParamSet;
+        use crate::MightIncludeParams;
+        use crate::MightIncludeParamsMut;
         use crate::param::ParamAttrib;
         use crate::param::ParamBox;
         use crate::param::ParamType;
         use crate::param::ParamFlag;
         use crate::param::ParamClass;
         use crate::param::ParamSet;
+        use crate::param::ParamSetBox;
         use crate::param::ParamError;
         use crate::param::Param;
 
@@ -1550,81 +1558,9 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         #(#param_classes)*
         
-        #[derive(Clone, Copy)]
+        #[derive(Clone, Copy, PartialEq, Eq)]
         pub enum ClassId {
             #(#param_class_enum),*
-        }
-
-        impl ClassId {
-            pub(crate) fn class_from_json(&self, value: &Value) -> Result<Box<dyn Any>, io::Error> {
-                match self {
-                    #(#class_from_json)*
-                }
-            }
-
-            pub(crate) fn class_into_json(&self, value: &dyn Any) -> Value {
-                match self {
-                    #(#class_into_json)*
-                }
-            }
-
-            pub(crate) fn set_from_json(&self, value: &Value) -> Result<Box<dyn Any + Send + Sync>, io::Error> {
-                match self {
-                    #(#class_from_json_set)*
-                }
-            }
-
-            pub(crate) fn set_into_json(&self, value: &dyn Any) -> Value {
-                match self {
-                    #(#class_into_json_set)*
-                }
-            }
-
-            pub(crate) fn read<'a>(&self, i: &'a [u8]) -> IResult<&'a [u8], Box<dyn Any>, VerboseError<&'a [u8]>> {
-                match self {
-                    #(#class_read)*
-                }
-            }
-
-            pub(crate) fn write<'a, T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
-            where T: ByteWrite {
-                match self {
-                    #(#class_write)*
-                }
-            }
-
-            pub(crate) fn write_to_client<T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
-            where T: ByteWrite {
-                match self {
-                    #(#class_write_to_client)*
-                }
-            }
-
-            pub(crate) fn read_set<'a>(&self, i: &'a [u8]) -> IResult<&'a [u8], Box<dyn Any + Send + Sync>, VerboseError<&'a [u8]>> {
-                match self {
-                    #(#class_read_set)*
-                }
-            }
-
-            pub(crate) fn write_set<T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
-            where T: ByteWrite {
-                match self {
-                    #(#class_write_set)*
-                }
-            }
-
-            pub(crate) fn write_set_to_client<T>(&self, value: &dyn Any, writer: &mut T) -> Result<(), io::Error> 
-            where T: ByteWrite {
-                match self {
-                    #(#class_write_set_to_client)*
-                }
-            }
-
-            pub(crate) fn clone_class(&self, value: &dyn Any) -> Box<dyn Any> {
-                match self {
-                    #(#class_clone)*
-                }
-            }
         }
 
         impl Display for ClassId {
@@ -1671,6 +1607,148 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             fn from(val: ClassId) -> u32 {
                 let id: u16 = val.into();
                 id as u32
+            }
+        }
+
+        impl dyn DynParamClass {
+            pub(crate) fn is<T>(&self) -> bool where T: ParamClass {
+                self.as_any().is::<T>()
+            }
+        
+            pub(crate) fn get<T>(&self) -> Result<&T, ParamError> where T: ParamClass {
+                self.as_any().downcast_ref().ok_or(ParamError(()))
+            }
+        
+            pub(crate) fn get_mut<T>(&mut self) -> Result<&mut T, ParamError> where T: ParamClass {
+                self.as_any_mut().downcast_mut().ok_or(ParamError(()))
+            }
+
+            pub(crate) fn get_impl<'a, T: ?Sized + 'static>(&'a self) -> Option<&'a T> where #(#dyn_where),* {
+                match self.class_id() {
+                    #(#dyn_class_get_impl)*
+                }
+            }
+
+            pub(crate) fn get_impl_mut<'a, T: ?Sized + 'static>(&'a mut self) -> Option<&'a mut T> where #(#dyn_where_mut),*  {
+                match self.class_id() {
+                    #(#dyn_class_get_impl_mut)*
+                }
+            }
+
+            pub(crate) fn write<'a, T>(&self, writer: &mut T) -> Result<(), io::Error> 
+            where T: ByteWrite {
+                match self.class_id() {
+                    #(#dyn_class_write)*
+                }
+            }
+
+            pub(crate) fn write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> 
+            where T: ByteWrite {
+                match self.class_id() {
+                    #(#dyn_class_write_to_client)*
+                }
+            }
+        }
+
+        pub trait MightIncludeBase<'a>: #(#where_base)+* { }
+
+        impl ParamBox {
+            pub fn from_json(value: &Value) -> Result<Self, io::Error> {
+                let (class_name, value) = value.as_object()
+                    .and_then(|v| v.iter().next())
+                    .ok_or(io::Error::new(io::ErrorKind::InvalidData, ""))?;
+        
+                let class_id: ClassId = class_name.parse()
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid class name"))?;
+
+                Ok(Self {
+                    class_id,
+                    class: match class_id {
+                        #(#class_from_json)*
+                    },
+                })
+            }
+        
+            pub fn read(class_id: u16, i: &[u8]) -> IResult<&[u8], Self, VerboseError<&[u8]>> {
+                let class_id: ClassId = class_id.try_into().expect("unknown class id");
+                let (i, class): (_, Box::<dyn DynParamClass>) = match class_id {
+                    #(#class_read)*
+                };
+        
+                Ok((i, Self {
+                    class_id,
+                    class,
+                }))
+            }
+        }
+
+        impl dyn DynParamSet {
+            pub(crate) fn is<T>(&self) -> bool where T: ParamAttrib {
+                self.as_any().is::<ParamSet<T>>()
+            }
+        
+            pub(crate) fn get<T>(&self) -> Result<&ParamSet<T>, ParamError> where T: ParamAttrib {
+                self.as_any().downcast_ref().ok_or(ParamError(()))
+            }
+        
+            pub(crate) fn get_mut<T>(&mut self) -> Result<&mut ParamSet<T>, ParamError> where T: ParamAttrib {
+                self.as_any_mut().downcast_mut().ok_or(ParamError(()))
+            }
+
+            pub(crate) fn cloned(&self) -> Box<dyn DynParamSet> { 
+                match self.class_id() {
+                    #(#dyn_set_clone)*
+                }
+            }
+
+            pub(crate) fn as_json(&self) -> Value {
+                match self.class_id() {
+                    #(#dyn_set_as_json)*
+                }
+            }
+
+            pub(crate) fn write<'a, T>(&self, writer: &mut T) -> Result<(), io::Error> 
+            where T: ByteWrite {
+                match self.class_id() {
+                    #(#dyn_set_write)*
+                }
+            }
+
+            pub(crate) fn write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> 
+            where T: ByteWrite {
+                match self.class_id() {
+                    #(#dyn_set_write_to_client)*
+                }
+            }
+        }
+
+        impl ParamSetBox {
+            pub fn from_json(value: &Value) -> Result<Self, io::Error> {
+                let (class_name, value) = value.as_object()
+                    .and_then(|v| v.iter().next())
+                    .ok_or(io::Error::new(io::ErrorKind::InvalidData, ""))?;
+        
+                let class_id: ClassId = class_name.parse()
+                    .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "unvalid class name"))?;
+        
+                Ok(Self {
+                    class_id,
+                    set: match class_id {
+                        #(#set_from_json)*
+                    },
+                })
+            }
+        
+            pub fn read(class_id: u16, i: &[u8]) -> IResult<&[u8], Self, VerboseError<&[u8]>> {
+                let class_id: ClassId = class_id.try_into().expect("unknown class id");
+                let (i, set): (_, Box::<dyn DynParamSet>) = match class_id {
+                    #(#set_read)*
+                };
+
+                Ok((i, Self {
+                    class_id,
+                    set,
+                }))
             }
         }
     })

@@ -14,16 +14,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::{hash::Hash, collections::HashMap, io, str::FromStr, any::Any};
+use std::fmt::Debug;
 
 use bitstream_io::ByteWrite;
 use nom::{IResult, error::VerboseError, error::context};
 use serde_json::Value;
-use parking_lot::RwLockReadGuard;
 use bevy_ecs::prelude::*;
 
-use crate::{ClassId, Param, ParamBox, ParamFlag, ParamSet, ParamType};
+use crate::{ClassId, MightIncludeBase, Param, ParamBox, ParamFlag, ParamSet, ParamSetBox, ParamType};
 
-pub trait ParamAttrib: PartialEq + Eq + Hash + Clone + FromStr + TryFrom<u16> + Any + Send + Sync
+pub trait ParamAttrib: PartialEq + Eq + Hash + Copy + Clone + FromStr + TryFrom<u16> + Any + Send + Sync
 {
     fn class_id() -> ClassId;
 
@@ -79,10 +79,13 @@ pub trait ParamClass: Default + Any {
     type EntityBundle: Bundle;
 
     fn from_set(set: ParamSet<Self::Attributes>) -> Self;
-    fn as_set(&self) -> RwLockReadGuard<ParamSet<Self::Attributes>>;
+    fn as_set(&self) -> &ParamSet<Self::Attributes>;
     fn into_set(self) -> ParamSet<Self::Attributes>;
 
     fn apply(&mut self, set: ParamSet<Self::Attributes>);
+    fn diff(&self, other: &Self) -> ParamSet<Self::Attributes> {
+        self.as_set().diff(other.as_set())
+    }
 
     fn as_persistent_json(&self) -> Value {
         Self::Attributes::serialize_json_set(&self.as_set())
@@ -114,9 +117,74 @@ pub trait ParamClass: Default + Any {
         self.as_set().write_to_client(writer)
     }
 
-    fn clone_ref(&self) -> Self;
-
-    fn as_bundle(&self) -> Self::EntityBundle;
-
+    fn into_bundle(self) -> Self::EntityBundle;
     fn into_box(self) -> ParamBox;
+}
+
+pub trait DynParamClass: Any + Send + Sync + for<'a> MightIncludeBase<'a> {
+    fn class_id(&self) -> ClassId;
+
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    fn diff(&self, other: &dyn DynParamClass) -> ParamSetBox;
+    fn cloned(&self) -> Box<dyn DynParamClass>;
+    fn as_json(&self) -> Value;
+}
+
+// blanked implementations for param classes
+impl <T: ParamClass + Clone + Any + Send + Sync + for<'a> MightIncludeBase<'a>> DynParamClass for T {
+    fn class_id(&self) -> ClassId {
+        T::Attributes::class_id()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn diff(&self, other: &dyn DynParamClass) -> ParamSetBox {
+        if self.class_id() != other.class_id() {
+            panic!("tried to diff mismatching param boxes")
+        }
+
+        self
+            .as_set()
+            .diff(
+                other.get::<T>()
+                .unwrap()
+                .as_set()
+            )
+            .into_box()
+    }
+
+    fn cloned(&self) -> Box<dyn DynParamClass> {
+        Box::new(self.clone())
+    }
+
+    fn as_json(&self) -> Value {
+        self.as_persistent_json()
+    }
+}
+
+pub trait DynParamSet: Debug + Any + Send + Sync {
+    fn class_id(&self) -> ClassId;
+
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn as_hash_map(&self) -> HashMap<String, Param>;
+}
+
+pub trait MightIncludeParams<'a, T: ?Sized + 'static> {
+    fn as_params(&'a self) -> Option<&'a T>;
+}
+
+pub trait MightIncludeParamsMut<'a, T: ?Sized + 'static> {
+    fn as_params_mut(&'a mut self) -> Option<&'a mut T>;
 }

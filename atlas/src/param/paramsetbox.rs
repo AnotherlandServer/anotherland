@@ -13,18 +13,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{any::Any, io, str::FromStr};
+use std::{any::Any, io, ops::Deref};
+use std::fmt::Debug;
 
 use bitstream_io::ByteWrite;
-use nom::{error::VerboseError, IResult};
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde_json::{Value, json};
 
-use crate::{ClassId, ParamAttrib, ParamError, ParamSet};
+use crate::{ClassId, DynParamSet, ParamAttrib, ParamError, ParamSet};
 
 pub struct ParamSetBox {
-    class_id: ClassId,
-    set: Box<dyn Any + Send + Sync>,
+    pub(crate) class_id: ClassId,
+    pub(crate) set: Box<dyn DynParamSet>,
 }
 
 impl ParamSetBox {
@@ -37,70 +37,54 @@ impl ParamSetBox {
         }
     }
 
-    pub fn class_id(&self) -> ClassId { self.class_id }
-
     pub fn is<T>(&self) -> bool where T: ParamAttrib + 'static {
-        self.set.is::<ParamSet<T>>()
+        self.set.is::<T>()
     }
 
     pub fn get<T>(&self) -> Result<&ParamSet<T>, ParamError> where T: ParamAttrib + 'static {
-        self.set.downcast_ref().ok_or(ParamError(()))
+        self.set.get()
     }
 
     pub fn get_mut<T>(&mut self) -> Result<&mut ParamSet<T>, ParamError> where T: ParamAttrib + 'static {
-        self.set.downcast_mut().ok_or(ParamError(()))
+        self.set.get_mut()
     }
 
     pub fn take<T>(self) -> Result<ParamSet<T>, ParamError> where T: ParamAttrib + 'static {
-        self.set.downcast().map_err(|_| ParamError(())).map(|v| *v)
+        let set: Box<dyn Any> = self.set;
+        set.downcast().map_err(|_| ParamError(())).map(|v| *v)
     }
 
     pub fn as_persistent_json(&self) -> Value {
-        let serialized = self.class_id.set_into_json(self.set.as_ref());
-
-        json!({ self.class_id.to_string(): serialized })
+        json!({ self.class_id.to_string(): self.set.as_json() })
     }
 
-    pub fn from_json(value: &Value) -> Result<Self, io::Error> {
-        let (class_name, value) = value.as_object()
-            .and_then(|v| v.iter().next())
-            .ok_or(io::Error::new(io::ErrorKind::InvalidData, ""))?;
-
-        let class_id = ClassId::from_str(class_name)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "unvalid class name"))?;
-
-        let value = class_id.set_from_json(value)?;
-
-        Ok(Self {
-            class_id,
-            set: value,
-        })
-    }
-
-    pub fn read(class_id: u16, i: &[u8]) -> IResult<&[u8], Self, VerboseError<&[u8]>> {
-        let class_id: ClassId = class_id.try_into().expect("unknown class id");
-        let (i, value) = class_id.read_set(i)?;
-
-        Ok((i, Self {
-            class_id,
-            set: value
-        }))
-    }
-
-    pub fn write<T>(&self, value: &mut T) -> Result<(), io::Error> 
+    pub fn write<T>(&self, writer: &mut T) -> Result<(), io::Error> 
     where T: ByteWrite
     {
-        self.class_id.write_set(self.set.as_ref(), value)
+        self.set.write(writer)
     }
 
-    pub fn write_to_client<T>(&self, value: &mut T) -> Result<(), io::Error> 
+    pub fn write_to_client<T>(&self, writer: &mut T) -> Result<(), io::Error> 
     where T: ByteWrite
     {
-        self.class_id.write_set_to_client(self.set.as_ref(), value)
+        self.set.write_to_client(writer)
     }
+}
 
-    pub fn strip_original_data(&mut self) {
+impl Deref for ParamSetBox {
+    type Target = dyn DynParamSet;
 
+    fn deref(&self) -> &Self::Target {
+        self.set.as_ref()
+    }
+}
+
+impl Clone for ParamSetBox {
+    fn clone(&self) -> Self {
+        Self { 
+            class_id: self.class_id, 
+            set: self.set.cloned(),
+        }
     }
 }
 
@@ -124,3 +108,8 @@ impl <'de>Deserialize<'de> for ParamSetBox {
     }
 }
 
+impl Debug for ParamSetBox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.set.fmt(f)
+    }
+}

@@ -13,13 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::any::Any;
 use std::{collections::HashMap, any::type_name, io};
+use std::fmt::Debug;
 
 use bitstream_io::ByteWrite;
-use log::{debug, warn};
+use log::warn;
 use nom::{combinator::fail, error::{VerboseError, context}, multi, number, IResult};
 
-use crate::{Param, ParamAttrib, ParamFlag, ParamSetBox};
+use crate::{ClassId, DynParamSet, Param, ParamAttrib, ParamFlag, ParamSetBox};
 
 #[derive(Clone)]
 pub struct ParamSet<T: ParamAttrib> {
@@ -39,10 +41,10 @@ impl <T: ParamAttrib>ParamSet<T> {
         }
     }
 
-    pub fn insert<P>(&mut self, key: T, value: P)
+    pub fn insert<P>(&mut self, key: T, value: P) -> Option<Param>
         where P: Into<Param>
     {
-        self.params.insert(key, value.into());
+        self.params.insert(key, value.into())
     }
 
     pub fn remove(&mut self, key: &T) -> Option<Param> {
@@ -51,6 +53,10 @@ impl <T: ParamAttrib>ParamSet<T> {
 
     pub fn get<'a>(&'a self, key: &T) -> Option<&'a Param> {
         self.params.get(key)
+    }
+
+    pub fn get_mut<'a>(&'a mut self, key: &T) -> Option<&'a mut Param> {
+        self.params.get_mut(key)
     }
 
     pub fn extend(&mut self, other: ParamSet<T>) {
@@ -125,5 +131,55 @@ impl <T: ParamAttrib>ParamSet<T> {
 
     pub fn into_box(self) -> ParamSetBox {
         ParamSetBox::new(self)
+    }
+
+    pub fn diff(&self, other: &ParamSet<T>) -> ParamSet<T> {
+        let mut diff = ParamSet::new();
+
+        for (key, val) in self.params.iter() {
+            if let Some(other_val) = other.get(key) {
+                if other_val != val {
+                    diff.insert(*key, val.clone());
+                }
+            }
+        }
+
+        diff
+    }
+
+    pub fn as_hash_map(&self) -> HashMap<String, Param> {
+        self.params.iter()
+            .map(|(a, v)| (a.name().to_string(), v.clone()))
+            .collect()
+    }
+}
+
+impl <T: ParamAttrib> Debug for ParamSet<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug_struct = f.debug_struct("ParamSet");
+
+        for (attrib, param) in self.params.iter() {
+            debug_struct.field(attrib.name(), param);
+        }
+
+        debug_struct.finish()
+    }
+}
+
+impl <T: ParamAttrib> DynParamSet for ParamSet<T> {
+    fn class_id(&self) -> ClassId { T::class_id() }
+    fn as_any(&self) -> &dyn Any { self}
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+
+    fn len(&self) -> usize {
+        self.params.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.params.is_empty()
+    }
+
+    fn as_hash_map(&self) -> HashMap<String, Param> {
+        ParamSet::<T>::as_hash_map(self)
     }
 }

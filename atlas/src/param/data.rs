@@ -15,13 +15,13 @@
 
 use std::{collections::{HashSet, HashMap}, io};
 
-use bitstream_io::{ByteWrite, Primitive};
+use bitstream_io::ByteWrite;
 use glam::{Vec4, Vec3, Quat};
 use nom::{bytes::complete::take, combinator::{fail, map}, error::{context, VerboseError}, multi::{self, count}, number::{self, complete::{le_f32, le_i32, le_i64}}, IResult};
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 
-use crate::{serialize::{serialize_string, deserialize_string, serialize_json, deserialize_json, serialize_vec_uuid, deserialize_vec_uuid, serialize_i32, deserialize_i32}, AvatarId, Uuid, ParamFlag, ParamError};
+use crate::{AvatarId, Uuid, ParamFlag, ParamError};
 
 
 #[allow(dead_code)]
@@ -674,7 +674,14 @@ impl Param {
                 writer.write(val.len() as u16)?;
                 writer.write_bytes(val.as_bytes())?;
             },
-            _ => todo!(),
+            Self::VectorLocalizedString(val) => {
+                writer.write(42u8)?;
+                writer.write(val.len() as u32)?;
+                for i in val.iter() {
+                    writer.write_bytes(&i.to_uuid_1().to_bytes_le())?;
+                }
+            },
+            _ => todo!("{:?}", self),
         }
 
         Ok(())

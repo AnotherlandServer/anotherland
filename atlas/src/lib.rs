@@ -14,6 +14,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![feature(let_chains)]
+#![feature(trait_upcasting)]
+#![feature(const_type_id)]
+#![allow(incomplete_features)]
+#![feature(specialization)]
 
 pub mod parsers;
 mod param;
@@ -21,7 +25,6 @@ mod nativeparam;
 mod generated;
 mod network_vec3;
 mod network_vec4;
-mod serialize;
 mod avatarid;
 mod buffer;
 mod uuid;
