@@ -291,7 +291,7 @@ impl RealmFrontendSession {
                 if session_ref.session().world_id.is_none() {
                     Err(AnotherlandError::app_err("no world selected"))
                 } else {
-                    if let Some(character) = self.realm.get_character(session_ref.session().clone(), pkt.field_1).await? {
+                    if let Some(character) = self.realm.get_character(session_ref.session().clone(), pkt.character_id).await? {
                         // check if cluster server is online
                         if let Some(cluster_server) = self.realm.get_cluster_frontend_address().await {
                             session_ref.select_character(character.id).await?;
@@ -300,8 +300,8 @@ impl RealmFrontendSession {
                             ).await?;
 
                             peer.send(Priority::High, Reliability::Reliable, oaPktCharacterSelectSuccess {
-                                world_ip: u32::from_be((*cluster_server.ip()).into()),
-                                world_port: cluster_server.port(),
+                                cluster_ip: u32::from_be((*cluster_server.ip()).into()),
+                                cluster_port: cluster_server.port(),
                                 session_id: session_ref.session().id,
                                 ..Default::default()
                             }.into_message()).await?;
@@ -318,7 +318,7 @@ impl RealmFrontendSession {
                         error!(
                             peer = peer.id().to_string(), 
                             session = session_ref.session().id.to_string(); 
-                            "Character select failed, character not found: {}", pkt.field_1);
+                            "Character select failed, character not found: {}", pkt.character_id);
                         peer.disconnect().await;
                     }
 
