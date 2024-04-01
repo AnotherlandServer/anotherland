@@ -13,8 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::NonClientBaseComponent;
-use bevy_ecs::{entity::Entity, system::{Commands, Query, ResMut}};
+use atlas::{MightIncludeParamsMut, NonClientBaseComponent, NonClientBaseParams, ParamBox};
+use bevy_ecs::{entity::Entity, query::With, system::{Commands, Query, ResMut}};
 use log::info;
 
 use crate::actors::{zone::resources::EventInfos, AvatarComponent, Spawned};
@@ -22,7 +22,7 @@ use crate::actors::{zone::resources::EventInfos, AvatarComponent, Spawned};
 pub fn sepcial_event_controller(
     mut event_infos: ResMut<EventInfos>, 
     mut commands: Commands,
-    mut query: Query<(Entity, &AvatarComponent, &mut NonClientBaseComponent)>,
+    mut query: Query<(Entity, &AvatarComponent, &mut ParamBox), With<NonClientBaseComponent>>,
 ) {
     // check event status
     for event_info in event_infos.0.iter_mut() {
@@ -31,7 +31,9 @@ pub fn sepcial_event_controller(
             if !event_info.active.unwrap_or(false) {
                 info!("Enabling event: {}", event_info.event.name());
 
-                for (ent, avatar, mut base) in query.iter_mut() {
+                for (ent, avatar, mut base) in query.iter_mut() 
+                    .map(|(e, a, p)| (e, a, p.map_unchanged(|p| p.get_impl_mut::<dyn NonClientBaseParams>().unwrap())))
+                {
                     if let Some(instance_id) = avatar.instance_id {
                         if event_info.event.event_instances.contains(&instance_id) {
                             base.set_enable_in_game(true);
@@ -41,7 +43,7 @@ pub fn sepcial_event_controller(
                         }
                     }
 
-                    if let Some(content_id) = avatar.content_id {
+                    if let Some(content_id) = avatar.record_id {
                         if event_info.event.content.contains(&content_id) {
                             base.set_enable_in_game(true);
                         }
@@ -55,7 +57,9 @@ pub fn sepcial_event_controller(
             if event_info.active.unwrap_or(true) {
                 info!("Disabling event: {}", event_info.event.name());
 
-                for (ent, avatar, mut base) in query.iter_mut() {
+                for (ent, avatar, mut base) in query.iter_mut() 
+                    .map(|(e, a, p)| (e, a, p.map_unchanged(|p| p.get_impl_mut::<dyn NonClientBaseParams>().unwrap())))
+                {
                     if let Some(instance_id) = avatar.instance_id {
                         if event_info.event.event_instances.contains(&instance_id) {
                             base.set_enable_in_game(false);
@@ -65,7 +69,7 @@ pub fn sepcial_event_controller(
                         }
                     }
 
-                    if let Some(content_id) = avatar.content_id {
+                    if let Some(content_id) = avatar.record_id {
                         if event_info.event.content.contains(&content_id) {
                             base.set_enable_in_game(false);
                             commands.entity(ent).remove::<Spawned>();

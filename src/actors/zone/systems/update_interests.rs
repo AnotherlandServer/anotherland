@@ -15,24 +15,29 @@
 
 use std::collections::HashSet;
 
-use atlas::{NonClientBaseComponent, PlayerClass, PlayerParams, SpawnerClass};
+use atlas::{NonClientBaseComponent, NonClientBaseParams, ParamBox, PlayerClass, PlayerComponent, PlayerParams, SpawnerClass, SpawnerComponent};
 use bevy_ecs::{entity::Entity, event::EventWriter, query::{With, Without}, system::Query};
 
-use crate::actors::{zone::{components::{AvatarComponent, AvatarEvent, InterestList, Position}, zone_events::AvatarEventFired}, Spawned};
+use crate::actors::{zone::{components::{AvatarComponent, InterestList}, plugins::{PlayerController, Position}}, Spawned};
 
 #[allow(clippy::type_complexity)]
 pub fn update_interests(
-    mut players: Query<(Entity, &PlayerClass, &mut InterestList)>,
-    positioned: Query<(Entity, &AvatarComponent, &Position, Option<&NonClientBaseComponent>), (With<Spawned>, Without<SpawnerClass>)>,
-    mut ev_avatar_event: EventWriter<AvatarEventFired>,
+    mut players: Query<(Entity, &ParamBox, &mut InterestList, &PlayerController), With<PlayerComponent>>,
+    positioned: Query<(Entity, &AvatarComponent, &Position, Option<&ParamBox>), (With<Spawned>, Without<SpawnerComponent>)>,
+    //mut ev_avatar_event: EventWriter<AvatarEventFired>,
 ) {
-    for (entity, player, mut interests) in players.iter_mut() {
+    for (entity, player, mut interests, controller) in players.iter_mut()
+        .map(|(e, p, i, c)| (e, p.get_impl::<dyn PlayerParams>().unwrap(), i, c)) 
+    {
+
         let mut new_interests = HashSet::new();
 
         let (_, _, position, _) = positioned.get(entity).unwrap();
 
         // determine interests
-        for (other_ent, other_avatar, other_pos, base) in positioned.iter() {
+        for (other_ent, other_avatar, other_pos, base) in positioned.iter()
+            .map(|(e, a, pos, p)| (e, a, pos, p.and_then(|p|p.get_impl::<dyn NonClientBaseParams>())))
+        {
             // skip over self
             if other_ent == entity { continue; }
 
@@ -51,15 +56,15 @@ pub fn update_interests(
         }
 
         // check for changes
-        let added_interests: Vec<_> = new_interests.iter().filter(|v| !interests.interests.contains(v)).cloned().collect();
+        let added_interests: Vec<_> = new_interests.iter().filter(|v| !interests.contains(**v)).cloned().collect();
         let removed_interests: Vec<_> = interests.interests.iter().filter(|v| !new_interests.contains(v)).cloned().collect();
 
         if !added_interests.is_empty() {
-            ev_avatar_event.send(AvatarEventFired(entity, AvatarEvent::InterestAdded { ids: added_interests }));
+            controller.send_interests_added(added_interests);
         }
 
         if !removed_interests.is_empty() {
-            ev_avatar_event.send(AvatarEventFired(entity, AvatarEvent::InterestRemoved { ids: removed_interests }));
+            controller.send_interests_removed(removed_interests);
         }
 
         // remember interests

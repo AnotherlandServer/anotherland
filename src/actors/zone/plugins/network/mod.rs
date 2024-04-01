@@ -13,16 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use glam::{Quat, Vec3};
-use bevy_ecs::prelude::*;
+mod plugin;
+mod player_controller;
+mod positions;
+mod params;
+mod combat;
 
-#[derive(Clone, Component)]
-pub struct Position {
-    pub mover_key: u16,
-    pub replica: u8,
-    pub version: u16,
-
-    pub position: Vec3,
-    pub rotation: Quat,
-    pub velocity: Vec3,
-}
+pub use plugin::*;
+pub use player_controller::*;

@@ -14,9 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod portal;
+mod player;
 
 use bevy::app::Plugin;
 use portal::*;
+use player::*;
 
 pub struct SubjectiveLensesPlugin;
 

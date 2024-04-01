@@ -15,15 +15,17 @@
 
 use std::time::Instant;
 
-use atlas::NonClientBaseComponent;
-use bevy_ecs::{entity::Entity, query::Without, system::{Commands, Query}};
+use atlas::{NonClientBaseComponent, NonClientBaseParams, ParamBox};
+use bevy_ecs::{entity::Entity, query::{With, Without}, system::{Commands, Query}};
 
 use crate::actors::{Spawned, SpawnerState};
 
-pub fn respawn(mut commands: Commands, mut query: Query<(Entity, &NonClientBaseComponent, &mut SpawnerState, Without<Spawned>)>) {
+pub fn respawn(mut commands: Commands, mut query: Query<(Entity, &ParamBox, &mut SpawnerState), (With<NonClientBaseComponent>, Without<Spawned>)>) {
     let now = Instant::now();
 
-    for (entity, base, mut state, _) in query.iter_mut() {
+    for (entity, base, mut state) in query.iter_mut()
+        .map(|(e, p, s)| (e, p.get_impl::<dyn NonClientBaseParams>().unwrap(), s))
+    {
         // first check if the entity is enabled at all
         if base.enable_in_game() {
             if let Some(instant) = state.respawn_instant {

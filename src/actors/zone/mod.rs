@@ -25,9 +25,13 @@ mod zone_events;
 mod behaviors;
 mod plugins;
 mod subjective_lenses;
+mod event_channels;
 
 pub use actor::*;
 pub use events::*;
 pub use player::*;
 pub use social::*;
 pub use components::*;
+pub use event_channels::*;
+pub use plugins::AvatarEvent;
+pub use plugins::ServerAction;

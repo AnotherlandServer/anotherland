@@ -17,83 +17,19 @@ use std::{sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ oaPktServerAction, raknet::Message, AvatarId, NonClientBaseComponent, NonClientBaseParams, NpcOtherlandAttribute, NpcOtherlandClass, NpcOtherlandComponent, OaZoneConfigParams, ParamBox, ParamClass, ParamSet, ParamSetBox, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, PortalParams, RespawnOption, SpawnNodeClass, StartingPointClass, Uuid};
-use bevy::{app::{App, Update}, utils::HashMap, MinimalPlugins};
+use atlas::{ AvatarId, DynParamSet, NonClientBaseParams, OaZoneConfigParams, ParamBox, ParamClass, ParamSetBox, PlayerAttribute, PlayerClass, PlayerComponent, PlayerParams, PortalParams, SpawnNodeParams, StartingPointComponent, StartingPointParams, Uuid};
+use bevy::{app::{App, Update}, utils::hashbrown::HashMap, MinimalPlugins};
 use glam::{Vec3, Quat};
 use log::{debug, info, warn};
 use mongodb::Database;
-use tokio::{runtime::Handle, select, sync::{broadcast, mpsc, OnceCell}, task::JoinHandle, time};
+use tokio::{runtime::Handle, select, sync::{mpsc, OnceCell}, task::JoinHandle, time};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use bevy_ecs::{prelude::*, schedule::ScheduleLabel};
 
-use crate::{actors::{get_player_height, zone::{ behaviors::BehaviorsPlugin, plugins::{AvatarBehaviorPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_messages, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::{actor::Actor, ActorRef}, components::{SpecialEvents, ZoneFactory}, db::{Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, zone::{ behaviors::BehaviorsPlugin, plugins::{AvatarBehaviorPlugin, HitPointsPlugin, PersistancePlugin, PositionPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{realm_database, Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
-use super::{components::{self, AvatarComponent, AvatarEvent, EntityType, InterestList, Position}, plugins::{BehaviorExt, SubjectivityExt}, resources::{Broadcaster, Tasks}, zone_events::{AvatarEventFired, ProximityChatEvent}, AvatarEventSender, Movement, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState, ZoneEvent};
-
-pub enum ServerAction {
-    DirectTravel(AvatarId, Option<Position>),
-    NonPortalTravel(AvatarId, Option<Position>),
-    Portal(AvatarId, Option<Position>),
-    LocalPortal(AvatarId, Position),
-    Teleport(AvatarId, Position),
-}
-
-impl ServerAction {
-    pub fn into_message(self) -> Message {
-        let (instigator, action, version, teleport_override) = match self {
-            Self::DirectTravel(instigator, teleport_override) => (
-                instigator,
-                "TRAVEL:DirectTravel|DirectTravelDefault".to_owned(),
-                4,
-                teleport_override
-            ),
-            Self::NonPortalTravel(instigator, teleport_override) => (
-                instigator,
-                "TRAVEL:NonPortalTravel|NonPortalTravelDefault".to_owned(),
-                4,
-                teleport_override
-            ),
-            Self::Portal(instigator, teleport_override) => (
-                instigator,
-                "TRAVEL:DirectTravel|PortalArriveDefault".to_owned(),
-                4,
-                teleport_override
-            ),
-            Self::LocalPortal(instigator, teleport_override) => (
-                instigator,
-                "TRAVEL:LocalPortalArrive|PortalArriveDefault".to_owned(),
-                4,
-                Some(teleport_override)
-            ),
-            Self::Teleport(instigator, position) => (
-                instigator,
-                "TELEPORT:TeleportTravel|TeleportTravelDefault".to_owned(),
-                4,
-                Some(position)
-            ),
-        };
-
-        if let Some(teleport_override) = teleport_override {
-            oaPktServerAction {
-                instigator: instigator.as_u64(),
-                action,
-                version,
-                override_teleport: true,
-                pos: teleport_override.position.into(),
-                rot: teleport_override.rotation.into(),
-                ..Default::default()
-            }.into_message()
-        } else {
-            oaPktServerAction {
-                instigator: instigator.as_u64(),
-                action,
-                version,
-                ..Default::default()
-            }.into_message()
-        }
-    }
-}
+use super::{components::{self, AvatarComponent, EntityType, InterestList}, plugins::{AvatarEvent, BehaviorExt, DamageEvent, NetworkPlugin, PlayerController, Position, ServerAction, SubjectivityExt}, resources::Tasks, zone_events::ProximityChatEvent, Movement, PhysicsState, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState};
 
 pub(super) static SPECIAL_EVENTS: OnceCell<SpecialEvents> = OnceCell::const_new();
 pub(in crate::actors::zone) static FLIGHT_TUBES: OnceCell<HashMap<Uuid, Arc<FlightTube>>> = OnceCell::const_new();
@@ -117,6 +53,9 @@ pub struct DefaultPos {
     pub pos: Vec3,
     pub rot: Vec3,
 }
+
+#[derive(Resource)]
+pub struct RealmDatabase(pub Database);
 
 #[derive(Resource, Default)]
 pub struct UuidToEntityLookup(HashMap<Uuid, Entity>);
@@ -143,7 +82,6 @@ pub struct Zone {
     cancellation_token: CancellationToken,
     update_task: Option<JoinHandle<()>>,
 
-    event_sender: broadcast::Sender<Arc<ZoneEvent>>,
     avatar_id_to_entity_lookup: HashMap<AvatarId, Entity>,
 }
 
@@ -157,7 +95,6 @@ impl Zone {
             app: App::new(),
             cancellation_token: CancellationToken::new(),
             update_task: None,
-            event_sender: broadcast::channel(500).0,
             avatar_id_to_entity_lookup: HashMap::new(),
         }
     }
@@ -184,14 +121,20 @@ impl Actor for Zone {
         // setup bevy app
         self.app
             .add_plugins(MinimalPlugins)
-            .add_plugins(AvatarBehaviorPlugin)
-            .add_plugins(BehaviorsPlugin)
-            .add_plugins(SubjectivityPlugin)
-            .add_plugins(SubjectiveLensesPlugin)
+            .add_plugins((
+                NetworkPlugin,
+                PersistancePlugin,
+                AvatarBehaviorPlugin,
+                BehaviorsPlugin,
+                SubjectivityPlugin,
+                SubjectiveLensesPlugin,
+                //InventoryPlugin,
+                HitPointsPlugin,
+                PositionPlugin,
+            ))
             .add_systems(Update, (
                 send_proximity_chat,
                 update_interests,
-                send_messages,
                 surf_spline,
             ))
             .add_systems(SlowUpdate, (
@@ -199,15 +142,12 @@ impl Actor for Zone {
                 sepcial_event_controller,
             ))
             .add_event::<ProximityChatEvent>()
-            .add_event::<AvatarEventFired>()
             .insert_resource(ZoneInfo(self.factory.clone()))
-            .insert_resource(Broadcaster {
-                sender: self.event_sender.clone()
-            })
             .insert_resource(Tasks {
                 handle: Handle::current(),
                 tasks: TaskTracker::new(),
             })
+            .insert_resource(RealmDatabase(realm_database().await))
             .insert_resource(EventInfos(
                 special_events.get_events_for_map(&self.factory.world_def().name).await?
                 .into_iter()
@@ -231,12 +171,13 @@ impl Actor for Zone {
 
         // lookup starting point
         {
-            let mut query = self.app.world.query::<&StartingPointClass>();
-            if let Some(entry_point) = query.iter(&self.app.world).next() {
+            let mut query = self.app.world.query_filtered::<&ParamBox, With<StartingPointComponent>>();
+            if let Some(entry_point) = query.iter(&self.app.world).next() &&
+                let Some(entry_point) = entry_point.get_impl::<dyn StartingPointParams>() {
                 debug!("Found entrypoint");
 
-                self.default_pos = entry_point.pos().to_owned();
-                self.default_rot = entry_point.rot().to_owned();
+                entry_point.pos().clone_into(&mut self.default_pos);
+                entry_point.rot().clone_into(&mut self.default_rot);
             }
         }
 
@@ -293,21 +234,22 @@ impl Zone {
         self.app.world.resource_scope(|world, mut uuid_to_entity: Mut<UuidToEntityLookup>| {
             // spawn entity
             let entity = world
-                .spawn(entity_params.as_bundle())
+                .spawn(entity_params.clone().into_bundle())
                 .insert(entity_type)
                 .insert(AvatarComponent {
                     id: avatar_id,
                     instance_id: Some(id),
-                    content_id: Some(content_id),
+                    record_id: Some(content_id),
                     name: name.to_owned(),
                     phase_tag: phase_tag.to_owned(),
                 })
                 .id();
 
             let mut entity_ref = world.get_entity_mut(entity).unwrap();
+            let entity_params = entity_params.into_box();
 
             // add tags
-            if let Some(non_client_base) = entity_ref.take::<NonClientBaseComponent>() {
+            if let Some(non_client_base) = entity_params.get_impl::<dyn NonClientBaseParams>() {
                 if let Some(tags) = non_client_base.tags() { 
                     for tag in tags.split(' ') {
                         match tag {
@@ -318,37 +260,18 @@ impl Zone {
                         };
                     }
                 };
-
-                entity_ref.insert(non_client_base);
             }
 
             // insert position component for npcs & structures
-            if let Some(base) = entity_ref.get::<NonClientBaseComponent>() {
-                let position = base.pos().to_owned();
-                let rotation = base.rot().to_owned();
-
+            if entity_params.get_impl::<dyn NonClientBaseParams>().is_some() {
                 entity_ref
                     .insert(SpawnerState { 
                         despawn_instant: None, 
                         respawn_instant: None 
-                    })
-                    .insert(Position {
-                        mover_key: 0,
-                        replica: 7,
-                        version: 1,
-                        position,
-                        rotation: Quat::from_unit_vector(rotation),
-                        velocity: Vec3::default(),
                     });
             } else {
                 // assume the entity is always spawned
                 entity_ref.insert(Spawned);
-
-                // notify clients
-                let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarSpawned { 
-                    avatar_id, 
-                    params: entity_params.clone().into_box(),
-                }));
             }
 
             // update lookup map
@@ -377,11 +300,7 @@ impl Zone {
         self.app.world.run_schedule(SlowUpdate);
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Arc<ZoneEvent>> {
-        self.event_sender.subscribe()
-    }
-
-    pub async fn spawn_player(&mut self, spawn_mode: PlayerSpawnMode, avatar_id: AvatarId, character_id: u32, avatar_event_sender: mpsc::Sender<AvatarEvent>) -> AnotherlandResult<(Character, ServerAction)> {
+    pub async fn spawn_player(&mut self, spawn_mode: PlayerSpawnMode, avatar_id: AvatarId, character_id: u32, avatar_event_sender: mpsc::UnboundedSender<AvatarEvent>) -> AnotherlandResult<(String, PlayerClass, ServerAction)> {
         let mut spawn_mode = spawn_mode;
         
         if let Some(mut character) = Character::get(self.realm_db.clone(), &character_id).await? {
@@ -425,6 +344,8 @@ impl Zone {
                             mover_key: 0,
                             replica: 7,
                             version: 1,
+                            seconds: 0.0,
+                            physics_state: PhysicsState::Walking,
                             position: character.data.pos().to_owned().1,
                             rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                             velocity: Vec3::default(),
@@ -433,10 +354,15 @@ impl Zone {
                         action = ServerAction::DirectTravel(AvatarId::default(), Some(position.clone()));
                     },
                     PlayerSpawnMode::LoginNormal => {
+                        character.data.set_bling(44005);
+                        character.data.set_game_cash(22003);
+
                         position = Position { 
                             mover_key: 0,
                             replica: 7,
                             version: 1,
+                            seconds: 0.0,
+                            physics_state: PhysicsState::Walking,
                             position: character.data.pos().to_owned().1,
                             rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                             velocity: Vec3::default(),
@@ -447,7 +373,7 @@ impl Zone {
                     PlayerSpawnMode::TravelPortal(portal_uuid) => {
                         let (portal, portal_avatar) = uuid_to_entity.find_entity(&portal_uuid).map(|entity| {
                             (
-                                world.get::<PortalClass>(*entity).unwrap(), 
+                                world.get::<ParamBox>(*entity).and_then(|p| p.get_impl::<dyn PortalParams>()).unwrap(), 
                                 world.get::<AvatarComponent>(*entity).unwrap()
                             )
                         }).unwrap();
@@ -455,7 +381,8 @@ impl Zone {
                         // get exit node
                         if let Some(exit_point) = portal.exit_point() {
                             let exit = uuid_to_entity.find_entity(&Uuid::parse_str(&*exit_point).unwrap())
-                                .and_then(|entity| world.get::<SpawnNodeClass>(*entity))
+                                .and_then(|entity| world.get::<ParamBox>(*entity))
+                                .and_then(|p| p.get_impl::<dyn SpawnNodeParams>())
                                 .unwrap();
 
                             character.data.set_pos((0, exit.pos().to_owned() + Vec3::new(0.0, 0.0, get_player_height(&character.data) / 2.0)));
@@ -479,6 +406,8 @@ impl Zone {
                             mover_key: 0,
                             replica: 7,
                             version: 1,
+                            seconds: 0.0,
+                            physics_state: PhysicsState::Walking,
                             position: character.data.pos().to_owned().1,
                             rotation: Quat::from_unit_vector(character.data.rot().to_owned()),
                             velocity: Vec3::default(),
@@ -499,21 +428,20 @@ impl Zone {
                 character.data.set_player_loading(true);
                 character.data.set_player_node_state(2);
 
+                // spawn player into the world
                 (
-                    world.spawn(character.data.as_bundle())
+                    world.spawn(character.data.clone().into_bundle())
                     .insert(AvatarComponent {
                         id: avatar_id,
                         instance_id: None,
-                        content_id: None,
+                        record_id: Some(character.guid),
                         name: character.name.clone(),
                         phase_tag: "".to_owned(),
                     })
-                    .insert(position)
-                    .insert(InterestList {
-                        interests: Vec::new(),
-                    })
-                    .insert(AvatarEventSender(avatar_event_sender))
+                    .insert(InterestList::new())
                     .insert(EntityType::Player)
+                    .insert(PlayerController::new(avatar_id, avatar_event_sender))
+                    .insert(position)
                     .insert(Spawned)
                     .id(),
                     action
@@ -525,12 +453,9 @@ impl Zone {
 
             self.avatar_id_to_entity_lookup.insert(avatar_id, entity);
 
-            let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarSpawned { 
-                avatar_id, 
-                params: character.data.clone().into_box(),
-            }));
-
-            Ok((character, action))
+            self.get_subjective_avatar_params(avatar_id, avatar_id)
+                .map(|(name, character)| (name, character.take::<PlayerClass>().unwrap(), action))
+                .ok_or(AnotherlandError::app_err("character deleted while spawning"))
         } else {
             Err(AnotherlandError::app_err("character not found"))
         }
@@ -538,9 +463,9 @@ impl Zone {
 
     pub fn despawn_player(&mut self, avatar_id: AvatarId) -> Option<PlayerClass> {
         if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) {
-            let mut query = self.app.world.query::<(&Position, &mut PlayerClass)>();
+            let mut query = self.app.world.query_filtered::<(&Position, &mut ParamBox), With<PlayerComponent>>();
             if let Ok((position, player)) = query.get(&self.app.world, *entity) {
-                let mut player = player.to_owned();
+                let mut player = player.to_owned().take::<PlayerClass>().unwrap();
 
                 // save player position
                 player.set_pos((0, position.position));
@@ -552,7 +477,6 @@ impl Zone {
                 self.app.world.despawn(*entity);
 
                 self.avatar_id_to_entity_lookup.remove(&avatar_id);
-                let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarDespawned { avatar_id }));
 
                 Some(player)
             } else {
@@ -568,17 +492,19 @@ impl Zone {
         if let Some(mut params) = self.avatar_id_to_entity_lookup.get(&avatar_id)
             .and_then(|ent| self.app.world.get_mut::<ParamBox>(*ent)) {
 
-            if let Ok(player) = params.get_mut::<PlayerClass>() {
-                player.apply(update_set.get().unwrap().to_owned());
+            if let Ok(diff) = params.get::<PlayerClass>()
+                .map(|p| p.as_set())
+                .map(|s| s.diff(update_set.get::<PlayerAttribute>().unwrap()))
+            {
+                if !diff.is_empty() {
+                    debug!("{:?}", diff);
+
+                    if let Ok(player) = params.get_mut::<PlayerClass>() {
+                        player.apply(diff);
+                    }
+                }
             }
         }
-
-         // mirror update back to other clients
-        // todo: check if params contain meaningful changes for other clients
-        let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-            avatar_id, 
-            params: update_set,
-        }));
     }
 
 
@@ -589,12 +515,6 @@ impl Zone {
             position.position = movement.position;
             position.rotation = movement.rotation;
             position.velocity = movement.velocity;
-
-            // update clients
-            let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarMoved { 
-                avatar_id, 
-                movement,
-            }));
         }
     }
 
@@ -610,7 +530,6 @@ impl Zone {
             let Some(avatar_component) = self.app.world.get::<AvatarComponent>(*target_id) 
         {
             let name = avatar_component.name.to_owned();
-            drop(avatar_component);
             
             self.app.get_subjective_params(*player_id, *target_id)
                 .map(|p| (name, p))
@@ -669,46 +588,10 @@ impl Zone {
     }
 
     pub fn kill_avatar(&mut self, avatar_id: AvatarId) {
-        if let Some(mut entity) = self.avatar_id_to_entity_lookup.get(&avatar_id)
-            .and_then(|e| self.app.world.get_entity_mut(*e)) {
-            
-            if entity.contains::<PlayerClass>() {
-                let mut update = ParamSet::<PlayerAttribute>::new();
-                let mut player = entity.get_mut::<PlayerClass>().unwrap();
+        if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) {
 
-                update.insert(PlayerAttribute::Alive, false);
-                update.insert(PlayerAttribute::HpCur, 0);
-                
-                player.apply(update.clone());
-
-                let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                    avatar_id, 
-                    params: update.into_box(),
-                }));
-    
-                let _ = self.event_sender.send(Arc::new(ZoneEvent::CombatHpUpdate { 
-                    avatar_id, 
-                    hp: 0,
-                }));
-            } else if entity.contains::<NpcOtherlandComponent>() {
-                let mut update = ParamSet::<NpcOtherlandAttribute>::new();
-                let mut npc = entity.get_mut::<NpcOtherlandClass>().unwrap();
-
-                update.insert(NpcOtherlandAttribute::Alive, false);
-                update.insert(NpcOtherlandAttribute::HpCur, 0);
-                
-                npc.apply(update.clone());
-
-                let _ = self.event_sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                    avatar_id, 
-                    params: update.into_box(),
-                }));
-    
-                let _ = self.event_sender.send(Arc::new(ZoneEvent::CombatHpUpdate { 
-                    avatar_id, 
-                    hp: 0,
-                }));
-            }
+            let mut ev_sender = self.app.world.get_resource_mut::<Events<DamageEvent>>().unwrap();
+            ev_sender.send(DamageEvent(*entity, i32::MAX));
         }
     }
 }

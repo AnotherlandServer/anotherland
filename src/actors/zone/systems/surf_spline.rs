@@ -17,21 +17,21 @@ use atlas::oaPkt_SplineSurfing_Exit;
 use bevy_ecs::{entity::Entity, event::EventWriter, system::{Commands, Query}};
 use log::debug;
 
-use crate::actors::{zone::zone_events::AvatarEventFired, AvatarComponent, AvatarEvent, Position, SplineSurfing};
+use crate::actors::{zone::plugins::{PlayerController, Position}, AvatarComponent, SplineSurfing};
 
 pub fn surf_spline(
-    mut players: Query<(Entity, &AvatarComponent, &Position, &mut SplineSurfing)>,
-    mut ev_avatar_event: EventWriter<AvatarEventFired>,
+    mut players: Query<(Entity, &AvatarComponent, &Position, &mut SplineSurfing, &PlayerController)>,
+    //mut ev_avatar_event: EventWriter<AvatarEventFired>,
     mut commands: Commands,
 ) {
-    for (entity, avatar, position, mut surfing) in players.iter_mut() {
+    for (entity, avatar, position, mut surfing, controller) in players.iter_mut() {
         debug!("Finish surfing spline: {:?}-{}", avatar.id, surfing.spline.id);
 
-        ev_avatar_event.send(AvatarEventFired(entity, AvatarEvent::Message(oaPkt_SplineSurfing_Exit {
+        controller.send_message(oaPkt_SplineSurfing_Exit {
             avatar_id: avatar.id.as_u64(),
             spline_id: surfing.spline.id,
             ..Default::default()
-        }.into_message())));
+        }.into_message());
 
         commands.entity(entity).remove::<SplineSurfing>();
     }

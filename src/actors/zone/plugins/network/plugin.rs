@@ -13,21 +13,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{raknet::Message, AvatarId, Uuid};
+use bevy::app::{First, Last, Plugin};
 
-use tokio::sync::mpsc;
-use bevy_ecs::prelude::*;
+use super::{combat::send_hitpoint_updates, params::{prepare_param_updates, send_param_updates}, positions::send_position_updates};
 
-use crate::{actors::{ProximityChatRange, ServerAction}, frontends::TravelType};
+pub struct NetworkPlugin;
 
-pub enum AvatarEvent {
-    InterestAdded { ids: Vec<AvatarId> },
-    InterestRemoved { ids: Vec<AvatarId> },
-    Travel { zone: Uuid, destination: TravelType },
-    Message(Message),
-    ServerAction(ServerAction),
-    ChatMessage { range: ProximityChatRange, sender: String, message: String },
+impl Plugin for NetworkPlugin {
+    fn build(&self, app: &mut bevy::prelude::App) {
+        app.add_systems(First, prepare_param_updates);
+        app.add_systems(Last, (
+            send_position_updates,
+            send_param_updates,
+            send_hitpoint_updates,
+        ));
+    }
 }
-
-#[derive(Component)]
-pub struct AvatarEventSender(pub mpsc::Sender<AvatarEvent>);

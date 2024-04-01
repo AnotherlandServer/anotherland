@@ -20,7 +20,7 @@ use bevy_ecs::prelude::*;
 pub struct AvatarComponent {
     pub id: AvatarId,
     pub instance_id: Option<Uuid>,
-    pub content_id: Option<Uuid>,
+    pub record_id: Option<Uuid>,
     pub name: String,
     pub phase_tag: String,
 }

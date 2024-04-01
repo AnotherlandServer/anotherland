@@ -54,7 +54,6 @@ async fn import_content_table(game_client_path: &Path, src_table: &str, target_t
             let bin_data = row.read::<&[u8], _>("data");
             let data = if !bin_data.is_empty() {
                 let mut class = ParamBox::read(row.read::<i64,_>("ixClass") as u16, bin_data).unwrap().1;
-                class.strip_original_data();
 
                 Some(class)
             } else {
@@ -111,7 +110,6 @@ async fn import_instance(game_client_path: &Path) -> AnotherlandResult<()> {
             let bin_data = row.read::<&[u8], _>("data");
             let data = if !bin_data.is_empty() {
                 let mut set = ParamSetBox::read(row.read::<i64,_>("ixClass") as u16, bin_data).unwrap().1;
-                set.strip_original_data();
                 Some(set)
             } else {
                 None

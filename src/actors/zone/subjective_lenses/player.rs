@@ -13,34 +13,35 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{NonClientBaseParams, ParamBox, ParamClass, PortalClass, PortalComponent, PortalParams};
+use atlas::{ParamBox, ParamClass, PlayerClass, PlayerComponent, PlayerParams};
 use bevy::{app::Plugin, prelude::App};
 use bevy_ecs::{query::With, system::{In, Query}};
+use serde_json::json;
 
 use crate::actors::{zone::plugins::{SubjectivityExt, SubjectivityLensArguments}, EntityType};
 
-pub struct SubjectivePortals;
+pub struct SubjectivePlayers;
 
-impl Plugin for SubjectivePortals {
+impl Plugin for SubjectivePlayers {
     fn build(&self, app: &mut App) {
-        app.add_subjective_lens(EntityType::Portal, portal_lens);
+        app.add_subjective_lens(EntityType::Player, player_lens);
     }
 }
 
-fn portal_lens(
-    In((_, portal_id)): In<SubjectivityLensArguments>,
-    portal: Query<&ParamBox, With<PortalComponent>>,
+fn player_lens(
+    In((player_id, other_player_id)): In<SubjectivityLensArguments>,
+    players: Query<&ParamBox, With<PlayerComponent>>,
 ) -> ParamBox {
-    let mut portal = portal
-        .get(portal_id)
-        .unwrap()
-        .clone();
+    // are we looking at ourself?
+    if player_id == other_player_id {
+        let mut player = players
+            .get(player_id)
+            .unwrap()
+            .clone();
 
-    if let Some(portal) = portal.get_impl_mut::<dyn PortalParams>() {
-        if portal.tags().map(|tags| tags.contains("PortalHive")).unwrap_or(false) {
-            portal.set_current_state(3);
-        }
+        player
+    } else {
+        let player = players.get(player_id).unwrap();
+        player.clone()
     }
-
-    portal
 }

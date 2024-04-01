@@ -14,9 +14,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use atlas::AvatarId;
+use bevy::utils::hashbrown::HashSet;
 use bevy_ecs::prelude::*;
 
 #[derive(Clone, Debug, Component)]
 pub struct InterestList {
-    pub interests: Vec<AvatarId>,
+    pub interests: HashSet<AvatarId>,
+}
+
+impl InterestList {
+    pub fn new() -> Self {
+        Self {
+            interests: HashSet::new(),
+        }
+    }
+
+    pub fn contains(&self, id: AvatarId) -> bool {
+        self.interests.contains(&id)
+    }
 }

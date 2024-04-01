@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use atlas::{oaPkt_SplineSurfing_Acknowledge, NonClientBaseParams, Param, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, PortalClass, SpawnNodeClass, StartingPointClass, Uuid};
+use atlas::{oaPkt_SplineSurfing_Acknowledge, NonClientBaseComponent, NonClientBaseParams, Param, ParamBox, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerComponent, PlayerParams, PortalClass, PortalComponent, PortalParams, SpawnNodeClass, SpawnNodeComponent, StartingPointClass, Uuid};
 use bevy::app::Plugin;
 use bevy_ecs::{event::EventWriter, query::{With, Without}, system::{Commands, In, Query, Res}};
 use components::{PortalExitPoint, Spawned};
@@ -23,7 +23,7 @@ use glam::{Quat, Vec3};
 use log::{debug, error, info, warn};
 use regex::Regex;
 
-use crate::{actors::{get_player_height, zone::{components, plugins::{BehaviorArguments, BehaviorExt}, resources::Broadcaster, zone_events::AvatarEventFired}, AvatarComponent, AvatarEvent, DefaultPos, EntityType, Movement, PhysicsState, Position, ServerAction, SplineSurfing, UuidToEntityLookup, ZoneEvent}, util::OtherlandQuatExt};
+use crate::{actors::{get_player_height, zone::{components, plugins::{BehaviorArguments, BehaviorExt, PlayerController, Position, ReviveEvent, ServerAction}}, AvatarComponent, DefaultPos, EntityType, SplineSurfing, UuidToEntityLookup}, util::OtherlandQuatExt};
 use crate::actors::zone::FLIGHT_TUBES;
 
 pub struct PlayerBehaviors;
@@ -74,18 +74,17 @@ fn unimplemented_behavior(In((_, _, behavior)): In<BehaviorArguments>) {
 
 fn respawn_now(
     In((instigator, _target, behavior)): In<BehaviorArguments>,
-    mut player_query: Query<(&mut Position, &mut PlayerClass, &AvatarComponent)>,
-    portals: Query<(&PortalClass, &PortalExitPoint), (With<components::RespawnPoint>, With<Spawned>)>,
-    exit_points: Query<&SpawnNodeClass>,
+    mut player_query: Query<(&mut Position, &mut ParamBox, &AvatarComponent, &PlayerController), (With<PlayerComponent>, Without<NonClientBaseComponent>)>,
+    portals: Query<(&ParamBox, &PortalExitPoint), (With<PortalComponent>, With<NonClientBaseComponent>, With<components::RespawnPoint>, With<Spawned>)>,
+    exit_points: Query<&ParamBox, (With<SpawnNodeComponent>, With<NonClientBaseComponent>)>,
     default_pos: Res<DefaultPos>,
-    broadcaster: Res<Broadcaster>,
     uuid_to_entity: Res<UuidToEntityLookup>,
-    mut ev_sender: EventWriter<AvatarEventFired>,
+    mut ev_revive: EventWriter<ReviveEvent>,
 ) {
     if let Some(mode) = behavior.get(1).map(|v| v.as_str()) {
         match mode {
             "NearestPortal" => {
-                let (mut player_pos, mut player, avatar) = player_query.get_mut(instigator).unwrap();
+                let (mut player_pos, mut player, avatar, controller) = player_query.get_mut(instigator).unwrap();
 
                 let mut positions: Vec<_> = portals.iter()
                     .filter_map(|(_, exitpoint)| {
@@ -94,6 +93,7 @@ fn respawn_now(
                         uuid_to_entity.find_entity(&exitpoint.0)
                             .and_then(|entity| exit_points.get(*entity).ok())
                     })
+                    .map(|starting_point| starting_point.get_impl::<dyn NonClientBaseParams>().unwrap())
                     .map(|starting_point| (starting_point.pos(), starting_point.rot())).collect();
 
                 positions.sort_by(|a, b| {
@@ -103,52 +103,26 @@ fn respawn_now(
 
                 let (respawn_pos, respawn_rot) = if let Some((pos, rot)) = positions.first() {
                     debug!("Respawn pos: {:?}", pos);
-                    (**pos + Vec3::new(0.0, 0.0, get_player_height(&*player) / 2.0), **rot)
+                    (**pos + Vec3::new(0.0, 0.0, get_player_height(player.get_impl::<dyn PlayerParams>().unwrap()) / 2.0), **rot)
                 } else {
                     warn!("No portal for respawning found. Moving to default location");
                     (default_pos.pos, default_pos.rot)
                 };
 
-                // revive & teleport player
-                let mut update = ParamSet::<PlayerAttribute>::new();
-                update.insert(PlayerAttribute::Alive, true);
-                update.insert(PlayerAttribute::HpCur, player.hp_max());
-                update.insert(PlayerAttribute::Pos, Param::Vector3Uts((0, respawn_pos)));
-                update.insert(PlayerAttribute::Rot, respawn_rot);
-                update.insert(PlayerAttribute::IsUnAttackable, true); 
-    
-                player.apply(update.clone());
+                // teleport player
+                if let Ok(player) = player.get_mut::<PlayerClass>() {
+                    player.set_is_un_attackable(true);
+                }
 
                 player_pos.version = player_pos.version.wrapping_add(1);
-                    player_pos.position = respawn_pos;
-                    player_pos.rotation = Quat::from_unit_vector(respawn_rot);
+                player_pos.position = respawn_pos;
+                player_pos.rotation = Quat::from_unit_vector(respawn_rot);
+
+                // revive player
+                ev_revive.send(ReviveEvent(instigator));
 
                 // update clients
-                ev_sender.send(AvatarEventFired(instigator, AvatarEvent::ServerAction(
-                    ServerAction::Teleport(avatar.id, player_pos.to_owned()))
-                ));
-
-                let _ = broadcaster.sender.send(Arc::new(ZoneEvent::AvatarMoved { 
-                    avatar_id: avatar.id, 
-                    movement: Movement { 
-                        position: respawn_pos, 
-                        rotation: Quat::from_unit_vector(respawn_rot), 
-                        velocity: Vec3::default(), 
-                        physics_state: PhysicsState::Walking, 
-                        mover_key: 0, 
-                        seconds: 0.0 
-                    } 
-                }));
-
-                let _ = broadcaster.sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-                    avatar_id: avatar.id, 
-                    params: update.into_box(),
-                }));
-
-                let _ = broadcaster.sender.send(Arc::new(ZoneEvent::CombatHpUpdate { 
-                    avatar_id: avatar.id, 
-                    hp: player.hp_cur(),
-                }));
+                controller.send_server_action(ServerAction::Teleport(avatar.id, player_pos.to_owned()));
             },
             _ => error!("Respawn mode {} not implemented!", mode),
         }
@@ -156,30 +130,20 @@ fn respawn_now(
 }
 
 fn disable_invulnerability(
-    In((instigator, target, behavior)): In<BehaviorArguments>,
-    mut player_query: Query<(&mut PlayerClass, &AvatarComponent)>,
-    broadcaster: Res<Broadcaster>,
+    In((instigator, _target, _behavior)): In<BehaviorArguments>,
+    mut player_query: Query<&mut ParamBox, With<PlayerComponent>>,
 ) {
-    if let Ok((mut player, avatar)) = player_query.get_mut(instigator) {
-        let mut update = ParamSet::<PlayerAttribute>::new();
-
-        update.insert(PlayerAttribute::IsUnAttackable, false);
-        player.apply(update.clone());
-
-        let _ = broadcaster.sender.send(Arc::new(ZoneEvent::AvatarUpdated { 
-            avatar_id: avatar.id, 
-            params: update.into_box(),
-        }));
+    if let Ok(mut player) = player_query.get_mut(instigator) {
+        player.get_mut::<PlayerClass>().unwrap().set_is_un_attackable(false);
     }
 }
 
 fn start_spline_surfing(
     In((instigator, _target, behavior)): In<BehaviorArguments>,
-    player_query: Query<(&PlayerClass, &AvatarComponent, Without<SplineSurfing>)>,
-    mut ev_sender: EventWriter<AvatarEventFired>,
+    player_query: Query<(&AvatarComponent, &PlayerController), (With<PlayerComponent>, Without<SplineSurfing>)>,
     mut commands: Commands,
 ) {
-    if let Ok((_, avatar, _)) = player_query.get(instigator) {
+    if let Ok((avatar, controller)) = player_query.get(instigator) {
 
         let re = Regex::new(r"SplineID=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) InverseTravel=([0-1]) Loc=\[ -?(\d+\.?\d*) -?(\d+\.?\d*) -?(\d+\.?\d*) \]").unwrap();
         if let Some(captures) = re.captures(behavior.get(1).unwrap()) {
@@ -196,23 +160,23 @@ fn start_spline_surfing(
                 // start moving along the spline
                 commands.entity(instigator).insert(SplineSurfing::new(spline.to_owned(), inverse_travel));
 
-                ev_sender.send(AvatarEventFired(instigator, AvatarEvent::Message(oaPkt_SplineSurfing_Acknowledge {
+                controller.send_message(oaPkt_SplineSurfing_Acknowledge {
                     avatar_id: avatar.id.as_u64(),
                     spline_id,
                     acknowledged: true,
                     inverse_travel,
                     loc: loc.into(),
                     ..Default::default()
-                }.into_message())));
+                }.into_message());
             } else {
-                ev_sender.send(AvatarEventFired(instigator, AvatarEvent::Message(oaPkt_SplineSurfing_Acknowledge {
+                controller.send_message(oaPkt_SplineSurfing_Acknowledge {
                     avatar_id: avatar.id.as_u64(),
                     spline_id,
                     acknowledged: false,
                     inverse_travel,
                     loc: loc.into(),
                     ..Default::default()
-                }.into_message())));
+                }.into_message());
             }
         }
     }

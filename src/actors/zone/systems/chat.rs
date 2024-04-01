@@ -13,27 +13,30 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::PlayerClass;
+use atlas::{CPktChat, CpktChatChatType, PlayerClass, PlayerComponent};
 use bevy_ecs::{entity::Entity, event::{EventReader, EventWriter}, query::With, system::Query};
 
-use crate::actors::{zone::zone_events::{AvatarEventFired, ProximityChatEvent}, AvatarEvent, Position};
+use crate::actors::{zone::{plugins::{PlayerController, Position}, zone_events::ProximityChatEvent}, ProximityChatRange};
 
 pub fn send_proximity_chat(
     mut ev_chat: EventReader<ProximityChatEvent>,
-    query: Query<(Entity, &Position), With<PlayerClass>>,
-    mut ev_avatar_event: EventWriter<AvatarEventFired>,
+    query: Query<(&Position, &PlayerController), With<PlayerComponent>>,
+    //mut ev_avatar_event: EventWriter<AvatarEventFired>,
 ) {
     for msg in ev_chat.read() {
-        ev_avatar_event.send_batch(
-            query.iter()
-                .filter(|(_, pos)| pos.position.distance(msg.pos) <= msg.range.aware_dist())
-                .map(|(entity, _)| {
-                    AvatarEventFired(entity, AvatarEvent::ChatMessage { 
-                        range: msg.range, 
-                        sender: msg.sender.clone(),
-                        message: msg.message.clone(),
-                    })
-                })
-        );
+        for (_, controller) in query.iter()
+            .filter(|(pos, _)| pos.position.distance(msg.pos) <= msg.range.aware_dist()) {
+
+            controller.send_message(CPktChat {
+                chat_type: match msg.range {
+                    ProximityChatRange::Say => CpktChatChatType::Say,
+                    ProximityChatRange::TeamSay => CpktChatChatType::Say,
+                    ProximityChatRange::Shout => CpktChatChatType::Shout,
+                },
+                message: msg.message.clone(),
+                sender: msg.sender.clone(),
+                ..Default::default()
+            }.into_message());
+        }
     }
 }

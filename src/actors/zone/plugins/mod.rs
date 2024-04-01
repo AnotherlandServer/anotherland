@@ -15,6 +15,16 @@
 
 mod behavior;
 mod subjectivity;
+//mod inventory;
+mod network;
+mod hitpoints;
+mod position;
+mod persistance;
 
 pub use behavior::*;
 pub use subjectivity::*;
+//pub use inventory::*;
+pub use network::*;
+pub use hitpoints::*;
+pub use position::*;
+pub use persistance::*;

@@ -13,21 +13,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy_ecs::{event::Events, system::{Query, Res, ResMut}};
+mod plugin;
 
-use crate::actors::{zone::{resources::Tasks, zone_events::AvatarEventFired}, AvatarEventSender};
-
-pub fn send_messages(
-    tasks: Res<Tasks>,
-    mut ev_avatar_event: ResMut<Events<AvatarEventFired>>,
-    query: Query<&AvatarEventSender>,
-) {
-    // pretty sure there is a more efficient way of doing this
-    for AvatarEventFired(entity, event) in ev_avatar_event.drain() {
-        let sender = query.get(entity).unwrap().0.clone();
-
-        tasks.tasks.spawn(async move {
-            let _ = sender.send(event).await;
-        });
-    }
-}
+pub use plugin::*;

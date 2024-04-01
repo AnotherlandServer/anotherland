@@ -15,6 +15,7 @@
 
 #![feature(let_chains)]
 #![feature(str_from_utf16_endian)]
+#![feature(trivial_bounds)]
 
 mod util;
 mod db;
