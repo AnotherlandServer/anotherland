@@ -14,9 +14,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod plugin;
-mod characters;
+mod commerce;
+mod behaviors;
 mod inventory;
+mod slots;
 
 pub use plugin::*;
-pub use characters::*;
+pub use commerce::*;
+pub use behaviors::*;
 pub use inventory::*;
+pub use slots::*;

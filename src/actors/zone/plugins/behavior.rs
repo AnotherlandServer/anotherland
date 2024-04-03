@@ -13,26 +13,42 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use atlas::NativeParam;
 use bevy::{app::{App, Plugin, PreUpdate}, utils::HashMap};
 use bevy_ecs::{entity::Entity, event::{Event, Events}, system::{IntoSystem, Resource, System}, world::{Mut, World}};
 use log::warn;
 
 use crate::actors::{AvatarComponent, EntityType};
 
+#[derive(Debug)]
+pub enum Behavior {
+    String(String, Vec<String>),
+    Binary(String, NativeParam),
+}
+
+impl Behavior {
+    pub fn name(&self) -> &str {
+        match self {
+            Behavior::String(name, _) => name,
+            Behavior::Binary(name, _) => name,
+        }
+    }
+}
+
 #[derive(Event)]
 pub struct RequestBehavior {
     pub entity: Entity,
-    pub behavior: Vec<String>,
+    pub behavior: Behavior,
 }
 
 #[derive(Event)]
 pub struct TellBehavior {
     pub instigator: Entity,
     pub target: Entity,
-    pub behavior: Vec<String>,
+    pub behavior: Behavior,
 }
 
-pub type BehaviorArguments = (Entity, Entity, Vec<String>);
+pub type BehaviorArguments = (Entity, Entity, Behavior);
 type BehaviorSystem = dyn System<In = BehaviorArguments, Out = ()>;
 type BehaviorSystemMap = HashMap<String, Box<BehaviorSystem>>;
 type EntityTypeBehaviorSystemMap = HashMap<EntityType, BehaviorSystemMap>;
@@ -56,6 +72,7 @@ impl Plugin for AvatarBehaviorPlugin {
 pub trait BehaviorExt {
     fn add_behavior<T: IntoSystem<BehaviorArguments, (), Marker>, Marker>(&mut self, entity_type: EntityType, name: &str, system: T) -> &mut Self;
     fn tell_behavior(&mut self, instigator: Entity, target: Entity, behavior: String);
+    fn tell_behavior_binary(&mut self, instigator: Entity, target: Entity, behavior: String, data: NativeParam);
     fn request_behavior(&mut self, target: Entity, behavior: String, data: String);
 }
 
@@ -78,17 +95,28 @@ impl BehaviorExt for App {
     }
 
     fn tell_behavior(&mut self, instigator: Entity, target: Entity, behavior: String) {
+        let mut args = behavior.split(char::is_whitespace).map(|v| v.to_owned());
+        let behavior = args.next().unwrap();
+
         self.world.send_event(TellBehavior {
             instigator,
             target,
-            behavior: behavior.split(char::is_whitespace).map(|v| v.to_owned()).collect(),
+            behavior: Behavior::String(behavior, args.collect()),
+        });
+    }
+
+    fn tell_behavior_binary(&mut self, instigator: Entity, target: Entity, behavior: String, data: NativeParam) {
+        self.world.send_event(TellBehavior {
+            instigator,
+            target,
+            behavior: Behavior::Binary(behavior, data),
         });
     }
 
     fn request_behavior(&mut self, entity: Entity, behavior: String, data: String) {
         self.world.send_event(RequestBehavior {
             entity,
-            behavior: vec![behavior, data],
+            behavior: Behavior::String(behavior, data.split(' ').map(|v| v.to_string()).collect()),
         });
     }
 }
@@ -101,13 +129,13 @@ fn perform_told_behavior(world: &mut World) {
 
                 if let Some(behavior) = behaviors.0
                     .get_mut(&entity_type)
-                    .and_then(|m| m.get_mut(&ev.behavior[0])) {
+                    .and_then(|m| m.get_mut(ev.behavior.name())) {
 
                     behavior.run((ev.instigator, ev.target, ev.behavior), world);
                     behavior.apply_deferred(world);
                 } else {
                     let avatar = world.get::<AvatarComponent>(ev.target).unwrap();
-                    warn!("No behavior '{}' defined for entity {:?}:{}. But client calls for it!", ev.behavior[0], entity_type, avatar.name)
+                    warn!("No behavior '{}' defined for entity {:?}:{}. But client calls for it!", ev.behavior.name(), entity_type, avatar.name)
                 }
             }
         });
@@ -123,7 +151,7 @@ fn perform_requested_behavior(world: &mut World) {
 
                 if let Some(behavior) = behaviors.0
                     .get_mut(&entity_type)
-                    .and_then(|m| m.get_mut(&ev.behavior[0])) {
+                    .and_then(|m| m.get_mut(ev.behavior.name())) {
 
                     behavior.run((ev.entity, ev.entity, ev.behavior), world);
                     behavior.apply_deferred(world);

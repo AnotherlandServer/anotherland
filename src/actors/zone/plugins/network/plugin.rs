@@ -13,19 +13,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::app::{First, Last, Plugin};
+use bevy::app::{First, Last, Plugin, PostUpdate};
 
-use super::{combat::send_hitpoint_updates, params::{prepare_param_updates, send_param_updates}, positions::send_position_updates};
+use super::{combat::send_hitpoint_updates, inventory::{send_item_removals, send_item_updates, track_added_items, ItemTracker}, params::{prepare_param_updates, send_param_updates}, positions::send_position_updates};
 
 pub struct NetworkPlugin;
 
 impl Plugin for NetworkPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
+        app.insert_resource(ItemTracker::new());
         app.add_systems(First, prepare_param_updates);
         app.add_systems(Last, (
             send_position_updates,
             send_param_updates,
             send_hitpoint_updates,
+            send_item_updates,
+            send_item_removals,
+            track_added_items,
         ));
     }
 }

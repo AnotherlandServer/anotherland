@@ -93,6 +93,9 @@ impl Character {
             player.set_customization_skinny(0.7);
             player.set_customization_muscular(0.3);
             player.set_move_speed(292.0);
+
+            player.set_bling(0);
+            player.set_game_cash(0);
         
             player
         }); 

@@ -23,7 +23,7 @@ use glam::{Quat, Vec3};
 use log::{debug, error, info, warn};
 use regex::Regex;
 
-use crate::{actors::{get_player_height, zone::{components, plugins::{BehaviorArguments, BehaviorExt, PlayerController, Position, ReviveEvent, ServerAction}}, AvatarComponent, DefaultPos, EntityType, SplineSurfing, UuidToEntityLookup}, util::OtherlandQuatExt};
+use crate::{actors::{get_player_height, zone::{components, plugins::{Behavior, BehaviorArguments, BehaviorExt, PlayerController, Position, ReviveEvent, ServerAction}}, AvatarComponent, DefaultPos, EntityType, SplineSurfing, UuidToEntityLookup}, util::OtherlandQuatExt};
 use crate::actors::zone::FLIGHT_TUBES;
 
 pub struct PlayerBehaviors;
@@ -69,7 +69,7 @@ impl Plugin for PlayerBehaviors {
 }
 
 fn unimplemented_behavior(In((_, _, behavior)): In<BehaviorArguments>) {
-    error!("Player behavior '{}' not implemented!", behavior.join(" "));
+    error!("Player behavior '{:?}' not implemented!", behavior);
 }
 
 fn respawn_now(
@@ -81,7 +81,10 @@ fn respawn_now(
     uuid_to_entity: Res<UuidToEntityLookup>,
     mut ev_revive: EventWriter<ReviveEvent>,
 ) {
-    if let Some(mode) = behavior.get(1).map(|v| v.as_str()) {
+    if 
+        let Behavior::String(_, args) = behavior && 
+        let Some(mode) = args.get(0).map(|v| v.as_str()) 
+    {
         match mode {
             "NearestPortal" => {
                 let (mut player_pos, mut player, avatar, controller) = player_query.get_mut(instigator).unwrap();
@@ -143,10 +146,13 @@ fn start_spline_surfing(
     player_query: Query<(&AvatarComponent, &PlayerController), (With<PlayerComponent>, Without<SplineSurfing>)>,
     mut commands: Commands,
 ) {
-    if let Ok((avatar, controller)) = player_query.get(instigator) {
+    if 
+        let Behavior::String(_, args) = behavior && 
+        let Ok((avatar, controller)) = player_query.get(instigator) 
+    {
 
         let re = Regex::new(r"SplineID=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) InverseTravel=([0-1]) Loc=\[ -?(\d+\.?\d*) -?(\d+\.?\d*) -?(\d+\.?\d*) \]").unwrap();
-        if let Some(captures) = re.captures(behavior.get(1).unwrap()) {
+        if let Some(captures) = re.captures(args.get(0).unwrap()) {
             let spline_id = Uuid::parse_str(&captures[1]).unwrap();
             let inverse_travel = &captures[2] == "1";
             let loc = Vec3::new(

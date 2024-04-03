@@ -17,7 +17,7 @@ use std::{sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ AvatarId, DynParamSet, NonClientBaseParams, OaZoneConfigParams, ParamBox, ParamClass, ParamSetBox, PlayerAttribute, PlayerClass, PlayerComponent, PlayerParams, PortalParams, SpawnNodeParams, StartingPointComponent, StartingPointParams, Uuid};
+use atlas::{ AvatarId, DynParamSet, NativeParam, NonClientBaseParams, OaZoneConfigParams, ParamBox, ParamClass, ParamSetBox, PlayerAttribute, PlayerClass, PlayerComponent, PlayerParams, PortalParams, SpawnNodeParams, StartingPointComponent, StartingPointParams, Uuid};
 use bevy::{app::{App, Update}, utils::hashbrown::HashMap, MinimalPlugins};
 use glam::{Vec3, Quat};
 use log::{debug, info, warn};
@@ -26,10 +26,10 @@ use tokio::{runtime::Handle, select, sync::{mpsc, OnceCell}, task::JoinHandle, t
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use bevy_ecs::{prelude::*, schedule::ScheduleLabel};
 
-use crate::{actors::{get_player_height, zone::{ behaviors::BehaviorsPlugin, plugins::{AvatarBehaviorPlugin, HitPointsPlugin, PersistancePlugin, PositionPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{realm_database, Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, zone::{ behaviors::BehaviorsPlugin, plugins::{AvatarBehaviorPlugin, HitPointsPlugin, InventoryPlugin, PersistancePlugin, PositionPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{realm_database, Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
-use super::{components::{self, AvatarComponent, EntityType, InterestList}, plugins::{AvatarEvent, BehaviorExt, DamageEvent, NetworkPlugin, PlayerController, Position, ServerAction, SubjectivityExt}, resources::Tasks, zone_events::ProximityChatEvent, Movement, PhysicsState, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState};
+use super::{components::{self, AvatarComponent, EntityType, InterestList}, plugins::{AvatarEvent, BehaviorExt, DamageEvent, ItemPurchaseRequest, ItemSellRequest, NetworkPlugin, PlayerController, Position, ServerAction, SubjectivityExt}, resources::Tasks, zone_events::ProximityChatEvent, Movement, PhysicsState, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState};
 
 pub(super) static SPECIAL_EVENTS: OnceCell<SpecialEvents> = OnceCell::const_new();
 pub(in crate::actors::zone) static FLIGHT_TUBES: OnceCell<HashMap<Uuid, Arc<FlightTube>>> = OnceCell::const_new();
@@ -128,7 +128,7 @@ impl Actor for Zone {
                 BehaviorsPlugin,
                 SubjectivityPlugin,
                 SubjectiveLensesPlugin,
-                //InventoryPlugin,
+                InventoryPlugin,
                 HitPointsPlugin,
                 PositionPlugin,
             ))
@@ -354,9 +354,6 @@ impl Zone {
                         action = ServerAction::DirectTravel(AvatarId::default(), Some(position.clone()));
                     },
                     PlayerSpawnMode::LoginNormal => {
-                        character.data.set_bling(44005);
-                        character.data.set_game_cash(22003);
-
                         position = Position { 
                             mover_key: 0,
                             replica: 7,
@@ -380,7 +377,7 @@ impl Zone {
 
                         // get exit node
                         if let Some(exit_point) = portal.exit_point() {
-                            let exit = uuid_to_entity.find_entity(&Uuid::parse_str(&*exit_point).unwrap())
+                            let exit = uuid_to_entity.find_entity(&Uuid::parse_str(exit_point).unwrap())
                                 .and_then(|entity| world.get::<ParamBox>(*entity))
                                 .and_then(|p| p.get_impl::<dyn SpawnNodeParams>())
                                 .unwrap();
@@ -512,9 +509,12 @@ impl Zone {
         if let Some(mut position) = self.avatar_id_to_entity_lookup.get(&avatar_id)
             .and_then(|ent| self.app.world.get_mut::<Position>(*ent)) {
 
+            position.physics_state = movement.physics_state;
+            position.mover_key = movement.mover_key;
             position.position = movement.position;
             position.rotation = movement.rotation;
             position.velocity = movement.velocity;
+            position.seconds = movement.seconds;
         }
     }
 
@@ -564,6 +564,14 @@ impl Zone {
         }
     }
 
+    pub fn tell_behavior_binary(&mut self, instigator: AvatarId, target: AvatarId, behavior: String, data: NativeParam) {
+        if let Some(instigator) = self.avatar_id_to_entity_lookup.get(&instigator) && 
+            let Some(target) = self.avatar_id_to_entity_lookup.get(&target) {
+                
+            self.app.tell_behavior_binary(*instigator, *target, behavior, data);
+        }
+    }
+
     pub fn proximity_chat(&mut self, range: ProximityChatRange, avatar_id: AvatarId, message: String) {
         if let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id)
             .and_then(|e| self.app.world.get_entity(*e)) {
@@ -592,6 +600,42 @@ impl Zone {
 
             let mut ev_sender = self.app.world.get_resource_mut::<Events<DamageEvent>>().unwrap();
             ev_sender.send(DamageEvent(*entity, i32::MAX));
+        }
+    }
+
+    pub fn item_purchase_request(&mut self, avatar_id: AvatarId, item: Uuid, count: u32) {
+        if let Some(mut ev_purchase_request) = self.app.world.get_resource_mut::<Events<ItemPurchaseRequest>>() &&
+            let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) 
+        {
+            ev_purchase_request.send(ItemPurchaseRequest(*entity, item, count as i32));
+        }
+    }
+
+    pub fn item_sell_request(&mut self, avatar_id: AvatarId, item: Uuid, count: u32) {
+        if let Some(mut ev_sell_request) = self.app.world.get_resource_mut::<Events<ItemSellRequest>>() &&
+            let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) 
+        {
+            ev_sell_request.send(ItemSellRequest(*entity, item, count));
+        }
+    }
+
+    pub fn transfer_bling(&mut self, avatar_id: AvatarId, amount: i32) {
+        if 
+            let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) &&
+            let Some(mut params) = self.app.world.get_mut::<ParamBox>(*entity) &&
+            let Some(params) = params.get_impl_mut::<dyn PlayerParams>()
+        {
+            params.set_bling(params.bling().saturating_add(amount));
+        }
+    }
+
+    pub fn transfer_game_cash(&mut self, avatar_id: AvatarId, amount: i32) {
+        if 
+            let Some(entity) = self.avatar_id_to_entity_lookup.get(&avatar_id) &&
+            let Some(mut params) = self.app.world.get_mut::<ParamBox>(*entity) &&
+            let Some(params) = params.get_impl_mut::<dyn PlayerParams>()
+        {
+            params.set_game_cash(params.game_cash().saturating_add(amount));
         }
     }
 }

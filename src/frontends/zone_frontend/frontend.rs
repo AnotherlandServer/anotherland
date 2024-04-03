@@ -576,80 +576,6 @@ impl ZoneSession {
                     },
                 }
             },
-            AtlasPkt(CPkt::oaPktAvatarTellBehaviorBinary(pkt)) => {
-                match pkt.field_3.as_str() {
-                    "doVendorExecute" => {
-                        match &pkt.field_4 {
-                            NativeParam::Struct(attrib) => {
-                                let (_, params) = self.instance.zone().get_avatar_params(self.avatar_id).await.unwrap();
-                                let db: mongodb::Database = realm_database().await;
-
-                                let mut player_params = params.take::<PlayerClass>().unwrap();
-
-                                player_params.set_customization_gender(attrib[0].to_f32()?);
-                                player_params.set_customization_height(attrib[1].to_f32()?);
-                                player_params.set_customization_fat(attrib[2].to_f32()?);
-                                player_params.set_customization_skinny(attrib[3].to_f32()?);
-                                player_params.set_customization_muscular(attrib[4].to_f32()?);
-                                player_params.set_customization_bust_size(attrib[5].to_f32()?);
-                                player_params.set_race(attrib[6].to_i32()?);
-                                player_params.set_customization_brow_angle(attrib[7].to_f32()?);
-                                player_params.set_customization_eye_brow_pos(attrib[8].to_f32()?);
-                                player_params.set_customization_eye_pos_spacing(attrib[9].to_f32()?);
-                                player_params.set_customization_eye_pos(attrib[10].to_f32()?);
-                                player_params.set_customization_eye_size_length(attrib[11].to_f32()?);
-                                player_params.set_customization_eye_size_width(attrib[12].to_f32()?);
-                                player_params.set_customization_eyes_pretty(attrib[13].to_f32()?);
-                                player_params.set_customization_mouth_pos(attrib[14].to_f32()?);
-                                player_params.set_customization_mouth_width(attrib[15].to_f32()?);
-                                player_params.set_customization_mouth_lower_lip_thic(attrib[16].to_f32()?);
-                                player_params.set_customization_mouth_upper_lip_thic(attrib[17].to_f32()?);
-                                player_params.set_customization_mouth_expression(attrib[18].to_f32()?);
-                                player_params.set_customization_nose_pos_length(attrib[19].to_f32()?);
-                                player_params.set_customization_nose_pos_width(attrib[20].to_f32()?);
-                                player_params.set_customization_nose_portude(attrib[21].to_f32()?);
-                                player_params.set_customization_ear_size(attrib[22].to_f32()?);
-                                player_params.set_customization_ear_elf(attrib[23].to_f32()?);
-                                player_params.set_customization_cheek_bone(attrib[24].to_f32()?);
-                                player_params.set_customization_cheek(attrib[25].to_f32()?);
-                                player_params.set_customization_chin_portude(attrib[26].to_f32()?);
-                                player_params.set_customization_jaw_chubby(attrib[27].to_f32()?);
-                                debug!("Attrib 28: {}", attrib[28].to_string()?);
-                                debug!("Attrib 29: {:#?}", attrib[29]);
-
-                                let mut visible_items = Vec::new();
-                                for a in attrib[30..].iter() {
-                                    let item_uuid = a.to_uuid()?;
-                                    debug!("Load item {}", item_uuid.to_string());
-                                let db: mongodb::Database = realm_database().await;
-                                let item = ItemContent::get(db.clone(), &item_uuid).await?;
-                                    visible_items.push(item.unwrap().id as i32);
-                                }
-    
-                                if !visible_items.is_empty() {
-                                    debug!("set visible item info");
-                                    player_params.set_visible_item_info(visible_items);
-                                } else {
-                                    debug!("received empty visible item info after metamorph");
-                                }
-
-                                // Save changes
-                                debug!("Save avatar change");
-   
-                                let mut character = Character::get(db.clone(), self.session_ref.lock().await.session().character_id.as_ref().unwrap()).await.unwrap().unwrap();
-                                character.data = player_params.clone();
-                                character.save(db.clone()).await?;
-        
-                                self.instance.zone().update_avatar(self.avatar_id, player_params.into_set().into_box()).await;
-                            },
-                            _ => panic!(),
-                        }
-                    },
-                    _ => {
-                        warn!("Unknown avatar behavior: {:#?}", pkt);
-                    }
-                }
-            },
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
                 if pkt.avatar_id.unwrap_or_default() == self.avatar_id.as_u64() {
                     if let Ok((_, params)) = ParamSet::<PlayerAttribute>::read(pkt.params.as_slice()) {
@@ -696,6 +622,13 @@ impl ZoneSession {
                     self.instance.zone().tell_behavior(pkt.instigator.into(), pkt.target.into(), pkt.behavior).await;
                 }
             },
+            AtlasPkt(CPkt::oaPktAvatarTellBehaviorBinary(pkt)) => {
+                if pkt.instigator != self.avatar_id.as_u64() {
+                    warn!("Client tried to instigate behavior on behalf of other avatar: {:#?}", pkt);
+                } else {
+                    self.instance.zone().tell_behavior_binary(pkt.instigator.into(), pkt.target.into(), pkt.behavior, pkt.data).await;
+                }
+            },
             AtlasPkt(CPkt::CPktChat(pkt)) => {
                 self.instance.zone().proximity_chat(match pkt.chat_type {
                     CpktChatChatType::Say => ProximityChatRange::Say,
@@ -716,6 +649,15 @@ impl ZoneSession {
                         }
                     }
                 }
+            },
+            AtlasPkt(CPkt::oaPktShopCartBuyRequest(pkt)) => {
+                for cart_entry in pkt.shopping_cart {
+                    self.instance.zone().item_purchase_request(self.avatar_id, cart_entry.id, cart_entry.count).await;
+                }
+            },
+            AtlasPkt(CPkt::oaPktAccountBankRequest(_)) => {
+                self.instance.zone().transfer_bling(self.avatar_id, 1000).await;
+                self.instance.zone().transfer_game_cash(self.avatar_id, 1000).await;
             },
             _ => {
                 debug!(

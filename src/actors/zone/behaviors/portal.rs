@@ -19,7 +19,7 @@ use bevy_ecs::{query::{With, Without}, system::{In, Query, Res}};
 use glam::Quat;
 use log::{debug, error, warn};
 
-use crate::{actors::{get_display_name, zone::plugins::{BehaviorArguments, BehaviorExt, PlayerController, Position, ServerAction}, AvatarComponent, EntityType, PortalExitPoint, PortalNodelink, UuidToEntityLookup, PORTAL_HIVE_DESTINATIONS}, frontends::TravelType, util::OtherlandQuatExt};
+use crate::{actors::{get_display_name, zone::plugins::{Behavior, BehaviorArguments, BehaviorExt, PlayerController, Position, ServerAction}, AvatarComponent, EntityType, PortalExitPoint, PortalNodelink, UuidToEntityLookup, PORTAL_HIVE_DESTINATIONS}, frontends::TravelType, util::OtherlandQuatExt};
 
 pub struct PortalBehaviors;
 
@@ -34,7 +34,7 @@ impl Plugin for PortalBehaviors {
 }
 
 fn unimplemented_behavior(In((_, _, behavior)): In<BehaviorArguments>) {
-    error!("Portal behavior '{}' not implemented!", behavior.join(" "));
+    error!("Portal behavior '{:?}' not implemented!", behavior);
 }
 
 fn confirm_travel_request(
@@ -51,54 +51,56 @@ fn confirm_travel_request(
 }
 
 fn do_travel(
-    In((instigator, target, args)): In<BehaviorArguments>,
+    In((instigator, target, behavior)): In<BehaviorArguments>,
     uuid_to_entity: Res<UuidToEntityLookup>,
     mut player: Query<(&AvatarComponent, &mut Position, &PlayerController), With<PlayerComponent>>,
     portals: Query<&PortalNodelink>,
     exit_points: Query<&PortalExitPoint>,
     spawn_nodes: Query<&ParamBox, (With<SpawnNodeComponent>, Without<PlayerComponent>)>,
 ) {
-    let (avatar, mut player_pos, controller) = player.get_mut(instigator).unwrap();
+    if let Behavior::String(_, args) = behavior {
+        let (avatar, mut player_pos, controller) = player.get_mut(instigator).unwrap();
 
-    let nodelink = if let Some(destination) = args.get(1) {
-        if let Some(dest) = PORTAL_HIVE_DESTINATIONS.get().unwrap().get(destination) {
-            Some(&dest.link)
-        } else {
-            warn!("Portal destination {} not found!", destination);
-            None
-        }
-    } else if let Ok(nodelink) = portals.get(target) {
-        Some(nodelink)
-    } else {
-        warn!("No nodelink for portal set");
-        None
-    };
-
-    match nodelink {
-        Some(PortalNodelink::RemotePortal { zone, portal }) => {
-            controller.send_travel(*zone, TravelType::Portal { 
-                uuid: *portal
-            });
-        },
-        Some(PortalNodelink::LocalPortal(id)) => {
-            debug!("Local portal travel!");
-
-            let starting_point = uuid_to_entity.find_entity(id)
-                .and_then(|ent| exit_points.get(*ent).ok())
-                .and_then(|exit_point| uuid_to_entity.find_entity(&exit_point.0))
-                .and_then(|ent| spawn_nodes.get(*ent).ok())
-                .and_then(|p| p.get_impl::<dyn SpawnNodeParams>());
-
-            if let Some(starting_point) = starting_point {
-                player_pos.version = player_pos.version.wrapping_add(1);
-                player_pos.position = *starting_point.pos();
-                player_pos.rotation = Quat::from_unit_vector(*starting_point.rot());
-
-                // update clients
-                controller.send_server_action(ServerAction::LocalPortal(avatar.id, player_pos.to_owned()));
+        let nodelink = if let Some(destination) = args.get(0) {
+            if let Some(dest) = PORTAL_HIVE_DESTINATIONS.get().unwrap().get(destination) {
+                Some(&dest.link)
+            } else {
+                warn!("Portal destination {} not found!", destination);
+                None
             }
-        },
-        None => (),
+        } else if let Ok(nodelink) = portals.get(target) {
+            Some(nodelink)
+        } else {
+            warn!("No nodelink for portal set");
+            None
+        };
+
+        match nodelink {
+            Some(PortalNodelink::RemotePortal { zone, portal }) => {
+                controller.send_travel(*zone, TravelType::Portal { 
+                    uuid: *portal
+                });
+            },
+            Some(PortalNodelink::LocalPortal(id)) => {
+                debug!("Local portal travel!");
+
+                let starting_point = uuid_to_entity.find_entity(id)
+                    .and_then(|ent| exit_points.get(*ent).ok())
+                    .and_then(|exit_point| uuid_to_entity.find_entity(&exit_point.0))
+                    .and_then(|ent| spawn_nodes.get(*ent).ok())
+                    .and_then(|p| p.get_impl::<dyn SpawnNodeParams>());
+
+                if let Some(starting_point) = starting_point {
+                    player_pos.version = player_pos.version.wrapping_add(1);
+                    player_pos.position = *starting_point.pos();
+                    player_pos.rotation = Quat::from_unit_vector(*starting_point.rot());
+
+                    // update clients
+                    controller.send_server_action(ServerAction::LocalPortal(avatar.id, player_pos.to_owned()));
+                }
+            },
+            None => (),
+        }
     }
 }
 

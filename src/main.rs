@@ -33,7 +33,7 @@ use clap::{Parser, Subcommand};
 use cluster::ClusterNode;
 use actors::{Realm, RealmList, Social, ZoneRegistry};
 use ::config::File;
-use db::WorldDef;
+use db::{initialize_item_cache, WorldDef};
 use frontends::{ApiFrontend, ClusterFrontend, LoginQueueFrontend, RealmFrontend, ZoneFrontend};
 use log::{LevelFilter, info, warn, error};
 use log4rs::{self, append::console::ConsoleAppender, Config, config::{Appender, Root}};
@@ -216,6 +216,8 @@ async fn initialize_cluster_frontend_server() -> AnotherlandResult<()> {
 }
 
 async fn initialize_zone_server(world_def: WorldDef, zone_def: ZoneDef) -> AnotherlandResult<()> {
+    initialize_item_cache().await?;
+
     NODE.add_frontend(ZoneFrontend::initialize(world_def, zone_def).await?);
 
     Ok(())

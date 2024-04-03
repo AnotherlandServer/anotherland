@@ -110,7 +110,7 @@ impl PlayerController {
         let _ = self.sender.send(AvatarEvent::Message(message));
     }
 
-    pub fn send_shopping_error(&self, msg: &str) {
+    pub fn send_shopping_result(&self, msg: &str) {
         self.send_message(oaPktSteamMicroTxn {
             field_1: self.avatar_id.as_u64(),
             field_2: 1,

@@ -27,6 +27,9 @@ mod cash_shop_item;
 mod cash_shop_vendor;
 mod flight_tube;
 mod display_names;
+mod inventory;
+mod item_cache;
+
 pub use account::*;
 pub use session::*;
 pub use content::*;
@@ -40,6 +43,8 @@ pub use cash_shop_item::*;
 pub use cash_shop_vendor::*;
 pub use flight_tube::*;
 pub use display_names::*;
+pub use inventory::*;
+pub use item_cache::*;
 
 use crate::{util::AnotherlandResult, ARGS};
 
@@ -58,7 +63,7 @@ pub async fn initalize_db() -> AnotherlandResult<()> {
 
         Character::init_collection(db.clone()).await?;
         ContentPlacement::init_collection(db.clone()).await?;
-
+        InventoryEntry::init_collection(db.clone()).await?;
     }
 
     Ok(())

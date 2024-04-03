@@ -15,7 +15,7 @@
 
 mod behavior;
 mod subjectivity;
-//mod inventory;
+mod items;
 mod network;
 mod hitpoints;
 mod position;
@@ -23,7 +23,7 @@ mod persistance;
 
 pub use behavior::*;
 pub use subjectivity::*;
-//pub use inventory::*;
+pub use items::*;
 pub use network::*;
 pub use hitpoints::*;
 pub use position::*;

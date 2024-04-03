@@ -18,6 +18,7 @@ mod player_controller;
 mod positions;
 mod params;
 mod combat;
+mod inventory;
 
 pub use plugin::*;
 pub use player_controller::*;
