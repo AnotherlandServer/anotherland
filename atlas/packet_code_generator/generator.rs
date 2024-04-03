@@ -19,7 +19,7 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use ::quote::quote;
 
-use crate::packet_code_generator::struct_generator::GeneratedStructSource;
+use crate::{packet_code_generator::struct_generator::GeneratedStructSource, write_source};
 
 use super::{yaml_reader::{load_definitions, PacketDefinitionReference}, struct_generator::GeneratedStruct, code_generator::{generate_enum_code, generate_struct_code, generate_implementation_code}};
 
@@ -202,7 +202,7 @@ pub fn generate_packet_code() -> io::Result<()> {
         }
     }).collect();
 
-    write_source(&out_dir_path.join("generated_packets.rs"), quote! {
+    write_source("generated_packets.rs", quote! {
 
         #[allow(clippy::all)]
 
@@ -263,22 +263,4 @@ pub fn generate_packet_code() -> io::Result<()> {
     })?;
 
     Ok(())
-}
-
-fn write_source(dest: &PathBuf, tokens: TokenStream) -> io::Result<()> {
-    let source = if tokens.is_empty() { "".to_owned() } else {
-        let item: syn::File = match syn::parse2(tokens) {
-            Ok(v) => v,
-            Err(e) => {
-                println!("Code generation error for {}!", dest.to_str().unwrap());
-                println!("Error: {}", e);
-                println!("Line: {:#?}", e.span());
-                panic!();
-            }
-        };
-
-        prettyplease::unparse(&item)
-    };
-
-    fs::write(dest, source)
 }

@@ -13,14 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#![feature(let_chains)]
+
 use std::{env, path::Path, fs, io};
 
 use proc_macro2::TokenStream;
 
-use crate::{packet_code_generator::generate_packet_code, param_code_generator::generate_param_code};
+use crate::{info_generators::{generate_item_categories, generate_item_slots}, packet_code_generator::generate_packet_code, param_code_generator::generate_param_code};
 
 mod packet_code_generator;
 mod param_code_generator;
+mod info_generators;
 
 pub fn write_source(name: &str, tokens: TokenStream) -> io::Result<()> {
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR not set");
@@ -54,6 +57,12 @@ fn main() {
     // Generate code for atlas packages
     generate_packet_code()
         .expect("Failed to generate packet handling code");
+
+    generate_item_categories(otherland_client_path)
+        .expect("Failed to generate item categories");
+
+    generate_item_slots(otherland_client_path)
+        .expect("Failed to generate item slots");
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../packet_definitions");

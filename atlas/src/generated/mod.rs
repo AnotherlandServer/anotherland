@@ -13,8 +13,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod cpkt;
-mod param;
+mod packets {
+    include!(concat!(env!("OUT_DIR"), "/generated_packets.rs"));
+}
 
-pub use cpkt::*;
-pub use param::*;
+mod params {
+    include!(concat!(env!("OUT_DIR"), "/generated_params.rs"));
+}
+
+mod item_categories {
+    include!(concat!(env!("OUT_DIR"), "/item_categories.rs"));
+}
+
+mod item_slots {
+    include!(concat!(env!("OUT_DIR"), "/item_slots.rs"));
+}
+
+pub use packets::*;
+pub use params::*;
+pub use item_categories::*;
+pub use item_slots::*;

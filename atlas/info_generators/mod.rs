@@ -13,4 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-include!(concat!(env!("OUT_DIR"), "/generated_packets.rs"));
+ mod item_categories;
+ mod item_slots;
+
+ pub use item_categories::*;
+ pub use item_slots::*;
