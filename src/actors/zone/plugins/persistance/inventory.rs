@@ -14,9 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use atlas::{ParamBox, PlayerComponent};
-use bevy_ecs::{entity::Entity, query::{Added, Changed, With}, system::{Commands, Query, Res}};
+use bevy_ecs::{entity::Entity, query::{Added, Changed, With, Without}, system::{Commands, Query, Res}};
 use bson::doc;
-use log::error;
+use log::{debug, error};
 
 use crate::{actors::{zone::{plugins::Item, resources::Tasks}, AvatarComponent, RealmDatabase}, db::{DatabaseRecord, InventoryEntry, InventoryOwner}};
 
@@ -53,7 +53,7 @@ pub fn insert_new_items(
 }
 
 pub fn update_item_database(
-    query: Query<(&Item, &ParamBox), Changed<CreationPending>>,
+    query: Query<(&Item, &ParamBox), (With<Item>, Changed<ParamBox>, Without<CreationPending>)>,
     characters: Query<&AvatarComponent, With<PlayerComponent>>,
     tasks: Res<Tasks>,
     db: Res<RealmDatabase>,
@@ -70,6 +70,8 @@ pub fn update_item_database(
 
             let _guard = tasks.handle.enter();
             tasks.tasks.spawn(async move {
+                debug!("Write item: {}", inventory_entry.id);
+
                 let collection = InventoryEntry::collection(db);
                 if let Err(e) = collection.replace_one(doc!("id": {"$eq": inventory_entry.id}), inventory_entry, None).await {
                     error!("Database update failed: {:?}", e);

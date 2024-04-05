@@ -68,7 +68,7 @@ pub fn process_buy_request(
                     }
 
                     count = count.saturating_sub(1);
-                    if count == 0 {
+                    if count <= 0 {
                         break controller.send_shopping_result("#Shop.successful#");
                     }
                 }

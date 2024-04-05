@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, ItemBaseParams, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PortalItemClass, SomaforgeItemClass, Uuid};
+use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, EdnaModuleParams, ItemBaseParams, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PortalItemClass, SomaforgeItemClass, Uuid};
 use bevy::utils::hashbrown::HashMap;
 use bevy_ecs::{component::Component, entity::Entity, system::{Commands, EntityCommands}};
 
@@ -48,6 +48,11 @@ pub enum InventoryTab {
 impl InventoryTab {
     pub fn for_item(item: &ParamBox) -> Self {
         if item.get_impl::<dyn BundleItemParams>().is_some() {
+            Self::Cash
+        } else if 
+            let Some(edna_module) = item.get_impl::<dyn EdnaModuleParams>() &&
+            edna_module.is_sku() 
+        {
             Self::Cash
         } else if item.get_impl::<dyn ItemBaseParams>().unwrap().is_recipe() {
             Self::Recipe
@@ -192,16 +197,6 @@ impl PlayerInventory {
             if let Some(base) = params.get_impl_mut::<dyn ItemBaseParams>() {
                 base.set_inventory_slot_index(idx as i32);
                 base.set_container_id(0);
-            }
-
-            for _ in 0..5 {
-                spawn_inventory_entry(cmds, params.clone())
-                    .insert(Item {
-                        id: Uuid::new(),
-                        template: item.guid,
-                        owner,
-                    })
-                    .insert(CreationPending);
             }
 
             let item_id = Uuid::new();
