@@ -23,7 +23,7 @@ use log::{debug, error};
 
 use crate::{actors::{zone::{plugins::BehaviorExt, resources::Tasks}, AvatarComponent, EntityType, EventChannelExtension}, db::{realm_database, InventoryEntry}};
 
-use super::{discard_item, do_vendor_execute, process_buy_request, spawn_inventory_entry, update_inventory_item_pos, InventoryTab, ItemPurchaseRequest, ItemSellRequest, PlayerInventory};
+use super::{discard_item, do_vendor_execute, process_buy_request, request_equip, spawn_inventory_entry, update_inventory_item_pos, InventoryTab, ItemPurchaseRequest, ItemSellRequest, PlayerInventory};
 
 #[derive(Component)]
 pub struct Item {
@@ -69,6 +69,8 @@ impl Plugin for InventoryPlugin {
 
         app.add_behavior(EntityType::Player, "inventoryItemPos", update_inventory_item_pos);
         app.add_behavior(EntityType::Player, "RequestDiscardItem", discard_item);
+        app.add_behavior(EntityType::Player, "RequestEquip", request_equip);
+
         app.add_behavior(EntityType::NpcOtherland, "doVendorExecute", do_vendor_execute);
     }
 }

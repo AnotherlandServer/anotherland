@@ -188,3 +188,41 @@ pub fn do_vendor_execute(
 
     }
 }
+
+pub fn request_equip(
+    In((instigator, _, behavior)): In<BehaviorArguments>,
+    mut players: Query<(&mut ParamBox, &PlayerInventory), With<PlayerComponent>>
+) {
+    if 
+        let Behavior::String(_, args) = behavior &&
+        let Ok((mut params, inventory)) = players.get_mut(instigator)
+    {
+        if let Some(equip_item) = args.first()
+            .and_then(|s| Uuid::parse_str(s).ok())
+            .and_then(|id| inventory.lookup_item_id(id))
+            .map(|(_, id, _)| id)
+        {
+            let player_params = params.get_impl_mut::<dyn PlayerParams>().unwrap();
+
+            let mut loadout = LoadoutBuilder::new();
+            if let Some(visible_items) = player_params.visible_item_info() {
+                for item in visible_items {
+                    loadout.add(*item);
+                }
+            }
+
+            loadout.add_by_uuid(equip_item);
+
+            let loadout = loadout.build();
+
+            player_params.set_visible_item_info(
+                loadout
+                .iter()
+                .map(|item| item.id as i32)
+                .collect()
+            );
+
+            
+        }
+    }
+}

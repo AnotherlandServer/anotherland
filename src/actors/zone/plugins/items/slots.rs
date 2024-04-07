@@ -13,11 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{ItemBaseParams, Slot};
+use atlas::{ItemBaseParams, Slot, Uuid};
 use bevy::utils::{HashMap, HashSet};
 use log::debug;
 
-use crate::db::{get_cached_item_by_id, ItemContent};
+use crate::db::{get_cached_item, get_cached_item_by_id, ItemContent};
 
 pub struct LoadoutBuilder {
     slots: HashMap<Slot, i32>,
@@ -30,17 +30,16 @@ impl LoadoutBuilder {
         }
     }
 
-    fn get_item_slot(id: i32) -> Option<Slot> {
-        get_cached_item_by_id(id)?
-            .data.as_ref()?
+    fn get_item_slot(item: &ItemContent) -> Option<Slot> {
+        item.data.as_ref()?
             .get_impl::<dyn ItemBaseParams>()?
             .slot_mapping()?
             .parse()
             .ok()
     }
 
-    fn equip_item(&mut self, id: i32) {
-        if let Some(slot) = Self::get_item_slot(id) {
+    fn equip_item(&mut self, item: &ItemContent) {
+        if let Some(slot) = Self::get_item_slot(item) {
             // check if any of the required slots already contain an item
             let current_slots: Vec<_> = slot
                 .slots()
@@ -56,23 +55,35 @@ impl LoadoutBuilder {
 
             // equip item
             for slot in slot.slots() {
-                self.slots.insert(*slot, id);
+                self.slots.insert(*slot, item.id as i32);
             }
         } else {
-            debug!("No item slot for id {} specified!", id);
+            debug!("No item slot for item {} specified!", item.name);
         }
     }
 
     fn unequip_item(&mut self, id: i32) {
-        if let Some(slot) = Self::get_item_slot(id) {
-            for slot in slot.slots() {
-                self.slots.remove(slot);
+        if let Some(item) = get_cached_item_by_id(id) {
+            if let Some(slot) = Self::get_item_slot(item) {
+                for slot in slot.slots() {
+                    self.slots.remove(slot);
+                }
             }
         }
     }
 
     pub fn add(&mut self, id: i32) -> &Self {
-        self.equip_item(id);
+        if let Some(item) = get_cached_item_by_id(id) {
+            self.equip_item(item);
+        }
+
+        self
+    }
+
+    pub fn add_by_uuid(&mut self, id: Uuid) -> &Self {
+        if let Some(item) = get_cached_item(&id) {
+            self.equip_item(item);
+        }
 
         self
     }
@@ -83,7 +94,7 @@ impl LoadoutBuilder {
             .collect();
         
         items.into_iter()
-            .filter_map(|id| get_cached_item_by_id(id))
+            .filter_map(get_cached_item_by_id)
             .collect()
     }
 }
