@@ -18,9 +18,9 @@ use bevy_ecs::{query::{With, Without}, system::{Commands, In, Query, Res}};
 use bson::doc;
 use log::{debug, error, warn};
 
-use crate::{actors::{zone::{plugins::{Behavior, BehaviorArguments, LoadoutBuilder}, resources::Tasks}, RealmDatabase}, db::{get_cached_item, get_cached_item_by_id, DatabaseRecord, InventoryEntry}};
+use crate::{actors::{zone::{plugins::{Behavior, BehaviorArguments, PlayerLoadout}, resources::Tasks}, RealmDatabase}, db::{get_cached_item, get_cached_item_by_id, DatabaseRecord, InventoryEntry}};
 
-use super::PlayerInventory;
+use super::{Equipped, Item, ItemReference, PlayerInventory};
 
 pub fn update_inventory_item_pos(
     In((instigator, _, behavior)): In<BehaviorArguments>,
@@ -87,13 +87,13 @@ pub fn discard_item(
 
 pub fn do_vendor_execute(
     In((instigator, _, behavior)): In<BehaviorArguments>,
-    mut players: Query<(&mut ParamBox, &mut PlayerInventory), With<PlayerComponent>>,
+    mut players: Query<(&mut ParamBox, &mut PlayerInventory, &mut PlayerLoadout), With<PlayerComponent>>,
     mut cmds: Commands,
 ) {
     if 
         let Behavior::Binary(_, args) = behavior &&
         let NativeParam::Struct(attrib) = args &&
-        let Ok((mut params, mut inventory)) = players.get_mut(instigator) &&
+        let Ok((mut params, mut inventory, mut loadout)) = players.get_mut(instigator) &&
         let Some(player_params) = params.get_impl_mut::<dyn PlayerParams>()
     {
         debug!("Attrib 28: {:?}", attrib[28]);
@@ -143,29 +143,17 @@ pub fn do_vendor_execute(
         player_params.set_customization_jaw_chubby(attrib[27].to_f32().unwrap());
         debug!("Attrib 29: {:#?}", attrib[29]);
 
-        let mut visible_item_builder = LoadoutBuilder::new();
-
-        debug!("Visible items: {:?}", player_params.visible_item_info());
-
-        // add currently equiped items
-        if let Some(visible_items) = player_params.visible_item_info() {
-            visible_items.iter().for_each(|id| { visible_item_builder.add(*id); });
-        }
-
-        // add newly equipped items
+        // add newly equipped items to loadout
         attrib[30..]
             .iter()
             .filter_map(|a| a.to_uuid().ok())
             .filter_map(|u| get_cached_item(&u))
             .map(|i| i.id as i32)
-            .for_each(|id| { visible_item_builder.add(id); });
+            .for_each(|id| { loadout.add(ItemReference::VisualOnly(id)); });
 
-        // apply items       
+        // update visible items      
         player_params.set_visible_item_info(
-            visible_item_builder.build()
-                .into_iter()
-                .map(|item| item.id as i32)
-                .collect()
+            loadout.compile_visual_items()
         );
 
         debug!("Visible items: {:?}", player_params.visible_item_info());
@@ -191,44 +179,170 @@ pub fn do_vendor_execute(
 
 pub fn request_equip(
     In((instigator, _, behavior)): In<BehaviorArguments>,
-    mut players: Query<(&mut ParamBox, &PlayerInventory), (With<PlayerComponent>, Without<ItemBaseComponent>)>,
-    mut items: Query<&mut ParamBox, (With<ItemBaseComponent>, Without<PlayerComponent>)>,
+    mut players: Query<(&mut ParamBox, &mut PlayerInventory, &mut PlayerLoadout), (With<PlayerComponent>, Without<ItemBaseComponent>)>,
+    mut items: Query<(&Item, &mut ParamBox), (With<ItemBaseComponent>, Without<PlayerComponent>)>,
+    mut cmds: Commands,
 ) {
     if 
         let Behavior::String(_, args) = behavior &&
-        let Ok((mut params, inventory)) = players.get_mut(instigator) &&
-        let Some((equip_item, item_ent)) = args.first()
+        let Ok((mut params, mut inventory, mut loadout)) = players.get_mut(instigator) &&
+        let Some(inventory_item_id) = args.first()
         .and_then(|s| Uuid::parse_str(s).ok())
-        .and_then(|id| inventory.lookup_item_id(id))
-        .map(|(_, id, entity)| (id, entity)) &&
-        let Ok(mut item) = items.get_mut(item_ent)
     {
-        let player_params = params.get_impl_mut::<dyn PlayerParams>().unwrap();
+        // copy inventory and loadout state so we can safely
+        // try to perform the requested action and don't need to rollback
+        // in case it fails.
+        let mut new_inventory_state = inventory.clone();
+        let mut new_loadout_state = loadout.clone();
 
-        let mut loadout = LoadoutBuilder::new();
-        if let Some(visible_items) = player_params.visible_item_info() {
-            for item in visible_items {
-                loadout.add(*item);
+        // take item out of inventory
+        let item_ent = if let Some(ent) = new_inventory_state.remove_item(inventory_item_id) {
+            ent
+        } else {
+            warn!("Tried to equip item not in inventory! Id: {}", inventory_item_id);
+            return
+        };
+
+        // lookup item entity
+        let (item_info, item_params) = if let Ok((info, params)) = items.get(item_ent) {
+            (info, params)
+        } else {
+            return
+        };
+
+        // lookup template item
+        let template_item = if let Some(item) = get_cached_item(&item_info.template) {
+            item
+        } else {
+            warn!("Tried to equip item, but item definition not found. Id: {}", item_info.id);
+            return
+        };
+
+        // equip item
+        let replaced_items = new_loadout_state.add(super::ItemReference::InventoryItem((
+            inventory_item_id, 
+            template_item.id as i32, 
+            item_ent
+        )));
+
+        // place replaced items back in inventory
+        let mut inventory_slots = Vec::new();
+        for item in replaced_items {
+            if 
+                let ItemReference::InventoryItem((id, _, ent)) = item &&
+                let Ok((item_info, item_params)) = items.get(ent)
+            {
+                match new_inventory_state.insert(id, item_info.template, ent, item_params) {
+                    Ok(idx) => {
+                        inventory_slots.push((ent, idx));
+                    },
+                    Err(e) => {
+                        warn!("Failed to place unequipped item in inventory: {:?}", e);
+                        return;
+                    }
+                }
             }
         }
 
-        loadout.add_by_uuid(equip_item);
+        // apply changes
+        new_inventory_state.clone_into(inventory.as_mut());
+        new_loadout_state.clone_into(loadout.as_mut());
 
-        let loadout = loadout.build();
+        for (ent, slot_idx) in inventory_slots {
+            if 
+                let Ok((_, mut item)) = items.get_mut(ent) &&
+                let Some(item_base) = item.get_impl_mut::<dyn ItemBaseParams>() 
+            {
+                item_base.set_container_id(0);
+                item_base.set_inventory_slot_index(slot_idx as i32);
+                item_base.set_slot_id(-1);
+            }
+        }
+
+        if 
+            let Ok((_, mut item_params)) = items.get_mut(item_ent) &&
+            let Some(item_base) = item_params.get_impl_mut::<dyn ItemBaseParams>()
+        {
+            let item_slot = item_base.slot_mapping()
+                .and_then(|slot| slot.parse::<Slot>().ok())
+                .unwrap();
+
+            item_base.set_container_id(1);
+            item_base.set_inventory_slot_index(-1);
+            item_base.set_slot_id(item_slot.id());
+        }
+
+        cmds.entity(item_ent).insert(Equipped);
+
+        // update avatar visuals
+        let player_params = params.get_impl_mut::<dyn PlayerParams>().unwrap();
 
         player_params.set_visible_item_info(
-            loadout
-            .iter()
-            .map(|item| item.id as i32)
-            .collect()
+            loadout.compile_visual_items()
         );
+    }
+}
 
-        if let Some(item) = item.get_impl_mut::<dyn ItemBaseParams>() {
-            let item_slot = item.slot_mapping().unwrap().to_string();
-            item.set_is_equiped(true);
-            //item.set_slot_id(Slot::BackFloating.);
-            //item.set_equip_slot(&item_slot);
-            item.set_container_id(-1);
+pub fn request_unequip(
+    In((instigator, _, behavior)): In<BehaviorArguments>,
+    mut players: Query<(&mut ParamBox, &mut PlayerInventory, &mut PlayerLoadout), (With<PlayerComponent>, Without<ItemBaseComponent>)>,
+    mut items: Query<(&Item, &mut ParamBox), (With<ItemBaseComponent>, With<Equipped>, Without<PlayerComponent>)>,
+    mut cmds: Commands,
+) {
+    if 
+        let Behavior::String(_, args) = behavior &&
+        let Ok((mut params, mut inventory, mut loadout)) = players.get_mut(instigator) &&
+        let Some(inventory_item_id) = args.first()
+        .and_then(|s| Uuid::parse_str(s).ok())
+    {
+        // copy inventory and loadout state so we can safely
+        // try to perform the requested action and don't need to rollback
+        // in case it fails.
+        let mut new_inventory_state = inventory.clone();
+        let mut new_loadout_state = loadout.clone();
+
+        // unequip item
+        let item_ent = if let Some(ItemReference::InventoryItem((_, _, item_ent))) = new_loadout_state.remove_inventory_item(inventory_item_id) {
+            item_ent
+        } else {
+            warn!("Requested unequip of item not in loadout. Id: {}", inventory_item_id);
+            return
+        };
+        
+        // lookup item entity
+        let (item_info, mut item_params) = if let Ok((info, params)) = items.get_mut(item_ent) {
+            (info, params)
+        } else {
+            warn!("Can't find unequipped item in world query. Id: {}", inventory_item_id);
+            return
+        };
+
+        // place item in inventory
+        match new_inventory_state.insert(item_info.id, item_info.template, item_ent, item_params.as_ref()) {
+            Ok(idx) => {
+                if let Some(item_base) = item_params.get_impl_mut::<dyn ItemBaseParams>() {
+                    item_base.set_container_id(0);
+                    item_base.set_inventory_slot_index(idx as i32);
+                    item_base.set_slot_id(-1);
+                }
+            },
+            Err(e) => {
+                warn!("Failed to place unequipped item in inventory: {:?}", e);
+                return;
+            }
         }
+        
+        // apply changes
+        new_inventory_state.clone_into(inventory.as_mut());
+        new_loadout_state.clone_into(loadout.as_mut());
+
+        cmds.entity(item_ent).remove::<Equipped>();
+
+        // update avatar visuals
+        let player_params = params.get_impl_mut::<dyn PlayerParams>().unwrap();
+
+        player_params.set_visible_item_info(
+            loadout.compile_visual_items()
+        );
     }
 }

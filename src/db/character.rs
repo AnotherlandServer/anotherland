@@ -47,6 +47,7 @@ pub struct Character {
     pub account: Uuid,
     pub name: String,
     pub world_id: u32,
+    pub bling: Option<i32>,
     
     pub data: PlayerClass,
 }
@@ -127,6 +128,7 @@ impl Character {
             account: *account_id,
             name: name.to_owned(),
             world_id: 130,
+            bling: Some(0),
             data: avatar_data,
         };
 

@@ -336,6 +336,7 @@ impl ZoneSession {
                     let db = realm_database().await;
     
                     if let Some(mut character) = Character::get(db.clone(), &session.session().character_id.unwrap()).await.unwrap() {
+                        character.bling = Some(player.bling());
                         character.data = player;
                         character.save(db).await.unwrap();
                     } else {

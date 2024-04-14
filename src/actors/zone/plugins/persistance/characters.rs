@@ -13,7 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{ParamBox, PlayerComponent};
+use std::str::FromStr;
+
+use atlas::{ParamAttrib, ParamBox, ParamFlag, PlayerAttribute, PlayerComponent, PlayerParams};
 use bevy_ecs::{component::Component, entity::Entity, query::{Added, Changed, With}, system::{Commands, Query, Res}};
 use bson::{doc, Document};
 use log::{debug, error};
@@ -42,6 +44,8 @@ pub fn update_player_database(
         let diff = params.diff(&prev_params.0);
         params.clone_into(&mut prev_params.0);
 
+        let bling = params.get_impl::<dyn PlayerParams>().unwrap().bling();
+
         if !diff.is_empty() {
             let id = avatar.record_id.unwrap();
             let db = db.0.clone();
@@ -51,7 +55,20 @@ pub fn update_player_database(
                 let collection = Character::collection(db);
                 let mut values = Document::new();
                 for (key, val) in diff.as_hash_map() {
-                    values.insert(format!("data.{}", key), bson::to_bson(&val).unwrap());
+                    if let Ok(attr) = PlayerAttribute::from_str(&key) {
+                        if attr.has_flag(&ParamFlag::Persistent) {
+                            values.insert(format!("data.{}", key), bson::to_bson(&val).unwrap());
+                        } else {
+                            // special case for params that are not stored persistantly
+                            // in params.
+                            match attr {
+                                PlayerAttribute::Bling => {
+                                    values.insert("bling", TryInto::<i32>::try_into(&val).unwrap());
+                                },
+                                _ => (),
+                            }
+                        }
+                    }
                 }
 
                 debug!("Store: {:?}", values);

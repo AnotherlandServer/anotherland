@@ -49,11 +49,13 @@ pub fn generate_item_slots(client_path: &Path) -> Result<(), io::Error> {
         }
     }
 
+    let mut id: i32 = 0;
     let mut slot_idents = Vec::new();
     let mut slot_type_matcher = Vec::new();
     let mut slot_slots_matcher = Vec::new();
     let mut slot_base_appearance_matcher = Vec::new();
     let mut slot_parsers = Vec::new();
+    let mut slot_id_matcher = Vec::new();
 
     for record in rdr.records().skip(1) {
         match record {
@@ -88,6 +90,11 @@ pub fn generate_item_slots(client_path: &Path) -> Result<(), io::Error> {
                 slot_parsers.push(quote! {
                     #slot_name => Ok(Self::#slot_ident),
                 });
+                slot_id_matcher.push(quote!{
+                    Self::#slot_ident => #id
+                });
+
+                id += 1;
             },
             Err(e) => println!("Line error: {:?}", e),
         }
@@ -130,6 +137,12 @@ pub fn generate_item_slots(client_path: &Path) -> Result<(), io::Error> {
             pub fn is_base_appearance(&self) -> bool {
                 match self {
                     #(#slot_base_appearance_matcher),*
+                }
+            }
+
+            pub fn id(&self) -> i32 {
+                match self {
+                    #(#slot_id_matcher),*
                 }
             }
         }

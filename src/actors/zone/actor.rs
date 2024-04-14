@@ -320,6 +320,9 @@ impl Zone {
                     spawn_mode = PlayerSpawnMode::TravelDirect;
                 }
 
+                // bling is stored outside of params in database
+                character.data.set_bling(character.bling.unwrap_or_default());
+
                 // update zone if stored zone differs or we force spawn to entry point
                 match spawn_mode {
                     PlayerSpawnMode::LoginFirstTime |

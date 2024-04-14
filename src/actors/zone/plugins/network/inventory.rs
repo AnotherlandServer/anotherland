@@ -17,6 +17,7 @@ use atlas::{CPktItemNotify, CPktItemUpdate, ItemBaseComponent, ParamBox, Uuid};
 use bevy::utils::hashbrown::{HashMap, HashSet};
 use bevy_ecs::{entity::Entity, query::{Added, Changed, With}, removal_detection::RemovedComponents, system::{Query, ResMut, Resource}};
 use bitstream_io::{ByteWriter, LittleEndian};
+use log::debug;
 
 use crate::actors::{zone::plugins::Item, AvatarComponent};
 
@@ -52,6 +53,8 @@ pub fn send_item_updates(
         if let Ok((avatar, controller)) = owner.get(item.owner()) {
             let mut param_buffer = Vec::new();
             let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
+
+            debug!("Item update: {:?}", params);
 
             params.write_to_client(&mut writer).expect("failed to write item params");
 

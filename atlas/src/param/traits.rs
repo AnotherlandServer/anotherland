@@ -130,6 +130,8 @@ pub trait DynParamClass: Any + Send + Sync + for<'a> MightIncludeBase<'a> {
     fn diff(&self, other: &dyn DynParamClass) -> ParamSetBox;
     fn cloned(&self) -> Box<dyn DynParamClass>;
     fn as_json(&self) -> Value;
+
+    fn as_hash_map(&self) -> HashMap<String, Param>;
 }
 
 // blanked implementations for param classes
@@ -167,6 +169,10 @@ impl <T: ParamClass + Clone + Any + Send + Sync + for<'a> MightIncludeBase<'a>> 
 
     fn as_json(&self) -> Value {
         self.as_persistent_json()
+    }
+
+    fn as_hash_map(&self) -> HashMap<String, Param> {
+        self.as_set().as_hash_map()
     }
 }
 

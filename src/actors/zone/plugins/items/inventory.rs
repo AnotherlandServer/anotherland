@@ -13,13 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, EdnaModuleParams, ItemBaseParams, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PortalItemClass, SomaforgeItemClass, Uuid};
+use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, EdnaModuleParams, ItemBaseComponent, ItemBaseParams, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PlayerComponent, PortalItemClass, SomaforgeItemClass, Uuid};
 use bevy::utils::hashbrown::HashMap;
-use bevy_ecs::{component::Component, entity::Entity, system::{Commands, EntityCommands}};
+use bevy_ecs::{component::Component, entity::Entity, event::EventReader, query::{With, Without}, system::{Commands, EntityCommands, Query}};
+use log::warn;
 
 use crate::{actors::zone::plugins::CreationPending, db::ItemContent, util::{AnotherlandError, AnotherlandResult}};
 
-use super::Item;
+use super::{Item, ItemEquipped, ItemUnequipped};
 
 static CASH_ITEM_CATEGORIES: &[ItemSubCategory] = &[
     ItemSubCategory::Metamorph,
@@ -77,7 +78,7 @@ impl InventoryTab {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct PlayerInventory {
     items: HashMap<Uuid, (InventoryTab, Uuid, Entity)>,
 
@@ -247,6 +248,19 @@ impl PlayerInventory {
 
                 self.get_tab_mut(tab)[idx] = Some(entity);
             },
+        }
+    }
+
+    pub fn insert(&mut self, id: Uuid, template_id: Uuid, entity: Entity, params: &ParamBox) -> AnotherlandResult<usize> {
+        let tab = InventoryTab::for_item(&params);
+        self.items.insert(id, (tab, template_id, entity));
+
+        if let Some((idx, slot)) = self.next_free_slot(tab) {
+            *slot = Some(entity);
+
+            Ok(idx)
+        } else {
+            Err(AnotherlandError::app_err("#ItemAction.NotEnoughInventorySlots#"))
         }
     }
 }

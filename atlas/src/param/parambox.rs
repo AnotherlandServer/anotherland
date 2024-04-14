@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{any::Any, io};
+use std::{any::Any, fmt::Debug, io};
 
 use bitstream_io::ByteWrite;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
@@ -113,5 +113,11 @@ impl Clone for ParamBox {
             class_id: self.class_id, 
             class: self.class.cloned(),
         }
+    }
+}
+
+impl Debug for ParamBox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.class.as_hash_map().fmt(f)
     }
 }

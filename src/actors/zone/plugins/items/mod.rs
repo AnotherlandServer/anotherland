@@ -17,10 +17,10 @@ mod plugin;
 mod commerce;
 mod behaviors;
 mod inventory;
-mod slots;
+mod player_loadout;
 
 pub use plugin::*;
 pub use commerce::*;
 pub use behaviors::*;
 pub use inventory::*;
-pub use slots::*;
+pub use player_loadout::*;

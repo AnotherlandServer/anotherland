@@ -15,15 +15,15 @@
 
 use std::sync::mpsc::{self, Sender};
 
-use atlas::{ItemBaseParams, ParamBox, PlayerComponent, PlayerParams, Uuid};
-use bevy::app::{First, Plugin};
-use bevy_ecs::{component::Component, entity::Entity, event::{Event,Events}, query::{Added, With}, removal_detection::RemovedComponents, system::{Commands, Query, Res, ResMut, Resource}};
+use atlas::{ItemBaseParams, ParamBox, PlayerComponent, PlayerParams, Slot, Uuid};
+use bevy::app::{First, Plugin, PostUpdate};
+use bevy_ecs::{component::Component, entity::Entity, event::{Event,Events}, query::{Added, With}, removal_detection::RemovedComponents, schedule::IntoSystemConfigs, system::{Commands, Query, Res, ResMut, Resource}};
 use futures::TryStreamExt;
 use log::{debug, error};
 
-use crate::{actors::{zone::{plugins::BehaviorExt, resources::Tasks}, AvatarComponent, EntityType, EventChannelExtension}, db::{realm_database, InventoryEntry}};
+use crate::{actors::{zone::{plugins::BehaviorExt, resources::Tasks}, AvatarComponent, EntityType, EventChannelExtension}, db::{get_cached_item, get_cached_item_by_id, realm_database, InventoryEntry}};
 
-use super::{discard_item, do_vendor_execute, process_buy_request, request_equip, spawn_inventory_entry, update_inventory_item_pos, InventoryTab, ItemPurchaseRequest, ItemSellRequest, PlayerInventory};
+use super::{discard_item, do_vendor_execute, process_buy_request, request_equip, request_unequip, spawn_inventory_entry, update_inventory_item_pos, Equipped, InventoryTab, ItemPurchaseRequest, ItemSellRequest, PlayerInventory, PlayerLoadout};
 
 #[derive(Component)]
 pub struct Item {
@@ -52,13 +52,30 @@ struct InventoryQueryResultSender(Sender<InventoryQueryResult>);
 #[derive(Event)]
 struct InventoryQueryResult(Entity, Vec<InventoryEntry>);
 
+#[derive(Event)]
+pub struct ItemEquipped { 
+    pub avatar: Entity,
+    pub item: Entity,
+}
+
+#[derive(Event)]
+pub struct ItemUnequipped { 
+    pub avatar: Entity,
+    pub item: Entity,
+}
+
 pub struct InventoryPlugin;
 
 impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         let (entry_sender, entry_receiver) = mpsc::channel::<InventoryQueryResult>();
 
-        app.add_systems(First, (load_player_inventory, insert_player_inventory, process_buy_request, cleanup_player_inventory));
+        app.add_systems(First, (
+            load_player_inventory, 
+            insert_player_inventory, 
+            process_buy_request, 
+            cleanup_player_inventory
+        ));
 
         app.add_event::<ItemPurchaseRequest>();
         app.add_event::<ItemSellRequest>();
@@ -70,6 +87,7 @@ impl Plugin for InventoryPlugin {
         app.add_behavior(EntityType::Player, "inventoryItemPos", update_inventory_item_pos);
         app.add_behavior(EntityType::Player, "RequestDiscardItem", discard_item);
         app.add_behavior(EntityType::Player, "RequestEquip", request_equip);
+        app.add_behavior(EntityType::Player, "RequestUnequip", request_unequip);
 
         app.add_behavior(EntityType::NpcOtherland, "doVendorExecute", do_vendor_execute);
     }
@@ -114,25 +132,68 @@ fn insert_player_inventory(
         if let Ok(player) = players.get(entity)
             .map(|p| p.get_impl::<dyn PlayerParams>().unwrap()) {
             let mut inventory = PlayerInventory::new(player.inventory_size() as usize);
+            let mut loadout = PlayerLoadout::new();
 
             for item in inventory_result {
-                // get inventory base
-                if let Ok(slot_idx) = usize::try_from(item.params.get_impl::<dyn ItemBaseParams>().unwrap().inventory_slot_index()) {
-                    let tab = InventoryTab::for_item(&item.params);
-                    let entity = spawn_inventory_entry(&mut commands, item.params)
-                        .insert(Item {
-                            id: item.id,
-                            template: item.template,
-                            owner: entity,
-                        })
-                        .id();
+                match item.params.get_impl::<dyn ItemBaseParams>().unwrap().container_id() {
+                    // inventory
+                    0 => {
+                        // get inventory base
+                        if let Ok(slot_idx) = usize::try_from(item.params.get_impl::<dyn ItemBaseParams>().unwrap().inventory_slot_index()) {
+                            let tab = InventoryTab::for_item(&item.params);
+                            let entity = spawn_inventory_entry(&mut commands, item.params)
+                                .insert(Item {
+                                    id: item.id,
+                                    template: item.template,
+                                    owner: entity,
+                                })
+                                .id();
 
-                    inventory.insert_at(tab, item.id, slot_idx, item.template, entity);
+                            inventory.insert_at(tab, item.id, slot_idx, item.template, entity);
+                        }
+                    },
+
+                    // equipment
+                    1 => {
+                        let entity = spawn_inventory_entry(&mut commands, item.params)
+                            .insert(Item {
+                                id: item.id,
+                                template: item.template,
+                                owner: entity,
+                            })
+                            .insert(Equipped)
+                            .id();
+
+                        if let Some(template_item) = get_cached_item(&item.template) {
+                            loadout.add(super::ItemReference::InventoryItem((item.id, template_item.id as i32, entity)));
+                        }
+                    },
+
+                    _ => {
+                        unimplemented!()
+                    }
                 }
             }
 
+            // add visual only items to loadout
+            player.visible_item_info()
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(|id| get_cached_item_by_id(*id))
+                .filter_map(|item| item.data.as_ref().map(|data| (item.id as i32, data)))
+                .filter_map(|(id, params)| params.get_impl::<dyn ItemBaseParams>().map(|params| (id, params)))
+                .filter_map(|(id, params)| {
+                    params.slot_mapping()
+                        .and_then(|slot| slot.parse::<Slot>().ok())
+                        .map(|slot| (id, slot))
+                })
+                .filter(|(id, slot)| slot.is_base_appearance())
+                .for_each(|(id, _)| {
+                    loadout.add(super::ItemReference::VisualOnly(id));
+                });
+
             // add player inventory
-            commands.entity(entity).insert(inventory);
+            commands.entity(entity).insert((inventory, loadout));
         }
     }
 }
