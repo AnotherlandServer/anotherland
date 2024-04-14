@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use atlas::{ItemBaseComponent, ItemBaseParams, NativeParam, ParamBox, PlayerComponent, PlayerParams, Slot, Uuid};
-use bevy_ecs::{query::With, system::{Commands, In, Query, Res}};
+use bevy_ecs::{query::{With, Without}, system::{Commands, In, Query, Res}};
 use bson::doc;
 use log::{debug, error, warn};
 
@@ -191,38 +191,44 @@ pub fn do_vendor_execute(
 
 pub fn request_equip(
     In((instigator, _, behavior)): In<BehaviorArguments>,
-    mut players: Query<(&mut ParamBox, &PlayerInventory), With<PlayerComponent>>
+    mut players: Query<(&mut ParamBox, &PlayerInventory), (With<PlayerComponent>, Without<ItemBaseComponent>)>,
+    mut items: Query<&mut ParamBox, (With<ItemBaseComponent>, Without<PlayerComponent>)>,
 ) {
     if 
         let Behavior::String(_, args) = behavior &&
-        let Ok((mut params, inventory)) = players.get_mut(instigator)
+        let Ok((mut params, inventory)) = players.get_mut(instigator) &&
+        let Some((equip_item, item_ent)) = args.first()
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .and_then(|id| inventory.lookup_item_id(id))
+        .map(|(_, id, entity)| (id, entity)) &&
+        let Ok(mut item) = items.get_mut(item_ent)
     {
-        if let Some(equip_item) = args.first()
-            .and_then(|s| Uuid::parse_str(s).ok())
-            .and_then(|id| inventory.lookup_item_id(id))
-            .map(|(_, id, _)| id)
-        {
-            let player_params = params.get_impl_mut::<dyn PlayerParams>().unwrap();
+        let player_params = params.get_impl_mut::<dyn PlayerParams>().unwrap();
 
-            let mut loadout = LoadoutBuilder::new();
-            if let Some(visible_items) = player_params.visible_item_info() {
-                for item in visible_items {
-                    loadout.add(*item);
-                }
+        let mut loadout = LoadoutBuilder::new();
+        if let Some(visible_items) = player_params.visible_item_info() {
+            for item in visible_items {
+                loadout.add(*item);
             }
+        }
 
-            loadout.add_by_uuid(equip_item);
+        loadout.add_by_uuid(equip_item);
 
-            let loadout = loadout.build();
+        let loadout = loadout.build();
 
-            player_params.set_visible_item_info(
-                loadout
-                .iter()
-                .map(|item| item.id as i32)
-                .collect()
-            );
+        player_params.set_visible_item_info(
+            loadout
+            .iter()
+            .map(|item| item.id as i32)
+            .collect()
+        );
 
-            
+        if let Some(item) = item.get_impl_mut::<dyn ItemBaseParams>() {
+            let item_slot = item.slot_mapping().unwrap().to_string();
+            item.set_is_equiped(true);
+            //item.set_slot_id(Slot::BackFloating.);
+            //item.set_equip_slot(&item_slot);
+            item.set_container_id(-1);
         }
     }
 }
