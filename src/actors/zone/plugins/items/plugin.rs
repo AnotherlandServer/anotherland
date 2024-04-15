@@ -15,7 +15,7 @@
 
 use std::sync::mpsc::{self, Sender};
 
-use atlas::{ItemBaseParams, ParamBox, PlayerComponent, PlayerParams, Slot, Uuid};
+use atlas::{ItemBaseParams, ItemEdnaParams, ParamBox, PlayerComponent, PlayerParams, Slot, Uuid};
 use bevy::app::{First, Plugin, PostUpdate};
 use bevy_ecs::{component::Component, entity::Entity, event::{Event,Events}, query::{Added, With}, removal_detection::RemovedComponents, schedule::IntoSystemConfigs, system::{Commands, Query, Res, ResMut, Resource}};
 use futures::TryStreamExt;
@@ -23,7 +23,7 @@ use log::{debug, error};
 
 use crate::{actors::{zone::{plugins::BehaviorExt, resources::Tasks}, AvatarComponent, EntityType, EventChannelExtension}, db::{get_cached_item, get_cached_item_by_id, realm_database, InventoryEntry}};
 
-use super::{discard_item, do_vendor_execute, process_buy_request, request_equip, request_unequip, spawn_inventory_entry, update_inventory_item_pos, Equipped, InventoryTab, ItemPurchaseRequest, ItemSellRequest, PlayerInventory, PlayerLoadout};
+use super::{discard_item, do_vendor_execute, process_buy_request, request_equip, request_unequip, spawn_inventory_entry, update_inventory_item_pos, Equipped, InventoryTab, ItemPurchaseRequest, ItemReference, ItemSellRequest, PlayerDisguise, PlayerInventory, PlayerLoadout};
 
 #[derive(Component)]
 pub struct Item {
@@ -133,6 +133,7 @@ fn insert_player_inventory(
             .map(|p| p.get_impl::<dyn PlayerParams>().unwrap()) {
             let mut inventory = PlayerInventory::new(player.inventory_size() as usize);
             let mut loadout = PlayerLoadout::new();
+            let mut disguise = PlayerDisguise(PlayerLoadout::new());
 
             for item in inventory_result {
                 match item.params.get_impl::<dyn ItemBaseParams>().unwrap().container_id() {
@@ -155,6 +156,10 @@ fn insert_player_inventory(
 
                     // equipment
                     1 => {
+                        let is_disguise = item.params.get_impl::<dyn ItemEdnaParams>()
+                            .map(|params| params.disguise() == 0)
+                            .unwrap_or_default();
+
                         let entity = spawn_inventory_entry(&mut commands, item.params)
                             .insert(Item {
                                 id: item.id,
@@ -165,7 +170,13 @@ fn insert_player_inventory(
                             .id();
 
                         if let Some(template_item) = get_cached_item(&item.template) {
-                            loadout.add(super::ItemReference::InventoryItem((item.id, template_item.id as i32, entity)));
+                            let item_ref = ItemReference::InventoryItem((item.id, template_item.id as i32, entity));
+
+                            if is_disguise {
+                                disguise.add(item_ref);
+                            } else {
+                                loadout.add(item_ref);
+                            }
                         }
                     },
 
@@ -189,11 +200,11 @@ fn insert_player_inventory(
                 })
                 .filter(|(id, slot)| slot.is_base_appearance())
                 .for_each(|(id, _)| {
-                    loadout.add(super::ItemReference::VisualOnly(id));
+                    loadout.add(ItemReference::VisualOnly(id));
                 });
 
             // add player inventory
-            commands.entity(entity).insert((inventory, loadout));
+            commands.entity(entity).insert((inventory, loadout, disguise));
         }
     }
 }

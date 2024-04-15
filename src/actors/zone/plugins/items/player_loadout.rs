@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::ops::{Deref, DerefMut};
+
 use atlas::{ItemBaseParams, Slot, Uuid};
 use bevy::utils::{HashMap, HashSet};
 use bevy_ecs::{component::Component, entity::Entity};
@@ -26,6 +28,23 @@ pub struct Equipped;
 #[derive(Component, Clone)]
 pub struct PlayerLoadout {
     slots: HashMap<Slot, ItemReference>,
+}
+
+#[derive(Component, Clone)]
+pub struct PlayerDisguise(pub PlayerLoadout);
+
+impl Deref for PlayerDisguise {
+    type Target = PlayerLoadout;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for PlayerDisguise {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 #[derive(Clone)]

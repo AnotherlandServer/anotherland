@@ -13,14 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{ItemBaseComponent, ItemBaseParams, NativeParam, ParamBox, PlayerComponent, PlayerParams, Slot, Uuid};
+use atlas::{ItemBaseComponent, ItemBaseParams, ItemEdnaParams, NativeParam, ParamBox, PlayerComponent, PlayerParams, Slot, Uuid};
 use bevy_ecs::{query::{With, Without}, system::{Commands, In, Query, Res}};
 use bson::doc;
 use log::{debug, error, warn};
 
 use crate::{actors::{zone::{plugins::{Behavior, BehaviorArguments, PlayerLoadout}, resources::Tasks}, RealmDatabase}, db::{get_cached_item, get_cached_item_by_id, DatabaseRecord, InventoryEntry}};
 
-use super::{Equipped, Item, ItemReference, PlayerInventory};
+use super::{Equipped, Item, ItemReference, PlayerDisguise, PlayerInventory};
 
 pub fn update_inventory_item_pos(
     In((instigator, _, behavior)): In<BehaviorArguments>,
@@ -87,13 +87,13 @@ pub fn discard_item(
 
 pub fn do_vendor_execute(
     In((instigator, _, behavior)): In<BehaviorArguments>,
-    mut players: Query<(&mut ParamBox, &mut PlayerInventory, &mut PlayerLoadout), With<PlayerComponent>>,
+    mut players: Query<(&mut ParamBox, &mut PlayerInventory, &mut PlayerLoadout, &PlayerDisguise), With<PlayerComponent>>,
     mut cmds: Commands,
 ) {
     if 
         let Behavior::Binary(_, args) = behavior &&
         let NativeParam::Struct(attrib) = args &&
-        let Ok((mut params, mut inventory, mut loadout)) = players.get_mut(instigator) &&
+        let Ok((mut params, mut inventory, mut loadout, disguise)) = players.get_mut(instigator) &&
         let Some(player_params) = params.get_impl_mut::<dyn PlayerParams>()
     {
         debug!("Attrib 28: {:?}", attrib[28]);
@@ -153,7 +153,7 @@ pub fn do_vendor_execute(
 
         // update visible items      
         player_params.set_visible_item_info(
-            loadout.compile_visual_items()
+            [loadout.compile_visual_items(), disguise.compile_visual_items()].concat()
         );
 
         debug!("Visible items: {:?}", player_params.visible_item_info());
@@ -179,13 +179,13 @@ pub fn do_vendor_execute(
 
 pub fn request_equip(
     In((instigator, _, behavior)): In<BehaviorArguments>,
-    mut players: Query<(&mut ParamBox, &mut PlayerInventory, &mut PlayerLoadout), (With<PlayerComponent>, Without<ItemBaseComponent>)>,
+    mut players: Query<(&mut ParamBox, &mut PlayerInventory, &mut PlayerLoadout, &mut PlayerDisguise), (With<PlayerComponent>, Without<ItemBaseComponent>)>,
     mut items: Query<(&Item, &mut ParamBox), (With<ItemBaseComponent>, Without<PlayerComponent>)>,
     mut cmds: Commands,
 ) {
     if 
         let Behavior::String(_, args) = behavior &&
-        let Ok((mut params, mut inventory, mut loadout)) = players.get_mut(instigator) &&
+        let Ok((mut params, mut inventory, mut loadout, mut disguise)) = players.get_mut(instigator) &&
         let Some(inventory_item_id) = args.first()
         .and_then(|s| Uuid::parse_str(s).ok())
     {
@@ -194,6 +194,7 @@ pub fn request_equip(
         // in case it fails.
         let mut new_inventory_state = inventory.clone();
         let mut new_loadout_state = loadout.clone();
+        let mut new_disguise_state = disguise.clone();
 
         // take item out of inventory
         let item_ent = if let Some(ent) = new_inventory_state.remove_item(inventory_item_id) {
@@ -219,11 +220,19 @@ pub fn request_equip(
         };
 
         // equip item
-        let replaced_items = new_loadout_state.add(super::ItemReference::InventoryItem((
+        let item_ref = ItemReference::InventoryItem((
             inventory_item_id, 
             template_item.id as i32, 
             item_ent
-        )));
+        ));
+
+        let replaced_items = 
+            if item_params.get_impl::<dyn ItemEdnaParams>().map(|params| params.disguise() == 0).unwrap_or_default() {
+                new_disguise_state.add(item_ref)
+            } else {
+                new_loadout_state.add(item_ref)
+            };
+
 
         // place replaced items back in inventory
         let mut inventory_slots = Vec::new();
@@ -247,6 +256,7 @@ pub fn request_equip(
         // apply changes
         new_inventory_state.clone_into(inventory.as_mut());
         new_loadout_state.clone_into(loadout.as_mut());
+        new_disguise_state.clone_into(disguise.as_mut());
 
         for (ent, slot_idx) in inventory_slots {
             if 
@@ -278,20 +288,20 @@ pub fn request_equip(
         let player_params = params.get_impl_mut::<dyn PlayerParams>().unwrap();
 
         player_params.set_visible_item_info(
-            loadout.compile_visual_items()
+            [loadout.compile_visual_items(), disguise.compile_visual_items()].concat()
         );
     }
 }
 
 pub fn request_unequip(
     In((instigator, _, behavior)): In<BehaviorArguments>,
-    mut players: Query<(&mut ParamBox, &mut PlayerInventory, &mut PlayerLoadout), (With<PlayerComponent>, Without<ItemBaseComponent>)>,
+    mut players: Query<(&mut ParamBox, &mut PlayerInventory, &mut PlayerLoadout, &mut PlayerDisguise), (With<PlayerComponent>, Without<ItemBaseComponent>)>,
     mut items: Query<(&Item, &mut ParamBox), (With<ItemBaseComponent>, With<Equipped>, Without<PlayerComponent>)>,
     mut cmds: Commands,
 ) {
     if 
         let Behavior::String(_, args) = behavior &&
-        let Ok((mut params, mut inventory, mut loadout)) = players.get_mut(instigator) &&
+        let Ok((mut params, mut inventory, mut loadout, mut disguise)) = players.get_mut(instigator) &&
         let Some(inventory_item_id) = args.first()
         .and_then(|s| Uuid::parse_str(s).ok())
     {
@@ -300,9 +310,12 @@ pub fn request_unequip(
         // in case it fails.
         let mut new_inventory_state = inventory.clone();
         let mut new_loadout_state = loadout.clone();
+        let mut new_disguise_state = disguise.clone();
 
         // unequip item
         let item_ent = if let Some(ItemReference::InventoryItem((_, _, item_ent))) = new_loadout_state.remove_inventory_item(inventory_item_id) {
+            item_ent
+        } else if let Some(ItemReference::InventoryItem((_, _, item_ent))) = new_disguise_state.remove_inventory_item(inventory_item_id) {
             item_ent
         } else {
             warn!("Requested unequip of item not in loadout. Id: {}", inventory_item_id);
@@ -335,6 +348,7 @@ pub fn request_unequip(
         // apply changes
         new_inventory_state.clone_into(inventory.as_mut());
         new_loadout_state.clone_into(loadout.as_mut());
+        new_disguise_state.clone_into(disguise.as_mut());
 
         cmds.entity(item_ent).remove::<Equipped>();
 
@@ -342,7 +356,7 @@ pub fn request_unequip(
         let player_params = params.get_impl_mut::<dyn PlayerParams>().unwrap();
 
         player_params.set_visible_item_info(
-            loadout.compile_visual_items()
+            [loadout.compile_visual_items(), disguise.compile_visual_items()].concat()
         );
     }
 }
