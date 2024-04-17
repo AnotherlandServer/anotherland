@@ -63,6 +63,11 @@ pub enum ObjectProperty {
     Guid(Uuid),
     Enum(FName, Box<ObjectProperty>),
     Color(u32),
+    Box {
+        min: [f32; 3],
+        max: [f32; 3],
+        is_valid: u8,
+    }
 }
 
 fn parse_attribute<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object: &'a ObjectRef, attribute: &'a ObjectRef, class_override: Option<&'a ObjectRef>, in_array: bool)
@@ -308,6 +313,7 @@ fn parse_struct<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object
                 "Rotator" => (i, StructClass::Intrinsic(class)),
                 "Guid" => (i, StructClass::Intrinsic(class)),
                 "Color" => (i, StructClass::Intrinsic(class)),
+                "Box" => (i, StructClass::Intrinsic(class)),
                 "ViewTargetTransitionParams" => {
                     (i, StructClass::Class(
                         container.lookup_object("Camera/ViewTargetTransitionParams").unwrap()
@@ -357,6 +363,16 @@ fn parse_struct<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object
                     "Color" => {
                         let (i, val) = le_u32(i)?;
                         Ok((i, ObjectProperty::Color(val)))
+                    },
+                    "Box" => {
+                        let (i, min) = count(le_f32, 3)(i)?;
+                        let (i, max) = count(le_f32, 3)(i)?;
+                        let (i, is_valid) = le_u8(i)?;
+                        Ok((i, ObjectProperty::Box {
+                            min: min.try_into().unwrap(),
+                            max: max.try_into().unwrap(),
+                            is_valid,
+                        }))
                     },
                     _ => unimplemented!("Unimplemented intrinsic: {}", intrinsic),
                 }
