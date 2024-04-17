@@ -15,7 +15,7 @@
 
 use bevy::app::{First, Last, Plugin, PostUpdate};
 
-use super::{combat::send_hitpoint_updates, inventory::{send_item_removals, send_item_updates, track_added_items, ItemTracker}, params::{prepare_param_updates, send_param_updates}, positions::send_position_updates};
+use super::{combat::send_hitpoint_updates, initialize_fog_of_war, inventory::{send_item_removals, send_item_updates, track_added_items, ItemTracker}, params::{prepare_param_updates, send_param_updates}, positions::send_position_updates};
 
 pub struct NetworkPlugin;
 
@@ -30,6 +30,7 @@ impl Plugin for NetworkPlugin {
             send_item_updates,
             send_item_removals,
             track_added_items,
+            initialize_fog_of_war,
         ));
     }
 }

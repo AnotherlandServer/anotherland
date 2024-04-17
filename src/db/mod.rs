@@ -29,6 +29,7 @@ mod flight_tube;
 mod display_names;
 mod inventory;
 mod item_cache;
+mod floor_map_info;
 
 pub use account::*;
 pub use session::*;
@@ -45,6 +46,7 @@ pub use flight_tube::*;
 pub use display_names::*;
 pub use inventory::*;
 pub use item_cache::*;
+pub use floor_map_info::*;
 
 use crate::{util::AnotherlandResult, ARGS};
 

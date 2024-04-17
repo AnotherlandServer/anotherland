@@ -19,6 +19,8 @@ mod positions;
 mod params;
 mod combat;
 mod inventory;
+mod fog_of_war;
 
 pub use plugin::*;
 pub use player_controller::*;
+pub use fog_of_war::*;

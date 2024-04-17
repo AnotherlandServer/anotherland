@@ -24,7 +24,7 @@ use mongodb::{IndexModel, options::IndexOptions, bson::doc};
 use regex::Regex;
 use tokio::runtime::Handle;
 
-use crate::{db::{cluster_database, realm_database, CashShopBundle, CashShopItem, CashShopVendor, Content, ControlPoint, DatabaseRecord, DisplayName, FlightTube, RawInstance, WorldDef, ZoneDef}, util::AnotherlandResult};
+use crate::{db::{cluster_database, realm_database, BoundingBox, CashShopBundle, CashShopItem, CashShopVendor, Content, ControlPoint, DatabaseRecord, DisplayName, FlightTube, FloorMapInfo, RawInstance, WorldDef, ZoneDef}, util::AnotherlandResult};
 use atlas::{ParamBox, ParamSetBox, Uuid};
 use upk::{types::{ObjectProperty, ScriptObject}, Container};
 
@@ -583,6 +583,132 @@ pub async fn import_flighttubes(game_client_path: &Path) -> AnotherlandResult<()
     Ok(())
 }
 
+async fn import_floormap_infos(game_client_path: &Path) -> AnotherlandResult<()> {
+    let mut upk_collection = Container::new(game_client_path.join("UnrealEngine3/AmunGame/CookedPCConsole"));
+    upk_collection.mount_package("Otherland").await?;
+
+    let mut documents = Vec::new();
+
+    for obj in upk_collection.objects() {
+        if obj.class().name() == "RUFloorMapInfo" && obj.name() == "Info" {
+            debug!("Analyzing {}", obj.fully_qualified_name());
+            let so = upk_collection.deserialize::<ScriptObject>(obj).await?;
+
+            documents.push(FloorMapInfo {
+                id: Uuid::new(),
+                bounded_texture_size_x: so.attrib("BoundedTextureSizeX")
+                    .and_then(|v| {
+                        if let ObjectProperty::Int(v) = v {
+                                Some(*v as u32)
+                            } else {
+                                None
+                            }
+                        }
+                    )
+                    .unwrap(),
+                bounded_texture_size_y: so.attrib("BoundedTextureSizeY")
+                    .and_then(|v| {
+                        if let ObjectProperty::Int(v) = v {
+                                Some(*v as u32)
+                            } else {
+                                None
+                            }
+                        }
+                    )
+                    .unwrap(),
+                bounding_box: so.attrib("BoundingBox")
+                    .and_then(|v| {
+                        if let ObjectProperty::Box { min, max, is_valid } = v && *is_valid != 0 {
+                            Some(BoundingBox {
+                                min: Vec3::from_array(*min),
+                                max: Vec3::from_array(*max),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap(),
+                num_tiles_x: so.attrib("NumTilesX")
+                    .and_then(|v| {
+                        if let ObjectProperty::Int(v) = v {
+                                Some(*v as u32)
+                            } else {
+                                None
+                            }
+                        }
+                    )
+                    .unwrap(),
+                num_tiles_y: so.attrib("NumTilesY")
+                    .and_then(|v| {
+                        if let ObjectProperty::Int(v) = v {
+                                Some(*v as u32)
+                            } else {
+                                None
+                            }
+                        }
+                    )
+                    .unwrap(),
+                tile_size: so.attrib("TileSize")
+                    .and_then(|v| {
+                        if let ObjectProperty::Int(v) = v {
+                                Some(*v as u32)
+                            } else {
+                                None
+                            }
+                        }
+                    )
+                    .unwrap(),
+                units_per_pixel: so.attrib("UnitsPerPixel")
+                    .and_then(|v| {
+                        if let ObjectProperty::Float(v) = v {
+                                Some(*v)
+                            } else {
+                                None
+                            }
+                        }
+                    )
+                    .unwrap(),
+                world_id: so.attrib("WorldID")
+                    .and_then(|v| {
+                        if let ObjectProperty::Int(v) = v {
+                                Some(*v as u16)
+                            } else {
+                                None
+                            }
+                        }
+                    ),
+                world_name: so.attrib("WorldName")
+                    .and_then(|v| {
+                        if let ObjectProperty::String(v) = v {
+                                Some(v.to_owned())
+                            } else {
+                                None
+                            }
+                        }
+                    )
+                    .unwrap(),
+                zone_id: so.attrib("ZoneID")
+                    .and_then(|v| {
+                        if let ObjectProperty::Int(v) = v {
+                                Some(*v as u16)
+                            } else {
+                                None
+                            }
+                        }
+                    )
+                    .unwrap_or_default(),
+            });
+        }
+    }
+
+    let floor_map_collection = FloorMapInfo::collection(realm_database().await);
+    if !documents.is_empty() {
+        floor_map_collection.insert_many(documents, None).await?;
+    }
+
+    Ok(())
+}
+
 async fn import_display_names(game_client_path: &Path) -> AnotherlandResult<()> {
     import_display_names_from_file(game_client_path.join("Atlas/data/otherlandgame/localization/International/common.txt")).await?;
     import_display_names_from_file(game_client_path.join("Atlas/data/otherlandgame/localization/International/AutoGenerated_common.txt")).await?;
@@ -653,6 +779,7 @@ pub async fn import_client_data(game_client_path: PathBuf) -> AnotherlandResult<
         import_shop_bundles(&game_client_path).await?;
 
         import_flighttubes(&game_client_path).await?;
+        import_floormap_infos(&game_client_path).await?;
 
         import_display_names(&game_client_path).await?;
 

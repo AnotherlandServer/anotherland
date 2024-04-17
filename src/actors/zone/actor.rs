@@ -26,7 +26,7 @@ use tokio::{runtime::Handle, select, sync::{mpsc, OnceCell}, task::JoinHandle, t
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use bevy_ecs::{prelude::*, schedule::ScheduleLabel};
 
-use crate::{actors::{get_player_height, zone::{ behaviors::BehaviorsPlugin, plugins::{AvatarBehaviorPlugin, HitPointsPlugin, InventoryPlugin, PersistancePlugin, PositionPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{realm_database, Character, FlightTube}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, zone::{ behaviors::BehaviorsPlugin, plugins::{AvatarBehaviorPlugin, HitPointsPlugin, InventoryPlugin, PersistancePlugin, PositionPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_proximity_chat, sepcial_event_controller, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{get_cached_floor_maps, realm_database, Character, FlightTube, FloorMapInfo}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
 use super::{components::{self, AvatarComponent, EntityType, InterestList}, plugins::{AvatarEvent, BehaviorExt, DamageEvent, ItemPurchaseRequest, ItemSellRequest, NetworkPlugin, PlayerController, Position, ServerAction, SubjectivityExt}, resources::Tasks, zone_events::ProximityChatEvent, Movement, PhysicsState, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState};
@@ -69,6 +69,9 @@ impl UuidToEntityLookup {
         self.0.insert(id, entity);
     }
 }
+
+#[derive(Resource)]
+pub struct FloorMapInfos(pub Vec<&'static FloorMapInfo>);
 
 pub struct Zone {
     pub(super) realm_db: Database,
@@ -161,7 +164,8 @@ impl Actor for Zone {
                 pos: self.default_pos,
                 rot: self.default_rot,
             })
-            .insert_resource(UuidToEntityLookup::default());
+            .insert_resource(UuidToEntityLookup::default())
+            .insert_resource(FloorMapInfos(get_cached_floor_maps(self.factory.world_def().id)));
 
         // load in content
         self.load_content_instances().await?;
