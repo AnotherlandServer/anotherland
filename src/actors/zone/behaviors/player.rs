@@ -150,9 +150,8 @@ fn start_spline_surfing(
         let Behavior::String(_, args) = behavior && 
         let Ok((avatar, controller)) = player_query.get(instigator) 
     {
-
         let re = Regex::new(r"SplineID=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) InverseTravel=([0-1]) Loc=\[ -?(\d+\.?\d*) -?(\d+\.?\d*) -?(\d+\.?\d*) \]").unwrap();
-        if let Some(captures) = re.captures(args.get(0).unwrap()) {
+        if let Some(captures) = re.captures(&args.join(" ")) {
             let spline_id = Uuid::parse_str(&captures[1]).unwrap();
             let inverse_travel = &captures[2] == "1";
             let loc = Vec3::new(
