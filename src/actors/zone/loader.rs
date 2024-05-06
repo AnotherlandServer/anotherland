@@ -384,4 +384,15 @@ impl Zone {
 
         Ok(display_names)
     }
+
+    pub(super) async fn load_zone_names() -> AnotherlandResult<HashMap<String, Uuid>> {
+        let mut zone_names = HashMap::new();
+
+        let zones = ZoneDef::list(realm_database().await).await?.into_iter();
+        for zone in zones {
+            zone_names.insert(zone.zone, zone.guid);
+        }
+
+        Ok(zone_names)
+    }
 }

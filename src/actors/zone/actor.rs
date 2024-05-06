@@ -44,6 +44,7 @@ pub struct PortalHiveDestination {
 
 pub static PORTAL_HIVE_DESTINATIONS: OnceCell<HashMap<String, PortalHiveDestination>> = OnceCell::const_new();
 pub static DISPLAY_NAMES: OnceCell<HashMap<Uuid, String>> = OnceCell::const_new();
+pub static ZONE_ID_LOOKUP: OnceCell<HashMap<String, Uuid>> = OnceCell::const_new();
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone)]
 struct SlowUpdate;
@@ -120,6 +121,9 @@ impl Actor for Zone {
 
         // load display names
         DISPLAY_NAMES.get_or_try_init(Zone::load_display_names).await.unwrap();
+
+        // fill zone lookup table
+        ZONE_ID_LOOKUP.get_or_try_init(Zone::load_zone_names).await.unwrap();
 
         // setup bevy app
         self.app
