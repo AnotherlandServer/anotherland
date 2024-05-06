@@ -16,7 +16,7 @@
 use std::{sync::Arc, net::SocketAddr, time::Duration, collections::HashMap};
 
 use log::{error, trace, debug};
-use nom::{IResult, error::{VerboseError, context}, bits, combinator::{map, flat_map, cond}, sequence::tuple, multi::many0};
+use nom::{bits, combinator::{cond, flat_map, rest_len}, error::{context, VerboseError}, multi::many0, IResult};
 use rsa::RsaPrivateKey;
 use tokio::{net::{ToSocketAddrs, UdpSocket}, time, sync::{mpsc, oneshot}, select, task::JoinHandle};
 use futures::future::join_all;
@@ -25,16 +25,9 @@ use crate::{raknet::{State, RakNetPeerData}, Uuid};
 
 use super::{MessageFragment, Message, RakNetResult, RakNetError, RakNetErrorKind, Priority, Reliability};
 
-//pub const MAX_MTU_SIZE: usize = 1492;
 pub const MAX_MTU_SIZE: usize = 1024;
 pub const RECV_BUFFER_SIZE: usize = 2048;
 
-/*pub struct RakNetInternal {
-    pub(self) socket: Option<Arc<UdpSocket>>,
-    pub(self) peer_guid_map: RwLock<HashMap<Uuid, RakNetPeerHandle>>,
-    pub(self) peer_address_map: RwLock<HashMap<PeerAddress, RakNetPeerHandle>>,
-    pub(self) command_channel: mpsc::Receiver<RakNetCommand>,
-}*/
 
 #[derive(Debug)]
 enum RakNetCommand {
@@ -311,24 +304,29 @@ impl RakNetListener {
         if Message::test_offline_message(data) {
             Message::from_bytes(data).map(|(i, m)| (i, vec![MessageFragment::OfflineMessage(m)]))
         } else {
-            bits(map(tuple((
-                context("acks", flat_map(
+            bits(|data| {
+                let (data, acks) = context("acks", flat_map(
                     nom::bits::complete::bool, 
-                    |has_acks| cond(has_acks, MessageFragment::parse_ack))),
-                context("system_time", flat_map(
-                    nom::bits::complete::bool, 
-                    |has_time| cond(has_time, MessageFragment::parse_system_time))),
-                many0(MessageFragment::parse_packet)
-            )), |(acks, system_time, mut packets)| {
+                    |has_acks| cond(has_acks, MessageFragment::parse_ack)))(data)?;
+
+                let (data, system_time) = flat_map(rest_len, |remainder| {
+                    cond(remainder > 0, 
+                        context("system_time", flat_map(
+                            nom::bits::complete::bool, 
+                            |has_time| cond(has_time, MessageFragment::parse_system_time)))
+                    )
+                })(data)?;
+
+                let (data, mut packets) = many0(MessageFragment::parse_packet)(data)?;
+
                 let mut res  = Vec::new();
                 if let Some(acks) = acks { res.push(acks); }
-                if let Some(system_time) = system_time { res.push(system_time); }
+                if let Some(system_time) = system_time.flatten() { res.push(system_time); }
 
-                //println!("{:#?}", packets);
                 res.append(&mut packets);
 
-                res
-            }))(data)
+                Ok((data, res))
+            })(data)
         }
     }
 }
