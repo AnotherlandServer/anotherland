@@ -23,7 +23,7 @@ use glam::{Quat, Vec3};
 use log::{debug, error, info, warn};
 use regex::Regex;
 
-use crate::{actors::{get_player_height, zone::{components, plugins::{Behavior, BehaviorArguments, BehaviorExt, PlayerController, Position, ReviveEvent, ServerAction}}, AvatarComponent, DefaultPos, EntityType, SplineSurfing, UuidToEntityLookup}, util::OtherlandQuatExt};
+use crate::{actors::{get_player_height, zone::{components, plugins::{Behavior, BehaviorArguments, BehaviorExt, PlayerController, Position, ReviveEvent, ServerAction}}, AvatarComponent, DefaultPos, EntityType, RealmDatabase, SplineSurfing, UuidToEntityLookup, ZONE_ID_LOOKUP}, db::{DatabaseRecord, ZoneDef}, frontends::TravelType, util::OtherlandQuatExt};
 use crate::actors::zone::FLIGHT_TUBES;
 
 pub struct PlayerBehaviors;
@@ -54,7 +54,7 @@ impl Plugin for PlayerBehaviors {
         app.add_behavior(EntityType::Player, "itemLevel", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "Outfit", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "ConfirmInGame", unimplemented_behavior);
-        app.add_behavior(EntityType::Player, "travel", unimplemented_behavior);
+        app.add_behavior(EntityType::Player, "travel", travel);
         app.add_behavior(EntityType::Player, "ModParam", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "FlightTube", start_spline_surfing);
         app.add_behavior(EntityType::Player, "SplineTurn", unimplemented_behavior);
@@ -186,3 +186,22 @@ fn start_spline_surfing(
         }
     }
 }
+
+fn travel(
+    In((instigator, _, behavior)): In<BehaviorArguments>,
+    player: Query<(&AvatarComponent, &PlayerController), With<PlayerComponent>>,
+) {
+    if let Behavior::String(_, args) = behavior {
+        let (avatar, controller) = player.get(instigator).unwrap();
+
+        if let Some(dest) = args.first()
+            .and_then(|a| a.split('=').last())
+            .and_then(|name| ZONE_ID_LOOKUP.get().unwrap().get(name)) {
+
+            controller.send_travel(*dest, TravelType::EntryPoint);
+
+            info!("Player {} requesting travel to zone '{}'.", avatar.name, dest);
+        }
+    }
+}
+
