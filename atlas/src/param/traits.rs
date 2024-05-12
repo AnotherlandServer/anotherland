@@ -30,7 +30,7 @@ pub trait ParamAttrib: PartialEq + Eq + Hash + Copy + Clone + FromStr + TryFrom<
     fn id(&self) -> u16;
     fn name(&self) -> &'static str;
     fn datatype(&self) -> ParamType;
-    fn default(&self) -> Option<&Param>;
+    fn default(&self) -> &Param;
     fn flags(&self) -> &[ParamFlag];
 
     fn has_flag(&self, flag: &ParamFlag) -> bool {

@@ -35,7 +35,6 @@ pub fn write_source(name: &str, tokens: TokenStream) -> io::Result<()> {
             Err(e) => {
                 println!("Code generation error for {}!", out_dir_path.to_str().unwrap());
                 println!("Error: {}", e);
-                println!("Line: {:#?}", e.span());
                 panic!();
             }
         };

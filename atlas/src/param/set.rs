@@ -115,7 +115,7 @@ impl <T: ParamAttrib>ParamSet<T> {
         where W: ByteWrite
     {
         let filtered_params: Vec<_> = self.params.iter()
-        .filter(|(attribute, a)| !a.should_skip() && !attribute.has_flag(&ParamFlag::ExcludeFromClient))
+        .filter(|(attribute, a)| !attribute.has_flag(&ParamFlag::ClientUnknown))
         .collect();
 
         writer.write(1u8)?;
