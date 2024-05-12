@@ -48,8 +48,8 @@ rcgen = "0.12.0"
 rustls = "0.21"
 serde_with = "3.4.0"
 parking_lot = { version = "0.12.1", features = ["send_guard"] }
-bevy_ecs = "0.12.1"
-bevy = { version = "0.12.1", default-features = false }
+bevy_ecs = "0.13.2"
+bevy = { version = "0.13.2", default-features = false }
 upk = { version = "0.1.0", path = "upk" }
 bspline = "1.1.0"
 regex = "1.10.3"

@@ -9,7 +9,7 @@ license = "AGPL-3.0-or-later"
 [dependencies]
 aes = "0.8.4"
 async-recursion = "1.0.5"
-bevy_ecs = "0.12.1"
+bevy_ecs = "0.13.2"
 bitstream-io = "1.7.0"
 bson = { version = "2.8.1", features = ["uuid-1"] }
 futures = "0.3.29"
