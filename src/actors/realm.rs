@@ -22,7 +22,7 @@ use bson::doc;
 use log::debug;
 use mongodb::Database;
 
-use crate::{cluster::actor::Actor, util::AnotherlandResult, db::{Session, realm_database, Character, DatabaseRecord}, CONF};
+use crate::{cluster::actor::Actor, db::{realm_database, Character, DatabaseRecord, InventoryEntry, Session}, util::AnotherlandResult, CONF};
 
 pub struct Realm {
     realm_db: Database,
@@ -85,7 +85,11 @@ impl Realm {
     #[rpc]
     pub async fn delete_character(&mut self, session: Session, id: u32) -> AnotherlandResult<()> {
         let collection = Character::collection(self.realm_db.clone());
-        collection.delete_one(doc!{"$and": [ {"id": {"$eq": id}}, {"account": {"$eq": session.account}}]}, None).await?;
+        if let Some(character) = collection.find_one(doc!{"$and": [ {"id": {"$eq": id}}, {"account": {"$eq": session.account}}]}, None).await? {
+            InventoryEntry::delete_player_inventory(self.realm_db.clone(), character.guid).await?;
+            collection.delete_one(doc!{"guid": {"$eq": character.guid}}, None).await?;
+        }
+
         Ok(())
     }
 
