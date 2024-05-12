@@ -310,7 +310,7 @@ async fn main() -> AnotherlandResult<()> {
                     .as_ref()
                     .and_then(|v| v.data.as_ref())
                     .and_then(|v| v.get::<CommonConfigClass>().ok())
-                    .and_then(|v| v.value())
+                    .map(|v| v.value())
                 {
                     if let Some(active_maps) = config.get("activeMaps") {
                         for map in active_maps.as_array().unwrap() {

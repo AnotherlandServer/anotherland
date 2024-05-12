@@ -37,7 +37,7 @@ fn portal_lens(
         .clone();
 
     if let Some(portal) = portal.get_impl_mut::<dyn PortalParams>() {
-        if portal.tags().map(|tags| tags.contains("PortalHive")).unwrap_or(false) {
+        if portal.tags().contains("PortalHive") {
             portal.set_current_state(3);
         }
     }

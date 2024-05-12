@@ -66,8 +66,7 @@ impl SpecialEvents {
 
         // parse json
         let mut events = Vec::new();
-        let value = event_config.value().ok_or(AnotherlandError::app_err("Empty SpecialEvents config"))?;
-        let json_event_array = value.get("SpecialEvents")
+        let json_event_array = event_config.value().get("SpecialEvents")
             .and_then(|v| v.as_array())
             .ok_or(AnotherlandError::app_err("Invalid SpecialEventConfig"))?;
         
@@ -113,8 +112,7 @@ impl SpecialEvents {
             .and_then(|mut v| v.data.take())
             .and_then(|v| v.take::<CommonConfigClass>().ok()) {
             
-            if let Some(value) = event.value() &&
-                let Ok(config) = serde_json::from_value::<JsonMapEventConfig>(value.to_owned()){
+            if let Ok(config) = serde_json::from_value::<JsonMapEventConfig>(event.value().to_owned()) {
                 // lookup event
                 let event = self.events.iter()
                     .find(|v| v.name == config.event_name)

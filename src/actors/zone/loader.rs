@@ -101,19 +101,20 @@ impl Zone {
                 Instance::Portal { name, data, phase_tag, content, .. } => {
                     let mut params = content.to_owned().into_param::<PortalClass>().unwrap();
                     params.apply(data.to_owned());
-                    
-                    let nodelink = params.nodelink().map(|v| v.to_owned());
-                    let exitpoint = params.exit_point().map(|v| v.to_owned());
+
                     let db = self.realm_db.clone();
 
                     // foce enable all hive portals
-                    if params.tags().map(|v| v.contains("PortalHive")).unwrap_or_default() {
+                    if params.tags().contains("PortalHive") {
                         params.set_enable_in_game(true);
                     }
 
+                    let nodelink = params.nodelink().to_owned();
+                    let exitpoint = params.exit_point().to_owned();
+
                     let portal = self.spawn_non_player_avatar(id.to_owned(), EntityType::Portal, name, phase_tag, instance.guid().to_owned(), content.guid, params);
                     
-                    if let Some(nodelink) = nodelink {
+                    if !nodelink.is_empty() {
                         if let Ok(instance_id) = Uuid::parse_str(&nodelink) &&
                             let Ok(Some(node)) = RawInstance::get(db, &instance_id).await 
                         {
@@ -134,7 +135,7 @@ impl Zone {
                         }
                     }
 
-                    if let Some(exitpoint) = exitpoint && let Ok(exitpoint) = Uuid::parse_str(&exitpoint)  {
+                    if !exitpoint.is_empty() && let Ok(exitpoint) = Uuid::parse_str(&exitpoint)  {
                         self.app.world.get_entity_mut(portal).unwrap()
                             .insert(PortalExitPoint(exitpoint));
                     }
@@ -343,11 +344,7 @@ impl Zone {
 
                     portal_data.apply(instance_data.take::<PortalAttribute>()?);
 
-                    /*let display_name = portal_data.as_set().get(&PortalAttribute::DisplayName)
-                        .map(|v| *<&atlas::Param as TryInto<&Uuid>>::try_into(v).unwrap())
-                        .unwrap_or(UUID_NIL);*/
-                    if let Some(exit_point) = portal_data.exit_point() &&
-                        !exit_point.is_empty() &&
+                    if !portal_data.exit_point().is_empty() &&
                         let Some(zone) = ZoneDef::get(db.clone(), &instance.zone_guid).await? &&
                         let Some(world) = WorldDef::get_by_guid(db.clone(), &zone.worlddef_guid).await? 
                     {

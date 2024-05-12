@@ -22,7 +22,7 @@ use crate::actors::{zone::{components::{AvatarComponent, InterestList}, plugins:
 
 #[allow(clippy::type_complexity)]
 pub fn update_interests(
-    mut players: Query<(Entity, &ParamBox, &mut InterestList, &PlayerController), With<PlayerComponent>>,
+    mut players: Query<(Entity, &ParamBox, &mut InterestList, &PlayerController), (With<Spawned>, With<PlayerComponent>)>,
     positioned: Query<(Entity, &AvatarComponent, &Position, Option<&ParamBox>), (With<Spawned>, Without<SpawnerComponent>)>,
     //mut ev_avatar_event: EventWriter<AvatarEventFired>,
 ) {
@@ -42,11 +42,13 @@ pub fn update_interests(
             if other_ent == entity { continue; }
 
             if let Some(base) = base {
-                if (position.position.distance(other_pos.position) <= player.aware_dist() || base.always_visible_to_players()) && 
-                    base.visible_on_quest_available().is_none() && 
-                    base.visible_on_quest_complete().is_none() && 
-                    base.visible_on_quest_finished().is_none() && 
-                    base.visible_on_quest_in_progress().is_none()
+                // todo: implement proper visibility rules
+                if (position.position.distance(other_pos.position) <= player.aware_dist() || base.always_visible_to_players()) &&
+                    base.visible_on_quest_complete().is_empty() &&
+                    base.visible_on_quest_finished().is_empty() &&
+                    base.visible_on_quest_in_progress().is_empty() &&
+                    !base.hidden_from_clients() &&
+                    !base.hidden_from_players()
                 {
                     new_interests.insert(other_avatar.id.to_owned());
                 }
