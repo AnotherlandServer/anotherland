@@ -16,9 +16,10 @@
 use std::{collections::HashSet, sync::Arc, time::{Duration, UNIX_EPOCH, SystemTime}, net::SocketAddrV4};
 
 use async_trait::async_trait;
-use atlas::{oaPktCashItemVendorSyncAcknowledge, oaPktClusterNodeToClient, oaPktFactionResponse, oaPktSKUBundleSyncAcknowledge, raknet::{Message, Priority, RakNetListener, RakNetPeer, Reliability}, AvatarId, CPkt, CPktChannelChat, CPktChat, CPktStream_167_0, CashItemSKUBundleEntry, CashItemSKUItemEntry, CashItemVendorEntry, CpktChatChatType, FactionRelation, FactionRelationList, NativeParam, Uuid};
+use atlas::{oaPktCashItemVendorSyncAcknowledge, oaPktClusterNodeToClient, oaPktFactionResponse, oaPktSKUBundleSyncAcknowledge, raknet::{Message, Priority, RakNetListener, RakNetPeer, Reliability}, AvatarId, CPkt, CPktChannelChat, CPktChat, CPktStream_167_0, CashItemSKUBundleEntry, CashItemSKUItemEntry, CashItemVendorEntry, CpktChatChatType, FactionRelation, FactionRelationList, NativeParam, Uuid, UUID_NIL};
 use log::{warn, error, trace, info, debug};
 use rand::random;
+use regex::Regex;
 use tokio::{select, sync::{mpsc::Receiver, Mutex, RwLock}, time};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
@@ -487,20 +488,29 @@ impl ClusterFrontendSession {
                 self.social.chat(self.avatar_id, ChatChannel::Generic(pkt.channel), pkt.message).await;
             },
             AtlasPkt(CPkt::CPktChat(pkt)) => {
-                match pkt.chat_type {
-                    CpktChatChatType::Party => self.social.chat(self.avatar_id, ChatChannel::Party, pkt.message).await,
-                    CpktChatChatType::Clan => self.social.chat(self.avatar_id, ChatChannel::Clan, pkt.message).await,
-                    CpktChatChatType::Officer => self.social.chat(self.avatar_id, ChatChannel::Officer, pkt.message).await,
-                    CpktChatChatType::Whisper => self.social.chat(self.avatar_id, ChatChannel::Whisper { receiver: pkt.receiver }, pkt.message).await,
-                    _ => {
-                        // forward proximity based chat to zone server
-                        if let Some(connection) = self.zone_connection.as_ref() {
-                            if connection.send(&pkt.into_message()).await.is_err() {
-                                error!(
-                                    peer = self.peer.id().to_string(), 
-                                    session = self.session_id.map(|v| v.to_string()); 
-                                    "Forward to zone server failed, closing connection.");
-                                self.peer.disconnect().await;
+                let re = Regex::new(r"--\w+").unwrap();
+
+                // check if we are issuing a command
+                if re.is_match(&pkt.message) {
+                    if let Some(connection) = self.zone_connection.as_ref() {
+                        let _ = connection.ingame_command(pkt.message).await;
+                    }
+                } else {
+                    match pkt.chat_type {
+                        CpktChatChatType::Party => self.social.chat(self.avatar_id, ChatChannel::Party, pkt.message).await,
+                        CpktChatChatType::Clan => self.social.chat(self.avatar_id, ChatChannel::Clan, pkt.message).await,
+                        CpktChatChatType::Officer => self.social.chat(self.avatar_id, ChatChannel::Officer, pkt.message).await,
+                        CpktChatChatType::Whisper => self.social.chat(self.avatar_id, ChatChannel::Whisper { receiver: pkt.receiver }, pkt.message).await,
+                        _ => {
+                            // forward proximity based chat to zone server
+                            if let Some(connection) = self.zone_connection.as_ref() {
+                                if connection.send(&pkt.into_message()).await.is_err() {
+                                    error!(
+                                        peer = self.peer.id().to_string(), 
+                                        session = self.session_id.map(|v| v.to_string()); 
+                                        "Forward to zone server failed, closing connection.");
+                                    self.peer.disconnect().await;
+                                }
                             }
                         }
                     }
@@ -511,6 +521,55 @@ impl ClusterFrontendSession {
                 debug!("{:#?}", CommunityMessage::from_native(pkt.field_3.clone())?);
 
                 match CommunityMessage::from_native(pkt.field_3.clone())? {
+                    // This is called for class test
+                    CommunityMessage::TravelToMap { avatar, map, flag } => {
+                        if avatar != self.avatar_id {
+                            // what are you doing??
+                            warn!("Client tried to 'send' an avatar it doesn't has onership of: {}", avatar);
+                            self.peer.disconnect().await;
+                        } else {
+                            let db = realm_database().await;
+
+                            let zone_id = match map.as_str() {
+                                "ClassTest01_P" => Uuid::parse_str("01678b93-8a77-4849-b8fa-c04388a0401c").unwrap(),
+                                _ => UUID_NIL,
+                            };
+
+                            if let Some(target_zone) = ZoneDef::get(db.clone(), &zone_id).await? {  
+                                if let Err(e) = self.travel(&target_zone.guid, TravelType::EntryPoint).await {
+                                    let session_s = self.session_ref.as_ref().unwrap().lock().await;
+                                    
+                                    error!(
+                                        peer = self.peer.id().to_string(), 
+                                        session = session_s.session().id.to_string(); 
+                                        "Zone connection failed: {:#?}", e);
+                                    self.peer.disconnect().await;
+                                }
+                            } else {
+                                // todo: inform the player, that the travel destination was invalid
+                            }
+                        }
+                    },
+
+                    CommunityMessage::LeaveClassTest { .. } => {
+                        let session_s = self.session_ref.as_ref().unwrap().lock().await;
+
+                        // verify we are in class test mode before transferring back to class select world
+                        if session_s.session().world_id == Some(129) {
+                            drop(session_s);
+
+                            if let Err(e) = self.travel(&Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap(), TravelType::EntryPoint).await {
+                                let session_s = self.session_ref.as_ref().unwrap().lock().await;
+                                
+                                error!(
+                                    peer = self.peer.id().to_string(), 
+                                    session = session_s.session().id.to_string(); 
+                                    "Zone connection failed: {:#?}", e);
+                                self.peer.disconnect().await;
+                            }
+                        }
+                    },
+
                     // This is called after character creation, when choosing to play as a "social" character.
                     // No other instances are kown yet.
                     CommunityMessage::SocialTravel { avatar, map, travel } => {

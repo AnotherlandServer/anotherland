@@ -16,7 +16,7 @@
 use std::{collections::{HashMap, HashSet, VecDeque}, net::{Ipv6Addr, SocketAddr}, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use async_trait::async_trait;
-use atlas::{oaPktS2XConnectionState, oaPktSteamMicroTxn, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktItemUpdate, CPktResourceNotify, CPktServerNotify, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, EdnaModuleAttribute, EdnaModuleClass, ItemBaseParams, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid, UUID_NIL};
+use atlas::{dialogStructure, oaDialogNode, oaPktDialogEnd, oaPktS2XConnectionState, oaPktSteamMicroTxn, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktItemUpdate, CPktResourceNotify, CPktServerNotify, CPktStream_166_2, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, EdnaModuleAttribute, EdnaModuleClass, ItemBaseParams, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid, UUID_NIL};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::{debug, error, trace, warn, info};
 use quinn::ServerConfig;
@@ -158,6 +158,11 @@ impl Frontend for ZoneFrontend {
                                                     let _ = session.send(message.unwrap()).await;
                                                 }
                                             },
+                                            Some(ZoneUpstreamMessage::IngameCommand { session_id, .. }) => {
+                                                if let Some(session) = sessions.get(session_id) {
+                                                    let _ = session.send(message.unwrap()).await;
+                                                }
+                                            },
                                             None => {
                                                 connection_token.cancel();
                                                 downstream_receiver.close();
@@ -282,7 +287,7 @@ impl ZoneSession {
                                         break 'net_loop;
                                     }
                                 },
-                                ZoneUpstreamMessage::Message { message, ..} => {
+                                ZoneUpstreamMessage::Message { message, .. } => {
                                     if let Err(e) = self.handle_message(Message::from_bytes(&message).unwrap().1).await {
                                         error!(
                                             session = self.session_id.to_string(), 
@@ -292,6 +297,9 @@ impl ZoneSession {
                                     }
                                 }
                                 ZoneUpstreamMessage::LeaveZone { .. } => break 'net_loop,
+                                ZoneUpstreamMessage::IngameCommand { command, .. } => {
+                                    self.handle_ingame_command(command).await;
+                                }
                             }
                             
                         } else {
@@ -385,8 +393,6 @@ impl ZoneSession {
             ..Default::default()
         }.into_message()).await?;
 
-        let movement = self.instance.zone().get_avatar_move_state(self.avatar_id).await.unwrap();
-    
         let mut data = Vec::new();
         {
             let mut writer = ByteWriter::endian(&mut data, LittleEndian);
@@ -407,26 +413,6 @@ impl ZoneSession {
                 field_3: "".to_owned(),
                 ..Default::default()
             }.into_message()).await;
-
-            // Update player character on client
-            self.send(CPktAvatarUpdate {
-                full_update: true,
-                avatar_id: Some(self.avatar_id.as_u64()),
-                field_2: Some(false),
-                name: Some(name),
-                class_id: Some(PlayerAttribute::class_id().into()),
-                field_6: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
-                params: data.into(),
-                update_source: 0,
-                movement: Some(MoveManagerInit {
-                    pos: movement.position.into(),
-                    rot: movement.rotation.into(),
-                    vel: movement.velocity.into(),
-                    physics: PhysicsState::Walking.into(),
-                    ..Default::default()
-                }.to_bytes().into()),
-                ..Default::default()
-            }.into_message()).await?;
         }
 
         Ok(())
@@ -497,6 +483,8 @@ impl ZoneSession {
                     session = self.session_id.to_string(), 
                     avatar = self.avatar_id.to_string(); 
                     "Spawning player: {}", name);
+
+                debug!("{:#?}", player.as_set());
 
                 self.send(CPktBlob {
                     avatar_id: self.avatar_id.as_u64(),
@@ -596,11 +584,12 @@ impl ZoneSession {
             },
             AtlasPkt(CPkt::CPktTargetRequest(pkt)) => {
                 if pkt.avatar_id == self.avatar_id.as_u64() {
-                    if pkt.target_avatar_id != 0 {
+                    self.instance.zone().update_player_target(self.avatar_id, pkt.target_avatar_id.into());
+                    /*if pkt.target_avatar_id != 0 {
                         self.target_avatar = Some(pkt.avatar_id.into());
                     } else {
                         self.target_avatar = None;
-                    }
+                    }*/
 
                     debug!(
                         session = self.session_id.to_string(), 
@@ -610,6 +599,41 @@ impl ZoneSession {
             },
             AtlasPkt(CPkt::oaPktDialogList(pkt)) => {
                 debug!("Dialog List: {:#?}", pkt);
+
+                let _ = self.send(CPktStream_166_2 {
+                    field_1: dialogStructure {
+                        npc_id: pkt.target,
+                        dialog_id: 0,
+                        dialog_node: oaDialogNode {
+                            dialog_content_id: 116,
+                            ..Default::default()
+                        },
+                        node_count: 0,
+                        field_4: vec![
+                            /*oaDialogNode {
+                                field_0: 1,
+                                dialog_content_id: 0,
+                                field_2: "Yes".to_string(),
+                                tutorial_vo: "".to_string(),
+                            }*/
+                        ],
+                        field_5: false,
+                        /*component_factory_id: 0,
+                        field_7: 0,
+                        field_8: 0,
+                        field_9: 1,*/
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }.into_message()).await;
+
+                let _ = self.send(oaPktDialogEnd {
+                    field_1: pkt.target,
+                    field_2: 1,
+                    ..Default::default()
+                }.into_message()).await;
+
+                //self.send(pkt.into_message()).await?;
             },
             AtlasPkt(CPkt::CPktRequestAvatarBehaviors(pkt)) => {
                 debug!("Request behavior: {:#?}", pkt);
@@ -669,6 +693,10 @@ impl ZoneSession {
         }
 
         Ok(())
+    }
+
+    async fn handle_ingame_command(&mut self, command: String) {
+        self.instance.zone().exec_command(self.avatar_id, command).await;
     }
 
     async fn send(&self, message: Message) -> AnotherlandResult<()> {
@@ -741,6 +769,8 @@ impl ZoneSession {
                             params.write_to_client(&mut writer)?;
                         }
 
+                        debug!("Send interest: {}", name);
+
                         self.send(CPktAvatarUpdate {
                             full_update: true,
                             avatar_id: Some(avatar_id.as_u64()),
@@ -801,6 +831,9 @@ impl ZoneSession {
                     ..Default::default()
                 }.into_message()).await?;
             }
+
+            // notify that player is ready
+            self.instance.zone().notify_player_ready(self.avatar_id).await;
         }
 
         if self.load_state == ClientLoadState::InGame {

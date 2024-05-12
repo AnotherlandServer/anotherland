@@ -34,6 +34,7 @@ pub enum ZoneUpstreamMessage {
     Travel { session_id: Uuid, destination: TravelType },
     Message { session_id: Uuid, message: Vec<u8> },
     LeaveZone { session_id: Uuid },
+    IngameCommand { session_id: Uuid, command: String },
 }
 
 #[derive(Serialize, Deserialize, Debug)]

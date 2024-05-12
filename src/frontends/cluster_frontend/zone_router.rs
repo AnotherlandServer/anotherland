@@ -41,6 +41,7 @@ enum ZoneRouterCommand {
     NotifyTravel { zone_id: Uuid, session_id: Uuid, destination: TravelType, retval: oneshot::Sender<AnotherlandResult<()>> },
     DropConnection { zone_id: Uuid, session_id: Uuid },
     DropZone { zone_id: Uuid },
+    IngameCommand { zone_id: Uuid, session_id: Uuid, command: String },
 }
 
 #[derive(Clone)]
@@ -177,6 +178,14 @@ impl ZoneRouter {
                                         if client.1.send(ZoneRouterMessage::TravelRequest { zone: zone_id, travel }).await.is_err() {
                                             session_connections.remove(&session_id);
                                         }
+                                    }
+                                },
+                                Some(ZoneRouterCommand::IngameCommand { zone_id, session_id, command }) => {
+                                    if let Ok(connection) = connections.get_zone_server_client(&zone_id) {
+                                        let _ = connection.send(ZoneUpstreamMessage::IngameCommand { 
+                                            session_id, 
+                                            command
+                                        }).await;
                                     }
                                 },
                                 None => break 'event_loop,
@@ -340,6 +349,16 @@ impl ZoneRouterConnection {
         }).await.map_err(|_| AnotherlandErrorKind::IO)?;
 
         retval_receiver.await.map_err(|_| AnotherlandErrorKind::IO)?
+    }
+
+    pub async fn ingame_command(&self, command: String) -> AnotherlandResult<()> {
+        self.command_sender.send(ZoneRouterCommand::IngameCommand { 
+            zone_id: self.zone_id, 
+            session_id: self.session_id, 
+            command,
+        }).await.map_err(|_| AnotherlandErrorKind::IO)?;
+
+        Ok(())
     }
 
     pub async fn receive(&self) -> Option<ZoneRouterMessage> {
