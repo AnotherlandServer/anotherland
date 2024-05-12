@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{oaPktServerAction, oaPktSteamMicroTxn, raknet::Message, AvatarId, NativeParam, Uuid};
+use atlas::{oaPktServerAction, oaPktSteamMicroTxn, raknet::Message, AvatarId, CPktGameMsg, CpktGameMsgMsgType, NativeParam, Uuid};
 use bevy_ecs::component::Component;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -92,6 +92,19 @@ pub enum AvatarEvent {
     ServerAction(ServerAction),
 }
 
+pub enum GameMessage {
+    Normal(String),
+    Combat(String),
+    Console(String),
+    Clan(String),
+    Party(String),
+    //Xp,
+    //Loot,
+    //Quest,
+    PopUp(String),
+    IllegalZone(String),
+}
+
 #[derive(Component)]
 pub struct PlayerController {
     avatar_id: AvatarId,
@@ -137,5 +150,45 @@ impl PlayerController {
 
     pub fn send_travel(&self, zone: Uuid, destination: TravelType) {
         let _ = self.sender.send(AvatarEvent::Travel { zone, destination });
+    }
+
+    pub fn send_game_message(&self, msg: GameMessage) {
+        self.send_message(match msg {
+            GameMessage::Normal(msg) => CPktGameMsg {
+                msg_type: CpktGameMsgMsgType::Normal,
+                message: msg,
+                ..Default::default()
+            },
+            GameMessage::Combat(msg) => CPktGameMsg {
+                msg_type: CpktGameMsgMsgType::Combat,
+                message: msg,
+                ..Default::default()
+            },
+            GameMessage::Console(msg) => CPktGameMsg {
+                msg_type: CpktGameMsgMsgType::Console,
+                message: msg,
+                ..Default::default()
+            },
+            GameMessage::Clan(msg) => CPktGameMsg {
+                msg_type: CpktGameMsgMsgType::Clan,
+                message: msg,
+                ..Default::default()
+            },
+            GameMessage::Party(msg) => CPktGameMsg {
+                msg_type: CpktGameMsgMsgType::Party,
+                message: msg,
+                ..Default::default()
+            },
+            GameMessage::PopUp(msg) => CPktGameMsg {
+                msg_type: CpktGameMsgMsgType::PopUp,
+                message: msg,
+                ..Default::default()
+            },
+            GameMessage::IllegalZone(msg) => CPktGameMsg {
+                msg_type: CpktGameMsgMsgType::IllegalZone,
+                message: msg,
+                ..Default::default()
+            },
+        }.into_message());
     }
 }

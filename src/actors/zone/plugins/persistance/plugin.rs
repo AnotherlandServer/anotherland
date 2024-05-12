@@ -14,18 +14,27 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::app::{First, Last, Plugin};
-use bevy_ecs::component::Component;
+use bevy_ecs::{component::Component, schedule::IntoSystemConfigs};
 
-use super::{insert_new_items, prepare_player_change_detection, update_item_database, update_player_database};
+use crate::actors::zone::plugins::send_param_update_events;
+
+use super::{insert_new_items, remove_old_items, update_item_database, update_player_database};
 
 pub struct PersistancePlugin;
 
 impl Plugin for PersistancePlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.add_systems(First, prepare_player_change_detection);
-        app.add_systems(Last, (update_player_database, insert_new_items, update_item_database));
+        app.add_systems(Last, (
+            update_player_database.after(send_param_update_events), 
+            insert_new_items, 
+            remove_old_items, 
+            update_item_database
+        ));
     }
 }
 
 #[derive(Component)]
 pub struct CreationPending;
+
+#[derive(Component)]
+pub struct RemovalPending;

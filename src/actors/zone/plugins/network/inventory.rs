@@ -54,7 +54,7 @@ pub fn send_item_updates(
             let mut param_buffer = Vec::new();
             let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
-            debug!("Item update: {:?}", params);
+            //debug!("Item update: {:?}", params);
 
             params.write_to_client(&mut writer).expect("failed to write item params");
 

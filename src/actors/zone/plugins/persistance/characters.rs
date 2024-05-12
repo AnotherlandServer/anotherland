@@ -15,46 +15,30 @@
 
 use std::str::FromStr;
 
-use atlas::{ParamAttrib, ParamBox, ParamFlag, PlayerAttribute, PlayerComponent, PlayerParams};
-use bevy_ecs::{component::Component, entity::Entity, query::{Added, Changed, With}, system::{Commands, Query, Res}};
+use atlas::{ParamAttrib, ParamFlag, PlayerAttribute, PlayerComponent};
+use bevy_ecs::{event::EventReader, query::With, system::{Query, Res}};
 use bson::{doc, Document};
 use log::{debug, error};
 
-use crate::{actors::{zone::resources::Tasks, AvatarComponent, RealmDatabase}, db::{Character, DatabaseRecord}};
-
-#[derive(Component)]
-pub struct PreviousParamBox(ParamBox);
-
-pub fn prepare_player_change_detection(
-    query: Query<(Entity, &ParamBox), Added<PlayerComponent>>,
-    mut cmds: Commands,
-) {
-    for (entity, params) in query.iter() {
-        cmds.entity(entity)
-            .insert(PreviousParamBox(params.clone()));
-    }
-}
+use crate::{actors::{zone::{plugins::ParamsChangedEvent, resources::Tasks}, AvatarComponent, RealmDatabase}, db::{Character, DatabaseRecord}};
 
 pub fn update_player_database(
-    mut query: Query<(&AvatarComponent, &ParamBox, &mut PreviousParamBox), (With<PlayerComponent>, Changed<ParamBox>)>,
+    mut ev: EventReader<ParamsChangedEvent>,
+    mut query: Query<&AvatarComponent, With<PlayerComponent>>,
     tasks: Res<Tasks>,
     db: Res<RealmDatabase>,
 ) {
-    for (avatar, params, mut prev_params) in query.iter_mut() {
-        let diff = params.diff(&prev_params.0);
-        params.clone_into(&mut prev_params.0);
-
-        let bling = params.get_impl::<dyn PlayerParams>().unwrap().bling();
-
-        if !diff.is_empty() {
+    for ParamsChangedEvent(entity, avatar, params) in ev.read() {
+        if let Ok(avatar) = query.get(*entity) {
             let id = avatar.record_id.unwrap();
             let db = db.0.clone();
+            let params = params.clone();
 
             let _guard = tasks.handle.enter();
             tasks.tasks.spawn(async move {
                 let collection = Character::collection(db);
                 let mut values = Document::new();
-                for (key, val) in diff.as_hash_map() {
+                for (key, val) in params.as_hash_map() {
                     if let Ok(attr) = PlayerAttribute::from_str(&key) {
                         if attr.has_flag(&ParamFlag::Persistent) {
                             values.insert(format!("data.{}", key), bson::to_bson(&val).unwrap());

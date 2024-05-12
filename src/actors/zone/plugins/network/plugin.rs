@@ -13,22 +13,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::app::{First, Last, Plugin, PostUpdate};
+use bevy::app::{Last, Plugin};
+use bevy_ecs::schedule::IntoSystemConfigs;
 
-use super::{combat::send_hitpoint_updates, initialize_fog_of_war, inventory::{send_item_removals, send_item_updates, track_added_items, ItemTracker}, params::{prepare_param_updates, send_param_updates}, positions::send_position_updates};
+use crate::actors::zone::plugins::{remove_old_items, send_param_update_events};
+
+use super::{combat::send_hitpoint_updates, initialize_fog_of_war, inventory::{send_item_removals, send_item_updates, track_added_items, ItemTracker}, params::send_param_updates, positions::send_position_updates};
 
 pub struct NetworkPlugin;
 
 impl Plugin for NetworkPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         app.insert_resource(ItemTracker::new());
-        app.add_systems(First, prepare_param_updates);
         app.add_systems(Last, (
             send_position_updates,
-            send_param_updates,
+            send_param_updates.after(send_param_update_events),
             send_hitpoint_updates,
             send_item_updates,
-            send_item_removals,
+            send_item_removals.after(remove_old_items),
             track_added_items,
             initialize_fog_of_war,
         ));

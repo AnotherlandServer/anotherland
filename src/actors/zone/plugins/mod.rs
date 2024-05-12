@@ -20,6 +20,8 @@ mod network;
 mod hitpoints;
 mod position;
 mod persistance;
+mod params;
+mod commands;
 
 pub use behavior::*;
 pub use subjectivity::*;
@@ -28,3 +30,5 @@ pub use network::*;
 pub use hitpoints::*;
 pub use position::*;
 pub use persistance::*;
+pub use params::*;
+pub use commands::*;
