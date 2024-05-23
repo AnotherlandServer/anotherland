@@ -32,7 +32,7 @@ pub fn send_hitpoint_updates(
                 debug!("Send hp update: {}-{}", avatar.id, hp.current());
 
                 controller.send_message(oaPkt_Combat_HpUpdate {
-                    avatar_id: avatar.id.as_u64(),
+                    avatar_id: avatar.id,
                     hp: hp.current(),
                     ..Default::default()
                 }.into_message());

@@ -28,7 +28,7 @@ pub fn surf_spline(
         debug!("Finish surfing spline: {:?}-{}", avatar.id, surfing.spline.id);
 
         controller.send_message(oaPkt_SplineSurfing_Exit {
-            avatar_id: avatar.id.as_u64(),
+            avatar_id: avatar.id,
             spline_id: surfing.spline.id,
             ..Default::default()
         }.into_message());

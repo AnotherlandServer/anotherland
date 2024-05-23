@@ -487,7 +487,7 @@ impl ZoneSession {
                 debug!("{:#?}", player.as_set());
 
                 self.send(CPktBlob {
-                    avatar_id: self.avatar_id.as_u64(),
+                    avatar_id: self.avatar_id,
                     avatar_name: name,
                     class_id: PlayerAttribute::class_id().into(),
                     params: param_buffer.into(),
@@ -566,7 +566,7 @@ impl ZoneSession {
                 }
             },
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
-                if pkt.avatar_id.unwrap_or_default() == self.avatar_id.as_u64() {
+                if pkt.avatar_id.unwrap_or_default() == self.avatar_id {
                     if let Ok((_, params)) = ParamSet::<PlayerAttribute>::read(pkt.params.as_slice()) {
                         self.instance.zone().update_avatar(self.avatar_id, params.into_box()).await;
                     } else {
@@ -583,18 +583,7 @@ impl ZoneSession {
                 }
             },
             AtlasPkt(CPkt::CPktTargetRequest(pkt)) => {
-                if pkt.avatar_id == self.avatar_id.as_u64() {
-                    self.instance.zone().update_player_target(self.avatar_id, pkt.target_avatar_id.into());
-                    /*if pkt.target_avatar_id != 0 {
-                        self.target_avatar = Some(pkt.avatar_id.into());
-                    } else {
-                        self.target_avatar = None;
-                    }*/
-
-                    debug!(
-                        session = self.session_id.to_string(), 
-                        avatar = self.avatar_id.to_string(); 
-                        "Selected avatar: {:?}", self.target_avatar);
+                if pkt.avatar_id == self.avatar_id {
                 }
             },
             AtlasPkt(CPkt::oaPktDialogList(pkt)) => {
@@ -641,14 +630,14 @@ impl ZoneSession {
                 self.instance.zone().request_behavior(pkt.avatar_id.into(), pkt.behaviour, pkt.data).await;
             },
             AtlasPkt(CPkt::oaPktAvatarTellBehavior(pkt)) => {
-                if pkt.instigator != self.avatar_id.as_u64() {
+                if pkt.instigator != self.avatar_id {
                     warn!("Client tried to instigate behavior on behalf of other avatar: {:#?}", pkt);
                 } else {
                     self.instance.zone().tell_behavior(pkt.instigator.into(), pkt.target.into(), pkt.behavior).await;
                 }
             },
             AtlasPkt(CPkt::oaPktAvatarTellBehaviorBinary(pkt)) => {
-                if pkt.instigator != self.avatar_id.as_u64() {
+                if pkt.instigator != self.avatar_id {
                     warn!("Client tried to instigate behavior on behalf of other avatar: {:#?}", pkt);
                 } else {
                     self.instance.zone().tell_behavior_binary(pkt.instigator.into(), pkt.target.into(), pkt.behavior, pkt.data).await;
@@ -721,7 +710,7 @@ impl ZoneSession {
         let interests: Vec<_> = self.interest_list.drain().collect();
         for avatar_id in interests {
             self.send(CPktAvatarClientNotify {
-                avatar_id: avatar_id.as_u64(),
+                avatar_id,
                 ..Default::default()
             }.into_message()).await?;
         }
@@ -745,7 +734,7 @@ impl ZoneSession {
             // remove avatars we are not interested in anymore
             while let Some(avatar_id) = self.interest_removed_queue.pop_front() {
                 self.send(CPktAvatarClientNotify {
-                    avatar_id: avatar_id.as_u64(),
+                    avatar_id,
                     ..Default::default()
                 }.into_message()).await?;
 
@@ -773,7 +762,7 @@ impl ZoneSession {
 
                         self.send(CPktAvatarUpdate {
                             full_update: true,
-                            avatar_id: Some(avatar_id.as_u64()),
+                            avatar_id: Some(avatar_id),
                             field_2: Some(false),
                             name: Some(name),
                             class_id: Some(params.class_id().into()),

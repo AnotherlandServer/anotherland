@@ -65,7 +65,7 @@ impl ServerAction {
 
         if let Some(teleport_override) = teleport_override {
             oaPktServerAction {
-                instigator: instigator.as_u64(),
+                instigator,
                 action,
                 version,
                 override_teleport: true,
@@ -75,7 +75,7 @@ impl ServerAction {
             }.into_message()
         } else {
             oaPktServerAction {
-                instigator: instigator.as_u64(),
+                instigator,
                 action,
                 version,
                 ..Default::default()

@@ -29,7 +29,7 @@ pub fn send_position_updates(
         for (interests, controller) in players.iter() {
             if interests.contains(avatar.id) {
                 controller.send_message(oaPktMoveManagerPosUpdate {
-                    avatar_id: avatar.id.as_u64(),
+                    avatar_id: avatar.id,
                     pos: pos.position.into(),
                     rot: pos.rotation.into(),
                     vel: pos.velocity.into(),

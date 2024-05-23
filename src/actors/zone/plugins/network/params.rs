@@ -40,7 +40,7 @@ pub fn send_param_updates(
 
                 controller.send_message(CPktAvatarUpdate {
                     full_update: false,
-                    avatar_id: Some(avatar_id.as_u64()),
+                    avatar_id: Some(*avatar_id),
                     update_source: 0,
                     params: param_buffer.into(),
                     ..Default::default()
