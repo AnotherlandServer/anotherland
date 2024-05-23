@@ -576,6 +576,7 @@ pub fn award_start_equipment(
     In(entity): In<Entity>,
     mut players: Query<(&mut PlayerInventory, &mut PlayerLoadout)>,
     mut ev_award_and_equip: EventWriter<AwardItemAndEquipTransaction>,
+    mut ev_award: EventWriter<AwardItemTransaction>,
     mut cmds: Commands,
 ) {
     if let Ok((mut inventory, mut loadout)) = players.get_mut(entity) {
@@ -594,10 +595,26 @@ pub fn award_start_equipment(
                 .insert(RemovalPending);
         }
 
+        
         // add default gear
         ev_award_and_equip.send(AwardItemAndEquipTransaction { 
             entity, 
-            template_id: Uuid::parse_str("1d48a935-7f91-4e7e-b1e9-f8cdb6f23b09").unwrap() 
+            template_id: Uuid::parse_str("1d48a935-7f91-4e7e-b1e9-f8cdb6f23b09").unwrap() // shirt
         });
+
+        ev_award_and_equip.send(AwardItemAndEquipTransaction { 
+            entity, 
+            template_id: Uuid::parse_str("bd018939-3293-4a28-b590-68f38f6e9a94").unwrap() // pants
+        });
+
+        ev_award.send(AwardItemTransaction { 
+            entity, 
+            template_id: Uuid::parse_str("292837be-2ca6-49d6-b9d7-19b27fa9c642").unwrap()
+        });
+
+        /*ev_award_and_equip.send(AwardItemAndEquipTransaction { 
+            entity, 
+            template_id: Uuid::parse_str("292837be-2ca6-49d6-b9d7-19b27fa9c642").unwrap() // club
+        });*/
     }
 }

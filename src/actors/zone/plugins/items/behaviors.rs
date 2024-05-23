@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{ItemBaseComponent, ItemBaseParams, ItemEdnaParams, NativeParam, ParamBox, PlayerComponent, PlayerParams, Slot, Uuid};
+use atlas::{ItemBaseComponent, ItemBaseParams, ItemEdnaParams, NativeParam, ParamBox, PlayerComponent, PlayerParams, Slot, Uuid, UUID_NIL};
 use bevy_ecs::{event::EventWriter, query::{With, Without}, system::{Commands, In, Query, Res}};
 use bson::doc;
 use log::{debug, error, warn};
@@ -185,5 +185,21 @@ pub fn request_unequip(
         let Some((_, _, item)) = inventory.lookup_item_id(inventory_item_id)
     {
         ev.send(UnequipItemTransaction { player: instigator, item });
+    }
+}
+
+pub fn request_select_weapon(
+    In((instigator, _, behavior)): In<BehaviorArguments>,
+    mut players: Query<(&PlayerInventory, &mut ParamBox)>,
+) {
+    if 
+        let Behavior::String(_, args) = behavior &&
+        let Ok((inventory, mut params)) = players.get_mut(instigator) &&
+        let Some(inventory_item_id) = args.first()
+            .and_then(|s| Uuid::parse_str(s).ok()) &&
+        let Some(params) = params.get_impl_mut::<dyn PlayerParams>() &&
+        inventory.lookup_item_id(inventory_item_id).is_some()
+    {
+        params.set_weapon((inventory_item_id, UUID_NIL));
     }
 }

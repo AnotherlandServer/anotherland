@@ -23,7 +23,7 @@ use log::{debug, error};
 
 use crate::{actors::{zone::{plugins::{remove_old_items, BehaviorExt}, resources::Tasks}, AvatarComponent, EntityType, EventChannelExtension}, db::{get_cached_item, get_cached_item_by_id, realm_database, InventoryEntry}};
 
-use super::{discard_item, do_vendor_execute, perform_award_item_and_equip_transactions, perform_award_item_transactions, perform_equip_item_transactions, process_buy_request, process_remove_item_transaction, process_unequip_item_transactions, request_equip, request_unequip, spawn_inventory_entry, update_inventory_item_pos, AwardItemAndEquipTransaction, AwardItemTransaction, EquipItemTransaction, Equipped, InventoryTab, ItemPurchaseRequest, ItemReference, ItemSellRequest, MoveItemTransaction, PlayerDisguise, PlayerInventory, PlayerLoadout, RemoveItemTransaction, AwardStartEquipmentTransaction, UnequipItemTransaction};
+use super::{discard_item, do_vendor_execute, perform_award_item_and_equip_transactions, perform_award_item_transactions, perform_equip_item_transactions, process_buy_request, process_remove_item_transaction, process_unequip_item_transactions, request_equip, request_select_weapon, request_unequip, spawn_inventory_entry, update_inventory_item_pos, AwardItemAndEquipTransaction, AwardItemTransaction, AwardStartEquipmentTransaction, EquipItemTransaction, Equipped, InventoryTab, ItemPurchaseRequest, ItemReference, ItemSellRequest, MoveItemTransaction, PlayerDisguise, PlayerInventory, PlayerLoadout, RemoveItemTransaction, UnequipItemTransaction};
 
 #[derive(Component)]
 pub struct Item {
@@ -91,11 +91,7 @@ pub struct InventoryPlugin;
 
 impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        //let (entry_sender, entry_receiver) = mpsc::channel::<InventoryQueryResult>();
-
         app.add_systems(First, (
-            //load_player_inventory, 
-            //insert_player_inventory, 
             process_buy_request, 
             cleanup_player_inventory
                 .after(remove_old_items),
@@ -122,48 +118,15 @@ impl Plugin for InventoryPlugin {
         app.add_event::<EquipItemTransaction>();
         app.add_event::<UnequipItemTransaction>();
 
-        //app.add_event_channel(entry_receiver);
-
-        //app.insert_resource(InventoryQueryResultSender(entry_sender));
-
         app.add_behavior(EntityType::Player, "inventoryItemPos", update_inventory_item_pos);
         app.add_behavior(EntityType::Player, "RequestDiscardItem", discard_item);
         app.add_behavior(EntityType::Player, "RequestEquip", request_equip);
         app.add_behavior(EntityType::Player, "RequestUnequip", request_unequip);
+        app.add_behavior(EntityType::Player, "requestselectweapon", request_select_weapon);
 
         app.add_behavior(EntityType::NpcOtherland, "doVendorExecute", do_vendor_execute);
     }
 }
-
-/*fn load_player_inventory(
-    tasks: Res<Tasks>,
-    entry_query_sender: Res<InventoryQueryResultSender>,
-    players: Query<(Entity, &AvatarComponent), (Added<PlayerComponent>, Without<PlayerInventory>)>
-) {
-    for (entity, avatar) in players.iter() {
-        let character_id = avatar.record_id.unwrap();
-        let entry_query_sender = entry_query_sender.0.clone();
-        
-        // asynchronously read the inventory database and emit records
-        tasks.tasks.spawn(async move {
-            match InventoryEntry::get_player_inventory(realm_database().await, character_id).await {
-                Ok(mut cursor) => {
-                    let mut entries = Vec::new();
-
-                    while let Ok(Some(entry)) = cursor.try_next().await {
-                        entries.push(entry);
-                    }
-
-                    debug!("Player inventory query finished");
-                    let _ = entry_query_sender.send(InventoryQueryResult(entity, entries));
-                },
-                Err(e) => {
-                    error!("Failed to read inventory for character {}: {:?}", character_id, e);
-                }
-            }
-        });
-    }
-}*/
 
 pub fn insert_player_inventory(
     In((entity, entries)): In<(Entity, Vec<InventoryEntry>)>,
