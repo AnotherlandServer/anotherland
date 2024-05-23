@@ -57,23 +57,31 @@ pub fn generate_item_slots(client_path: &Path) -> Result<(), io::Error> {
     let mut slot_parsers = Vec::new();
     let mut slot_id_matcher = Vec::new();
 
+    let mut last_group = "".to_string();
+
     for record in rdr.records().skip(1) {
         match record {
             Ok(record) => {
                 let slot_name = record.get(0).unwrap();
+                let slot_group = record.get(1).unwrap();
                 let slot_ident = format_ident!("{}", slot_name.to_case(Case::UpperCamel));
                 let type_ident = format_ident!("{}", record.get(1).unwrap().to_case(Case::UpperCamel));
                 let base_appearance = record.get(7).unwrap() == "1";
 
+                if last_group != slot_group {
+                    last_group = slot_group.to_string();
+                    id = 0;
+                }
+
                 slot_idents.push(slot_ident.clone());
 
                 let slots: Vec<_> = record.get(2).unwrap().split(';')
-                    .filter_map(|slot| {
+                    .map(|slot| {
                         if slot == "-1" {
-                            None
+                            quote!{ Self::#slot_ident }
                         } else {
                             let slot = &slot_idents[slot.parse::<usize>().unwrap()];
-                            Some(quote!{ Self::#slot })
+                            quote!{ Self::#slot }
                         }
                     })
                     .collect();
