@@ -13,7 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{dialogStructure, oaDialogNode, CPktStream_166_2, ClassSkill, ClassSkills, HeavyData, HeavyDataEntry, NonClientBaseParams, Param, ParamBox, PlayerComponent, PlayerParams, TriggerComponent, TriggerParams, Uuid, UUID_NIL};
+use std::iter::repeat;
+
+use atlas::{dialogStructure, oaDialogNode, AvatarId, CPktStream_166_2, ClassSkill, ClassSkills, HeavyData, HeavyDataEntry, NonClientBaseParams, Param, ParamBox, PlayerComponent, PlayerParams, TriggerComponent, TriggerParams, Uuid, UUID_NIL};
 use bevy::{prelude::*, utils::HashMap};
 use bevy_ecs::{entity::Entity, query::{Added, With, Without}, system::{Commands, In, Query, Resource, SystemId}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
@@ -40,6 +42,14 @@ impl Plugin for TriggerBehaviors {
         scripts.insert("ClassAssassin", app.world.register_system(trigger_class_assassin));
         scripts.insert("ClassEnergizer", app.world.register_system(trigger_class_energizer));
         scripts.insert("HN01", app.world.register_system(trigger_hn01));
+        scripts.insert("HN05", app.world.register_system(trigger_hn05));
+        scripts.insert("HN08", app.world.register_system(trigger_hn08));
+        scripts.insert("HN10", app.world.register_system(trigger_hn10));
+        scripts.insert("HN14", app.world.register_system(trigger_hn14));
+        scripts.insert("HN19", app.world.register_system(trigger_hn19));
+        scripts.insert("HN20", app.world.register_system(trigger_hn20));
+        scripts.insert("HN21", app.world.register_system(trigger_hn21));
+        scripts.insert("HN22", app.world.register_system(trigger_hn22));
 
         app.add_behavior(EntityType::Trigger, "triggeraction", trigger_actions);
         app.insert_resource(TriggerScripts(scripts));
@@ -72,6 +82,7 @@ fn trigger_actions(
 ) {
     if let Ok((params, script)) = triggers.get(target) {
         if let Some(script) = script {
+            debug!("Run trigger: {}", params.get_impl::<dyn TriggerParams>().unwrap().lua_script());
             cmds.run_system_with_input(script.0, (instigator, target));
         } else {
             warn!("Client triggered unimplemented script: '{}'!", params.get_impl::<dyn TriggerParams>().unwrap().lua_script());
@@ -155,15 +166,238 @@ pub fn trigger_hn01(
     players: Query<&PlayerController>,
 ) {
     if let Ok(controller) = players.get(instigator) {
-        debug!("Start tutorial");
-
         controller.send_message(CPktStream_166_2 {
             field_1: dialogStructure {
+                npc_id: AvatarId::default(),
+                dialog_id: 2804,
                 dialog_node: oaDialogNode {
                     dialogue_id: 2804,
+                    dialog_content_id: 0,
                     dialogue_serial_number: "0".to_string(),
                     ..Default::default()
                 },
+                choice_count: 0,
+                choices: vec![],
+                field_5: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }.into_message());
+    }
+}
+
+pub fn trigger_hn05(
+    In((instigator, _)): In<TriggerArguments>,
+    players: Query<&PlayerController>,
+) {
+    if let Ok(controller) = players.get(instigator) {
+        controller.send_message(CPktStream_166_2 {
+            field_1: dialogStructure {
+                npc_id: AvatarId::default(),
+                dialog_id: 2838,
+                dialog_node: oaDialogNode {
+                    dialogue_id: 2838,
+                    dialog_content_id: 0,
+                    dialogue_serial_number: "0".to_string(),
+                    ..Default::default()
+                },
+                choice_count: 0,
+                choices: vec![],
+                field_5: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }.into_message());
+
+        controller.send_message(CPktStream_166_2 {
+            field_1: dialogStructure {
+                npc_id: AvatarId::default(),
+                dialog_id: 2808,
+                dialog_node: oaDialogNode {
+                    dialogue_id: 2808,
+                    dialog_content_id: 0,
+                    dialogue_serial_number: "0".to_string(),
+                    ..Default::default()
+                },
+                choice_count: 0,
+                choices: vec![],
+                field_5: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }.into_message());
+    }
+}
+
+pub fn trigger_hn08(
+    In((instigator, _)): In<TriggerArguments>,
+    players: Query<&PlayerController>,
+) {
+    if let Ok(controller) = players.get(instigator) {
+        controller.send_message(CPktStream_166_2 {
+            field_1: dialogStructure {
+                npc_id: AvatarId::default(),
+                dialog_id: 2811,
+                dialog_node: oaDialogNode {
+                    dialogue_id: 2811,
+                    dialog_content_id: 0,
+                    dialogue_serial_number: "0".to_string(),
+                    ..Default::default()
+                },
+                choice_count: 0,
+                choices: vec![],
+                field_5: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }.into_message());
+    }
+}
+
+pub fn trigger_hn10(
+    In((instigator, _)): In<TriggerArguments>,
+    players: Query<&PlayerController>,
+) {
+    if let Ok(controller) = players.get(instigator) {
+        controller.send_message(CPktStream_166_2 {
+            field_1: dialogStructure {
+                npc_id: AvatarId::default(),
+                dialog_id: 2813,
+                dialog_node: oaDialogNode {
+                    dialogue_id: 2813,
+                    dialog_content_id: 0,
+                    dialogue_serial_number: "0".to_string(),
+                    ..Default::default()
+                },
+                choice_count: 0,
+                choices: vec![],
+                field_5: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }.into_message());
+    }
+}
+
+pub fn trigger_hn14(
+    In((instigator, _)): In<TriggerArguments>,
+    players: Query<&PlayerController>,
+) {
+    if let Ok(controller) = players.get(instigator) {
+        controller.send_message(CPktStream_166_2 {
+            field_1: dialogStructure {
+                npc_id: AvatarId::default(),
+                dialog_id: 2817,
+                dialog_node: oaDialogNode {
+                    dialogue_id: 2817,
+                    dialog_content_id: 0,
+                    dialogue_serial_number: "0".to_string(),
+                    ..Default::default()
+                },
+                choice_count: 0,
+                choices: vec![],
+                field_5: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }.into_message());
+    }
+}
+
+pub fn trigger_hn19(
+    In((instigator, _)): In<TriggerArguments>,
+    players: Query<&PlayerController>,
+) {
+    if let Ok(controller) = players.get(instigator) {
+        controller.send_message(CPktStream_166_2 {
+            field_1: dialogStructure {
+                npc_id: AvatarId::default(),
+                dialog_id: 2822,
+                dialog_node: oaDialogNode {
+                    dialogue_id: 2822,
+                    dialog_content_id: 0,
+                    dialogue_serial_number: "0".to_string(),
+                    ..Default::default()
+                },
+                choice_count: 0,
+                choices: vec![],
+                field_5: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }.into_message());
+    }
+}
+
+
+pub fn trigger_hn20(
+    In((instigator, _)): In<TriggerArguments>,
+    players: Query<&PlayerController>,
+) {
+    if let Ok(controller) = players.get(instigator) {
+        controller.send_message(CPktStream_166_2 {
+            field_1: dialogStructure {
+                npc_id: AvatarId::default(),
+                dialog_id: 2823,
+                dialog_node: oaDialogNode {
+                    dialogue_id: 2823,
+                    dialog_content_id: 0,
+                    dialogue_serial_number: "0".to_string(),
+                    ..Default::default()
+                },
+                choice_count: 0,
+                choices: vec![],
+                field_5: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }.into_message());
+    }
+}
+
+pub fn trigger_hn21(
+    In((instigator, _)): In<TriggerArguments>,
+    players: Query<&PlayerController>,
+) {
+    if let Ok(controller) = players.get(instigator) {
+        controller.send_message(CPktStream_166_2 {
+            field_1: dialogStructure {
+                npc_id: AvatarId::default(),
+                dialog_id: 2824,
+                dialog_node: oaDialogNode {
+                    dialogue_id: 2824,
+                    dialog_content_id: 0,
+                    dialogue_serial_number: "0".to_string(),
+                    ..Default::default()
+                },
+                choice_count: 0,
+                choices: vec![],
+                field_5: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }.into_message());
+    }
+}
+
+pub fn trigger_hn22(
+    In((instigator, _)): In<TriggerArguments>,
+    players: Query<&PlayerController>,
+) {
+    if let Ok(controller) = players.get(instigator) {
+        controller.send_message(CPktStream_166_2 {
+            field_1: dialogStructure {
+                npc_id: AvatarId::default(),
+                dialog_id: 2825,
+                dialog_node: oaDialogNode {
+                    dialogue_id: 2825,
+                    dialog_content_id: 0,
+                    dialogue_serial_number: "0".to_string(),
+                    ..Default::default()
+                },
+                choice_count: 0,
+                choices: vec![],
+                field_5: false,
                 ..Default::default()
             },
             ..Default::default()

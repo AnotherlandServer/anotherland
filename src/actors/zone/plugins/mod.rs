@@ -22,6 +22,7 @@ mod position;
 mod persistance;
 mod params;
 mod commands;
+mod combat;
 
 pub use behavior::*;
 pub use subjectivity::*;
@@ -32,3 +33,4 @@ pub use position::*;
 pub use persistance::*;
 pub use params::*;
 pub use commands::*;
+pub use combat::*;

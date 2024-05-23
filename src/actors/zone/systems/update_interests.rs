@@ -44,9 +44,9 @@ pub fn update_interests(
             if let Some(base) = base {
                 // todo: implement proper visibility rules
                 if (position.position.distance(other_pos.position) <= player.aware_dist() || base.always_visible_to_players()) &&
-                    base.visible_on_quest_complete().is_empty() &&
+                    /*base.visible_on_quest_complete().is_empty() &&
                     base.visible_on_quest_finished().is_empty() &&
-                    base.visible_on_quest_in_progress().is_empty() &&
+                    base.visible_on_quest_in_progress().is_empty() &&*/
                     !base.hidden_from_clients() &&
                     !base.hidden_from_players()
                 {

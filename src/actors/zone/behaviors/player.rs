@@ -166,7 +166,7 @@ fn start_spline_surfing(
                 commands.entity(instigator).insert(SplineSurfing::new(spline.to_owned(), inverse_travel));
 
                 controller.send_message(oaPkt_SplineSurfing_Acknowledge {
-                    avatar_id: avatar.id.as_u64(),
+                    avatar_id: avatar.id,
                     spline_id,
                     acknowledged: true,
                     inverse_travel,
@@ -175,7 +175,7 @@ fn start_spline_surfing(
                 }.into_message());
             } else {
                 controller.send_message(oaPkt_SplineSurfing_Acknowledge {
-                    avatar_id: avatar.id.as_u64(),
+                    avatar_id: avatar.id,
                     spline_id,
                     acknowledged: false,
                     inverse_travel,

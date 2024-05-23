@@ -16,7 +16,7 @@
 use std::{collections::{HashMap, HashSet, VecDeque}, net::{Ipv6Addr, SocketAddr}, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use async_trait::async_trait;
-use atlas::{dialogStructure, oaDialogNode, oaPktDialogEnd, oaPktS2XConnectionState, oaPktSteamMicroTxn, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktItemUpdate, CPktResourceNotify, CPktServerNotify, CPktStream_166_2, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, EdnaModuleAttribute, EdnaModuleClass, ItemBaseParams, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid, UUID_NIL};
+use atlas::{dialogStructure, oaDialogChoice, oaDialogNode, oaPktDialogEnd, oaPktQuestGiverStatus, oaPktS2XConnectionState, oaPktSteamMicroTxn, oaQuestCondition, oaQuestTemplate, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktItemUpdate, CPktResourceNotify, CPktServerNotify, CPktStream_165_2, CPktStream_166_2, ClassId, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, EdnaModuleAttribute, EdnaModuleClass, ItemBaseParams, MoveManagerInit, NativeParam, OaPktQuestRequestRequest, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid, UUID_NIL};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::{debug, error, trace, warn, info};
 use quinn::ServerConfig;
@@ -224,8 +224,6 @@ struct ZoneSession {
 
     server_actions: VecDeque<ServerAction>,
 
-    target_avatar: Option<AvatarId>,
-
     dont_save_on_disconnect: bool,
 }
 
@@ -256,7 +254,6 @@ impl ZoneSession {
             interest_removed_queue: VecDeque::new(),
             ignore_interest_updates: false,
             server_actions: VecDeque::new(),
-            target_avatar: None,
             dont_save_on_disconnect: false,
         };
 
@@ -584,45 +581,18 @@ impl ZoneSession {
             },
             AtlasPkt(CPkt::CPktTargetRequest(pkt)) => {
                 if pkt.avatar_id == self.avatar_id {
+                    self.instance.zone().update_player_target(self.avatar_id, pkt.target_avatar_id.into()).await;
                 }
             },
             AtlasPkt(CPkt::oaPktDialogList(pkt)) => {
-                debug!("Dialog List: {:#?}", pkt);
-
-                let _ = self.send(CPktStream_166_2 {
-                    field_1: dialogStructure {
-                        npc_id: pkt.target,
-                        dialog_id: 0,
-                        dialog_node: oaDialogNode {
-                            dialog_content_id: 116,
-                            ..Default::default()
-                        },
-                        node_count: 0,
-                        field_4: vec![
-                            /*oaDialogNode {
-                                field_0: 1,
-                                dialog_content_id: 0,
-                                field_2: "Yes".to_string(),
-                                tutorial_vo: "".to_string(),
-                            }*/
-                        ],
-                        field_5: false,
-                        /*component_factory_id: 0,
-                        field_7: 0,
-                        field_8: 0,
-                        field_9: 1,*/
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                }.into_message()).await;
-
-                let _ = self.send(oaPktDialogEnd {
-                    field_1: pkt.target,
-                    field_2: 1,
-                    ..Default::default()
-                }.into_message()).await;
-
-                //self.send(pkt.into_message()).await?;
+                if pkt.instigator == self.avatar_id {
+                    self.instance.zone().handle_message(pkt.into_message()).await;
+                }
+            },
+            AtlasPkt(CPkt::oaPktDialogChoice(pkt)) => {
+                if pkt.instigator == self.avatar_id {
+                    self.instance.zone().handle_message(pkt.into_message()).await;
+                }
             },
             AtlasPkt(CPkt::CPktRequestAvatarBehaviors(pkt)) => {
                 debug!("Request behavior: {:#?}", pkt);
@@ -672,6 +642,35 @@ impl ZoneSession {
             AtlasPkt(CPkt::oaPktAccountBankRequest(_)) => {
                 self.instance.zone().transfer_bling(self.avatar_id, 1000).await;
                 self.instance.zone().transfer_game_cash(self.avatar_id, 1000).await;
+            },
+            AtlasPkt(CPkt::oaPktQuestRequest(pkt)) => {
+                debug!("{:#?}", pkt);
+                
+                if pkt.request == OaPktQuestRequestRequest::Request {
+                    self.send(CPktStream_165_2 {
+                        field_1: oaQuestTemplate {
+                            quest_id: pkt.quest_id,
+                            level: 1,
+                            exp_reward: 13,
+                            bit_reward: 14,
+                            world_guid: Uuid::parse_str("1467e796-c109-4dd7-8943-67fa5f27002b").unwrap(),
+                            ..Default::default()
+                        },
+                        conditions: 1,
+                        field_3: vec![
+                            oaQuestCondition {
+                                quest_id: pkt.quest_id,
+                                condition_id: 0, 
+                                required_count: 1,  
+                                greater_than_one: 2,
+                                ..Default::default()
+                            }
+                        ],
+                        ..Default::default()
+                    }.into_message()).await?;
+                } else if pkt.player == self.avatar_id {
+                    self.instance.zone().handle_message(pkt.into_message()).await;
+                }
             },
             _ => {
                 debug!(

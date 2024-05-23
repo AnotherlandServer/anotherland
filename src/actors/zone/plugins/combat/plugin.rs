@@ -13,16 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod plugin;
-mod player_controller;
-mod positions;
-mod params;
-mod combat;
-mod inventory;
-mod fog_of_war;
-mod dialog;
-mod quest;
+use bevy::app::Plugin;
+use bevy_ecs::component::Component;
 
-pub use plugin::*;
-pub use player_controller::*;
-pub use fog_of_war::*;
+#[derive(Component)]
+pub struct InCombat;
+
+pub struct CombatPlugin;
+
+impl Plugin for CombatPlugin {
+    fn build(&self, app: &mut bevy::prelude::App) {
+
+    }
+}

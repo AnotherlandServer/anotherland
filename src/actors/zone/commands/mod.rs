@@ -32,10 +32,12 @@ fn cmd_target_info(
         let Ok(avatar_info) = avatars.get(*target)
     {
         controller.send_game_message(GameMessage::Normal(format!(
-            "> AvatarID: {} \
-             > Name: {} \
-             > InstanceID: {} \
-             > RecordID: {}",
+            "--------------------------\n\
+             > AvatarID: {}\n\
+             > Name: {}\n\
+             > InstanceID: {}\n\
+             > RecordID: {}\n\
+             --------------------------",
              avatar_info.id,
              avatar_info.name,
              avatar_info.instance_id.unwrap_or_default(),

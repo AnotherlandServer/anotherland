@@ -13,11 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::oaPkt_Combat_HpUpdate;
-use bevy_ecs::{query::Changed, system::Query};
+use atlas::{oaPktCombatUpdate, oaPkt_Combat_HpUpdate};
+use bevy_ecs::{query::{Added, Changed}, removal_detection::RemovedComponents, system::Query};
 use log::debug;
 
-use crate::actors::{zone::plugins::HitPoints, AvatarComponent, InterestList};
+use crate::actors::{zone::plugins::{HitPoints, InCombat}, AvatarComponent, InterestList};
 
 use super::PlayerController;
 
@@ -36,6 +36,47 @@ pub fn send_hitpoint_updates(
                     hp: hp.current(),
                     ..Default::default()
                 }.into_message());
+            }
+        }
+    }
+}
+
+pub fn toggle_on_combat(
+    avatars: Query<&AvatarComponent, Added<InCombat>>,
+    players: Query<(&AvatarComponent, &PlayerController, &InterestList)>,
+) {
+    for avatar in avatars.iter() {
+        for (player, controller, interests) in players.iter() {
+            if interests.contains(avatar.id) || player.id == avatar.id {
+                controller.send_message(
+                    oaPktCombatUpdate {
+                        field_1: avatar.id,
+                        field_2: atlas::OaPktCombatUpdateField2::ToggleOnCombat,
+                        ..Default::default()
+                    }.into_message()
+                )
+            }
+        }
+    }
+}
+
+pub fn toggle_off_combat(
+    mut removals: RemovedComponents<InCombat>,
+    avatars: Query<&AvatarComponent>,
+    players: Query<(&AvatarComponent, &PlayerController, &InterestList)>,
+) {
+    for entity in removals.read() {
+        if let Ok(avatar) = avatars.get(entity) {
+            for (player, controller, interests) in players.iter() {
+                if interests.contains(avatar.id) || player.id == avatar.id {
+                    controller.send_message(
+                        oaPktCombatUpdate {
+                            field_1: avatar.id,
+                            field_2: atlas::OaPktCombatUpdateField2::ToggleOffCombat,
+                            ..Default::default()
+                        }.into_message()
+                    )
+                }
             }
         }
     }
