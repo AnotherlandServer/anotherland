@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, EdnaModuleParams, ItemBaseComponent, ItemBaseParams, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PlayerComponent, PortalItemClass, SomaforgeItemClass, Uuid};
+use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, EdnaModuleParams, ItemBaseComponent, ItemBaseParams, ItemEdnaClass, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PlayerComponent, PortalItemClass, SomaforgeItemClass, Uuid};
 use bevy::utils::hashbrown::HashMap;
 use bevy_ecs::{component::Component, entity::Entity, event::EventReader, query::{With, Without}, system::{Commands, EntityCommands, Query}};
 use log::warn;
@@ -276,6 +276,7 @@ pub fn spawn_inventory_entry<'w, 's, 'a>(commands: &'a mut Commands<'w, 's>, ite
         ClassId::EdnaModuleClass => commands.spawn(item.take::<EdnaModuleClass>().unwrap().into_bundle()),
         ClassId::SomaforgeItemClass => commands.spawn(item.take::<SomaforgeItemClass>().unwrap().into_bundle()),
         ClassId::BundleItemClass => commands.spawn(item.take::<BundleItemClass>().unwrap().into_bundle()),
+        ClassId::ItemEdnaClass => commands.spawn(item.take::<ItemEdnaClass>().unwrap().into_bundle()),
         _ => unimplemented!(),
     }
 }
