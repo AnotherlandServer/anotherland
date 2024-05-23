@@ -449,7 +449,8 @@ impl FieldTypeDefinition {
                 "f32" |
                 "f64" |
                 "uuid" |
-                "nativeparam" => Ok(Self::Primitive(type_name.to_owned())),
+                "nativeparam" |
+                "avatar_id" => Ok(Self::Primitive(type_name.to_owned())),
                 "cstring" => {
                     let maxlen = yaml["maxlen"].as_i64().map(|v| v as usize);
                     Ok(Self::CString { maxlen })
@@ -461,7 +462,7 @@ impl FieldTypeDefinition {
                 "array" => {
                     let len = if let Some(len) = yaml["len"].as_i64() {
                         FieldLengthDefinition::ConstLen(len as usize)
-                    } else if yaml["len"].as_str().ok_or(io::Error::new(io::ErrorKind::Other, "len required"))? == "_remainder" {
+                    } else if yaml["len"].as_str().ok_or(io::Error::new(io::ErrorKind::Other, "len required"))? == "_eof" {
                         FieldLengthDefinition::Remainder
                     } else {
                         FieldLengthDefinition::DynamicLen(yaml["len"].as_str()

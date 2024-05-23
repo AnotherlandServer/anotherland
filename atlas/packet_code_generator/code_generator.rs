@@ -98,6 +98,7 @@ fn generate_field_type_code(r#type: &GeneratedFieldType) -> TokenStream {
         GeneratedFieldType::F64 => quote! {f64},
         GeneratedFieldType::Uuid => quote! {Uuid},
         GeneratedFieldType::NativeParam => quote! {NativeParam},
+        GeneratedFieldType::AvatarId => quote! {AvatarId},
         GeneratedFieldType::Packet => quote! {Option<CPkt>},
     }
 }
@@ -161,6 +162,7 @@ pub fn generate_nom_parser_for_primitive(primitive: &str) -> TokenStream {
         "f64" => quote! {le_f64},
         "uuid" => quote! {map(take(16usize), |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into())},
         "nativeparam" => quote! {NativeParam::parse_struct},
+        "avatar_id" => quote! {map(le_u64, |v| v.into())},
         _ => panic!("Unknown primitive")
     }
 }
@@ -547,6 +549,7 @@ pub fn generate_primitive_writer_code(primitive: &str, generated_field: &Generat
         "i64" => quote! { writer.write(#field_getter as i64)?; },
         "f32" => quote! { writer.write_bytes((#field_getter as f32).to_le_bytes().as_slice())?; },
         "f64" => quote! { writer.write_bytes((#field_getter as f64).to_le_bytes().as_slice())?; },
+        "avatar_id" => quote! { writer.write(#field_getter.as_u64())?; },
         "uuid" => quote! { writer.write_bytes(#field_getter.to_uuid_1().to_bytes_le().as_slice())?; }, 
         "nativeparam" => quote! { writer.write_bytes(#field_getter.to_struct_bytes().as_slice())?; },
         _ => panic!("Tried to serialize unkown primitive"),
@@ -704,6 +707,7 @@ pub fn generate_field_writer_code(generated_struct: &GeneratedStruct, field_def:
                                 "i64" => quote! { writer.write(*v as i64)?; },
                                 "f32" => quote! { writer.write_bytes((*v as f32).to_le_bytes().as_slice())?; },
                                 "f64" => quote! { writer.write_bytes((*v as f64).to_le_bytes().as_slice())?; },
+                                "avatar_id" => quote! { writer.write(v.as_u64())?; },
                                 _ => panic!("Tried to serialize unkown primitive"),
                             }
                         },
@@ -845,6 +849,24 @@ pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>)
             _ => quote!(),
         };
 
+        let tryfrom_code =  match &generated_struct.definition {
+            GeneratedStructSource::PacketDefintion(_) => {
+                quote!{ 
+                    impl <'a>TryFrom<&'a Message> for &'a #struct_ident {
+                        type Error = ();
+        
+                        fn try_from(value: &'a Message) -> Result<Self, Self::Error> {
+                            match value {
+                                Message::AtlasPkt(CPkt::#struct_ident(pkt)) => Ok(pkt.as_ref()),
+                                _ => Err(())
+                            }
+                        }
+                    }
+                }
+            },
+            _ => quote!(),
+        };
+
         code.extend(quote! {
             #[allow(dead_code)]
             impl #struct_ident {
@@ -852,6 +874,8 @@ pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>)
                 #writer_code
                 #message_code
             }
+
+            #tryfrom_code
         });
     }
 
