@@ -13,34 +13,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{NonClientBaseParams, ParamBox, ParamClass, PortalClass, PortalComponent, PortalParams};
-use bevy::{app::Plugin, prelude::App};
+use atlas::{Param, ParamBox, ParamSet, ParamSetBox, PortalAttribute, PortalComponent, PortalParams};
 use bevy_ecs::{query::With, system::{In, Query}};
 
-use crate::actors::{zone::plugins::{SubjectivityExt, SubjectivityLensArguments}, EntityType};
+use crate::actors::zone::plugins::SubjectivityLensArguments;
 
-pub struct SubjectivePortals;
-
-impl Plugin for SubjectivePortals {
-    fn build(&self, app: &mut App) {
-        app.add_subjective_lens(EntityType::Portal, portal_lens);
-    }
-}
-
-fn portal_lens(
-    In((_, portal_id)): In<SubjectivityLensArguments>,
+pub fn subjective_portal(
+    In((_, ent)): In<SubjectivityLensArguments>,
     portal: Query<&ParamBox, With<PortalComponent>>,
-) -> ParamBox {
-    let mut portal = portal
-        .get(portal_id)
-        .unwrap()
-        .clone();
+) -> ParamSetBox {
+    let mut set = ParamSet::<PortalAttribute>::new();
 
-    if let Some(portal) = portal.get_impl_mut::<dyn PortalParams>() {
+    if 
+        let Ok(portal) = portal.get(ent) &&
+        let Some(portal) = portal.get_impl::<dyn PortalParams>()
+    {
         if portal.tags().contains("PortalHive") {
-            portal.set_current_state(3);
+            set.insert(PortalAttribute::CurrentState, Param::Int(3));
+        } else {
+            set.insert(PortalAttribute::CurrentState, portal.current_state());
         }
     }
 
-    portal
+    set.into_box()
 }

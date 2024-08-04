@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://json-schema.org/draft/2020-12/schema
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: otherland.script.schema.yaml
+title: "Otherland script schema"
+
+type: object
+additionalProperties: false
+required: []
+properties:
+  events:
+    type: object
+    additionalProperties: false
+    properties:
+      spawn:
+      proximity:
+      sojourn:
+      quest:
+  stateSets:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      properties:
+
+$defs:
+  condition:
+    type: object
+    additionalProperties: false
+    properties:
+      

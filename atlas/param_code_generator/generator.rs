@@ -1306,6 +1306,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     &self.0
                 }
 
+                fn as_mut(&mut self) -> &mut ParamSet<Self::Attributes> {
+                    &mut self.0
+                }
+
+
                 fn into_set(self) -> ParamSet<Self::Attributes> {
                     self.0
                 }
@@ -1489,6 +1494,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
     let where_base: Vec<_> = paramlist.classes.iter().map(|v| {
         let class_name = format_ident!("{}Params",&v.borrow().name.to_case(Case::UpperCamel));
         quote! { MightIncludeParams<'a, dyn #class_name + 'static> + MightIncludeParamsMut<'a, dyn #class_name + 'static> }
+    }).collect();
+
+    let dyn_set_diff: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => self.get::<#attribute_name>().unwrap().diff(other.get::<#attribute_name>().unwrap()).into_box(), }
     }).collect();
 
     write_source("generated_params.rs", quote! {
@@ -1693,6 +1704,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             where T: ByteWrite {
                 match self.class_id() {
                     #(#dyn_set_write_to_client)*
+                }
+            }
+
+            pub(crate) fn diff(&self, other: &ParamSetBox) -> ParamSetBox {
+                match self.class_id() {
+                    #(#dyn_set_diff)*
                 }
             }
         }

@@ -20,7 +20,7 @@ use bitstream_io::ByteWrite;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde_json::{Value, json};
 
-use crate::{ClassId, DynParamSet, ParamAttrib, ParamError, ParamSet};
+use crate::{ClassId, DynParamSet, Param, ParamAttrib, ParamError, ParamSet};
 
 pub struct ParamSetBox {
     pub(crate) class_id: ClassId,
@@ -68,6 +68,20 @@ impl ParamSetBox {
     where T: ByteWrite
     {
         self.set.write_to_client(writer)
+    }
+
+    pub fn diff(&self, other: &ParamSetBox) -> ParamSetBox {
+        self.set.diff(other)
+    }
+
+    pub fn set_param<P>(&mut self, name: &str, param: P) -> Option<Param> 
+        where P: Into<Param>
+    {
+        self.set.set_param(name, param.into())
+    }
+
+    pub fn get_param(&self, name: &str) -> Option<&Param> {
+        self.set.get_param(name)
     }
 }
 

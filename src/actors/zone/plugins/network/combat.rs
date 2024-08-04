@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use atlas::{oaPktCombatUpdate, oaPkt_Combat_HpUpdate};
-use bevy_ecs::{query::{Added, Changed}, removal_detection::RemovedComponents, system::Query};
+use bevy_ecs::{entity::Entity, query::{Added, Changed}, removal_detection::RemovedComponents, system::Query};
 use log::debug;
 
 use crate::actors::{zone::plugins::{HitPoints, InCombat}, AvatarComponent, InterestList};
@@ -22,13 +22,13 @@ use crate::actors::{zone::plugins::{HitPoints, InCombat}, AvatarComponent, Inter
 use super::PlayerController;
 
 pub fn send_hitpoint_updates(
-    hitpoints: Query<(&AvatarComponent, &HitPoints), Changed<HitPoints>>,
+    hitpoints: Query<(Entity, &AvatarComponent, &HitPoints), Changed<HitPoints>>,
     players: Query<(&AvatarComponent, &InterestList, &PlayerController)>,
 ) {
-    for (avatar, hp) in hitpoints.iter() {
+    for (entity, avatar, hp) in hitpoints.iter() {
         // check player interest list to dispatch updates
         for (player_avatar, interests, controller) in players.iter() {
-            if interests.contains(avatar.id) || avatar.id == player_avatar.id {
+            if interests.contains(entity) || avatar.id == player_avatar.id {
                 debug!("Send hp update: {}-{}", avatar.id, hp.current());
 
                 controller.send_message(oaPkt_Combat_HpUpdate {
@@ -42,12 +42,12 @@ pub fn send_hitpoint_updates(
 }
 
 pub fn toggle_on_combat(
-    avatars: Query<&AvatarComponent, Added<InCombat>>,
+    avatars: Query<(Entity, &AvatarComponent), Added<InCombat>>,
     players: Query<(&AvatarComponent, &PlayerController, &InterestList)>,
 ) {
-    for avatar in avatars.iter() {
+    for (entity, avatar) in avatars.iter() {
         for (player, controller, interests) in players.iter() {
-            if interests.contains(avatar.id) || player.id == avatar.id {
+            if interests.contains(entity) || player.id == avatar.id {
                 controller.send_message(
                     oaPktCombatUpdate {
                         field_1: avatar.id,
@@ -68,7 +68,7 @@ pub fn toggle_off_combat(
     for entity in removals.read() {
         if let Ok(avatar) = avatars.get(entity) {
             for (player, controller, interests) in players.iter() {
-                if interests.contains(avatar.id) || player.id == avatar.id {
+                if interests.contains(entity) || player.id == avatar.id {
                     controller.send_message(
                         oaPktCombatUpdate {
                             field_1: avatar.id,

@@ -13,8 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::app::Plugin;
-use bevy_ecs::component::Component;
+use atlas::PlayerComponent;
+use bevy::app::{Plugin, PostUpdate, Update};
+use bevy_ecs::{component::Component, query::With, schedule::IntoSystemConfigs, system::{Commands, Query}};
+
+use crate::actors::{zone::systems::update_interests, InterestList};
 
 #[derive(Component)]
 pub struct InCombat;
@@ -23,6 +26,15 @@ pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
+        app.add_systems(Update, check_combat_status.after(update_interests));
+    }
+}
+
+fn check_combat_status(
+    mut query: Query<(&InterestList, Option<&InCombat>), With<PlayerComponent>>,
+    mut cmds: Commands
+) {
+    for (interests, in_combat) in query.iter() {
 
     }
 }

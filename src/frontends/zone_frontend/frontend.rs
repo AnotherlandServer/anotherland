@@ -16,14 +16,15 @@
 use std::{collections::{HashMap, HashSet, VecDeque}, net::{Ipv6Addr, SocketAddr}, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use async_trait::async_trait;
-use atlas::{dialogStructure, oaDialogChoice, oaDialogNode, oaPktDialogEnd, oaPktQuestGiverStatus, oaPktS2XConnectionState, oaPktSteamMicroTxn, oaQuestCondition, oaQuestTemplate, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktItemUpdate, CPktResourceNotify, CPktServerNotify, CPktStream_165_2, CPktStream_166_2, ClassId, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, EdnaModuleAttribute, EdnaModuleClass, ItemBaseParams, MoveManagerInit, NativeParam, OaPktQuestRequestRequest, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid, UUID_NIL};
+use atlas::{oaPktS2XConnectionState, oaQuestCondition, oaQuestTemplate, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktResourceNotify, CPktServerNotify, CPktStream_165_2, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, OaPktQuestRequestRequest, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerParams, Uuid, UUID_NIL};
 use bitstream_io::{ByteWriter, LittleEndian};
+use chrono::{Local, TimeZone};
 use log::{debug, error, trace, warn, info};
 use quinn::ServerConfig;
 use tokio::{sync::{Mutex, mpsc::{self, Sender}, RwLock}, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, ItemContent, WorldDef, ZoneDef}, util::{AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
+use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, WorldDef, ZoneDef}, scripting::quest::lookup_quest_info, util::{AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
 use crate::db::DatabaseRecord;
 
 use super::{load_state::ClientLoadState, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
@@ -481,8 +482,6 @@ impl ZoneSession {
                     avatar = self.avatar_id.to_string(); 
                     "Spawning player: {}", name);
 
-                debug!("{:#?}", player.as_set());
-
                 self.send(CPktBlob {
                     avatar_id: self.avatar_id,
                     avatar_name: name,
@@ -494,7 +493,7 @@ impl ZoneSession {
                         vel: movement.velocity.into(),
                         physics: PhysicsState::Walking.into(),
                         mover_type: 1,
-                        replica: 7,
+                        mover_replication_policy: 7,
                         ..Default::default()
                     }.to_bytes().into(),
                     has_guid: true,
@@ -646,31 +645,39 @@ impl ZoneSession {
             AtlasPkt(CPkt::oaPktQuestRequest(pkt)) => {
                 debug!("{:#?}", pkt);
                 
-                if pkt.request == OaPktQuestRequestRequest::Request {
-                    self.send(CPktStream_165_2 {
-                        field_1: oaQuestTemplate {
-                            quest_id: pkt.quest_id,
-                            level: 1,
-                            exp_reward: 13,
-                            bit_reward: 14,
-                            world_guid: Uuid::parse_str("1467e796-c109-4dd7-8943-67fa5f27002b").unwrap(),
-                            ..Default::default()
-                        },
-                        conditions: 1,
-                        field_3: vec![
-                            oaQuestCondition {
-                                quest_id: pkt.quest_id,
-                                condition_id: 0, 
-                                required_count: 1,  
-                                greater_than_one: 2,
+                if pkt.player.is_none() && pkt.request == OaPktQuestRequestRequest::Request {
+                    if let Some(quest) = lookup_quest_info(pkt.quest_id) {
+                        self.send(CPktStream_165_2 {
+                            field_1: oaQuestTemplate { 
+                                quest_id: quest.id, 
+                                level: quest.level, 
+                                world_guid: quest.world, 
+                                exp_reward: quest.exp_reward.unwrap_or_default(), 
+                                bit_reward: quest.bit_reward.unwrap_or_default(), 
                                 ..Default::default()
-                            }
-                        ],
-                        ..Default::default()
-                    }.into_message()).await?;
+                            },
+                            
+                            conditions: quest.conditions.len() as u32,
+                            field_3: quest.conditions.iter().map(|condition| {
+                                oaQuestCondition { 
+                                    quest_id: quest.id, 
+                                    condition_id: condition.id, 
+                                    required_count: condition.required_count, 
+                                    greater_than_one: 2, 
+                                    ..Default::default()
+                                }
+                            }).collect(),
+                            ..Default::default()
+                        }.into_message()).await?;
+                    } else {
+                        warn!("Quest {} not found!", pkt.quest_id);
+                    }
                 } else if pkt.player == self.avatar_id {
                     self.instance.zone().handle_message(pkt.into_message()).await;
                 }
+            },
+            AtlasPkt(CPkt::oaPktQuestDebugRequest(pkt)) => {
+                self.instance.zone().handle_message(pkt.into_message()).await;
             },
             _ => {
                 debug!(
@@ -792,23 +799,6 @@ impl ZoneSession {
         }
 
         if self.load_state == ClientLoadState::InitialInterestsLoaded {
-            // Synchronize time
-            {
-                self.send(CPktServerNotify {
-                    notify_type: CpktServerNotifyNotifyType::SyncGameClock,
-                    field_2: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
-                    ..Default::default()
-                }.into_message()).await?;
-            }
-
-            {
-                self.send(CPktServerNotify {
-                    notify_type: CpktServerNotifyNotifyType::SyncRealmTime,
-                    field_4: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
-                    ..Default::default()
-                }.into_message()).await?;
-            }
-
             // Update loadstate
             {
                 self.load_state = ClientLoadState::InGame;
@@ -819,6 +809,24 @@ impl ZoneSession {
                     ..Default::default()
                 }.into_message()).await?;
             }
+            
+            self.send(CPktServerNotify {
+                notify_type: CpktServerNotifyNotifyType::SyncGameClock,
+                game_clock: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64()),
+                ..Default::default()
+            }.into_message()).await?;
+
+            debug!("Send realm time");
+
+            let otherland_epoch = Local.with_ymd_and_hms(2009, 1, 1, 0, 0, 0).unwrap();
+
+            self.send(CPktServerNotify {
+                notify_type: CpktServerNotifyNotifyType::SyncRealmTime,
+                realm_time: Some(
+                    Local::now().signed_duration_since(otherland_epoch).to_std().unwrap().as_millis() as i64
+                ),
+                ..Default::default()
+            }.into_message()).await?;
 
             // notify that player is ready
             self.instance.zone().notify_player_ready(self.avatar_id).await;

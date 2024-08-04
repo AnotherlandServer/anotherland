@@ -17,6 +17,8 @@ use bevy::{app::{App, Plugin, PreUpdate}, utils::HashMap};
 use bevy_ecs::{entity::Entity, event::{Event, Events}, system::{IntoSystem, Resource, RunSystemOnce, System, SystemId}, world::{Mut, World}};
 use regex::Regex;
 
+use crate::actors::zone::plugins::{GameMessage, PlayerController};
+
 pub type CommandsInput = (Entity, String, Vec<String>);
 
 #[derive(Resource)]
@@ -85,6 +87,8 @@ fn run_commands(world: &mut World) {
             for ExecuteCommand { player, name, arguments } in events.drain() {
                 if let Some(command) = commands.0.get(&name) {
                     let _ = world.run_system_with_input(*command, (player, name, arguments));
+                } else if let Some(controller) = world.get::<PlayerController>(player) {
+                    controller.send_game_message(GameMessage::Normal("Command not found!".to_string()));
                 }
             }
         });

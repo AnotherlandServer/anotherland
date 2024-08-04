@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../otherland.dialogue.schema.yaml
+# Dialog for GE_01_Sellars
+id: 1359
+repeatable: true
+flow:
+  - 13427 # Ok, go on through the portal. We will talk on the other side.

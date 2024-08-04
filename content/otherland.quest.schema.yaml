@@ -1,0 +1,310 @@
+# yaml-language-server: $schema=https://json-schema.org/draft/2020-12/schema
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: otherland.quest.schema.yaml
+title: "Otherland quest schema"
+
+type: object
+additionalProperties: false
+required:
+  - id
+  - level
+  - world
+  - conditions
+properties:
+  id:
+    description: >
+      The ID of the quest as referenced in the game files.
+    type: integer
+  chain:
+    description: >
+      The ID of the quest chain this quest is part of.
+    type: integer
+  level:
+    description: > 
+      The character level this quest is for.
+    type: integer
+  exp_reward:
+    description: >
+      Experience points awarded by completing the quest.
+    type: integer
+  bit_reward:
+    description: >
+      Bits awarded by completing the quest.
+  intro_dialogue:
+    description: >
+      ID of the dialogue displayed to accept the quest.
+    type: integer
+  intermediate_dialogue:
+    description: >
+      ID of the dialogue displayed during the quest.
+    type: integer
+  outro_dialogue:
+    description: >
+      ID of the dialogue displayed to finish the quest.
+    type: integer
+  world:
+    description: >
+      The world this quest is taking part in.
+    type: string
+    enum:
+      - MrJ_P
+      - MyLandTerrain_P
+      - BarZebra_P
+      - MarsDock_P
+      - MarsDune_P
+      - BarPetals_P
+      - BarClubStratos_P
+      - 8SquaredTestNPC_P
+      - TestPathEngine_P
+      - BarBlackRoom_P
+      - BarRoswell_P
+      - BarAbattoir_P
+      - Tlotl_P
+      - BarPlanetarium_P
+      - BugWorld_P
+      - TestLevel_P
+      - 2Nodes_P
+      - BarDogFight_P
+      - LM_P
+      - BarBalloonaLander_P
+      - 8Squared_P
+      - BlackMap_P
+      - Bazaar_P
+      - Aero_P
+      - BarEnglishPub_P
+      - BarJazzClub_P
+      - BarPVPArena_P
+      - AITestMap_P
+      - MonsterBattleTest_P
+      - AITestLevel_P
+      - BarRacing_P
+      - 8SquaredKOTH01_P
+      - MyLand_Test500_P
+      - MyLand_Test1200_P
+      - MyLand_Test2500_P
+      - MyLandTest2000_P
+      - MLRedValley_P
+      - MLMoon_P
+      - MLGarden_P
+      - BarDJOcto_P
+      - MLSound_P
+      - BarBinary_P
+      - BarLoveNurse_P
+      - BarTonyPlusClawGame_P
+      - BarTonyPlus_P
+      - BarClub101_P
+      - Bar8square_P
+      - MLParty_P
+      - CPRed_P
+      - CPWhite_P
+      - DesignPlayground01_P
+      - BarPermanentInk_P
+      - CPRedPawn_P
+      - CPWhitePawn_P
+      - CastleTest_P
+      - MyPadTest01_P
+      - CPRedBishop_P
+      - CPWhiteBishop_P
+      - MyPadRooms_P
+      - 8SquaredRedCastle_P
+      - TutMoon_P
+      - Tutorial_P
+      - MLHell_P
+      - 8SquaredWhiteCastle_P
+      - CPWhiteKnight_P
+      - LMRawSector_P
+      - Newbie_P
+      - LMquestHub01_P
+      - LimboNew_P
+      - LM_SFinneysEmporium_Props
+      - ArenaBad_P
+      - Temp_P
+      - Tempus_P
+      - DumpsLimbo_P
+      - Dungeon01_P
+      - Dungeon02_P
+      - Dungeon03_P
+      - AeroWood_P
+      - AeroWater_P
+      - AeroEarth_P
+      - AeroMetal_P
+      - BattlegroundRabi01_P
+      - AeroShipBattle_P
+      - NewbieInst_P
+      - Dungeon04_P
+      - AeroWaterFirewall_P
+      - MonasteryInst_P
+      - AeroFireStart_P
+      - LMInteriors_P
+      - Dungeon05_P
+      - BattlegroundOasis01_P
+      - LMInteriors02_P
+      - WhiteCity_P
+      - Ch8SquaredBridge_P
+      - Challenges01_P
+      - Challenges02_P
+      - Challenges03_P
+      - Challenges04_P
+      - Dungeon06_P
+      - Dungeon07_P
+      - Challenges05_P
+      - Challenges06_P
+      - Challenges07_P
+      - Challenges08_P
+      - Dungeon08_P
+      - Dungeon09_P
+      - Dungeon10_P
+      - Dungeon11_P
+      - Dojo01_P
+      - Dojo02_P
+      - Dojo03_P
+      - Rajd01_P
+      - Rajd02_P
+      - Challenges09_P
+      - Challenges10_P
+      - TestArea01_P
+      - GameEntry_P
+      - ClassTest01_P
+      - ClassSelection_P
+      - ClanLand_P
+      - BugWorldResearchComplex_P
+      - BugWorldRuins_P
+      - BugWorldJungle_P
+      - HallOfFame_P
+      - Dungeon12_P
+      - Challenges11_P
+      - CollectiveBar_P
+      - LanternDistrict_P
+      - BadSector_P
+      - LMPlatform_P
+      - MonasteryInstBattle_P
+      - AeroFire_P
+  prerequisites:
+    description: >
+      Prerequisites that have to be fulfilled before this quest
+      becomes available.
+    type: object
+    additionalProperties: false
+    required:
+      - quests
+    properties:
+      quests:
+        description: >
+          An array of quests that have to be finished prior.
+        type: array
+        minLength: 1
+        items:
+          type: integer
+  conditions:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      required: 
+        - id
+        - required_count
+        - triggers
+      properties:
+        id: 
+          description: >
+            ID of the condition, as referenced by the game files.
+          type: integer
+        required_count:
+          description: >
+            How often this conditions has to be triggered in order to
+            be completed.
+          type: integer
+          exclusiveMinimum: 0
+        triggers:
+          type: array
+          items:
+            $ref: "#/$defs/conditionTrigger"
+
+$defs:
+  uuid:
+    type: string
+    pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    # the regex above limits the length;
+    # however, some tools might require explicit settings:
+    minLength: 36
+    maxLength: 36
+  conditionTrigger:
+    oneOf:
+      - $ref: "#/$defs/interactTrigger"
+      - $ref: "#/$defs/killTrigger"
+      - $ref: "#/$defs/proximityTrigger"
+      - $ref: "#/$defs/sojournTrigger"
+      - $ref: "#/$defs/dialogTrigger"
+      - $ref: "#/$defs/timeoutTrigger"
+  objectFilter:
+    oneOf:
+      - type: object
+        additionalProperties: false
+        required: [instance_guid]
+        properties:
+          instance_guid:
+            $ref: "#/$defs/uuid"
+      - type: object
+        additionalProperties: false
+        required: [content_guid]
+        properties:
+          content_guid:
+            $ref: "#/$defs/uuid"
+  interactTrigger:
+    type: object
+    additionalProperties: false
+    required: [interact]
+    properties:
+      interact:
+        $ref: "#/$defs/objectFilter"
+  killTrigger:
+    type: object
+    additionalProperties: false
+    required: [kill]
+    properties:
+      kill:
+        $ref: "#/$defs/objectFilter"
+  proximityTrigger:
+    type: object
+    additionalProperties: false
+    required: [proximity]
+    properties:
+      proximity:
+        $ref: "#/$defs/objectFilter"
+  sojournTrigger:
+    type: object
+    additionalProperties: false
+    required: [sojourn]
+    properties:
+      sojourn:
+        $ref: "#/$defs/objectFilter"
+  dialogTrigger:
+    type: object
+    additionalProperties: false
+    required: [dialog]
+    properties:
+      dialog:
+        description: >
+          Dialogue ID that has to be finished for this condition to be fulfilled.
+        type: integer
+  timeoutTrigger:
+    type: object
+    additionalProperties: false
+    required: [timeout]
+    properties:
+      timeout:
+        description: >
+          Timeout in seconds.
+        type: number
+  itemTrigger:
+    type: object
+    additionalProperties: false
+    required: [item_guid]
+    properties:
+      item_guid:
+        $ref: "#/$defs/uuid"
+
+
+
+
+

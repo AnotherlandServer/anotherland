@@ -69,7 +69,7 @@ impl Plugin for PlayerBehaviors {
 }
 
 fn unimplemented_behavior(In((_, _, behavior)): In<BehaviorArguments>) {
-    error!("Player behavior '{:?}' not implemented!", behavior);
+    warn!("Player behavior '{:?}' not implemented!", behavior);
 }
 
 fn respawn_now(

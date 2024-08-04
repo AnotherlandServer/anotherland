@@ -23,6 +23,10 @@ mod persistance;
 mod params;
 mod commands;
 mod combat;
+mod factions;
+mod quests;
+mod dialogue;
+mod animation;
 
 pub use behavior::*;
 pub use subjectivity::*;
@@ -34,3 +38,7 @@ pub use persistance::*;
 pub use params::*;
 pub use commands::*;
 pub use combat::*;
+pub use factions::*;
+pub use quests::*;
+pub use dialogue::*;
+pub use animation::*;

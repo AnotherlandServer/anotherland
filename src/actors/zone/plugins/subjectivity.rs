@@ -13,34 +13,78 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::ParamBox;
-use bevy::{app::{App, Plugin}, utils::HashMap};
-use bevy_ecs::{entity::Entity, system::{IntoSystem, Resource, System}, world::Mut};
+use atlas::{AvatarId, NonClientBaseComponent, ParamBox, ParamSetBox, PlayerComponent};
+use bevy::{app::{App, First, Last, Plugin}, utils::{HashMap, HashSet}};
+use bevy_ecs::{component::Component, entity::Entity, event::{Event, EventWriter}, query::{Added, Changed, With, Without}, removal_detection::RemovedComponents, system::{Commands, IntoSystem, Query, Resource, System}, world::{Mut, World}};
+use log::debug;
 
-use crate::actors::EntityType;
+use crate::actors::{AvatarComponent, EntityType};
 
 pub type SubjectivityLensArguments = (Entity, Entity);
-type SubjectivityLensSystem = dyn System<In = SubjectivityLensArguments, Out = ParamBox>;
+type SubjectivityLensSystem = dyn System<In = SubjectivityLensArguments, Out = ParamSetBox>;
 type EntityTypeSubjectivityLensSystemMap = HashMap<EntityType, Box<SubjectivityLensSystem>>;
 
 #[derive(Resource)]
 struct SubjectivityMap(EntityTypeSubjectivityLensSystemMap);
 
+#[derive(Component)]
+pub struct SubjectiveParamSet(HashMap<Entity, ParamSetBox>);
+
+#[derive(Component)]
+pub struct BackupSubjectiveParamSet(HashMap<Entity, ParamSetBox>);
+
+#[derive(Event)]
+pub struct SubjectiveParamsChangedEvent {
+    pub entity: Entity, 
+    pub avatar: AvatarId, 
+    pub player: Entity,
+    pub params: ParamSetBox,
+}
+
+impl SubjectiveParamSet {
+    pub fn params_for_player(&self, player: Entity, params: &ParamBox) -> ParamBox {
+        let mut params = params.clone();
+
+        if 
+            let Some(subjective_set) = self.0.get(&player) &&
+            !subjective_set.is_empty()
+        {
+            params.apply(subjective_set.clone());
+        }
+
+        params
+    }
+
+    pub fn get_params(&self, player: Entity) -> Option<&ParamSetBox> {
+        self.0.get(&player)
+    }
+
+    pub fn get_params_mut(&mut self, player: Entity) -> Option<&mut ParamSetBox> {
+        self.0.get_mut(&player)
+    }
+}
+
 pub struct SubjectivityPlugin;
 
 impl Plugin for SubjectivityPlugin {
     fn build(&self, app: &mut App) {
+        app.add_event::<SubjectiveParamsChangedEvent>();
+        
+        app.add_systems(First, prepare_subjective_param_updates);
+        app.add_systems(First, cleanup_subjective_params);
+        app.add_systems(Last, send_subjective_param_update_events);
+
         app.world.insert_resource(SubjectivityMap(EntityTypeSubjectivityLensSystemMap::new()));
     }
 }
 
 pub trait SubjectivityExt {
-    fn add_subjective_lens<T: IntoSystem<SubjectivityLensArguments, ParamBox, Marker>, Marker>(&mut self, entity_type: EntityType, system: T) -> &mut Self;
+    fn add_subjective_params_initializer<T: IntoSystem<SubjectivityLensArguments, ParamSetBox, Marker>, Marker>(&mut self, entity_type: EntityType, system: T) -> &mut Self;
     fn get_subjective_params(&mut self, player: Entity, avatar: Entity) -> Option<ParamBox>;
 }
 
 impl SubjectivityExt for App {
-    fn add_subjective_lens<T: IntoSystem<SubjectivityLensArguments, ParamBox, Marker>, Marker>(&mut self, entity_type: EntityType, system: T) -> &mut Self {
+    fn add_subjective_params_initializer<T: IntoSystem<SubjectivityLensArguments, ParamSetBox, Marker>, Marker>(&mut self, entity_type: EntityType, system: T) -> &mut Self {
         let mut system = IntoSystem::into_system(system);
         system.initialize(&mut self.world);
 
@@ -52,16 +96,104 @@ impl SubjectivityExt for App {
     }
 
     fn get_subjective_params(&mut self, player: Entity, avatar: Entity) -> Option<ParamBox> {
-        self.world.resource_scope(|world, mut subjectivity_map: Mut<SubjectivityMap>| {
-            if let Some(entity_type) = world.get::<EntityType>(avatar) {
-                if let Some(system) = subjectivity_map.0.get_mut(entity_type) {
-                    Some(system.run((player, avatar), world))
-                } else {
-                    world.get::<ParamBox>(avatar).cloned()
-                }
+        if let Some(params) = self.world.get::<ParamBox>(avatar) {
+            if let Some(subjective_params) = self.world.get::<SubjectiveParamSet>(avatar) {
+                Some(subjective_params.params_for_player(player, params))
             } else {
-                world.get::<ParamBox>(avatar).cloned()
+                Some(params.clone())
             }
-        })
+        } else {
+            None
+        }
     }
+}
+
+pub fn prepare_subjective_param_updates(
+    spawned_players: Query<Entity, Added<PlayerComponent>>,
+    avatars: Query<Entity, With<NonClientBaseComponent>>,
+    mut cmds: Commands,
+) {
+    for player_ent in spawned_players.iter() {
+        for ent in avatars.iter() {
+            cmds.add(move |world: &mut World| {
+                world.resource_scope(|world, mut subjectivity_map: Mut<SubjectivityMap>| {
+                    if let Some(entity_type) = world.get::<EntityType>(ent) {
+                        if let Some(system) = subjectivity_map.0.get_mut(entity_type) {
+                            let set = system.run((player_ent, ent), world);
+
+                            if let Some(mut subjective_params) = world.get_mut::<SubjectiveParamSet>(ent) {
+                                subjective_params.0.insert(player_ent, set);
+                            } else if let Some(mut ent) = world.get_entity_mut(ent) {
+                                let mut subjective_set = SubjectiveParamSet(HashMap::new());
+
+                                subjective_set.0.insert(player_ent, set);
+
+                                ent
+                                    .insert(subjective_set)
+                                    .insert(BackupSubjectiveParamSet(HashMap::new()));
+                            }
+                        }
+                    }
+                })
+            });
+        }
+    }
+}
+
+fn cleanup_subjective_params(
+    mut disconnected: RemovedComponents<PlayerComponent>,
+    mut subjective_entities: Query<&mut SubjectiveParamSet>,
+) {
+    let disconnected: Vec<Entity> = disconnected.read().collect();
+
+    for mut params in subjective_entities.iter_mut() {
+        for entity in disconnected.iter() {
+            params.0.remove(entity);
+        }
+    }
+}
+
+pub fn send_subjective_param_update_events(
+    mut params: Query<(Entity, &AvatarComponent, &SubjectiveParamSet, &mut BackupSubjectiveParamSet), Changed<SubjectiveParamSet>>,
+    mut ev: EventWriter<SubjectiveParamsChangedEvent>,
+) {
+    ev.send_batch(
+        params.iter_mut()
+        .flat_map(|(entity, avatar, params, mut prev_params)| {
+            let players = prev_params.0
+                .keys()
+                .chain(params.0.keys())
+                .cloned()
+                .collect::<HashSet<Entity>>();
+
+            let mut events = Vec::new();
+            
+            for player in players {
+                if let Some(params) = params.0.get(&player) {
+                    if let Some(prev_params) = prev_params.0.get_mut(&player) {
+                        let diff = params.diff(prev_params);
+                        if !diff.is_empty() {
+                            // store params for future comparison
+                            params.clone_into(prev_params);
+
+                            debug!("Subjective params updated");
+            
+                            events.push(SubjectiveParamsChangedEvent {
+                                entity,
+                                avatar: avatar.id,
+                                player,
+                                params: diff,
+                            });
+                        }
+                    } else {
+                        prev_params.0.insert(player, params.clone());
+                    }
+                } else {
+                    prev_params.0.remove(&player);
+                }
+            }
+
+            events
+        })
+    );
 }

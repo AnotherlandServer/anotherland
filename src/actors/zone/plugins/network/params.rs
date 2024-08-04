@@ -18,7 +18,7 @@ use bevy_ecs::{event::EventReader, system::Query};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
 
-use crate::actors::{zone::plugins::ParamsChangedEvent, AvatarComponent, InterestList};
+use crate::actors::{zone::plugins::{ParamsChangedEvent, SubjectiveParamsChangedEvent}, AvatarComponent, InterestList};
 
 use super::PlayerController;
 
@@ -26,10 +26,10 @@ pub fn send_param_updates(
     mut ev: EventReader<ParamsChangedEvent>,
     players: Query<(&AvatarComponent, &InterestList, &PlayerController)>,
 ) {
-    for ParamsChangedEvent(_, avatar_id, params) in ev.read() {
+    for ParamsChangedEvent(entity, avatar_id, params) in ev.read() {
         // check player interest list to dispatch updates
         for (player_avatar, interests, controller) in players.iter() {
-            if interests.contains(*avatar_id) || *avatar_id == player_avatar.id {
+            if interests.contains(*entity) || *avatar_id == player_avatar.id {
                 let mut param_buffer = Vec::new();
                 let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
@@ -41,6 +41,34 @@ pub fn send_param_updates(
                 controller.send_message(CPktAvatarUpdate {
                     full_update: false,
                     avatar_id: Some(*avatar_id),
+                    update_source: 0,
+                    params: param_buffer.into(),
+                    ..Default::default()
+                }.into_message());
+            }
+        }
+    }
+}
+
+pub fn send_subjective_param_updates(
+    mut ev: EventReader<SubjectiveParamsChangedEvent>,
+    players: Query<(&AvatarComponent, &InterestList, &PlayerController)>,
+) {
+    for SubjectiveParamsChangedEvent { entity, avatar, player, params } in ev.read() {
+        // check player interest list to dispatch updates
+        if let Ok((player_avatar, interests, controller)) = players.get(*player) {
+            if interests.contains(*entity) || *avatar == player_avatar.id {
+                let mut param_buffer = Vec::new();
+                let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
+
+                params.write_to_client(&mut writer).expect("failed to serialize params");
+
+                debug!("Send subjective param update for avatar: {} for player {}", avatar, player_avatar.name);
+                debug!("{:?}", params);
+
+                controller.send_message(CPktAvatarUpdate {
+                    full_update: false,
+                    avatar_id: Some(*avatar),
                     update_source: 0,
                     params: param_buffer.into(),
                     ..Default::default()

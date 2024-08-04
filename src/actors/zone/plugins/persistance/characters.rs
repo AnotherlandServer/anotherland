@@ -16,15 +16,42 @@
 use std::str::FromStr;
 
 use atlas::{ParamAttrib, ParamFlag, PlayerAttribute, PlayerComponent};
-use bevy_ecs::{event::EventReader, query::With, system::{Query, Res}};
+use bevy_ecs::{event::EventReader, query::{Changed, With}, system::{Query, Res}};
 use bson::{doc, Document};
 use log::{debug, error};
 
-use crate::{actors::{zone::{plugins::ParamsChangedEvent, resources::Tasks}, AvatarComponent, RealmDatabase}, db::{Character, DatabaseRecord}};
+use crate::{actors::{zone::{plugins::{CompletedDialogues, ParamsChangedEvent}, resources::Tasks}, AvatarComponent, RealmDatabase}, db::{Character, DatabaseRecord}};
+
+pub fn update_completed_dialogues(
+    query: Query<(&AvatarComponent, &CompletedDialogues), (Changed<CompletedDialogues>, With<PlayerComponent>)>,
+    tasks: Res<Tasks>,
+    db: Res<RealmDatabase>,
+) {
+    for (avatar, completed_dialogues) in query.iter() {
+        let id = avatar.record_id.unwrap();
+        let db = db.0.clone();
+        let completed = completed_dialogues.to_vec();
+
+        let _guard = tasks.handle.enter();
+        tasks.tasks.spawn(async move {
+            let collection = Character::collection(db);
+
+            if let Err(e) = collection.update_one(
+                doc!("guid": id), 
+                doc!("$set": {
+                    "completed_dialogues": completed
+                }), 
+                None
+            ).await {
+                error!("Database update failed: {:?}", e);
+            }
+        });
+    }
+}
 
 pub fn update_player_database(
     mut ev: EventReader<ParamsChangedEvent>,
-    mut query: Query<&AvatarComponent, With<PlayerComponent>>,
+    query: Query<&AvatarComponent, With<PlayerComponent>>,
     tasks: Res<Tasks>,
     db: Res<RealmDatabase>,
 ) {

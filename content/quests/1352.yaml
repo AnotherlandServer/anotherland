@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../otherland.quest.schema.yaml
+
+### Travel
+# Sellars asked you to use a portal he will unlock. 
+# He will meet you on the other side.
+
+id: 1352
+exp_reward: 6
+bit_reward: 2
+intro_dialogue: 1358
+intermediate_dialogue: 1359
+level: 1
+world: GameEntry_P
+prerequisites:
+  quests:
+    - 1350
+conditions:
+  - id: 0
+    required_count: 1
+    triggers:
+      - timeout: 1

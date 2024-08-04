@@ -18,7 +18,7 @@ use bevy_ecs::{component::Component, schedule::IntoSystemConfigs};
 
 use crate::actors::zone::plugins::send_param_update_events;
 
-use super::{insert_new_items, remove_old_items, update_item_database, update_player_database};
+use super::{insert_new_items, remove_old_items, update_completed_dialogues, update_item_database, update_player_database, update_player_questlog};
 
 pub struct PersistancePlugin;
 
@@ -28,7 +28,9 @@ impl Plugin for PersistancePlugin {
             update_player_database.after(send_param_update_events), 
             insert_new_items, 
             remove_old_items, 
-            update_item_database
+            update_item_database,
+            update_completed_dialogues,
+            update_player_questlog
         ));
     }
 }

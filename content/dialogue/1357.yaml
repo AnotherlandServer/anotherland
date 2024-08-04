@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=../otherland.dialogue.schema.yaml
+
+# Dialog for GE_01_Sellars
+id: 1357
+flow:
+  - 10892 # Everything works correctly. I hope you didn't feel any pain, it can often be a side effect.
+  - # Start quest dialogue for Travel
+    dialogueId: 1358

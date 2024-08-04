@@ -13,15 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::iter::repeat;
-
-use atlas::{dialogStructure, oaDialogNode, AvatarId, CPktStream_166_2, ClassSkill, ClassSkills, HeavyData, HeavyDataEntry, NonClientBaseParams, Param, ParamBox, PlayerComponent, PlayerParams, TriggerComponent, TriggerParams, Uuid, UUID_NIL};
+use atlas::{dialogStructure, oaDialogNode, AvatarId, CPktStream_166_2, ParamBox, PlayerComponent, PlayerParams, TriggerComponent, TriggerParams};
 use bevy::{prelude::*, utils::HashMap};
 use bevy_ecs::{entity::Entity, query::{Added, With, Without}, system::{Commands, In, Query, Resource, SystemId}};
-use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
-use log::{error, info, warn};
 
-use crate::{actors::{zone::{plugins::{AwardStartEquipmentTransaction, BehaviorArguments, BehaviorExt, InventoryTab, PlayerController, PlayerDisguise, PlayerInventory, PlayerLoadout, RemovalPending}, systems::{CombatStyleAssassin, CombatStyleCyber, CombatStyleEnergizer, CombatStyleHacker, CombatStyleNone, CombatStyleRage, CombatStyleTech}}, EntityType}, db::get_cached_item};
+use crate::actors::{zone::{plugins::{BehaviorArguments, BehaviorExt, CompletedDialogues, DialogueCompletedEvent, PlayerController}, systems::{CombatStyleAssassin, CombatStyleCyber, CombatStyleEnergizer, CombatStyleHacker, CombatStyleNone, CombatStyleRage, CombatStyleTech}}, EntityType};
 
 #[derive(Resource)]
 pub struct TriggerScripts(HashMap<&'static str, SystemId<(Entity, Entity), ()>>);
@@ -163,9 +159,13 @@ pub fn trigger_class_energizer(
 
 pub fn trigger_hn01(
     In((instigator, _)): In<TriggerArguments>,
-    players: Query<&PlayerController>,
+    players: Query<(&PlayerController, &CompletedDialogues)>,
+    mut completed_event: EventWriter<DialogueCompletedEvent>,
 ) {
-    if let Ok(controller) = players.get(instigator) {
+    if 
+        let Ok((controller, completed)) = players.get(instigator) &&
+        !completed.is_completed(2804)
+    {
         controller.send_message(CPktStream_166_2 {
             field_1: dialogStructure {
                 npc_id: AvatarId::default(),
@@ -178,19 +178,28 @@ pub fn trigger_hn01(
                 },
                 choice_count: 0,
                 choices: vec![],
-                field_5: false,
                 ..Default::default()
             },
             ..Default::default()
         }.into_message());
+
+        completed_event.send(DialogueCompletedEvent { 
+            player: instigator,
+            dialogue_id: 2804
+        });
     }
 }
 
 pub fn trigger_hn05(
     In((instigator, _)): In<TriggerArguments>,
-    players: Query<&PlayerController>,
+    players: Query<(&PlayerController, &CompletedDialogues)>,
+    mut completed_event: EventWriter<DialogueCompletedEvent>,
 ) {
-    if let Ok(controller) = players.get(instigator) {
+    if 
+        let Ok((controller, completed)) = players.get(instigator) &&
+        !completed.is_completed(2838) &&
+        !completed.is_completed(2808)
+    {
         controller.send_message(CPktStream_166_2 {
             field_1: dialogStructure {
                 npc_id: AvatarId::default(),
@@ -203,7 +212,6 @@ pub fn trigger_hn05(
                 },
                 choice_count: 0,
                 choices: vec![],
-                field_5: false,
                 ..Default::default()
             },
             ..Default::default()
@@ -221,19 +229,32 @@ pub fn trigger_hn05(
                 },
                 choice_count: 0,
                 choices: vec![],
-                field_5: false,
                 ..Default::default()
             },
             ..Default::default()
         }.into_message());
+
+        completed_event.send(DialogueCompletedEvent { 
+            player: instigator,
+            dialogue_id: 2804
+        });
+
+        completed_event.send(DialogueCompletedEvent { 
+            player: instigator,
+            dialogue_id: 2808
+        });
     }
 }
 
 pub fn trigger_hn08(
     In((instigator, _)): In<TriggerArguments>,
-    players: Query<&PlayerController>,
+    players: Query<(&PlayerController, &CompletedDialogues)>,
+    mut completed_event: EventWriter<DialogueCompletedEvent>,
 ) {
-    if let Ok(controller) = players.get(instigator) {
+    if 
+        let Ok((controller, completed)) = players.get(instigator) &&
+        !completed.is_completed(2811)
+    {
         controller.send_message(CPktStream_166_2 {
             field_1: dialogStructure {
                 npc_id: AvatarId::default(),
@@ -246,19 +267,27 @@ pub fn trigger_hn08(
                 },
                 choice_count: 0,
                 choices: vec![],
-                field_5: false,
                 ..Default::default()
             },
             ..Default::default()
         }.into_message());
+
+        completed_event.send(DialogueCompletedEvent { 
+            player: instigator,
+            dialogue_id: 2811
+        });
     }
 }
 
 pub fn trigger_hn10(
     In((instigator, _)): In<TriggerArguments>,
-    players: Query<&PlayerController>,
+    players: Query<(&PlayerController, &CompletedDialogues)>,
+    mut completed_event: EventWriter<DialogueCompletedEvent>,
 ) {
-    if let Ok(controller) = players.get(instigator) {
+    if 
+        let Ok((controller, completed)) = players.get(instigator) &&
+        !completed.is_completed(2813)
+    {
         controller.send_message(CPktStream_166_2 {
             field_1: dialogStructure {
                 npc_id: AvatarId::default(),
@@ -271,19 +300,27 @@ pub fn trigger_hn10(
                 },
                 choice_count: 0,
                 choices: vec![],
-                field_5: false,
                 ..Default::default()
             },
             ..Default::default()
         }.into_message());
+
+        completed_event.send(DialogueCompletedEvent { 
+            player: instigator,
+            dialogue_id: 2813
+        });
     }
 }
 
 pub fn trigger_hn14(
     In((instigator, _)): In<TriggerArguments>,
-    players: Query<&PlayerController>,
+    players: Query<(&PlayerController, &CompletedDialogues)>,
+    mut completed_event: EventWriter<DialogueCompletedEvent>,
 ) {
-    if let Ok(controller) = players.get(instigator) {
+    if 
+        let Ok((controller, completed)) = players.get(instigator) &&
+        !completed.is_completed(2817)
+    {
         controller.send_message(CPktStream_166_2 {
             field_1: dialogStructure {
                 npc_id: AvatarId::default(),
@@ -296,19 +333,27 @@ pub fn trigger_hn14(
                 },
                 choice_count: 0,
                 choices: vec![],
-                field_5: false,
                 ..Default::default()
             },
             ..Default::default()
         }.into_message());
+
+        completed_event.send(DialogueCompletedEvent { 
+            player: instigator,
+            dialogue_id: 2817
+        });
     }
 }
 
 pub fn trigger_hn19(
     In((instigator, _)): In<TriggerArguments>,
-    players: Query<&PlayerController>,
+    players: Query<(&PlayerController, &CompletedDialogues)>,
+    mut completed_event: EventWriter<DialogueCompletedEvent>,
 ) {
-    if let Ok(controller) = players.get(instigator) {
+    if 
+        let Ok((controller, completed)) = players.get(instigator) &&
+        !completed.is_completed(2822)
+    {
         controller.send_message(CPktStream_166_2 {
             field_1: dialogStructure {
                 npc_id: AvatarId::default(),
@@ -321,20 +366,28 @@ pub fn trigger_hn19(
                 },
                 choice_count: 0,
                 choices: vec![],
-                field_5: false,
                 ..Default::default()
             },
             ..Default::default()
         }.into_message());
+
+        completed_event.send(DialogueCompletedEvent { 
+            player: instigator,
+            dialogue_id: 2822
+        });
     }
 }
 
 
 pub fn trigger_hn20(
     In((instigator, _)): In<TriggerArguments>,
-    players: Query<&PlayerController>,
+    players: Query<(&PlayerController, &CompletedDialogues)>,
+    mut completed_event: EventWriter<DialogueCompletedEvent>,
 ) {
-    if let Ok(controller) = players.get(instigator) {
+    if 
+        let Ok((controller, completed)) = players.get(instigator) &&
+        !completed.is_completed(2823)
+    {
         controller.send_message(CPktStream_166_2 {
             field_1: dialogStructure {
                 npc_id: AvatarId::default(),
@@ -347,19 +400,27 @@ pub fn trigger_hn20(
                 },
                 choice_count: 0,
                 choices: vec![],
-                field_5: false,
                 ..Default::default()
             },
             ..Default::default()
         }.into_message());
+
+        completed_event.send(DialogueCompletedEvent { 
+            player: instigator,
+            dialogue_id: 2823
+        });
     }
 }
 
 pub fn trigger_hn21(
     In((instigator, _)): In<TriggerArguments>,
-    players: Query<&PlayerController>,
+    players: Query<(&PlayerController, &CompletedDialogues)>,
+    mut completed_event: EventWriter<DialogueCompletedEvent>,
 ) {
-    if let Ok(controller) = players.get(instigator) {
+    if 
+        let Ok((controller, completed)) = players.get(instigator) &&
+        !completed.is_completed(2824)
+    {
         controller.send_message(CPktStream_166_2 {
             field_1: dialogStructure {
                 npc_id: AvatarId::default(),
@@ -372,19 +433,27 @@ pub fn trigger_hn21(
                 },
                 choice_count: 0,
                 choices: vec![],
-                field_5: false,
                 ..Default::default()
             },
             ..Default::default()
         }.into_message());
+
+        completed_event.send(DialogueCompletedEvent { 
+            player: instigator,
+            dialogue_id: 2824
+        });
     }
 }
 
 pub fn trigger_hn22(
     In((instigator, _)): In<TriggerArguments>,
-    players: Query<&PlayerController>,
+    players: Query<(&PlayerController, &CompletedDialogues)>,
+    mut completed_event: EventWriter<DialogueCompletedEvent>,
 ) {
-    if let Ok(controller) = players.get(instigator) {
+    if 
+        let Ok((controller, completed)) = players.get(instigator) &&
+        !completed.is_completed(2825)
+    {
         controller.send_message(CPktStream_166_2 {
             field_1: dialogStructure {
                 npc_id: AvatarId::default(),
@@ -397,10 +466,14 @@ pub fn trigger_hn22(
                 },
                 choice_count: 0,
                 choices: vec![],
-                field_5: false,
                 ..Default::default()
             },
             ..Default::default()
         }.into_message());
+
+        completed_event.send(DialogueCompletedEvent { 
+            player: instigator,
+            dialogue_id: 2825
+        });
     }
 }

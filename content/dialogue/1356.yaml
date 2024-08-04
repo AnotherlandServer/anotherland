@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../otherland.dialogue.schema.yaml
+# Dialog for GE_01_Sellars
+id: 1356 
+repeatable: true
+flow:
+  - 6034 # Speculative # Open this container and I'll check if everything is set correctly.

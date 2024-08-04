@@ -17,7 +17,7 @@ use std::{ops::{Deref, DerefMut}, sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ dialogStructure, oaDialogNode, oaPktMoveManagerPosUpdate, oaPktQuestUpdate, raknet::Message, AvatarId, CPktStream_166_2, ClassSkill, ClassSkills, DynParamSet, HeavyData, HeavyDataEntry, NativeParam, NonClientBaseParams, OaZoneConfigParams, ParamBox, ParamClass, ParamSetBox, PlayerAttribute, PlayerClass, PlayerComponent, PlayerParams, PortalParams, QuestUpdateData, SpawnNodeParams, StartingPointComponent, StartingPointParams, Uuid};
+use atlas::{ oaPktMoveManagerPosUpdate, raknet::Message, AvatarId, ClassSkills, DynParamSet, NativeParam, NonClientBaseParams, OaZoneConfigParams, ParamBox, ParamClass, ParamSetBox, PlayerAttribute, PlayerClass, PlayerComponent, PlayerParams, PortalParams, SpawnNodeParams, StartingPointComponent, StartingPointParams, Uuid};
 use bevy::{app::{App, PreUpdate, Update}, utils::hashbrown::HashMap, MinimalPlugins};
 use glam::{Vec3, Quat};
 use log::{debug, info, warn};
@@ -25,12 +25,12 @@ use mongodb::Database;
 use tokio::{runtime::Handle, select, sync::{mpsc, OnceCell}, task::JoinHandle, time};
 use tokio_stream::StreamExt;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use bevy_ecs::{prelude::*, schedule::ScheduleLabel, system::{Command, CommandQueue, RunSystemOnce, SystemId}};
+use bevy_ecs::{prelude::*, schedule::ScheduleLabel, system::{Command, RunSystemOnce}};
 
-use crate::{actors::{get_player_height, register_commands, zone::{ behaviors::BehaviorsPlugin, plugins::{insert_player_inventory, AvatarBehaviorPlugin, CombatPlugin, CommandsPlugin, HitPointsPlugin, InventoryPlugin, ParamsPlugin, PersistancePlugin, PlayerInventory, PositionPlugin, PreviousParamBox, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_proximity_chat, sepcial_event_controller, setup_combat_style, setup_combat_style_assassin, setup_combat_style_cyber, setup_combat_style_energizer, setup_combat_style_hacker, setup_combat_style_none, setup_combat_style_rage, setup_combat_style_tech, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{get_cached_floor_maps, realm_database, Character, FlightTube, FloorMapInfo, InventoryEntry}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, register_commands, zone::{ behaviors::BehaviorsPlugin, plugins::{insert_player_inventory, AnimationPlugin, AvatarBehaviorPlugin, CombatPlugin, CommandsPlugin, CompletedDialogues, DialoguePlugin, FactionsPlugin, HitPointsPlugin, InventoryPlugin, ParamsPlugin, PersistancePlugin, PositionPlugin, PreviousParamBox, QuestLog, QuestsPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_proximity_chat, sepcial_event_controller, setup_combat_style, setup_combat_style_assassin, setup_combat_style_cyber, setup_combat_style_energizer, setup_combat_style_hacker, setup_combat_style_none, setup_combat_style_rage, setup_combat_style_tech, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{get_cached_floor_maps, realm_database, Character, FlightTube, FloorMapInfo, InventoryEntry}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
-use super::{components::{self, AvatarComponent, EntityType, InterestList}, plugins::{award_start_equipment, AvatarEvent, AwardStartEquipmentTransaction, BehaviorExt, CommandsExt, DamageEvent, InCombat, ItemPurchaseRequest, ItemSellRequest, NetworkExt, NetworkPlugin, PlayerController, Position, ServerAction, SubjectivityExt}, resources::Tasks, systems::{set_heavy_skill_data, CombatStyleAssassin, CombatStyleCyber, CombatStyleEnergizer, CombatStyleHacker, CombatStyleNone, CombatStyleRage, CombatStyleTech}, zone_events::ProximityChatEvent, Movement, PhysicsState, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState};
+use super::{components::{self, AvatarComponent, EntityType, InterestList}, plugins::{award_start_equipment, AvatarEvent, BehaviorExt, CommandsExt, DamageEvent, InCombat, ItemPurchaseRequest, ItemSellRequest, NetworkExt, NetworkPlugin, PlayerController, Position, ServerAction, SubjectivityExt}, resources::Tasks, systems::set_heavy_skill_data, zone_events::ProximityChatEvent, Movement, PhysicsState, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState};
 
 pub(super) static SPECIAL_EVENTS: OnceCell<SpecialEvents> = OnceCell::const_new();
 pub(in crate::actors::zone) static FLIGHT_TUBES: OnceCell<HashMap<Uuid, Arc<FlightTube>>> = OnceCell::const_new();
@@ -166,7 +166,11 @@ impl Actor for Zone {
                 PositionPlugin,
                 CommandsPlugin,
                 CombatPlugin,
+                FactionsPlugin,
+                QuestsPlugin,
+                DialoguePlugin
             ))
+            .add_plugins(AnimationPlugin)
             .add_systems(PreUpdate, setup_combat_style)
             .add_systems(Update, (
                 send_proximity_chat,
@@ -382,6 +386,7 @@ impl Zone {
 
                     // bling is stored outside of params in database
                     character.data.set_bling(character.bling.unwrap_or_default());
+                    character.data.set_cooldown_passed(true);
 
                     // update zone if stored zone differs or we force spawn to entry point
                     match spawn_mode {
@@ -511,6 +516,8 @@ impl Zone {
                         .insert(EntityType::Player)
                         .insert(PlayerController::new(avatar_id, avatar_event_sender))
                         .insert(position.clone())
+                        .insert(CompletedDialogues::new(character.completed_dialogues.clone()))
+                        .insert(QuestLog::load_from_character(&character))
                         .id();
 
                     debug!("Spawn mode: {:?}", spawn_mode);
@@ -625,15 +632,6 @@ impl Zone {
                             Join the otherland Discord channel to stay updated!",
                             avatar.name
                         )));
-
-                        controller.send_message(
-                            oaPktQuestUpdate {
-                                player: avatar_id,
-                                quest_id: 1350,
-                                entry_count: 0,
-                                ..Default::default()
-                            }.into_message()
-                        );
                     }
                 }
 
@@ -652,7 +650,7 @@ impl Zone {
 
                 if let Ok(diff) = params.get::<PlayerClass>()
                     .map(|p| p.as_set())
-                    .map(|s| s.diff(update_set.get::<PlayerAttribute>().unwrap()))
+                    .map(|s| update_set.get::<PlayerAttribute>().unwrap().diff(s))
                 {
                     if !diff.is_empty() {
                         debug!("{:?}", diff);

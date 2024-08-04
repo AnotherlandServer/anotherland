@@ -38,6 +38,9 @@ pub enum AnotherlandErrorKind {
     QuinnRead,
     QuinnWrite,
     Upk,
+    YamlScanError,
+    YamlEmitError,
+    YamlLoadError,
 
     // Application errors
     Application,
@@ -61,6 +64,9 @@ impl AnotherlandErrorKind {
             QuinnRead => "quinn read error",
             QuinnWrite => "quinn write error",
             Upk => "upk error",
+            YamlScanError => "yaml scan error",
+            YamlEmitError => "yaml emit error",
+            YamlLoadError => "yaml laod error",
         }
     }
 }
@@ -261,6 +267,24 @@ impl From<quinn::WriteError> for AnotherlandError {
 impl From<upk::UPKError> for AnotherlandError {
     fn from(value: upk::UPKError) -> Self {
         Self::new(AnotherlandErrorKind::Upk, format!("{:?}", value))
+    }
+}
+
+impl From<yaml_rust2::ScanError> for AnotherlandError {
+    fn from(value: yaml_rust2::ScanError) -> Self {
+        Self::new(AnotherlandErrorKind::YamlScanError, format!("{:?}", value))
+    }
+}
+
+impl From<yaml_rust2::EmitError> for AnotherlandError {
+    fn from(value: yaml_rust2::EmitError) -> Self {
+        Self::new(AnotherlandErrorKind::YamlEmitError, format!("{:?}", value))
+    }
+}
+
+impl From<yaml_rust2::yaml::LoadError> for AnotherlandError {
+    fn from(value: yaml_rust2::yaml::LoadError) -> Self {
+        Self::new(AnotherlandErrorKind::YamlLoadError, format!("{:?}", value))
     }
 }
 

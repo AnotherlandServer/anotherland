@@ -13,10 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashSet, sync::Arc, time::{Duration, UNIX_EPOCH, SystemTime}, net::SocketAddrV4};
+use std::{collections::HashSet, net::SocketAddrV4, sync::Arc, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 
 use async_trait::async_trait;
-use atlas::{oaPktCashItemVendorSyncAcknowledge, oaPktClusterNodeToClient, oaPktFactionResponse, oaPktSKUBundleSyncAcknowledge, raknet::{Message, Priority, RakNetListener, RakNetPeer, Reliability}, AvatarId, CPkt, CPktChannelChat, CPktChat, CPktStream_167_0, CashItemSKUBundleEntry, CashItemSKUItemEntry, CashItemVendorEntry, CpktChatChatType, FactionRelation, FactionRelationList, NativeParam, Uuid, UUID_NIL};
+use atlas::{oaPktCashItemVendorSyncAcknowledge, oaPktClusterNodeToClient, oaPktFactionResponse, oaPktSKUBundleSyncAcknowledge, raknet::{Message, Priority, RakNetListener, RakNetPeer, Reliability}, AvatarId, CPkt, CPktChannelChat, CPktChat, CPktServerNotify, CPktStream_167_0, CashItemSKUBundleEntry, CashItemSKUItemEntry, CashItemVendorEntry, CpktChatChatType, CpktServerNotifyNotifyType, FactionRelation, FactionRelationList, NativeParam, Uuid, UUID_NIL};
+use chrono::{prelude::*, DateTime, DurationRound, Local, TimeZone};
 use log::{warn, error, trace, info, debug};
 use rand::random;
 use regex::Regex;
@@ -597,6 +598,9 @@ impl ClusterFrontendSession {
                     },
                     CommunityMessage::UnknownA1 { boolean, .. } => {
                         warn!("Unimplemented community message: 0xa1: {}", boolean);
+                    },
+                    CommunityMessage::UnknownA2 { avatar, cheat } => {
+                        warn!("Avatar {:#?} enabled cheat: {}", avatar, cheat);
                     },
                     CommunityMessage::Unknown77 { avatar } => {
                         warn!("Unimplemented community message: 0x77: {:#?}", avatar);

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, EdnaModuleParams, ItemBaseComponent, ItemBaseParams, ItemEdnaClass, ItemEdnaParams, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PlayerComponent, PortalItemClass, SomaforgeItemClass, Uuid};
+use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, EdnaModuleParams, ItemBaseComponent, ItemBaseParams, ItemEdnaClass, ItemEdnaParams, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PlayerComponent, PlayerParams, PortalItemClass, Slot, SomaforgeItemClass, Uuid};
 use bevy::utils::hashbrown::HashMap;
 use bevy_ecs::{component::Component, entity::Entity, event::{Event, EventReader, EventWriter}, query::{With, Without}, system::{Commands, EntityCommands, In, Query}};
 use log::warn;
@@ -600,13 +600,19 @@ pub fn award_start_equipment(
         // add default gear
         ev_award_and_equip.send(AwardItemAndEquipTransaction { 
             entity, 
-            template_id: Uuid::parse_str("1d48a935-7f91-4e7e-b1e9-f8cdb6f23b09").unwrap() // shirt
+            template_id: Uuid::parse_str("1d48a935-7f91-4e7e-b1e9-f8cdb6f23b09").unwrap() // ShirtTextureOnly0003Default0001
         });
 
         ev_award_and_equip.send(AwardItemAndEquipTransaction { 
             entity, 
-            template_id: Uuid::parse_str("bd018939-3293-4a28-b590-68f38f6e9a94").unwrap() // pants
+            template_id: Uuid::parse_str("a5d9d67e-9fcc-433e-bb04-e74562e0b674").unwrap() // PantsTextureOnly0011HackerBlack0001
         });
+
+        ev_award_and_equip.send(AwardItemAndEquipTransaction { 
+            entity, 
+            template_id: Uuid::parse_str("0435719c-6ed0-40fb-b7c6-74acfaaa8160").unwrap() // ShoesTextureOnly0001Default0001
+        });
+
 
         ev_award.send(AwardItemTransaction { 
             entity, 

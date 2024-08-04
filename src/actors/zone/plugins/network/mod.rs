@@ -20,7 +20,6 @@ mod params;
 mod combat;
 mod inventory;
 mod fog_of_war;
-mod dialog;
 mod quest;
 
 pub use plugin::*;
