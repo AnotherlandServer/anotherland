@@ -1,3 +1,6 @@
 [submodule "packet_definitions"]
 	path = packet_definitions
 	url = https://github.com/AnotherlandServer/packet-formats.git
+[submodule "content"]
+	path = content
+	url = https://github.com/AnotherlandServer/content.git
