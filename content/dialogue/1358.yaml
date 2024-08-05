@@ -1,7 +1,0 @@
-# yaml-language-server: $schema=../otherland.dialogue.schema.yaml
-# Dialog for GE_01_Sellars
-id: 1358
-flow:
-  - 6044 # We must get you ready for the task at hand.  Prepare yourself for a far less serene location.
-  - line: 13505 # I will try to open this portal. If I'm right it should still function correctly.
-    quest: 1352 # Travel
