@@ -16,6 +16,7 @@
 #![feature(let_chains)]
 #![feature(str_from_utf16_endian)]
 #![feature(trivial_bounds)]
+#![feature(extract_if)]
 
 mod util;
 mod db;
@@ -25,6 +26,7 @@ mod data_import;
 mod actors;
 mod components;
 mod frontends;
+mod scripting;
 
 // Import modules
 use std::net::Ipv4Addr;
@@ -41,6 +43,7 @@ use glob::glob;
 use once_cell::sync::Lazy;
 use mongodb::bson::doc;
 use rcgen::Certificate;
+use scripting::{dialogue::read_dialogues, quest::read_quests};
 use tokio::signal;
 
 use tokio_stream::StreamExt;
@@ -297,6 +300,10 @@ async fn main() -> AnotherlandResult<()> {
 
             init_database().await?;
 
+            // read content files
+            read_dialogues().await?;
+            read_quests().await?;
+
             initialize_login_server().await?;
             initialize_realm_server().await?;
             initialize_cluster_frontend_server().await?;
@@ -310,7 +317,7 @@ async fn main() -> AnotherlandResult<()> {
                     .as_ref()
                     .and_then(|v| v.data.as_ref())
                     .and_then(|v| v.get::<CommonConfigClass>().ok())
-                    .and_then(|v| v.value())
+                    .map(|v| v.value())
                 {
                     if let Some(active_maps) = config.get("activeMaps") {
                         for map in active_maps.as_array().unwrap() {

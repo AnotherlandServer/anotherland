@@ -14,22 +14,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use atlas::oaPktMoveManagerPosUpdate;
-use bevy_ecs::{query::Changed, system::Query};
+use bevy_ecs::{entity::Entity, query::Changed, system::Query};
 
 use crate::actors::{zone::plugins::Position, AvatarComponent, InterestList};
 
 use super::PlayerController;
 
 pub fn send_position_updates(
-    positions: Query<(&AvatarComponent, &Position), Changed<Position>>,
+    positions: Query<(Entity, &AvatarComponent, &Position), Changed<Position>>,
     players: Query<(&InterestList, &PlayerController)>,
 ) {
-    for (avatar, pos) in positions.iter() {
+    for (entity, avatar, pos) in positions.iter() {
         // check player interest list to dispatch updates
         for (interests, controller) in players.iter() {
-            if interests.contains(avatar.id) {
+            if interests.contains(entity) {
                 controller.send_message(oaPktMoveManagerPosUpdate {
-                    avatar_id: avatar.id.as_u64(),
+                    avatar_id: avatar.id,
                     pos: pos.position.into(),
                     rot: pos.rotation.into(),
                     vel: pos.velocity.into(),

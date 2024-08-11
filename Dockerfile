@@ -33,5 +33,6 @@ RUN apt-get update && apt-get install -y libsqlite3-0 && rm -rf /var/lib/apt/lis
 COPY --from=builder /usr/local/cargo/bin/anotherland /usr/local/bin/anotherland
 COPY --from=builder /usr/src/anotherland/conf /etc/anotherland
 COPY --from=builder /usr/src/anotherland/log4rs.yaml /usr/local/bin/log4rs.yaml
+COPY --from=builder /usr/src/anotherland/content /usr/local/lib/anotherland
 CMD ["anotherland"]
 

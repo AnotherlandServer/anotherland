@@ -20,7 +20,7 @@ use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde_json::{Value, json};
 use bevy_ecs::prelude::*;
 
-use crate::{ClassId, DynParamClass, MightIncludeParams, MightIncludeParamsMut, ParamClass, ParamError, ParamSetBox};
+use crate::{ClassId, DynParamClass, MightIncludeParams, MightIncludeParamsMut, Param, ParamClass, ParamError, ParamSetBox};
 
 #[derive(Component)]
 pub struct ParamBox {
@@ -84,6 +84,20 @@ impl ParamBox {
 
     pub fn diff(&self, other: &ParamBox) -> ParamSetBox {
         self.class.diff(other.class.as_ref())
+    }
+
+    pub fn apply(&mut self, other: ParamSetBox) {
+        self.class.apply(other)
+    }
+
+    pub fn set_param<P>(&mut self, name: &str, param: P) -> Option<Param> 
+        where P: Into<Param>
+    {
+        self.class.set_param(name, param.into())
+    }
+
+    pub fn get_param(&self, name: &str) -> Option<&Param> {
+        self.class.get_param(name)
     }
 }
 

@@ -16,7 +16,7 @@
 use async_trait::async_trait;
 use atlas::{BundleItemClass, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, ItemBaseComponent, ItemMyLandThemeClass, MinigameItemClass, ParamBox, PortalItemClass, SomaforgeItemClass, Uuid};
 use bson::doc;
-use mongodb::{options::{FindOptions, IndexOptions}, Collection, Cursor, Database, IndexModel};
+use mongodb::{options::{DeleteOptions, FindOptions, IndexOptions}, Collection, Cursor, Database, IndexModel};
 use serde::Serialize;
 use serde_derive::Deserialize;
 
@@ -67,17 +67,15 @@ impl InventoryEntry {
         }, FindOptions::default()).await?)
     }
 
-    pub fn from_item(owner: InventoryOwner, item: &ItemContent) -> AnotherlandResult<Self> {
-        if let Some(ref params) = item.data {
-            Ok(Self {
-                id: Uuid::new(),
-                owner,
-                template: item.guid,
-                params: params.clone(),
-            })
-        } else {
-            Err(AnotherlandError::app_err("item does not contain any data"))
-        }
+    pub async fn delete_player_inventory(db: Database, character_id: Uuid) -> AnotherlandResult<()> {
+        let collection = InventoryEntry::collection(db);
+        collection.delete_many(doc! {
+            "owner": {
+                "$eq": bson::to_bson(&InventoryOwner::Character(character_id)).unwrap()
+            }
+        }, DeleteOptions::default()).await?;
+
+        Ok(())
     }
 }
 
@@ -92,4 +90,4 @@ impl DatabaseRecord<'_> for InventoryEntry {
     fn key(&self) -> &Self::Key {
         &self.id
     }
-}
+} 

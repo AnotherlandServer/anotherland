@@ -82,6 +82,7 @@ pub enum GeneratedFieldType {
     String,
     Uuid,
     NativeParam,
+    AvatarId,
     Array(Box<GeneratedFieldType>),
     Struct(GeneratedStructReference),
     Enum(GeneratedEnumReference),
@@ -258,6 +259,7 @@ impl GeneratedFieldType {
                     "f64" => GeneratedFieldType::F64,
                     "uuid" => GeneratedFieldType::Uuid,
                     "nativeparam" => GeneratedFieldType::NativeParam,
+                    "avatar_id" => GeneratedFieldType::AvatarId,
                     _ => panic!()
                 }
             },

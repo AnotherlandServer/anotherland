@@ -47,7 +47,7 @@ impl DerefMut for PlayerDisguise {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub enum ItemReference {
     VisualOnly(i32),
     InventoryItem((Uuid, i32, Entity)),
@@ -77,7 +77,7 @@ impl PlayerLoadout {
         item_ref.content()
             .and_then(|c| c.data.as_ref())?
             .get_impl::<dyn ItemBaseParams>()?
-            .slot_mapping()?
+            .slot_mapping()
             .parse()
             .ok()
     }
@@ -155,6 +155,20 @@ impl PlayerLoadout {
         self.slots
             .values()
             .map(ItemReference::item_id)
+            .collect()
+    }
+
+    pub fn remove_all_items(&mut self) -> Vec<ItemReference> {
+        let (visuals, items): (HashMap<_, _>, HashMap<_, _>) = self.slots
+            .drain()
+            .partition(|(_, item_ref)| matches!(item_ref, ItemReference::InventoryItem((_, _, _))));
+
+        self.slots = visuals;
+
+        items.into_iter()
+            .map(|(_, i)| i)
+            .collect::<HashSet<_>>()
+            .drain()
             .collect()
     }
 }

@@ -18,9 +18,11 @@ mod respawn;
 mod special_event_controller;
 mod chat;
 mod surf_spline;
+mod class_init;
 
 pub use update_interests::*;
 pub use respawn::*;
 pub use special_event_controller::*;
 pub use chat::*;
 pub use surf_spline::*;
+pub use class_init::*;

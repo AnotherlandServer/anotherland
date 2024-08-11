@@ -54,12 +54,12 @@ pub fn send_item_updates(
             let mut param_buffer = Vec::new();
             let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
-            debug!("Item update: {:?}", params);
+            //debug!("Item update: {:?}", params);
 
             params.write_to_client(&mut writer).expect("failed to write item params");
 
             controller.send_message(CPktItemUpdate {
-                avatar_id: avatar.id.as_u64(),
+                avatar_id: avatar.id,
                 id: *item.id(),
                 use_template: 1,
                 template_id: Some(*item.template_id()),
@@ -81,7 +81,7 @@ pub fn send_item_removals(
             let Ok((avatar, controller)) = owner.get(item_owner)
         {
             controller.send_message(CPktItemNotify {
-                avatar_id: avatar.id.as_u64(),
+                avatar_id: avatar.id,
                 id: item_id,
                 ..Default::default()
             }.into_message());

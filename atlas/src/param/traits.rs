@@ -30,7 +30,7 @@ pub trait ParamAttrib: PartialEq + Eq + Hash + Copy + Clone + FromStr + TryFrom<
     fn id(&self) -> u16;
     fn name(&self) -> &'static str;
     fn datatype(&self) -> ParamType;
-    fn default(&self) -> Option<&Param>;
+    fn default(&self) -> &Param;
     fn flags(&self) -> &[ParamFlag];
 
     fn has_flag(&self, flag: &ParamFlag) -> bool {
@@ -80,6 +80,7 @@ pub trait ParamClass: Default + Any {
 
     fn from_set(set: ParamSet<Self::Attributes>) -> Self;
     fn as_set(&self) -> &ParamSet<Self::Attributes>;
+    fn as_mut(&mut self) -> &mut ParamSet<Self::Attributes>;
     fn into_set(self) -> ParamSet<Self::Attributes>;
 
     fn apply(&mut self, set: ParamSet<Self::Attributes>);
@@ -131,7 +132,12 @@ pub trait DynParamClass: Any + Send + Sync + for<'a> MightIncludeBase<'a> {
     fn cloned(&self) -> Box<dyn DynParamClass>;
     fn as_json(&self) -> Value;
 
+    fn apply(&mut self, set: ParamSetBox);
+
     fn as_hash_map(&self) -> HashMap<String, Param>;
+
+    fn set_param(&mut self, name: &str, param: Param) -> Option<Param>;
+    fn get_param(&self, name: &str) -> Option<&Param>;
 }
 
 // blanked implementations for param classes
@@ -171,8 +177,25 @@ impl <T: ParamClass + Clone + Any + Send + Sync + for<'a> MightIncludeBase<'a>> 
         self.as_persistent_json()
     }
 
+    fn apply(&mut self, set: ParamSetBox) {
+        if self.class_id() != set.class_id {
+            panic!("tried to diff mismatching param boxes")
+        }
+
+        self
+            .apply(set.take::<T::Attributes>().unwrap());
+    }
+
     fn as_hash_map(&self) -> HashMap<String, Param> {
         self.as_set().as_hash_map()
+    }
+
+    fn set_param(&mut self, name: &str, param: Param) -> Option<Param> {
+        self.as_mut().set_param(name, param)
+    }
+
+    fn get_param(&self, name: &str) -> Option<&Param> {
+        self.as_set().get_param(name)
     }
 }
 
@@ -185,6 +208,9 @@ pub trait DynParamSet: Debug + Any + Send + Sync {
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
     fn as_hash_map(&self) -> HashMap<String, Param>;
+
+    fn set_param(&mut self, name: &str, param: Param) -> Option<Param>;
+    fn get_param(&self, name: &str) -> Option<&Param>;
 }
 
 pub trait MightIncludeParams<'a, T: ?Sized + 'static> {

@@ -26,6 +26,8 @@ mod behaviors;
 mod plugins;
 mod subjective_lenses;
 mod event_channels;
+mod commands;
+mod time;
 
 pub use actor::*;
 pub use events::*;
@@ -35,3 +37,5 @@ pub use components::*;
 pub use event_channels::*;
 pub use plugins::AvatarEvent;
 pub use plugins::ServerAction;
+pub use commands::*;
+pub use time::*;

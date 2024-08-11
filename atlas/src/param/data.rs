@@ -72,7 +72,7 @@ pub enum Param {
     VectorGuid(Vec<Uuid>), // 38
     HashmapStringInt(HashMap<String, i32>), // 39
     HashmapStringString(HashMap<String, String>), // 40
-    Any(u32, Vec<u8>), // 41
+    Any(Vec<u8>), // 41
     VectorLocalizedString(Vec<Uuid>), // 42
     InstanceGroup(String), // 43
     StaticInstanceGroup(#[serde(skip)] &'static str), // 43
@@ -434,10 +434,9 @@ impl Param {
             41 => {
                 context("Any", |i: &'a [u8]| {
                     let (i, len) = number::complete::le_u32(i)?;
-                    let (i, class) = number::complete::le_u32(i)?;
                     let (i, data) = take(len as usize)(i)?;
 
-                    Ok((i, Param::Any(class, data.to_vec())))
+                    Ok((i, Param::Any(data.to_vec())))
                 })(i)
             },
             42 => {
@@ -663,9 +662,8 @@ impl Param {
                     writer.write_bytes(&i.to_uuid_1().to_bytes_le())?;
                 }
             },
-            Self::Any(class, val) => {
+            Self::Any(val) => {
                 writer.write(41u8)?;
-                writer.write(*class)?;
                 writer.write(val.len() as u32)?;
                 writer.write_bytes(val)?;
             },
@@ -681,6 +679,27 @@ impl Param {
                     writer.write_bytes(&i.to_uuid_1().to_bytes_le())?;
                 }
             },
+            Self::GuidSet(val) => { // todo: check
+                writer.write(37u8)?;
+                writer.write(val.len() as u32)?;
+                for i in val.iter() {
+                    writer.write_bytes(&i.to_uuid_1().to_bytes_le())?;
+                }
+            },
+            Self::AvatarIdSet(val) => { // todo: check
+                writer.write(35u8)?;
+                writer.write(val.len() as u32)?;
+                for v in val.iter() {
+                    writer.write(v.as_u64())?;
+                }
+            },
+            Self::VectorAvatarId(val) => { // todo: check
+                writer.write(36u8)?;
+                writer.write(val.len() as u32)?;
+                for v in val.iter() {
+                    writer.write(v.as_u64())?;
+                }
+            }
             _ => todo!("{:?}", self),
         }
 
@@ -752,7 +771,7 @@ impl Clone for Param {
             Self::VectorGuid(arg0) => Self::VectorGuid(arg0.clone()),
             Self::HashmapStringInt(arg0) => Self::HashmapStringInt(arg0.clone()),
             Self::HashmapStringString(arg0) => Self::HashmapStringString(arg0.clone()),
-            Self::Any(arg0, arg1) => Self::Any(*arg0, arg1.clone()),
+            Self::Any(arg0) => Self::Any(arg0.clone()),
             Self::VectorLocalizedString(arg0) => Self::VectorLocalizedString(arg0.clone()),
             Self::InstanceGroup(arg0) => Self::InstanceGroup(arg0.clone()),
             Self::StaticInstanceGroup(arg0) => Self::InstanceGroup(arg0.to_string()),
@@ -1236,6 +1255,17 @@ impl <'a>TryInto<&'a [f32]> for &'a Param {
     fn try_into(self) -> Result<&'a [f32], Self::Error> {
         match self {
             Param::VectorFloat(val) => Ok(val.as_slice()),
+            _ => Err(ParamError(()))
+        }
+    }
+}
+
+impl <'a>TryInto<&'a [u8]> for &'a Param {
+    type Error = ParamError;
+
+    fn try_into(self) -> Result<&'a [u8], Self::Error> {
+        match self {
+            Param::Any(val) => Ok(val.as_slice()),
             _ => Err(ParamError(()))
         }
     }

@@ -134,7 +134,7 @@ enum ParamType {
 impl ParamType {
     fn into_rust_type(self, flags: &[ParamFlag]) -> TokenStream {
         match self {
-            ParamType::Any => quote!(Param),
+            ParamType::Any => quote!([u8]),
             ParamType::AvatarID => quote!(AvatarId),
             ParamType::AvatarIDSet => quote!(HashSet<AvatarId>),
             ParamType::AvatarIDVector => quote!([AvatarId]),
@@ -172,10 +172,6 @@ impl ParamType {
         }
     }
 
-    fn is_any_type(self) -> bool {
-        matches!(self, ParamType::Any)
-    }
-
     fn is_copy_type(self) -> bool {
         matches!(self, ParamType::AvatarID | 
             ParamType::Bool |
@@ -185,7 +181,9 @@ impl ParamType {
     }
 
     fn is_ref_type(self) -> bool {
-        matches!(self, ParamType::AvatarIDSet |
+        matches!(self, 
+            ParamType::Any |
+            ParamType::AvatarIDSet |
             ParamType::AvatarIDVector |
             ParamType::ContentRef |
             ParamType::ContentRefAndInt |
@@ -234,7 +232,7 @@ enum ParamFlag {
 struct ParamOptions {
     param_type: ParamType,
     default: Option<String>,
-    default_literal: Option<TokenStream>,
+    default_literal: TokenStream,
     flags: Vec<ParamFlag>,
 }
 
@@ -367,56 +365,67 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
                     let default_literal = if let Some(default_str) = default.as_ref() {
                         match paramtype.as_ref().unwrap() {
-                            ParamType::Any => None,
+                            ParamType::Any => quote! { Param::Any(vec![]) },
                             ParamType::AvatarID => {
                                 let val: u64 = default_str.strip_prefix('#').unwrap().parse().expect("failed to parse avatar id");
-                                Some(quote! { Param::AvatarId(AvatarId::from_u64_literal(#val)) })
+                                quote! { Param::AvatarId(AvatarId::from_u64_literal(#val)) }
                             },
-                            ParamType::AvatarIDSet => None,
-                            ParamType::AvatarIDVector => None,
-                            ParamType::BitSetFilter => None,
-                            ParamType::Bool => if default_str == "true" { Some(quote!{ Param::Bool(true) }) } else { Some(quote!{ Param::Bool(false) }) },
-                            ParamType::ClassRefPowerRangeList => Some(quote! { Param::StaticClassRefPowerRangeList(#default_str) }),
-                            ParamType::ContentRef => Some(quote! { Param::StaticContentRef(#default_str) }),
-                            ParamType::ContentRefAndInt => Some(quote! { Param::StaticContentRefAndInt(#default_str) }),
-                            ParamType::ContentRefList => Some(quote! { Param::StaticContentRefList(#default_str) }),
+                            ParamType::AvatarIDSet => quote! { Param::AvatarIdSet(HashSet::new()) },
+                            ParamType::AvatarIDVector => quote! { Param::VectorAvatarId(vec![]) },
+                            ParamType::BitSetFilter => quote! { Param::BitSetFilter(0) },
+                            ParamType::Bool => if default_str == "true" { quote!{ Param::Bool(true) } } else { quote!{ Param::Bool(false) } },
+                            ParamType::ClassRefPowerRangeList => quote! { Param::StaticClassRefPowerRangeList(#default_str) },
+                            ParamType::ContentRef => quote! { Param::StaticContentRef(#default_str) },
+                            ParamType::ContentRefAndInt => quote! { Param::StaticContentRefAndInt(#default_str) },
+                            ParamType::ContentRefList => quote! { Param::StaticContentRefList(#default_str) },
                             ParamType::Float => {
                                 let val: f32 = default_str.parse().expect("failed to parse float");
-                                Some(quote! { Param::Float(#val) })
+                                quote! { Param::Float(#val) }
                             },
-                            ParamType::FloatRange => None,
-                            ParamType::FloatVector => None,
+                            ParamType::FloatRange => quote! { Param::FloatRange((0.0,0.0)) },
+                            ParamType::FloatVector => quote! { Param::VectorFloat(vec![]) },
                             ParamType::Guid => {
                                 let uuid_bytes = Uuid::parse_str(default_str).unwrap().as_bytes().to_token_stream();
-                                Some(quote!{ Param::Guid(Uuid::from_bytes(#uuid_bytes)) })
+                                quote!{ Param::Guid(Uuid::from_bytes(#uuid_bytes)) }
                             },
-                            ParamType::GuidPair => None,
+                            ParamType::GuidPair => quote! { Param::GuidPair((UUID_NIL, UUID_NIL)) },
                             ParamType::Int => {
                                 let val: i32 = default_str.parse().expect("failed to parse int");
-                                Some(quote! { Param::Int(#val) })
+                                quote! { Param::Int(#val) }
                             },
                             ParamType::Int64 => {
                                 let val: i64 = default_str.parse().expect("failed to parse int64");
-                                Some(quote! { Param::Int64(#val) })
+                                quote! { Param::Int64(#val) }
                             },
-                            ParamType::Int64Vector => None,
-                            ParamType::IntVector => None,
+                            ParamType::Int64Vector => quote! { Param::VectorInt64(vec![]) },
+                            ParamType::IntVector => {
+                                let values: Vec<_> = default_str
+                                    .split(',')
+                                    .map(|v| {
+                                        let v = v.trim();
+                                        &v[1..v.len()-1]
+                                    })
+                                    .filter_map(|v| v.parse::<i32>().ok())
+                                    .map(|v| quote!(#v))
+                                    .collect();
+
+                                quote! { Param::VectorInt(vec![#(#values),*]) }
+                            },
                             ParamType::Json => {
-                                println!("Parse: {}", default_str);
                                 let default_str = default_str
                                     .replace("\\\"", "\"")
                                     .replace("\\\\", "\\");
-                                Some(quote! { Param::JsonValue(serde_json::from_str(#default_str).unwrap()) })
+                                quote! { Param::JsonValue(serde_json::from_str(#default_str).unwrap()) }
                             },
                             ParamType::LocalizedString => {
                                 let uuid_bytes = Uuid::parse_str(default_str).unwrap().as_bytes().to_token_stream();
-                                Some(quote! { Param::LocalizedString(Uuid::from_bytes(#uuid_bytes)) })
+                                quote! { Param::LocalizedString(Uuid::from_bytes(#uuid_bytes)) }
                             },
-                            ParamType::String => Some(quote! { Param::StaticString(#default_str) }),
-                            ParamType::StringFloatPair => None,
-                            ParamType::StringStringHashmap => None,
-                            ParamType::StringIntHashmap => None,
-                            ParamType::StringVector => None,
+                            ParamType::String => quote! { Param::StaticString(#default_str) },
+                            ParamType::StringFloatPair => quote! { Param::StringFloatPair((String::default(), 0.0)) },
+                            ParamType::StringStringHashmap => quote! { Param::HashmapStringString(HashMap::new()) },
+                            ParamType::StringIntHashmap => quote! { Param::HashmapStringInt(HashMap::new()) },
+                            ParamType::StringVector => quote! { Param::VectorString(vec![]) },
                             ParamType::Vector3 => {
                                 let parts: Vec<_> = default_str.split(' ').collect();
                                 let x: f32 = parts[0].parse().expect("failed to parse vector3");
@@ -425,18 +434,56 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
 
                                 if flags.contains(&ParamFlag::Uts) {
-                                    Some(quote! { Param::Vector3Uts((0, Vec3::new(#x, #y, #z))) })
+                                    quote! { Param::Vector3Uts((0, Vec3::new(#x, #y, #z))) }
                                 } else {
-                                    Some(quote! { Param::Vector3(Vec3::new(#x, #y, #z)) })
+                                    quote! { Param::Vector3(Vec3::new(#x, #y, #z)) }
                                 }
                             },
-                            ParamType::OAInstanceGroup => None,
-                            ParamType::OASetGuid => None,
-                            ParamType::OAVectorGuid => None,
-                            ParamType::OAVactorLocalizedString => None,
+                            ParamType::OAInstanceGroup => quote! { Param::InstanceGroup(String::default()) },
+                            ParamType::OASetGuid => quote! { Param::GuidSet(HashSet::new()) },
+                            ParamType::OAVectorGuid => quote! { Param::VectorGuid(vec![]) },
+                            ParamType::OAVactorLocalizedString => quote! { Param::VectorLocalizedString(vec![]) },
                         }
                     } else {
-                        None
+                        match paramtype.as_ref().unwrap() {
+                            ParamType::Any => quote! { Param::Any(vec![]) },
+                            ParamType::AvatarID => quote! { Param::AvatarId(AvatarId::from_u64_literal(0)) },
+                            ParamType::AvatarIDSet => quote! { Param::AvatarIdSet(HashSet::new()) },
+                            ParamType::AvatarIDVector => quote! { Param::VectorAvatarId(vec![]) },
+                            ParamType::BitSetFilter => quote! { Param::BitSetFilter(0) },
+                            ParamType::Bool =>  quote!{ Param::Bool(false) },
+                            ParamType::ClassRefPowerRangeList => quote! { Param::StaticClassRefPowerRangeList("") },
+                            ParamType::ContentRef => quote! { Param::StaticContentRef("") },
+                            ParamType::ContentRefAndInt => quote! { Param::StaticContentRefAndInt("") },
+                            ParamType::ContentRefList => quote! { Param::StaticContentRefList("") },
+                            ParamType::Float => quote! { Param::Float(0.0) },
+                            ParamType::FloatRange => quote! { Param::FloatRange((0.0, 0.0)) },
+                            ParamType::FloatVector => quote! { Param::VectorFloat(vec![]) },
+                            ParamType::Guid => quote!{ Param::Guid(UUID_NIL) },
+                            ParamType::GuidPair => quote! { Param::GuidPair((UUID_NIL, UUID_NIL)) },
+                            ParamType::Int => quote! { Param::Int(0) },
+                            ParamType::Int64 => quote! { Param::Int64(0) },
+                            ParamType::Int64Vector => quote! { Param::VectorInt64(vec![]) },
+                            ParamType::IntVector => quote! { Param::VectorInt(vec![]) },
+                            ParamType::Json => quote! { Param::JsonValue(Value::default()) },
+                            ParamType::LocalizedString => quote! { Param::LocalizedString(UUID_NIL) },
+                            ParamType::String => quote! { Param::StaticString("") },
+                            ParamType::StringFloatPair => quote! { Param::StringFloatPair((String::default(), 0.0)) },
+                            ParamType::StringStringHashmap => quote! { Param::HashmapStringString(HashMap::new()) },
+                            ParamType::StringIntHashmap => quote! { Param::HashmapStringInt(HashMap::new()) },
+                            ParamType::StringVector => quote! { Param::VectorString(vec![]) },
+                            ParamType::Vector3 => {
+                                if flags.contains(&ParamFlag::Uts) {
+                                    quote! { Param::Vector3Uts((0, Vec3::default())) }
+                                } else {
+                                    quote! { Param::Vector3(Vec3::default()) }
+                                }
+                            },
+                            ParamType::OAInstanceGroup => quote! { Param::InstanceGroup(String::default()) },
+                            ParamType::OASetGuid => quote! { Param::GuidSet(HashSet::new()) },
+                            ParamType::OAVectorGuid => quote! { Param::VectorGuid(vec![]) },
+                            ParamType::OAVactorLocalizedString => quote! { Param::VectorLocalizedString(vec![]) },
+                        }
                     };
 
                     ParamIniLine::ParamOptions(tokens[0].to_owned(), ParamOptions { 
@@ -665,25 +712,28 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         let static_defaults: Vec<_> = class.paramoption.iter().map(|v| {
             let entry_name = format_ident!("{}", v.0.to_case(Case::UpperSnake));
-            if let Some(default_literal) = v.1.default_literal.as_ref() {
-                if matches!(v.1.param_type, ParamType::Json) {
-                    quote!{static #entry_name: Lazy<Param> = Lazy::new(|| #default_literal);}
-                } else {
-                    quote!{static #entry_name: Param = #default_literal;}
-                }
+            let default_literal = &v.1.default_literal;
+
+            if 
+                matches!(v.1.param_type, ParamType::Json) || 
+                matches!(v.1.param_type, ParamType::StringFloatPair) || 
+                matches!(v.1.param_type, ParamType::OAInstanceGroup) ||
+                matches!(v.1.param_type, ParamType::StringIntHashmap) ||
+                matches!(v.1.param_type, ParamType::StringStringHashmap) ||
+                matches!(v.1.param_type, ParamType::AvatarIDSet) ||
+                matches!(v.1.param_type, ParamType::OASetGuid) ||
+                matches!(v.1.param_type, ParamType::IntVector)
+            {
+                quote!{static #entry_name: Lazy<Param> = Lazy::new(|| #default_literal);}
             } else {
-                quote!()
+                quote!{static #entry_name: Param = #default_literal;}
             }
         }).collect();
 
         let enum_defaults: Vec<_> = class.paramoption.iter().map(|v| {
             let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
             let static_name = format_ident!("{}", v.0.to_case(Case::UpperSnake));
-            if let Some(default_literal) = v.1.default_literal.as_ref() {
-                quote!{Self::#entry_name => Some(&#static_name),}
-            } else {
-                quote!{Self::#entry_name => None,}
-            }
+            quote!{Self::#entry_name => &#static_name,}
         }).collect();
 
         let enum_flags: Vec<_> = class.paramoption.iter().map(|v| {
@@ -753,7 +803,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     }
                 }
 
-                fn default(&self) -> Option<&Param> { 
+                fn default(&self) -> &Param { 
                     #(#static_defaults)*
 
                     match self {
@@ -800,7 +850,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         let trait_name = format_ident!("{}Params", class.name.to_case(Case::UpperCamel));
         let component_name = format_ident!("{}Component", class.name.to_case(Case::UpperCamel));
-        let might_be_trait_name = format_ident!("MightBe{}Params", class.name.to_case(Case::UpperCamel));
 
         let params: Vec<_> = v.borrow().paramid.iter().map(|(name, id)| {
             (name.to_owned(), *id, v.borrow().paramoption.iter().find(|p| &p.0 == name).map(|s| s.1.to_owned()))
@@ -832,44 +881,23 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
                     let rust_type = options.param_type.into_rust_type(&options.flags);
 
-                    if options.param_type.is_any_type() {
+                    if options.param_type.is_copy_type() {
                         tokens.push(quote! { 
-                            fn #field_name_ident(&self) -> Option<&#rust_type>;
+                            fn #field_name_ident(&self) -> #rust_type;
                         });
-                    } else if options.param_type.is_copy_type() {
-                        if options.default.is_some() {
-                            tokens.push(quote! { 
-                                fn #field_name_ident(&self) -> #rust_type;
-                            });
-                        } else {
-                            tokens.push(quote! { 
-                                fn #field_name_ident(&self) -> Option<#rust_type>;
-                            });
-                        }
                     } else if options.param_type.is_ref_type() {
-                        if options.default.is_some() {
-                            tokens.push(quote! { 
-                                fn #field_name_ident(&self) -> &#rust_type;
-                            });
-                        } else {
-                            tokens.push(quote! { 
-                                fn #field_name_ident(&self) -> Option<&#rust_type>;
-                            });
-                        }
-                    } else {
                         tokens.push(quote! { 
-                            fn #field_name_ident(&self) -> Option<()>;
+                            fn #field_name_ident(&self) -> &#rust_type;
                         });
                     }
 
-                    //if options.flags.contains(&ParamFlag::NodeOwn) || options.flags.contains(&ParamFlag::ServerOwn) {
                     if options.flags.contains(&ParamFlag::Deprecated) {
                         tokens.push(quote!(#[deprecated]));
                     }
                     match options.param_type {
                         ParamType::Any => tokens.push(quote! { 
-                                fn #set_field_name(&mut self, val: Param);
-                            }),
+                            fn #set_field_name(&mut self, val: Vec<u8>);
+                        }),
                         ParamType::AvatarID => tokens.push(quote! { 
                             fn #set_field_name(&mut self, val: AvatarId);
                         }),
@@ -1058,59 +1086,29 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
                             let rust_type = options.param_type.into_rust_type(&options.flags);
 
-                            if options.param_type.is_any_type() {
-                                tokens.push(quote! { 
-                                    fn #field_name_ident(&self) -> Option<&#rust_type> {
-                                        self.0.get(&#attrib_name::#attrib_enum_name)
+                            if options.param_type.is_copy_type() {
+                                tokens.push(quote!{
+                                    fn #field_name_ident(&self) -> #rust_type { 
+                                        self.0
+                                            .get(&#attrib_name::#attrib_enum_name)
+                                            .and_then(|v| v.try_into().ok())
+                                            .expect("param not defined")
                                     }
-                                })
-                            } else if options.param_type.is_copy_type() {
-                                if options.default.is_some() {
-                                    tokens.push(quote!{
-                                        fn #field_name_ident(&self) -> #rust_type { 
-                                            self.0
-                                                .get(&#attrib_name::#attrib_enum_name)
-                                                .and_then(|v| v.try_into().ok())
-                                                .expect("param not defined")
-                                        }
-                                    });
-                                } else {
-                                    tokens.push(quote!{
-                                        fn #field_name_ident(&self) -> Option<#rust_type> { 
-                                            self.0
-                                                .get(&#attrib_name::#attrib_enum_name)
-                                                .and_then(|v| v.try_into().ok())
-                                        }
-                                    });
-                                }
+                                });
                             } else if options.param_type.is_ref_type() {
-                                if options.default.is_some() {
-                                    tokens.push(quote!{
-                                        fn #field_name_ident(&self) -> &#rust_type {
-                                            self.0
-                                                .get(&#attrib_name::#attrib_enum_name)
-                                                .and_then(|v| v.try_into().ok())
-                                                .expect("param not defined")
-                                        }
-                                    });
-                                } else {
-                                    tokens.push(quote!{
-                                        fn #field_name_ident(&self) -> Option<&#rust_type> {
-                                            self.0.get(&#attrib_name::#attrib_enum_name)
-                                                .and_then(|v| v.try_into().ok())
-                                        }
-                                    });
-                                }
-                            } else {
-                                tokens.push(quote! { 
-                                    fn #field_name_ident(&self) -> Option<()> { todo!() }
+                                tokens.push(quote!{
+                                    fn #field_name_ident(&self) -> &#rust_type {
+                                        self.0
+                                            .get(&#attrib_name::#attrib_enum_name)
+                                            .and_then(|v| v.try_into().ok())
+                                            .expect("param not defined")
+                                    }
                                 });
                             }
     
                             match options.param_type {
                                 ParamType::Any => tokens.push(quote! { 
-                                    fn #set_field_name(&mut self, val: Param)
-                                    { self.0.insert(#attrib_name::#attrib_enum_name, val); }
+                                    fn #set_field_name(&mut self, val: Vec<u8>) { self.0.insert(#attrib_name::#attrib_enum_name, Param::Any(val)); }
                                 }),
                                 ParamType::AvatarID => tokens.push(quote! { 
                                     fn #set_field_name(&mut self, val: AvatarId) { self.0.insert(#attrib_name::#attrib_enum_name, Param::AvatarId(val)); }
@@ -1268,7 +1266,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         };
 
         let default_params: Vec<_> = v.borrow().paramoption.iter()
-        .filter_map(|(name, options)| {
+        .map(|(name, options)| {
             let field_name = name.to_case(Case::UpperCamel);
 
             let attrib_name = format_ident!("{}Attribute", class.name.to_case(Case::UpperCamel));
@@ -1278,11 +1276,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 _ => field_name.as_str(),
             });
 
-            if options.default_literal.is_some() {
-                Some(quote!(set.insert(#attrib_name::#field_name_ident, #attrib_name::#field_name_ident.default().unwrap().clone());))
-            } else {
-                None
-            }
+            quote!(set.insert(#attrib_name::#field_name_ident, #attrib_name::#field_name_ident.default().clone());)
         })
         .collect();
 
@@ -1311,6 +1305,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 fn as_set(&self) -> &ParamSet<Self::Attributes> {
                     &self.0
                 }
+
+                fn as_mut(&mut self) -> &mut ParamSet<Self::Attributes> {
+                    &mut self.0
+                }
+
 
                 fn into_set(self) -> ParamSet<Self::Attributes> {
                     self.0
@@ -1403,11 +1402,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         quote! { ClassId::#class_name => Box::new(#class_name::from_json(value)?), }
     }).collect();
 
-    let dyn_class_into_json: Vec<_> = final_classes.iter().map(|v| {
-        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => self.get::<#class_name>().unwrap().as_persistent_json(), }
-    }).collect();
-
     let class_read: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
         quote! { ClassId::#class_name => {
@@ -1466,11 +1460,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
         quote! { ClassId::#class_name => self.get::<#attribute_name>().unwrap().write_to_client(writer), }
     }).collect();
-    
-    let dyn_class_clone: Vec<_> = final_classes.iter().map(|v| {
-        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { ClassId::#class_name => Box::new(self.get::<#class_name>().unwrap().clone()), }
-    }).collect();
 
     let dyn_class_get_impl: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
@@ -1480,16 +1469,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
     let dyn_class_get_impl_mut: Vec<_> = final_classes.iter().map(|v| {
         let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
         quote! { ClassId::#class_name => (self.get_mut::<#class_name>().unwrap() as &mut dyn MightIncludeParamsMut<T>).as_params_mut(), }
-    }).collect();
-
-    let dyn_class_diff: Vec<_> = final_classes.iter().map(|v| {
-        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
-        quote! { 
-            ClassId::#class_name => 
-                self.get::<#class_name>()
-                .unwrap()
-                .diff(other.get::<#class_name>().unwrap())
-                .into_box(), }
     }).collect();
 
     let class_id_int: Vec<_> = final_classes.iter().map(|v| {
@@ -1515,6 +1494,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
     let where_base: Vec<_> = paramlist.classes.iter().map(|v| {
         let class_name = format_ident!("{}Params",&v.borrow().name.to_case(Case::UpperCamel));
         quote! { MightIncludeParams<'a, dyn #class_name + 'static> + MightIncludeParamsMut<'a, dyn #class_name + 'static> }
+    }).collect();
+
+    let dyn_set_diff: Vec<_> = final_classes.iter().map(|v| {
+        let class_name = format_ident!("{}Class",&v.borrow().name.to_case(Case::UpperCamel));
+        let attribute_name = format_ident!("{}Attribute",&v.borrow().name.to_case(Case::UpperCamel));
+        quote! { ClassId::#class_name => self.get::<#attribute_name>().unwrap().diff(other.get::<#attribute_name>().unwrap()).into_box(), }
     }).collect();
 
     write_source("generated_params.rs", quote! {
@@ -1551,6 +1536,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use crate::param::ParamSetBox;
         use crate::param::ParamError;
         use crate::param::Param;
+        use crate::UUID_NIL;
 
         #(#param_name_enums)*
 
@@ -1718,6 +1704,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             where T: ByteWrite {
                 match self.class_id() {
                     #(#dyn_set_write_to_client)*
+                }
+            }
+
+            pub(crate) fn diff(&self, other: &ParamSetBox) -> ParamSetBox {
+                match self.class_id() {
+                    #(#dyn_set_diff)*
                 }
             }
         }

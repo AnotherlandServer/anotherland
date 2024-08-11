@@ -15,10 +15,12 @@
 
 use bevy::app::Plugin;
 
-use self::{player::PlayerBehaviors, portal::PortalBehaviors};
+use self::{player::PlayerBehaviors, portal::PortalBehaviors, trigger::TriggerBehaviors};
 
 mod player;
 mod portal;
+mod trigger;
+
 pub struct BehaviorsPlugin;
 
 impl Plugin for BehaviorsPlugin {
@@ -26,6 +28,7 @@ impl Plugin for BehaviorsPlugin {
         app.add_plugins((
             PlayerBehaviors,
             PortalBehaviors,
+            TriggerBehaviors,
         ));
     }
 }

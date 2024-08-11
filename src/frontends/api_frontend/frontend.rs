@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use poem::{Server, Route, get, handler, IntoResponse, web::Html, listener::TcpListener};
 use tokio_util::sync::CancellationToken;
 
-use crate::{cluster::frontend::Frontend, util::{AnotherlandResult, AnotherlandError, AnotherlandErrorKind}, CONF, NODE, actors::Authenticator};
+use crate::{actors::{Authenticator, Realm, RealmList, SessionManager, ZoneRegistry}, cluster::frontend::Frontend, util::{AnotherlandError, AnotherlandErrorKind, AnotherlandResult}, CONF, NODE};
 
 use super::schema::{QueryRoot, MutationRoot};
 
@@ -45,6 +45,10 @@ impl Frontend for ApiFrontend {
 
         let schema = Schema::build(QueryRoot, MutationRoot, EmptySubscription)
             .data(NODE.get_remote_actor::<Authenticator>("authenticator").unwrap())
+            .data(NODE.get_remote_actor::<RealmList>("realm_list").unwrap())
+            .data(NODE.get_remote_actor::<SessionManager>("session_manager").unwrap())
+            .data(NODE.get_remote_actor::<ZoneRegistry>("zone_registry").unwrap())
+            .data(NODE.get_remote_actor::<Realm>("realm").unwrap())
             .finish();
 
         let app = Route::new().at("/", get(graphiql).post(GraphQL::new(schema)));

@@ -41,6 +41,7 @@ enum ZoneRouterCommand {
     NotifyTravel { zone_id: Uuid, session_id: Uuid, destination: TravelType, retval: oneshot::Sender<AnotherlandResult<()>> },
     DropConnection { zone_id: Uuid, session_id: Uuid },
     DropZone { zone_id: Uuid },
+    IngameCommand { zone_id: Uuid, session_id: Uuid, command: String },
 }
 
 #[derive(Clone)]
@@ -179,6 +180,14 @@ impl ZoneRouter {
                                         }
                                     }
                                 },
+                                Some(ZoneRouterCommand::IngameCommand { zone_id, session_id, command }) => {
+                                    if let Ok(connection) = connections.get_zone_server_client(&zone_id) {
+                                        let _ = connection.send(ZoneUpstreamMessage::IngameCommand { 
+                                            session_id, 
+                                            command
+                                        }).await;
+                                    }
+                                },
                                 None => break 'event_loop,
                             }
                         },
@@ -263,6 +272,7 @@ impl ZoneConnectionRegistry {
                                         Some(ZoneDownstreamMessage::RequestTravel { session_id, zone, travel }) => {
                                             let _ = command_sender.send(ZoneRouterCommand::RequestTravel { session_id, zone_id: zone, travel }).await;
                                         },
+                                        Some(ZoneDownstreamMessage::ApiResult(_)) => unreachable!("cluster is not receiving api results!"),
                                         None => {
                                             zone_message_receiver.close();
                                             client.close().await;
@@ -340,6 +350,16 @@ impl ZoneRouterConnection {
         }).await.map_err(|_| AnotherlandErrorKind::IO)?;
 
         retval_receiver.await.map_err(|_| AnotherlandErrorKind::IO)?
+    }
+
+    pub async fn ingame_command(&self, command: String) -> AnotherlandResult<()> {
+        self.command_sender.send(ZoneRouterCommand::IngameCommand { 
+            zone_id: self.zone_id, 
+            session_id: self.session_id, 
+            command,
+        }).await.map_err(|_| AnotherlandErrorKind::IO)?;
+
+        Ok(())
     }
 
     pub async fn receive(&self) -> Option<ZoneRouterMessage> {

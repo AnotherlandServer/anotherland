@@ -16,7 +16,9 @@
 mod plugin;
 mod characters;
 mod inventory;
+mod questlog;
 
 pub use plugin::*;
 pub use characters::*;
 pub use inventory::*;
+pub use questlog::*;

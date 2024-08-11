@@ -15,7 +15,7 @@
 
 use atlas::{PlayerParams, Uuid};
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PlayerSpawnMode {
     LoginFirstTime, // 1
     LoginNormal, // 2

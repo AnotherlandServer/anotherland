@@ -51,4 +51,12 @@ impl ZoneRegistry {
     pub fn resolve_zone_address(&self, zone_id: Uuid) -> Option<SocketAddr> {
         self.zones.get(&zone_id).map(|v| v.to_owned())
     }
+
+    #[rpc]
+    pub fn get_zones(&self) -> Vec<(Uuid, SocketAddr)> {
+        self.zones
+            .iter()
+            .map(|(id, zone)| (*id, *zone))
+            .collect()
+    }
 }

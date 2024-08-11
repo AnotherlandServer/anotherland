@@ -19,7 +19,7 @@ use bevy_ecs::prelude::*;
 
 #[derive(Clone, Debug, Component)]
 pub struct InterestList {
-    pub interests: HashSet<AvatarId>,
+    pub interests: HashSet<Entity>,
 }
 
 impl InterestList {
@@ -29,7 +29,7 @@ impl InterestList {
         }
     }
 
-    pub fn contains(&self, id: AvatarId) -> bool {
+    pub fn contains(&self, id: Entity) -> bool {
         self.interests.contains(&id)
     }
 }

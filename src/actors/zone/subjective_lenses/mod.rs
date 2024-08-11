@@ -14,16 +14,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod portal;
-mod player;
+mod npc;
 
 use bevy::app::Plugin;
-use portal::*;
-use player::*;
+use npc::subjective_npc;
+use portal::subjective_portal;
+
+use super::{plugins::SubjectivityExt, EntityType};
 
 pub struct SubjectiveLensesPlugin;
 
 impl Plugin for SubjectiveLensesPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.add_plugins(SubjectivePortals);
+        app.add_subjective_params_initializer(EntityType::Portal, subjective_portal);
+        app.add_subjective_params_initializer(EntityType::NpcOtherland, subjective_npc);
     }
 }

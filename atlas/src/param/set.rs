@@ -115,7 +115,7 @@ impl <T: ParamAttrib>ParamSet<T> {
         where W: ByteWrite
     {
         let filtered_params: Vec<_> = self.params.iter()
-        .filter(|(attribute, a)| !a.should_skip() && !attribute.has_flag(&ParamFlag::ExcludeFromClient))
+        .filter(|(attribute, a)| !attribute.has_flag(&ParamFlag::ClientUnknown))
         .collect();
 
         writer.write(1u8)?;
@@ -141,6 +141,8 @@ impl <T: ParamAttrib>ParamSet<T> {
                 if other_val != val {
                     diff.insert(*key, val.clone());
                 }
+            } else {
+                diff.insert(*key, val.clone());
             }
         }
 
@@ -181,5 +183,21 @@ impl <T: ParamAttrib> DynParamSet for ParamSet<T> {
 
     fn as_hash_map(&self) -> HashMap<String, Param> {
         ParamSet::<T>::as_hash_map(self)
+    }
+
+    fn set_param(&mut self, name: &str, param: Param) -> Option<Param> {
+        if let Ok(attrib) = name.parse::<T>() {
+            self.params.insert(attrib, param)
+        } else {
+            None
+        }
+    }
+
+    fn get_param(&self, name: &str) -> Option<&Param> {
+        if let Ok(attrib) = name.parse::<T>() {
+            self.params.get(&attrib)
+        } else {
+            None
+        }
     }
 }

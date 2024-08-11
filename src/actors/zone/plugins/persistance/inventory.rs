@@ -20,7 +20,7 @@ use log::{debug, error};
 
 use crate::{actors::{zone::{plugins::Item, resources::Tasks}, AvatarComponent, RealmDatabase}, db::{DatabaseRecord, InventoryEntry, InventoryOwner}};
 
-use super::CreationPending;
+use super::{CreationPending, RemovalPending};
 
 pub fn insert_new_items(
     query: Query<(Entity, &Item, &ParamBox), Added<CreationPending>>,
@@ -51,6 +51,29 @@ pub fn insert_new_items(
         }
     }
 }
+
+pub fn remove_old_items(
+    query: Query<(Entity, &Item), Added<RemovalPending>>,
+    tasks: Res<Tasks>,
+    db: Res<RealmDatabase>,
+    mut cmds: Commands,
+) {
+    for (entity, item) in query.iter() {
+        let db = db.0.clone();
+
+        cmds.entity(entity).remove::<CreationPending>();
+        let id: bson::Uuid = *item.id();
+
+        let _guard = tasks.handle.enter();
+        tasks.tasks.spawn(async move {
+            let collection = InventoryEntry::collection(db);
+            if let Err(e) = collection.delete_one(doc! {"id": {"$eq": id}}, None).await {
+                error!("Database update failed: {:?}", e);
+            }
+        });
+    }
+}
+
 
 pub fn update_item_database(
     query: Query<(&Item, &ParamBox), (With<Item>, Changed<ParamBox>, Without<CreationPending>)>,

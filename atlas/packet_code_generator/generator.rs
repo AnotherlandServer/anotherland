@@ -215,6 +215,7 @@ pub fn generate_packet_code() -> io::Result<()> {
             use crate::raknet::Message;
             use crate::NativeParam;
             use crate::Uuid;
+            use crate::AvatarId;
 
             #[allow(non_camel_case_types)]
             #[derive(Debug, Clone)]

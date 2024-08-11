@@ -87,7 +87,7 @@ impl BehaviorExt for App {
             }
             
             if let Some(behaviors) = entity_type_behavior_map.0.get_mut(&entity_type) {
-                behaviors.insert(name.to_owned(), Box::new(system));
+                behaviors.insert(name.to_owned().to_lowercase(), Box::new(system));
             }
         }
         
@@ -101,7 +101,7 @@ impl BehaviorExt for App {
         self.world.send_event(TellBehavior {
             instigator,
             target,
-            behavior: Behavior::String(behavior, args.collect()),
+            behavior: Behavior::String(behavior.to_lowercase(), args.collect()),
         });
     }
 
@@ -109,14 +109,14 @@ impl BehaviorExt for App {
         self.world.send_event(TellBehavior {
             instigator,
             target,
-            behavior: Behavior::Binary(behavior, data),
+            behavior: Behavior::Binary(behavior.to_lowercase(), data),
         });
     }
 
     fn request_behavior(&mut self, entity: Entity, behavior: String, data: String) {
         self.world.send_event(RequestBehavior {
             entity,
-            behavior: Behavior::String(behavior, data.split(' ').map(|v| v.to_string()).collect()),
+            behavior: Behavior::String(behavior.to_lowercase(), data.split(' ').map(|v| v.to_string()).collect()),
         });
     }
 }
@@ -155,6 +155,9 @@ fn perform_requested_behavior(world: &mut World) {
 
                     behavior.run((ev.entity, ev.entity, ev.behavior), world);
                     behavior.apply_deferred(world);
+                } else {
+                    let avatar = world.get::<AvatarComponent>(ev.entity).unwrap();
+                    warn!("No behavior '{}' defined for entity {:?}:{}. But client requests it!", ev.behavior.name(), entity_type, avatar.name)
                 }
             }
         });

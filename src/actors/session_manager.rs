@@ -96,6 +96,11 @@ impl SessionManager {
     }
 
     #[rpc]
+    pub async fn active_sessions(&self) -> AnotherlandResult<Vec<Session>> {
+        Ok(Session::list(self.cluster_db.clone()).await?)
+    }
+
+    #[rpc]
     pub async fn session_select_realm(&self, session_id: Uuid, realm_id: u32) -> AnotherlandResult<Session> {
         if let Some(mut session) = Session::get(self.cluster_db.clone(), &session_id).await? {
             session.select_realm(self.cluster_db.clone(), realm_id).await?;

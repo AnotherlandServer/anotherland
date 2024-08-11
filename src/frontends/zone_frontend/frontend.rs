@@ -16,17 +16,18 @@
 use std::{collections::{HashMap, HashSet, VecDeque}, net::{Ipv6Addr, SocketAddr}, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 use async_trait::async_trait;
-use atlas::{oaPktS2XConnectionState, oaPktSteamMicroTxn, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktItemUpdate, CPktResourceNotify, CPktServerNotify, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, EdnaModuleAttribute, EdnaModuleClass, ItemBaseParams, MoveManagerInit, NativeParam, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerClass, PlayerParams, Uuid, UUID_NIL};
+use atlas::{oaPktS2XConnectionState, oaQuestCondition, oaQuestTemplate, raknet::Message, AvatarId, CPkt, CPktAvatarClientNotify, CPktAvatarUpdate, CPktBlob, CPktResourceNotify, CPktServerNotify, CPktStream_165_2, CpktChatChatType, CpktResourceNotifyResourceType, CpktServerNotifyNotifyType, MoveManagerInit, OaPktQuestRequestRequest, OaZoneConfigParams, ParamAttrib, ParamClass, ParamSet, PlayerAttribute, PlayerParams, Uuid, UUID_NIL};
 use bitstream_io::{ByteWriter, LittleEndian};
+use chrono::{Local, TimeZone};
 use log::{debug, error, trace, warn, info};
 use quinn::ServerConfig;
 use tokio::{sync::{Mutex, mpsc::{self, Sender}, RwLock}, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, ItemContent, WorldDef, ZoneDef}, util::{AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
+use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, WorldDef, ZoneDef}, scripting::quest::lookup_quest_info, util::{AnotherlandError, AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
 use crate::db::DatabaseRecord;
 
-use super::{load_state::ClientLoadState, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
+use super::{load_state::ClientLoadState, ApiCommand, ApiResult, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
 
 #[derive(Clone)]
 enum ZoneInstance {
@@ -86,6 +87,7 @@ impl Frontend for ZoneFrontend {
         let mut registration_update_interval = time::interval(Duration::from_secs(1));
 
         let session_handler = SessionHandler::new();
+        let sessions = Arc::new(RwLock::new(HashMap::new()));
 
         'accept_loop: loop {
             select! {
@@ -96,17 +98,19 @@ impl Frontend for ZoneFrontend {
                         let factory = self.factory.clone();
                         let instances = self.instances.clone();
                         let session_handler = session_handler.clone();
+                        let sessions = sessions.clone();
         
-                        let mut sessions = HashMap::new();
+                        //let mut sessions = HashMap::new();
         
                         self.tasks.spawn(async move {
                             let (downstream_sender, mut downstream_receiver) = mpsc::channel(100);
                             let connection_token = CancellationToken::new();
+                            let mut local_sessions = HashSet::new();
         
-                            'accept_loop: loop {
+                            'protocol_loop: loop {
                                 select! {
                                     message = connection.recv() => {
-                                        match message.as_ref() {
+                                        match message {
                                             Some(ZoneUpstreamMessage::EnterZone { session_id, avatar_id }) => {
                                                 debug!("Session {} entering zone with avatar_id {}", session_id, avatar_id);
 
@@ -131,37 +135,74 @@ impl Frontend for ZoneFrontend {
                                                     }
                                                 };
 
-                                                sessions.insert(*session_id, ZoneSession::spawn(
+                                                local_sessions.insert(session_id);
+
+                                                sessions.write().await.insert(session_id, ZoneSession::spawn(
                                                     tasks.clone(), 
                                                     connection_token.clone(), 
-                                                    session_id, 
-                                                    avatar_id, 
+                                                    &session_id, 
+                                                    &avatar_id, 
                                                     zone,
                                                     factory.clone(),
                                                     session_handler.clone(),
                                                     downstream_sender.clone()).await);
                                             },
                                             Some(ZoneUpstreamMessage::Travel { session_id, .. }) => {
-                                                if let Some(session) = sessions.get(session_id) {
+                                                let sessions_s = sessions.read().await;
+
+                                                if let Some(session) = sessions_s.get(&session_id) {
                                                     let _ = session.send(message.unwrap()).await;
                                                 }
                                             },
                                             Some(ZoneUpstreamMessage::Message { session_id, .. }) => {
-                                                if let Some(session) = sessions.get(session_id) {
+                                                let sessions_s = sessions.read().await;
+
+                                                if let Some(session) = sessions_s.get(&session_id) {
                                                     let _ = session.send(message.unwrap()).await;
                                                 }
                                             },
                                             Some(ZoneUpstreamMessage::LeaveZone { session_id }) => {
                                                 debug!("Session {} leaving zone", session_id);
 
-                                                if let Some(session) = sessions.remove(session_id) {
+                                                let mut sessions_s = sessions.write().await;
+
+                                                if let Some(session) = sessions_s.remove(&session_id) {
+                                                    let _ = session.send(message.unwrap()).await;
+                                                }
+
+                                                local_sessions.remove(&session_id);
+                                            },
+                                            Some(ZoneUpstreamMessage::IngameCommand { session_id, .. }) => {
+                                                let sessions_s = sessions.read().await;
+
+                                                if let Some(session) = sessions_s.get(&session_id) {
                                                     let _ = session.send(message.unwrap()).await;
                                                 }
                                             },
+                                            Some(ZoneUpstreamMessage::ApiCommand(command)) => {
+                                                debug!("Api command: {:?}", command);
+
+                                                let sessions_s = sessions.read().await;
+
+                                                match command.session_id() {
+                                                    Some(id) => {
+                                                        if let Some(session) = sessions_s.get(&id) {
+                                                            let _ = session.send(ZoneUpstreamMessage::SessionApiCommand { 
+                                                                downstream: downstream_sender.clone(), 
+                                                                command 
+                                                            }).await;
+                                                        } else {
+                                                            let _ = connection.send(&ZoneDownstreamMessage::ApiResult(ApiResult::Error("session not found".to_string()))).await;
+                                                        }
+                                                    },
+                                                    None => unimplemented!(),
+                                                }
+                                            },
+                                            Some(ZoneUpstreamMessage::SessionApiCommand { .. }) => unreachable!(),
                                             None => {
                                                 connection_token.cancel();
                                                 downstream_receiver.close();
-                                                break 'accept_loop;
+                                                break 'protocol_loop;
                                             },
                                         }
                                     },
@@ -180,6 +221,11 @@ impl Frontend for ZoneFrontend {
                             }
 
                             trace!("Stopping zone server <-> cluster connection loop");
+
+                            let mut sessions_s = sessions.write().await;
+                            local_sessions
+                                .iter()
+                                .map(|session| sessions_s.remove(session));
         
                             connection_token.cancel();
                         });
@@ -219,8 +265,6 @@ struct ZoneSession {
 
     server_actions: VecDeque<ServerAction>,
 
-    target_avatar: Option<AvatarId>,
-
     dont_save_on_disconnect: bool,
 }
 
@@ -251,7 +295,6 @@ impl ZoneSession {
             interest_removed_queue: VecDeque::new(),
             ignore_interest_updates: false,
             server_actions: VecDeque::new(),
-            target_avatar: None,
             dont_save_on_disconnect: false,
         };
 
@@ -282,7 +325,7 @@ impl ZoneSession {
                                         break 'net_loop;
                                     }
                                 },
-                                ZoneUpstreamMessage::Message { message, ..} => {
+                                ZoneUpstreamMessage::Message { message, .. } => {
                                     if let Err(e) = self.handle_message(Message::from_bytes(&message).unwrap().1).await {
                                         error!(
                                             session = self.session_id.to_string(), 
@@ -292,6 +335,19 @@ impl ZoneSession {
                                     }
                                 }
                                 ZoneUpstreamMessage::LeaveZone { .. } => break 'net_loop,
+                                ZoneUpstreamMessage::IngameCommand { command, .. } => {
+                                    self.handle_ingame_command(command).await;
+                                },
+                                ZoneUpstreamMessage::ApiCommand(_) => unimplemented!("plain api commands are not meant to be executed in this context!"),
+                                ZoneUpstreamMessage::SessionApiCommand { downstream, command } => {
+                                    debug!("Session api command: {:?}", command);
+
+                                    if let Err(e) = self.execute_api_command(&command, downstream.clone()).await {
+                                        let _ = downstream.send(
+                                            ZoneDownstreamMessage::ApiResult(crate::frontends::ApiResult::Error(e.to_string()))
+                                        ).await;
+                                    }
+                                },
                             }
                             
                         } else {
@@ -385,8 +441,6 @@ impl ZoneSession {
             ..Default::default()
         }.into_message()).await?;
 
-        let movement = self.instance.zone().get_avatar_move_state(self.avatar_id).await.unwrap();
-    
         let mut data = Vec::new();
         {
             let mut writer = ByteWriter::endian(&mut data, LittleEndian);
@@ -407,26 +461,6 @@ impl ZoneSession {
                 field_3: "".to_owned(),
                 ..Default::default()
             }.into_message()).await;
-
-            // Update player character on client
-            self.send(CPktAvatarUpdate {
-                full_update: true,
-                avatar_id: Some(self.avatar_id.as_u64()),
-                field_2: Some(false),
-                name: Some(name),
-                class_id: Some(PlayerAttribute::class_id().into()),
-                field_6: Some(Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()),
-                params: data.into(),
-                update_source: 0,
-                movement: Some(MoveManagerInit {
-                    pos: movement.position.into(),
-                    rot: movement.rotation.into(),
-                    vel: movement.velocity.into(),
-                    physics: PhysicsState::Walking.into(),
-                    ..Default::default()
-                }.to_bytes().into()),
-                ..Default::default()
-            }.into_message()).await?;
         }
 
         Ok(())
@@ -499,7 +533,7 @@ impl ZoneSession {
                     "Spawning player: {}", name);
 
                 self.send(CPktBlob {
-                    avatar_id: self.avatar_id.as_u64(),
+                    avatar_id: self.avatar_id,
                     avatar_name: name,
                     class_id: PlayerAttribute::class_id().into(),
                     params: param_buffer.into(),
@@ -509,7 +543,7 @@ impl ZoneSession {
                         vel: movement.velocity.into(),
                         physics: PhysicsState::Walking.into(),
                         mover_type: 1,
-                        replica: 7,
+                        mover_replication_policy: 7,
                         ..Default::default()
                     }.to_bytes().into(),
                     has_guid: true,
@@ -578,7 +612,7 @@ impl ZoneSession {
                 }
             },
             AtlasPkt(CPkt::CPktAvatarUpdate(pkt)) => {
-                if pkt.avatar_id.unwrap_or_default() == self.avatar_id.as_u64() {
+                if pkt.avatar_id.unwrap_or_default() == self.avatar_id {
                     if let Ok((_, params)) = ParamSet::<PlayerAttribute>::read(pkt.params.as_slice()) {
                         self.instance.zone().update_avatar(self.avatar_id, params.into_box()).await;
                     } else {
@@ -595,21 +629,19 @@ impl ZoneSession {
                 }
             },
             AtlasPkt(CPkt::CPktTargetRequest(pkt)) => {
-                if pkt.avatar_id == self.avatar_id.as_u64() {
-                    if pkt.target_avatar_id != 0 {
-                        self.target_avatar = Some(pkt.avatar_id.into());
-                    } else {
-                        self.target_avatar = None;
-                    }
-
-                    debug!(
-                        session = self.session_id.to_string(), 
-                        avatar = self.avatar_id.to_string(); 
-                        "Selected avatar: {:?}", self.target_avatar);
+                if pkt.avatar_id == self.avatar_id {
+                    self.instance.zone().update_player_target(self.avatar_id, pkt.target_avatar_id.into()).await;
                 }
             },
             AtlasPkt(CPkt::oaPktDialogList(pkt)) => {
-                debug!("Dialog List: {:#?}", pkt);
+                if pkt.instigator == self.avatar_id {
+                    self.instance.zone().handle_message(pkt.into_message()).await;
+                }
+            },
+            AtlasPkt(CPkt::oaPktDialogChoice(pkt)) => {
+                if pkt.instigator == self.avatar_id {
+                    self.instance.zone().handle_message(pkt.into_message()).await;
+                }
             },
             AtlasPkt(CPkt::CPktRequestAvatarBehaviors(pkt)) => {
                 debug!("Request behavior: {:#?}", pkt);
@@ -617,14 +649,14 @@ impl ZoneSession {
                 self.instance.zone().request_behavior(pkt.avatar_id.into(), pkt.behaviour, pkt.data).await;
             },
             AtlasPkt(CPkt::oaPktAvatarTellBehavior(pkt)) => {
-                if pkt.instigator != self.avatar_id.as_u64() {
+                if pkt.instigator != self.avatar_id {
                     warn!("Client tried to instigate behavior on behalf of other avatar: {:#?}", pkt);
                 } else {
                     self.instance.zone().tell_behavior(pkt.instigator.into(), pkt.target.into(), pkt.behavior).await;
                 }
             },
             AtlasPkt(CPkt::oaPktAvatarTellBehaviorBinary(pkt)) => {
-                if pkt.instigator != self.avatar_id.as_u64() {
+                if pkt.instigator != self.avatar_id {
                     warn!("Client tried to instigate behavior on behalf of other avatar: {:#?}", pkt);
                 } else {
                     self.instance.zone().tell_behavior_binary(pkt.instigator.into(), pkt.target.into(), pkt.behavior, pkt.data).await;
@@ -660,6 +692,43 @@ impl ZoneSession {
                 self.instance.zone().transfer_bling(self.avatar_id, 1000).await;
                 self.instance.zone().transfer_game_cash(self.avatar_id, 1000).await;
             },
+            AtlasPkt(CPkt::oaPktQuestRequest(pkt)) => {
+                debug!("{:#?}", pkt);
+                
+                if pkt.player.is_none() && pkt.request == OaPktQuestRequestRequest::Request {
+                    if let Some(quest) = lookup_quest_info(pkt.quest_id) {
+                        self.send(CPktStream_165_2 {
+                            field_1: oaQuestTemplate { 
+                                quest_id: quest.id, 
+                                level: quest.level, 
+                                world_guid: quest.world, 
+                                exp_reward: quest.exp_reward.unwrap_or_default(), 
+                                bit_reward: quest.bit_reward.unwrap_or_default(), 
+                                ..Default::default()
+                            },
+                            
+                            conditions: quest.conditions.len() as u32,
+                            field_3: quest.conditions.iter().map(|condition| {
+                                oaQuestCondition { 
+                                    quest_id: quest.id, 
+                                    condition_id: condition.id, 
+                                    required_count: condition.required_count, 
+                                    greater_than_one: 2, 
+                                    ..Default::default()
+                                }
+                            }).collect(),
+                            ..Default::default()
+                        }.into_message()).await?;
+                    } else {
+                        warn!("Quest {} not found!", pkt.quest_id);
+                    }
+                } else if pkt.player == self.avatar_id {
+                    self.instance.zone().handle_message(pkt.into_message()).await;
+                }
+            },
+            AtlasPkt(CPkt::oaPktQuestDebugRequest(pkt)) => {
+                self.instance.zone().handle_message(pkt.into_message()).await;
+            },
             _ => {
                 debug!(
                     session = self.session_id.to_string(), 
@@ -669,6 +738,10 @@ impl ZoneSession {
         }
 
         Ok(())
+    }
+
+    async fn handle_ingame_command(&mut self, command: String) {
+        self.instance.zone().exec_command(self.avatar_id, command).await;
     }
 
     async fn send(&self, message: Message) -> AnotherlandResult<()> {
@@ -693,7 +766,7 @@ impl ZoneSession {
         let interests: Vec<_> = self.interest_list.drain().collect();
         for avatar_id in interests {
             self.send(CPktAvatarClientNotify {
-                avatar_id: avatar_id.as_u64(),
+                avatar_id,
                 ..Default::default()
             }.into_message()).await?;
         }
@@ -717,7 +790,7 @@ impl ZoneSession {
             // remove avatars we are not interested in anymore
             while let Some(avatar_id) = self.interest_removed_queue.pop_front() {
                 self.send(CPktAvatarClientNotify {
-                    avatar_id: avatar_id.as_u64(),
+                    avatar_id,
                     ..Default::default()
                 }.into_message()).await?;
 
@@ -741,9 +814,11 @@ impl ZoneSession {
                             params.write_to_client(&mut writer)?;
                         }
 
+                        debug!("Send interest: {}", name);
+
                         self.send(CPktAvatarUpdate {
                             full_update: true,
-                            avatar_id: Some(avatar_id.as_u64()),
+                            avatar_id: Some(avatar_id),
                             field_2: Some(false),
                             name: Some(name),
                             class_id: Some(params.class_id().into()),
@@ -774,23 +849,6 @@ impl ZoneSession {
         }
 
         if self.load_state == ClientLoadState::InitialInterestsLoaded {
-            // Synchronize time
-            {
-                self.send(CPktServerNotify {
-                    notify_type: CpktServerNotifyNotifyType::SyncGameClock,
-                    field_2: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
-                    ..Default::default()
-                }.into_message()).await?;
-            }
-
-            {
-                self.send(CPktServerNotify {
-                    notify_type: CpktServerNotifyNotifyType::SyncRealmTime,
-                    field_4: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
-                    ..Default::default()
-                }.into_message()).await?;
-            }
-
             // Update loadstate
             {
                 self.load_state = ClientLoadState::InGame;
@@ -801,6 +859,27 @@ impl ZoneSession {
                     ..Default::default()
                 }.into_message()).await?;
             }
+            
+            self.send(CPktServerNotify {
+                notify_type: CpktServerNotifyNotifyType::SyncGameClock,
+                game_clock: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64()),
+                ..Default::default()
+            }.into_message()).await?;
+
+            debug!("Send realm time");
+
+            let otherland_epoch = Local.with_ymd_and_hms(2009, 1, 1, 0, 0, 0).unwrap();
+
+            self.send(CPktServerNotify {
+                notify_type: CpktServerNotifyNotifyType::SyncRealmTime,
+                realm_time: Some(
+                    Local::now().signed_duration_since(otherland_epoch).to_std().unwrap().as_millis() as i64
+                ),
+                ..Default::default()
+            }.into_message()).await?;
+
+            // notify that player is ready
+            self.instance.zone().notify_player_ready(self.avatar_id).await;
         }
 
         if self.load_state == ClientLoadState::InGame {
@@ -810,5 +889,33 @@ impl ZoneSession {
         }
 
         Ok(())
+    }
+
+    async fn execute_api_command(&mut self, command: &ApiCommand, downstream: Sender<ZoneDownstreamMessage>) -> AnotherlandResult<()> {
+        match command {
+            ApiCommand::GetPlayerAvatarId { .. } => {
+                debug!("Get player avatar id...");
+                let _ = downstream.send(ZoneDownstreamMessage::ApiResult(
+                    ApiResult::PlayerAvatar(self.avatar_id)
+                )).await;
+                Ok(())
+            },
+            ApiCommand::GetPlayerInterestList { .. } => {
+                let _ = downstream.send(ZoneDownstreamMessage::ApiResult(
+                    ApiResult::PlayerInterestList(self.interest_list.iter().cloned().collect())
+                )).await;
+                Ok(())
+            },
+            ApiCommand::GetAvatar { avatar_id, .. } => {
+                if let Some((name, params)) = self.instance.zone().get_avatar_params(*avatar_id).await {
+                    let _ = downstream.send(ZoneDownstreamMessage::ApiResult(
+                        ApiResult::Avatar { name, params }
+                    )).await;
+                    Ok(())
+                } else {
+                    Err(AnotherlandError::app_err("unknown avatar"))
+                }
+            },
+        }
     }
 }

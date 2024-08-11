@@ -48,8 +48,27 @@ pub struct Character {
     pub name: String,
     pub world_id: u32,
     pub bling: Option<i32>,
+
+    #[serde(default)]
+    pub completed_dialogues: Vec<i32>,
+
+    #[serde(default)]
+    pub questlog: QuestLog,
     
     pub data: PlayerClass,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct QuestLog {
+    pub in_progress: Vec<QuestProgress>,
+    pub completed: Vec<QuestProgress>,
+    pub finished: Vec<i32>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct QuestProgress {
+    pub id: i32,
+    pub condition_progress: Vec<(i32, i32)>,
 }
 
 impl Character {
@@ -129,6 +148,8 @@ impl Character {
             name: name.to_owned(),
             world_id: 130,
             bling: Some(0),
+            completed_dialogues: vec![],
+            questlog: QuestLog::default(),
             data: avatar_data,
         };
 

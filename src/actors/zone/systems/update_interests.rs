@@ -18,56 +18,91 @@ use std::collections::HashSet;
 use atlas::{NonClientBaseComponent, NonClientBaseParams, ParamBox, PlayerClass, PlayerComponent, PlayerParams, SpawnerClass, SpawnerComponent};
 use bevy_ecs::{entity::Entity, event::EventWriter, query::{With, Without}, system::Query};
 
-use crate::actors::{zone::{components::{AvatarComponent, InterestList}, plugins::{PlayerController, Position}}, Spawned};
+use crate::actors::{zone::{components::{AvatarComponent, InterestList}, plugins::{PlayerController, Position, QuestLog}}, Spawned};
 
 #[allow(clippy::type_complexity)]
 pub fn update_interests(
-    mut players: Query<(Entity, &ParamBox, &mut InterestList, &PlayerController), With<PlayerComponent>>,
-    positioned: Query<(Entity, &AvatarComponent, &Position, Option<&ParamBox>), (With<Spawned>, Without<SpawnerComponent>)>,
+    mut players: Query<(Entity, &ParamBox, &mut InterestList, &PlayerController, &QuestLog), (With<Spawned>, With<PlayerComponent>)>,
+    positioned: Query<(Entity, &Position, Option<&ParamBox>), (With<Spawned>, Without<SpawnerComponent>)>,
+    avatar_lookup: Query<&AvatarComponent>,
     //mut ev_avatar_event: EventWriter<AvatarEventFired>,
 ) {
-    for (entity, player, mut interests, controller) in players.iter_mut()
-        .map(|(e, p, i, c)| (e, p.get_impl::<dyn PlayerParams>().unwrap(), i, c)) 
+    for (entity, player, mut interests, controller, quest_progress) in players.iter_mut()
     {
+        let player = player.get_impl::<dyn PlayerParams>().unwrap();
 
         let mut new_interests = HashSet::new();
 
-        let (_, _, position, _) = positioned.get(entity).unwrap();
+        let (_, position, _) = positioned.get(entity).unwrap();
 
         // determine interests
-        for (other_ent, other_avatar, other_pos, base) in positioned.iter()
-            .map(|(e, a, pos, p)| (e, a, pos, p.and_then(|p|p.get_impl::<dyn NonClientBaseParams>())))
+        for (other_ent, other_pos, base) in positioned.iter()
         {
             // skip over self
             if other_ent == entity { continue; }
 
-            if let Some(base) = base {
-                if (position.position.distance(other_pos.position) <= player.aware_dist() || base.always_visible_to_players()) && 
-                    base.visible_on_quest_available().is_none() && 
-                    base.visible_on_quest_complete().is_none() && 
-                    base.visible_on_quest_finished().is_none() && 
-                    base.visible_on_quest_in_progress().is_none()
+            if let Some(base) = base.and_then(|p| p.get_impl::<dyn NonClientBaseParams>()) {
+                if (
+                    // check hidden flag
+                    !base.hidden_from_clients() &&
+
+                    // check position
+                    position.position.distance(other_pos.position) <= player.aware_dist() || base.always_visible_to_players()) &&
+
+                    // check quest status
+                    (
+                        (
+                            base.visible_on_quest_complete().is_empty() && 
+                            base.visible_on_quest_finished().is_empty() && 
+                            base.visible_on_quest_in_progress().is_empty() && 
+                            base.visible_on_quest_available().is_empty()
+                        ) ||
+                        quest_progress.check_quests_completed(base.visible_on_quest_complete()) ||
+                        quest_progress.check_quests_finished(base.visible_on_quest_finished()) ||
+                        quest_progress.check_quests_in_progress(base.visible_on_quest_in_progress()) ||
+                        quest_progress.check_quests_available(base.visible_on_quest_available())
+                    )
                 {
-                    new_interests.insert(other_avatar.id.to_owned());
+                    new_interests.insert(other_ent);
                 }
             } else if position.position.distance(other_pos.position) <= player.aware_dist() {
-                new_interests.insert(other_avatar.id.to_owned());
+                new_interests.insert(other_ent);
             }
         }
 
         // check for changes
-        let added_interests: Vec<_> = new_interests.iter().filter(|v| !interests.contains(**v)).cloned().collect();
+        let added_interests: Vec<_> = new_interests.iter().filter(|&&ent| !interests.contains(ent)).cloned().collect();
         let removed_interests: Vec<_> = interests.interests.iter().filter(|v| !new_interests.contains(v)).cloned().collect();
 
         if !added_interests.is_empty() {
-            controller.send_interests_added(added_interests);
+            controller.send_interests_added(added_interests
+                .iter()
+                .filter_map(|ent| 
+                    avatar_lookup
+                        .get(*ent)
+                        .map(|avatar| avatar.id)
+                        .ok()
+                )
+                .collect()
+            );
         }
 
         if !removed_interests.is_empty() {
-            controller.send_interests_removed(removed_interests);
+            controller.send_interests_removed(removed_interests
+                .iter()
+                .filter_map(|ent| 
+                    avatar_lookup
+                        .get(*ent)
+                        .map(|avatar| avatar.id)
+                        .ok()
+                )
+                .collect()
+            );
         }
 
         // remember interests
-        interests.interests = new_interests.iter().cloned().collect();
+        if !added_interests.is_empty() || !removed_interests.is_empty() {
+            interests.interests = new_interests.iter().cloned().collect();
+        }
     }
 }
