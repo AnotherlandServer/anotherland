@@ -15,7 +15,7 @@
 
 use std::{marker::PhantomData, net::{SocketAddr, Ipv6Addr}, sync::Arc, time::Duration};
 
-use atlas::{AvatarId, Uuid};
+use atlas::{AvatarId, ParamBox, PlayerClass, Uuid};
 use glam::Vec3;
 use log::{trace, debug};
 use nom::AsBytes;
@@ -25,7 +25,7 @@ use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::{self, Receiver, Sender}, select};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-use crate::util::{AnotherlandResult, AnotherlandErrorKind};
+use crate::util::{AnotherlandErrorKind, AnotherlandResult};
 
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -35,12 +35,42 @@ pub enum ZoneUpstreamMessage {
     Message { session_id: Uuid, message: Vec<u8> },
     LeaveZone { session_id: Uuid },
     IngameCommand { session_id: Uuid, command: String },
+    ApiCommand(ApiCommand),
+
+    #[serde(skip)]
+    SessionApiCommand { downstream: Sender<ZoneDownstreamMessage>, command: ApiCommand }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ApiCommand {
+    GetPlayerAvatarId { session_id: Uuid },
+    GetPlayerInterestList { session_id: Uuid },
+    GetAvatar { session_id: Uuid, avatar_id: AvatarId },
+}
+
+impl ApiCommand {
+    pub fn session_id(&self) -> Option<Uuid> {
+        match self {
+            ApiCommand::GetPlayerAvatarId { session_id } => Some(*session_id),
+            ApiCommand::GetPlayerInterestList { session_id } => Some(*session_id),
+            ApiCommand::GetAvatar { session_id, .. } => Some(*session_id),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ZoneDownstreamMessage {
     Message { session_id: Uuid, message: Vec<u8> },
     RequestTravel { session_id: Uuid, zone: Uuid, travel: TravelType },
+    ApiResult(ApiResult)
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ApiResult {
+    Error(String),
+    PlayerAvatar(AvatarId),
+    PlayerInterestList(Vec<AvatarId>),
+    Avatar { name: String, params: ParamBox },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -254,10 +284,10 @@ impl<S, R> ZoneServerClient<S, R>
     }
 }
 
-struct ZoneServerSkipVerification;
+pub struct ZoneServerSkipVerification;
 
 impl ZoneServerSkipVerification {
-    fn new() -> Arc<Self> {
+    pub fn new() -> Arc<Self> {
         Arc::new(Self)
     }
 }

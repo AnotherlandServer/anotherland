@@ -13,14 +13,30 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::{Object, Result, Context, SimpleObject};
-use atlas::Uuid;
-use chrono::{DateTime, Utc};
-use serde_derive::{Serialize, Deserialize};
+use std::collections::HashSet;
+use std::net::{Ipv6Addr, SocketAddr};
+use std::sync::Arc;
 
-use crate::{actors::Authenticator, cluster::RemoteActorRef, util::{AnotherlandError, AnotherlandErrorKind}};
+use async_graphql::{ComplexObject, Json};
+use async_graphql::{Object, Result, Context, SimpleObject};
+use atlas::{ParamBox, Uuid};
+use atlas::UUID_NIL;
+use chrono::{DateTime, Utc};
+use futures::future::{BoxFuture, FutureExt};
+use futures::stream::StreamExt;
+use futures::stream::FuturesUnordered;
+use log::debug;
+use quinn::{ClientConfig, Endpoint};
+use serde_derive::{Serialize, Deserialize};
+use nom::AsBytes;
+
+use crate::actors::ZoneRegistry;
+use crate::cluster::ApiResponse;
+use crate::frontends::{ApiCommand, ApiResult, ZoneDownstreamMessage, ZoneServerSkipVerification, ZoneUpstreamMessage};
+use crate::{actors::{Authenticator, RealmList, SessionManager}, cluster::RemoteActorRef, util::{AnotherlandError, AnotherlandErrorKind, AnotherlandResult}};
 
 pub struct QueryRoot;
+
 pub struct MutationRoot;
 
 #[Object]
@@ -37,6 +53,50 @@ impl QueryRoot {
             .find_account(username_or_email).await?;
 
         Ok(account.into())
+    }
+
+    async fn active_sessions(&self, ctx: &Context<'_>) -> Result<Vec<Session>> {
+        let sessions = ctx.data::<RemoteActorRef<SessionManager>>()?
+            .active_sessions()
+            .await?;
+
+        sessions
+            .into_iter()
+            .map(|session| Session::populate_from_session(ctx.clone(), session))
+            .collect::<FuturesUnordered<_>>()
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect()
+    }
+
+    async fn realms(&self, ctx: &Context<'_>) -> Result<Vec<Realm>> {
+        Ok(
+            ctx.data::<RemoteActorRef<RealmList>>()?
+                .get_realms()
+                .await
+                .into_iter()
+                .map(|realm| realm.into())
+                .collect()
+        )
+    }
+
+    async fn zones(&self, ctx: &Context<'_>, realm_id: u32) -> Result<Vec<Zone>> {
+        if realm_id == 1 {
+            ctx.data::<RemoteActorRef<ZoneRegistry>>()?
+                .get_zones()
+                .await
+                .into_iter()
+                .map(|(id, _)| Zone::get_from_id(ctx.clone(), id))
+                .collect::<FuturesUnordered<_>>()
+                .collect::<Vec<_>>()
+                .await
+                .into_iter()
+                .collect()
+
+        } else {
+            Err(async_graphql::Error::new("realm not found"))
+        }
     }
 }
 
@@ -121,4 +181,297 @@ impl From<crate::db::Account> for Account {
             is_gm: value.is_gm,
         }
     }
+}
+
+#[derive(SimpleObject, Serialize, Deserialize, Clone, Debug)]
+pub struct Realm {
+    pub id: u32,
+    pub name: String,
+    pub address: String,
+}
+
+impl From<crate::actors::RealmEntry> for Realm {
+    fn from(value: crate::actors::RealmEntry) -> Self {
+        Self {
+            id: value.id,
+            name: value.name.clone(),
+            address: value.address.to_string(),
+        }
+    }
+}
+
+#[derive(SimpleObject, Serialize, Deserialize, Clone, Debug)]
+#[graphql(complex)]
+pub struct Session {
+    id: String,
+    account: Account,
+    is_gm: bool,
+    active_realm: Option<Realm>,
+    active_character_id: Option<u32>,
+    created: DateTime<Utc>,
+    last_seen: DateTime<Utc>,
+    
+    #[graphql(skip)]
+    session_id: Uuid,
+
+    #[graphql(skip)]
+    realm_id: Option<u32>,
+
+    #[graphql(skip)]
+    character_id: Option<u32>,
+
+    #[graphql(skip)]
+    zone_id: Option<Uuid>,
+}
+
+impl Session {
+    pub async fn populate_from_session(ctx: Context<'_>, session: crate::db::Session) -> Result<Session> {
+        let account = ctx.data::<RemoteActorRef<Authenticator>>()?
+            .get_account(session.account).await?
+            .into();
+
+        let active_realm = match session.realm_id {
+            Some(id) => ctx.data::<RemoteActorRef<RealmList>>()?
+                                .get_realm(id).await
+                                .map(|realm| realm.into()),
+            None => None
+        };
+
+        Ok(Self {
+            id: session.id.to_string(),
+            account,
+            is_gm: session.is_gm,
+            active_realm,
+            active_character_id: session.character_id,
+            created: session.created,
+            last_seen: session.last_seen,
+            session_id: session.id,
+            realm_id: session.realm_id,
+            character_id: session.character_id,
+            zone_id: session.zone_guid,
+
+        })
+    }
+}
+
+#[ComplexObject]
+impl Session {
+    async fn player_avatar(&self, ctx: &Context<'_>) -> Result<Avatar> {
+        if let Some(zone_id) = self.zone_id {
+            let zone = connect_zone(ctx.clone(), zone_id).await?;
+
+            let avatar_id = if let ApiResult::PlayerAvatar(id) = zone.execute_command(ApiCommand::GetPlayerAvatarId { session_id: self.session_id }).await? {
+                Ok(id)
+            } else {
+                Err(async_graphql::Error::new("unexpected api response"))
+            }?;
+
+            debug!("Got player avatar id: {:?}", avatar_id);
+
+            let (name, params) = if let ApiResult::Avatar { name, params } = zone.execute_command(ApiCommand::GetAvatar { session_id: self.session_id, avatar_id }).await? {
+                Ok((name, params))
+            } else {
+                Err(async_graphql::Error::new("unexpected api response"))
+            }?;
+
+            Ok(Avatar {
+                id: avatar_id.to_string(),
+                name,
+                params: Json(params)
+            })
+        } else {
+            Err(async_graphql::Error::new("character has not entered a zone"))
+        }
+    }
+
+    async fn avatar_interest_list(&self, ctx: &Context<'_>) -> Result<Vec<Avatar>> {
+        if let Some(zone_id) = self.zone_id {
+            let zone = connect_zone(ctx.clone(), zone_id).await?;
+
+            let interests = if let ApiResult::PlayerInterestList(interests) = zone.execute_command(ApiCommand::GetPlayerInterestList { session_id: self.session_id } ).await? {
+                Ok(interests)
+            } else {
+                Err(async_graphql::Error::new("unexpected api response"))
+            }?;
+
+            let avatars = {
+                let mut result = Vec::new();
+
+                for avatar_id in interests {
+                    let (name, params) = if let ApiResult::Avatar { name, params } = zone.execute_command(ApiCommand::GetAvatar { session_id: self.session_id, avatar_id }).await? {
+                        Ok((name, params))
+                    } else {
+                        Err(async_graphql::Error::new("unexpected api response"))
+                    }?;
+
+                    result.push(Avatar {
+                        id: avatar_id.to_string(),
+                        name,
+                        params: Json(params)
+                    });
+                }
+
+                Ok::<_, async_graphql::Error>(result)
+            }?;
+
+            Ok(avatars)
+        } else {
+            Err(async_graphql::Error::new("character has not entered a zone"))
+        }
+    }
+}
+
+struct ZoneConnection {
+    connection: quinn::Connection
+}
+
+impl ZoneConnection {
+    async fn connect(addr: SocketAddr) -> Result<ZoneConnection> {
+        let config = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_custom_certificate_verifier(ZoneServerSkipVerification::new())
+        .with_no_client_auth();
+
+        let mut endpoint = Endpoint::client(SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0))?;
+        endpoint.set_default_client_config(ClientConfig::new(Arc::new(config)));
+
+        let connection = endpoint
+            .connect(addr, "localhost")?
+            .await
+            .map_err(async_graphql::Error::new_with_source)?;
+
+        Ok(Self {
+            connection
+        })
+    }
+
+    async fn execute_command(&self, cmd: ApiCommand) -> Result<ApiResult> {
+        // write request
+        {
+            let mut buffer = Vec::new();
+
+            bson::to_bson(&ZoneUpstreamMessage::ApiCommand(cmd)).unwrap()
+                .as_document().unwrap()
+                .to_writer(&mut buffer).unwrap();
+
+            let mut channel = self.connection.open_uni().await?;
+            channel.write_all(&buffer).await?;
+            channel.finish().await?;
+        }
+
+        // read response
+        {
+            let mut channel = self.connection.accept_uni().await?;
+            let mut buffer = Vec::new();
+
+            while let Some(chunk) = channel.read_chunk(usize::MAX, false).await? {
+                let computed_size = chunk.bytes.len() + chunk.offset as usize;
+    
+                if buffer.len() < computed_size {
+                    buffer.resize(computed_size, 0);
+                }
+    
+                buffer[chunk.offset as usize..(chunk.offset as usize + chunk.bytes.len())].copy_from_slice(chunk.bytes.as_bytes());
+            }
+
+            if let ZoneDownstreamMessage::ApiResult(result) = bson::from_slice(buffer.as_slice()).map_err(|_| AnotherlandError::from_kind(AnotherlandErrorKind::Parse))? {
+                Ok(result)
+            } else {
+                Err(async_graphql::Error::new("unexpected message"))
+            }
+        }
+    }
+}
+
+async fn connect_zone(ctx: Context<'_>, zone_id: Uuid) -> Result<ZoneConnection> {
+    let zone_addr = ctx.data::<RemoteActorRef<ZoneRegistry>>()?
+        .resolve_zone_address(zone_id).await
+        .ok_or(async_graphql::Error::new("failed to resolve zone"))?;
+
+    ZoneConnection::connect(zone_addr).await
+}
+
+#[derive(SimpleObject, Serialize, Deserialize, Clone, Debug)]
+pub struct WorldDef {
+    pub id: u16,
+    pub guid: String,
+    pub name: String,
+    pub umap_guid: String,
+}
+
+impl WorldDef {
+    pub async fn get_from_id(ctx: Context<'_>, id: Uuid) -> Result<WorldDef> {
+        let world_def = ctx.data::<RemoteActorRef<crate::actors::Realm>>()?
+            .get_world_def(id).await?;
+
+        match world_def {
+            Some(world_def) => {
+                Ok(Self {
+                    id: world_def.id,
+                    guid: world_def.guid.to_string(),
+                    name: world_def.name,
+                    umap_guid: world_def.umap_guid.to_string(),
+                })
+            },
+            None => Err(async_graphql::Error::new("world def not found"))
+        }
+    }
+}
+
+#[derive(SimpleObject, Serialize, Deserialize, Clone, Debug)]
+pub struct Zone {
+    pub id: i64,
+    pub guid: String,
+    pub worlddef: WorldDef,
+    pub parent: Option<Box<Zone>>,
+    pub name: String,
+    pub r#type: i32,
+    pub is_instance: bool,
+    pub server: String,
+    pub level: String,
+    pub layer: String,
+    pub realu_zone_type: String,
+    pub game_controller: String,
+}
+
+impl Zone {
+    pub fn get_from_id<'a>(ctx: Context<'a>, id: Uuid) -> BoxFuture<'a, Result<Zone>> {
+        async move {
+            let zone_def = ctx.data::<RemoteActorRef<crate::actors::Realm>>()?
+                .get_zone_def(id).await?;
+
+            match zone_def {
+                Some(zone_def) => {
+                    let parent = if zone_def.parent_zone_guid != UUID_NIL {
+                        Some(Box::new(Self::get_from_id(ctx.clone(), zone_def.parent_zone_guid).await?))
+                    } else {
+                        None
+                    };
+
+                    Ok(Self {
+                        id: zone_def.id,
+                        guid: zone_def.guid.to_string(),
+                        worlddef: WorldDef::get_from_id(ctx.clone(), zone_def.worlddef_guid).await?,
+                        parent,
+                        name: zone_def.zone,
+                        r#type: zone_def.zone_type,
+                        is_instance: zone_def.is_instance,
+                        server: zone_def.server,
+                        level: zone_def.level,
+                        layer: zone_def.layer,
+                        realu_zone_type: zone_def.realu_zone_type,
+                        game_controller: zone_def.game_controller,
+                    })
+                }
+                None => Err(async_graphql::Error::new("zone not found"))
+            }
+        }.boxed()
+    }
+}
+
+#[derive(SimpleObject, Serialize, Deserialize, Clone, Debug)]
+pub struct Avatar {
+    pub id: String,
+    pub name: String,
+    pub params: Json<ParamBox>,
 }

@@ -17,12 +17,12 @@ use std::net::SocketAddrV4;
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::AvatarId;
+use atlas::{AvatarId, Uuid};
 use bson::doc;
 use log::debug;
 use mongodb::Database;
 
-use crate::{cluster::actor::Actor, db::{realm_database, Character, DatabaseRecord, InventoryEntry, Session}, util::AnotherlandResult, CONF};
+use crate::{cluster::actor::Actor, db::{realm_database, Character, DatabaseRecord, DisplayName, InventoryEntry, Session, WorldDef, ZoneDef}, util::AnotherlandResult, CONF};
 
 pub struct Realm {
     realm_db: Database,
@@ -111,7 +111,18 @@ impl Realm {
     }
 
     #[rpc]
-    pub fn claim_avatar_id(&mut self) -> AnotherlandResult<AvatarId> {
-        todo!()
+    pub async fn get_world_def(&self, id: Uuid) -> AnotherlandResult<Option<WorldDef>> {
+        WorldDef::get_by_guid(self.realm_db.clone(), &id).await
+    }
+
+    #[rpc]
+    pub async fn get_zone_def(&self, id: Uuid) -> AnotherlandResult<Option<ZoneDef>> {
+        ZoneDef::get(self.realm_db.clone(), &id).await
+    }
+
+    #[rpc]
+    pub async fn get_display_name(&self, id: Uuid) -> AnotherlandResult<Option<String>> {
+        Ok(DisplayName::get(self.realm_db.clone(), &id).await?
+            .map(|name| name.name))
     }
 }

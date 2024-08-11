@@ -158,98 +158,20 @@ fn cmd_cooldown(
             oaPktCooldownUpdate {
                 avatar_id: avatar.id,
                 field_2: CooldownUpdate {
-                    entry_count: 15,
+                    entry_count: 3,
                     entries: vec![
                         CooldownEntry {
-                            field_0: 26120,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
+                            field_0: 20235,
+                            ..Default::default()
                         },
                         CooldownEntry {
-                            field_0: 3887,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
+                            field_0: 20263,
+                            ..Default::default()
                         },
                         CooldownEntry {
-                            field_0: 40679,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
+                            field_0: 26579,
+                            ..Default::default()
                         },
-                        CooldownEntry {
-                            field_0: 40677,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 40678,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 40675,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 40683,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 40680,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 3838,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 40619,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 40621,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 40620,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 40624,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 40623,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        },
-                        CooldownEntry {
-                            field_0: 40622,
-                            field_1: false,
-                            field_2: 1.0,
-                            field_3: 0.0,
-                        }
                     ]
                 },
                 ..Default::default()

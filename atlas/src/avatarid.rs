@@ -14,8 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::fmt::{Debug, Display};
+use std::num::ParseIntError;
+use std::str::FromStr;
 
 use log::kv::{ToValue, Value};
+use nom::Slice;
 use serde::{Serialize, Deserialize, de};
 use serde::ser::Serializer;
 use serde::de::{Deserializer, Visitor};
@@ -91,6 +94,14 @@ impl From<u64> for AvatarId {
 impl Display for AvatarId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#{:016x}", self.as_u64())
+    }
+}
+
+impl FromStr for AvatarId {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(u64::from_str_radix(&s[1..], 16)?.into())
     }
 }
 

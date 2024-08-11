@@ -272,6 +272,7 @@ impl ZoneConnectionRegistry {
                                         Some(ZoneDownstreamMessage::RequestTravel { session_id, zone, travel }) => {
                                             let _ = command_sender.send(ZoneRouterCommand::RequestTravel { session_id, zone_id: zone, travel }).await;
                                         },
+                                        Some(ZoneDownstreamMessage::ApiResult(_)) => unreachable!("cluster is not receiving api results!"),
                                         None => {
                                             zone_message_receiver.close();
                                             client.close().await;

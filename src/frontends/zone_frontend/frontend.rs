@@ -24,10 +24,10 @@ use quinn::ServerConfig;
 use tokio::{sync::{Mutex, mpsc::{self, Sender}, RwLock}, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, WorldDef, ZoneDef}, scripting::quest::lookup_quest_info, util::{AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
+use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, WorldDef, ZoneDef}, scripting::quest::lookup_quest_info, util::{AnotherlandError, AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
 use crate::db::DatabaseRecord;
 
-use super::{load_state::ClientLoadState, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
+use super::{load_state::ClientLoadState, ApiCommand, ApiResult, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
 
 #[derive(Clone)]
 enum ZoneInstance {
@@ -87,6 +87,7 @@ impl Frontend for ZoneFrontend {
         let mut registration_update_interval = time::interval(Duration::from_secs(1));
 
         let session_handler = SessionHandler::new();
+        let sessions = Arc::new(RwLock::new(HashMap::new()));
 
         'accept_loop: loop {
             select! {
@@ -97,17 +98,19 @@ impl Frontend for ZoneFrontend {
                         let factory = self.factory.clone();
                         let instances = self.instances.clone();
                         let session_handler = session_handler.clone();
+                        let sessions = sessions.clone();
         
-                        let mut sessions = HashMap::new();
+                        //let mut sessions = HashMap::new();
         
                         self.tasks.spawn(async move {
                             let (downstream_sender, mut downstream_receiver) = mpsc::channel(100);
                             let connection_token = CancellationToken::new();
+                            let mut local_sessions = HashSet::new();
         
-                            'accept_loop: loop {
+                            'protocol_loop: loop {
                                 select! {
                                     message = connection.recv() => {
-                                        match message.as_ref() {
+                                        match message {
                                             Some(ZoneUpstreamMessage::EnterZone { session_id, avatar_id }) => {
                                                 debug!("Session {} entering zone with avatar_id {}", session_id, avatar_id);
 
@@ -132,42 +135,74 @@ impl Frontend for ZoneFrontend {
                                                     }
                                                 };
 
-                                                sessions.insert(*session_id, ZoneSession::spawn(
+                                                local_sessions.insert(session_id);
+
+                                                sessions.write().await.insert(session_id, ZoneSession::spawn(
                                                     tasks.clone(), 
                                                     connection_token.clone(), 
-                                                    session_id, 
-                                                    avatar_id, 
+                                                    &session_id, 
+                                                    &avatar_id, 
                                                     zone,
                                                     factory.clone(),
                                                     session_handler.clone(),
                                                     downstream_sender.clone()).await);
                                             },
                                             Some(ZoneUpstreamMessage::Travel { session_id, .. }) => {
-                                                if let Some(session) = sessions.get(session_id) {
+                                                let sessions_s = sessions.read().await;
+
+                                                if let Some(session) = sessions_s.get(&session_id) {
                                                     let _ = session.send(message.unwrap()).await;
                                                 }
                                             },
                                             Some(ZoneUpstreamMessage::Message { session_id, .. }) => {
-                                                if let Some(session) = sessions.get(session_id) {
+                                                let sessions_s = sessions.read().await;
+
+                                                if let Some(session) = sessions_s.get(&session_id) {
                                                     let _ = session.send(message.unwrap()).await;
                                                 }
                                             },
                                             Some(ZoneUpstreamMessage::LeaveZone { session_id }) => {
                                                 debug!("Session {} leaving zone", session_id);
 
-                                                if let Some(session) = sessions.remove(session_id) {
+                                                let mut sessions_s = sessions.write().await;
+
+                                                if let Some(session) = sessions_s.remove(&session_id) {
                                                     let _ = session.send(message.unwrap()).await;
                                                 }
+
+                                                local_sessions.remove(&session_id);
                                             },
                                             Some(ZoneUpstreamMessage::IngameCommand { session_id, .. }) => {
-                                                if let Some(session) = sessions.get(session_id) {
+                                                let sessions_s = sessions.read().await;
+
+                                                if let Some(session) = sessions_s.get(&session_id) {
                                                     let _ = session.send(message.unwrap()).await;
                                                 }
                                             },
+                                            Some(ZoneUpstreamMessage::ApiCommand(command)) => {
+                                                debug!("Api command: {:?}", command);
+
+                                                let sessions_s = sessions.read().await;
+
+                                                match command.session_id() {
+                                                    Some(id) => {
+                                                        if let Some(session) = sessions_s.get(&id) {
+                                                            let _ = session.send(ZoneUpstreamMessage::SessionApiCommand { 
+                                                                downstream: downstream_sender.clone(), 
+                                                                command 
+                                                            }).await;
+                                                        } else {
+                                                            let _ = connection.send(&ZoneDownstreamMessage::ApiResult(ApiResult::Error("session not found".to_string()))).await;
+                                                        }
+                                                    },
+                                                    None => unimplemented!(),
+                                                }
+                                            },
+                                            Some(ZoneUpstreamMessage::SessionApiCommand { .. }) => unreachable!(),
                                             None => {
                                                 connection_token.cancel();
                                                 downstream_receiver.close();
-                                                break 'accept_loop;
+                                                break 'protocol_loop;
                                             },
                                         }
                                     },
@@ -186,6 +221,11 @@ impl Frontend for ZoneFrontend {
                             }
 
                             trace!("Stopping zone server <-> cluster connection loop");
+
+                            let mut sessions_s = sessions.write().await;
+                            local_sessions
+                                .iter()
+                                .map(|session| sessions_s.remove(session));
         
                             connection_token.cancel();
                         });
@@ -297,7 +337,17 @@ impl ZoneSession {
                                 ZoneUpstreamMessage::LeaveZone { .. } => break 'net_loop,
                                 ZoneUpstreamMessage::IngameCommand { command, .. } => {
                                     self.handle_ingame_command(command).await;
-                                }
+                                },
+                                ZoneUpstreamMessage::ApiCommand(_) => unimplemented!("plain api commands are not meant to be executed in this context!"),
+                                ZoneUpstreamMessage::SessionApiCommand { downstream, command } => {
+                                    debug!("Session api command: {:?}", command);
+
+                                    if let Err(e) = self.execute_api_command(&command, downstream.clone()).await {
+                                        let _ = downstream.send(
+                                            ZoneDownstreamMessage::ApiResult(crate::frontends::ApiResult::Error(e.to_string()))
+                                        ).await;
+                                    }
+                                },
                             }
                             
                         } else {
@@ -839,5 +889,33 @@ impl ZoneSession {
         }
 
         Ok(())
+    }
+
+    async fn execute_api_command(&mut self, command: &ApiCommand, downstream: Sender<ZoneDownstreamMessage>) -> AnotherlandResult<()> {
+        match command {
+            ApiCommand::GetPlayerAvatarId { .. } => {
+                debug!("Get player avatar id...");
+                let _ = downstream.send(ZoneDownstreamMessage::ApiResult(
+                    ApiResult::PlayerAvatar(self.avatar_id)
+                )).await;
+                Ok(())
+            },
+            ApiCommand::GetPlayerInterestList { .. } => {
+                let _ = downstream.send(ZoneDownstreamMessage::ApiResult(
+                    ApiResult::PlayerInterestList(self.interest_list.iter().cloned().collect())
+                )).await;
+                Ok(())
+            },
+            ApiCommand::GetAvatar { avatar_id, .. } => {
+                if let Some((name, params)) = self.instance.zone().get_avatar_params(*avatar_id).await {
+                    let _ = downstream.send(ZoneDownstreamMessage::ApiResult(
+                        ApiResult::Avatar { name, params }
+                    )).await;
+                    Ok(())
+                } else {
+                    Err(AnotherlandError::app_err("unknown avatar"))
+                }
+            },
+        }
     }
 }

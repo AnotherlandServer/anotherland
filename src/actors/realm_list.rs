@@ -95,6 +95,11 @@ impl RealmList {
         self.realms.values().cloned().collect()
     }
 
+    #[rpc]
+    pub fn get_realm(&self, id: u32) -> Option<RealmEntry> {
+        self.realms.get(&id).cloned()
+    }
+
     pub fn update_realm(&mut self, realm_id: u32, name: String, channels: Vec<(u32, f32)>, address: SocketAddrV4) {
         self.realms.insert(realm_id, RealmEntry {
             id: realm_id,
