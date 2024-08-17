@@ -23,7 +23,7 @@ use glam::{Quat, Vec3};
 use log::{debug, error, info, warn};
 use regex::Regex;
 
-use crate::{actors::{get_player_height, zone::{components, plugins::{Behavior, BehaviorArguments, BehaviorExt, PlayerController, Position, ReviveEvent, ServerAction}}, AvatarComponent, DefaultPos, EntityType, RealmDatabase, SplineSurfing, UuidToEntityLookup, ZONE_ID_LOOKUP}, db::{DatabaseRecord, ZoneDef}, frontends::TravelType, util::OtherlandQuatExt};
+use crate::{actors::{get_player_height, zone::{components, plugins::{Behavior, BehaviorArguments, BehaviorExt, PlayerController, Position, ReviveEvent, ServerAction, SpawnNonPlayerAvatarEvent}}, AvatarComponent, DefaultPos, EntityType, RealmDatabase, SplineSurfing, StructureContentTemplate, UuidToEntityLookup, ZONE_ID_LOOKUP}, db::{DatabaseRecord, ZoneDef}, frontends::TravelType, util::OtherlandQuatExt};
 use crate::actors::zone::FLIGHT_TUBES;
 
 pub struct PlayerBehaviors;
@@ -65,6 +65,7 @@ impl Plugin for PlayerBehaviors {
         app.add_behavior(EntityType::Player, "RequestSelectWeapon", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "SplitItemStack", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "RequestDecayItem", unimplemented_behavior);
+        app.add_behavior(EntityType::Player, "PlayerPortaPortal", spawn_porta_portal);
     }
 }
 
@@ -205,3 +206,35 @@ fn travel(
     }
 }
 
+fn spawn_porta_portal(
+    In((instigator, _, behavior)): In<BehaviorArguments>,
+    player: Query<(&AvatarComponent, &Position), With<PlayerComponent>>,
+    mut ev: EventWriter<SpawnNonPlayerAvatarEvent>,
+    templates: Res<StructureContentTemplate>,
+) {
+    if let Ok((avatar, position)) = player.get(instigator) {
+        if 
+            let Some(template) = templates.0.get(&Uuid::parse_str("755c666f-cc65-4e2d-990b-01229807ef11").unwrap()) &&
+            let Some(params) = template.data.as_ref()
+        {
+            let mut params = params.clone();
+
+            if let Some(params) = params.get_impl_mut::<dyn PortalParams>() {
+                params.set_pos(position.position);
+                //params.set_rot(position.rotation.as_unit_vector());
+                //params.set_hide_after_interaction(true);
+                //params.set_tags("PortalHive PortaPortal InteractionTell")
+            }
+
+            ev.send(SpawnNonPlayerAvatarEvent {
+                id: None,
+                name: format!("{}'s Portal", avatar.name),
+                entity_type: EntityType::Portal,
+                phase_tag: "".to_string(),
+                instance_id: None,
+                content_id: Some(template.guid),
+                params,
+            });
+        }
+    }
+}

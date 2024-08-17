@@ -13,8 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{oaPktConfirmTravel, oaPktPortalRequestAck, NativeParam, ParamBox, PlayerComponent, PortalAckPartA, PortalComponent, SpawnNodeComponent, SpawnNodeParams, UUID_NIL};
-use bevy::app::Plugin;
+use atlas::{oaPktConfirmTravel, oaPktPortalRequestAck, NativeParam, Param, ParamBox, PlayerComponent, PortalAckPartA, PortalComponent, SpawnNodeComponent, SpawnNodeParams, UUID_NIL};
+use bevy::{app::Plugin, prelude::Commands};
 use bevy_ecs::{query::{With, Without}, system::{In, Query, Res}};
 use glam::Quat;
 use log::{debug, error, warn};
@@ -54,9 +54,10 @@ fn do_travel(
     In((instigator, target, behavior)): In<BehaviorArguments>,
     uuid_to_entity: Res<UuidToEntityLookup>,
     mut player: Query<(&AvatarComponent, &mut Position, &PlayerController), With<PlayerComponent>>,
-    portals: Query<&PortalNodelink>,
+    portals: Query<(&PortalNodelink, &ParamBox)>,
     exit_points: Query<&PortalExitPoint>,
     spawn_nodes: Query<&ParamBox, (With<SpawnNodeComponent>, Without<PlayerComponent>)>,
+    mut commands: Commands,
 ) {
     if let Behavior::String(_, args) = behavior {
         let (avatar, mut player_pos, controller) = player.get_mut(instigator).unwrap();
@@ -68,7 +69,7 @@ fn do_travel(
                 warn!("Portal destination {} not found!", destination);
                 None
             }
-        } else if let Ok(nodelink) = portals.get(target) {
+        } else if let Ok((nodelink, _)) = portals.get(target) {
             Some(nodelink)
         } else {
             warn!("No nodelink for portal set");
@@ -100,6 +101,12 @@ fn do_travel(
                 }
             },
             None => (),
+        }
+
+        if let Ok((_, params)) = portals.get(target) {
+            if let Some(Param::Bool(true)) = params.get_param("HideAfterInteraction") {
+                commands.entity(target).despawn();
+            }
         }
     }
 }

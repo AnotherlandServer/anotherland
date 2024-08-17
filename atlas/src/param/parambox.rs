@@ -18,7 +18,7 @@ use std::{any::Any, fmt::Debug, io};
 use bitstream_io::ByteWrite;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use serde_json::{Value, json};
-use bevy_ecs::prelude::*;
+use bevy_ecs::{prelude::*, system::EntityCommands};
 
 use crate::{ClassId, DynParamClass, MightIncludeParams, MightIncludeParamsMut, Param, ParamClass, ParamError, ParamSetBox};
 
@@ -98,6 +98,10 @@ impl ParamBox {
 
     pub fn get_param(&self, name: &str) -> Option<&Param> {
         self.class.get_param(name)
+    }
+
+    pub fn build_entity<'a>(&self, cmds: &'a mut Commands) -> EntityCommands<'a> {
+        self.class.build_entity(cmds)
     }
 }
 

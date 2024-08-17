@@ -27,6 +27,7 @@ mod factions;
 mod quests;
 mod dialogue;
 mod animation;
+mod spawn;
 
 pub use behavior::*;
 pub use subjectivity::*;
@@ -42,3 +43,4 @@ pub use factions::*;
 pub use quests::*;
 pub use dialogue::*;
 pub use animation::*;
+pub use spawn::*;

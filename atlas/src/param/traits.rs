@@ -16,6 +16,7 @@
 use std::{hash::Hash, collections::HashMap, io, str::FromStr, any::Any};
 use std::fmt::Debug;
 
+use bevy_ecs::system::EntityCommands;
 use bitstream_io::ByteWrite;
 use nom::{IResult, error::VerboseError, error::context};
 use serde_json::Value;
@@ -138,6 +139,8 @@ pub trait DynParamClass: Any + Send + Sync + for<'a> MightIncludeBase<'a> {
 
     fn set_param(&mut self, name: &str, param: Param) -> Option<Param>;
     fn get_param(&self, name: &str) -> Option<&Param>;
+
+    fn build_entity<'a>(&self, cmds: &'a mut Commands) -> EntityCommands<'a>;
 }
 
 // blanked implementations for param classes
@@ -196,6 +199,10 @@ impl <T: ParamClass + Clone + Any + Send + Sync + for<'a> MightIncludeBase<'a>> 
 
     fn get_param(&self, name: &str) -> Option<&Param> {
         self.as_set().get_param(name)
+    }
+
+    fn build_entity<'a>(&self, cmds: &'a mut Commands) -> EntityCommands<'a> {
+        cmds.spawn(self.clone().into_bundle())
     }
 }
 

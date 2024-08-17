@@ -27,7 +27,7 @@ use tokio_stream::StreamExt;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use bevy_ecs::{prelude::*, schedule::ScheduleLabel, system::{Command, RunSystemOnce}};
 
-use crate::{actors::{get_player_height, register_commands, zone::{ behaviors::BehaviorsPlugin, plugins::{insert_player_inventory, AnimationPlugin, AvatarBehaviorPlugin, CombatPlugin, CommandsPlugin, CompletedDialogues, DialoguePlugin, FactionsPlugin, HitPointsPlugin, InventoryPlugin, ParamsPlugin, PersistancePlugin, PositionPlugin, PreviousParamBox, QuestLog, QuestsPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{respawn, send_proximity_chat, sepcial_event_controller, setup_combat_style, setup_combat_style_assassin, setup_combat_style_cyber, setup_combat_style_energizer, setup_combat_style_hacker, setup_combat_style_none, setup_combat_style_rage, setup_combat_style_tech, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{get_cached_floor_maps, realm_database, Character, FlightTube, FloorMapInfo, InventoryEntry}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, register_commands, zone::{ behaviors::BehaviorsPlugin, plugins::{insert_player_inventory, AnimationPlugin, AvatarBehaviorPlugin, CombatPlugin, CommandsPlugin, CompletedDialogues, DialoguePlugin, FactionsPlugin, HitPointsPlugin, InventoryPlugin, ParamsPlugin, PersistancePlugin, PositionPlugin, PreviousParamBox, QuestLog, QuestsPlugin, SpawnPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{send_proximity_chat, sepcial_event_controller, setup_combat_style, setup_combat_style_assassin, setup_combat_style_cyber, setup_combat_style_energizer, setup_combat_style_hacker, setup_combat_style_none, setup_combat_style_rage, setup_combat_style_tech, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{get_cached_floor_maps, realm_database, Character, Content, FlightTube, FloorMapInfo, InventoryEntry, StructureContent}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
 use super::{components::{self, AvatarComponent, EntityType, InterestList}, plugins::{award_start_equipment, AvatarEvent, BehaviorExt, CommandsExt, DamageEvent, InCombat, ItemPurchaseRequest, ItemSellRequest, NetworkExt, NetworkPlugin, PlayerController, Position, ServerAction, SubjectivityExt}, resources::Tasks, systems::set_heavy_skill_data, zone_events::ProximityChatEvent, Movement, PhysicsState, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState};
@@ -48,7 +48,7 @@ pub static DISPLAY_NAMES: OnceCell<HashMap<Uuid, String>> = OnceCell::const_new(
 pub static ZONE_ID_LOOKUP: OnceCell<HashMap<String, Uuid>> = OnceCell::const_new();
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone)]
-struct SlowUpdate;
+pub struct SlowUpdate;
 
 #[derive(Resource)]
 pub struct DefaultPos {
@@ -92,6 +92,29 @@ impl DerefMut for AvatarIdToEntityLookup {
 
 #[derive(Resource)]
 pub struct FloorMapInfos(pub Vec<&'static FloorMapInfo>);
+
+#[derive(Resource)]
+pub struct StructureContentTemplate(pub HashMap<Uuid, StructureContent>);
+
+const STRUCTURE_TEMPLATES: &[&str] = &[
+    "ed57bedb-64dd-425d-8da0-602fb3a13f8e",
+    "755c666f-cc65-4e2d-990b-01229807ef11",
+];
+
+impl StructureContentTemplate {
+    async fn load(db: Database) -> AnotherlandResult<StructureContentTemplate> {
+        let mut templates = HashMap::new();
+
+        for str_id in STRUCTURE_TEMPLATES {
+            let id = Uuid::parse_str(str_id).unwrap();
+            if let Some(content) = StructureContent::get(db.clone(), &id).await? {
+                templates.insert(id, content);
+            }
+        }
+        
+        Ok(StructureContentTemplate(templates))
+    }
+}
 
 #[derive(Component)]
 pub struct CurrentTarget(pub Entity);
@@ -170,7 +193,10 @@ impl Actor for Zone {
                 QuestsPlugin,
                 DialoguePlugin
             ))
-            .add_plugins(AnimationPlugin)
+            .add_plugins((
+                AnimationPlugin,
+                SpawnPlugin
+            ))
             .add_systems(PreUpdate, setup_combat_style)
             .add_systems(Update, (
                 send_proximity_chat,
@@ -187,7 +213,6 @@ impl Actor for Zone {
                 ),
             ))
             .add_systems(SlowUpdate, (
-                respawn,
                 sepcial_event_controller,
             ))
             .add_event::<ProximityChatEvent>()
@@ -213,7 +238,8 @@ impl Actor for Zone {
             })
             .insert_resource(UuidToEntityLookup::default())
             .insert_resource(AvatarIdToEntityLookup::default())
-            .insert_resource(FloorMapInfos(get_cached_floor_maps(self.factory.world_def().id)));
+            .insert_resource(FloorMapInfos(get_cached_floor_maps(self.factory.world_def().id)))
+            .insert_resource(StructureContentTemplate::load(self.realm_db.clone()).await?);
 
         register_commands(&mut self.app);
 
