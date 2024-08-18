@@ -15,12 +15,14 @@
 
 use std::{str::FromStr, time::{SystemTime, UNIX_EPOCH}};
 
-use atlas::{oaPktCombatUpdate, oaPktCooldownUpdate, oaPktLoopActionIterruptible, oaPktQuestUpdate, CooldownEntry, CooldownUpdate, NonClientBaseComponent, NonClientBaseParams, ParamBox};
-use bevy::app::App;
+use atlas::{oaPktCombatUpdate, oaPktCooldownUpdate, oaPktLoopActionIterruptible, oaPktQuestUpdate, CooldownEntry, CooldownUpdate, NonClientBaseComponent, NonClientBaseParams, ParamBox, Uuid};
+use bevy::{app::App, prelude::{Commands, Component}};
 use bevy_ecs::{query::{With, Without}, system::{In, Query}};
 use log::debug;
 
-use super::{plugins::{CommandsExt, CommandsInput, GameMessage, PlayerController}, AvatarComponent, CurrentTarget};
+use crate::frontends::TravelType;
+
+use super::{plugins::{CommandsExt, CommandsInput, GameMessage, PlayerController, QuestLog}, AvatarComponent, CurrentTarget};
 
 pub fn register_commands(app: &mut App) {
     app.add_command("avatar_info", cmd_target_info);
@@ -28,6 +30,9 @@ pub fn register_commands(app: &mut App) {
     app.add_command("update_quest", cmd_update_quest);
     app.add_command("cooldown", cmd_cooldown);
     app.add_command("toggle_combat", cmd_toggle_combat);
+    app.add_command("mark_quest_available", cmd_mark_quest_available);
+    app.add_command("toggle_ignore_quest_state", cmd_toggle_ignore_quest_state);
+    app.add_command("zone_travel", cmd_zone_travel);
 }
 
 fn cmd_target_info(
@@ -177,5 +182,52 @@ fn cmd_cooldown(
                 ..Default::default()
             }.into_message()
         );
+    }
+}
+
+
+fn cmd_mark_quest_available(
+    In((entity, _, args)): In<CommandsInput>,
+    mut players: Query<(&AvatarComponent, &mut QuestLog)>,
+) {
+    if 
+        let Ok((avatar, mut questlog)) = players.get_mut(entity) &&
+        let Some(quest) = args.first().and_then(|a| FromStr::from_str(a).ok()) &&
+        !questlog.available.contains(&quest)
+    {
+        questlog.available.push(quest);
+    }
+}
+
+#[derive(Component)]
+pub struct IgnoreQuestState;
+
+fn cmd_toggle_ignore_quest_state(
+    In((entity, _, _)): In<CommandsInput>,
+    players: Query<(&AvatarComponent, Option<&IgnoreQuestState>)>,
+    mut commands: Commands
+) {
+    if 
+        let Ok((avatar, ignore_quest_state)) = players.get(entity)
+    {
+        if ignore_quest_state.is_some() {
+            commands.entity(entity)
+                .remove::<IgnoreQuestState>();
+        } else {
+            commands.entity(entity)
+                .insert(IgnoreQuestState);
+        }            
+    }
+}
+
+fn cmd_zone_travel(
+    In((entity, _, args)): In<CommandsInput>,
+    players: Query<(&AvatarComponent, &PlayerController)>,
+) {
+    if 
+        let Ok((_, controller)) = players.get(entity) &&
+        let Some(zone_id) = args.first().and_then(|a| Uuid::parse_str(a).ok())
+    {
+        controller.send_travel(zone_id, TravelType::EntryPoint);
     }
 }

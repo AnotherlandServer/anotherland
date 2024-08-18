@@ -18,16 +18,16 @@ use std::collections::HashSet;
 use atlas::{NonClientBaseComponent, NonClientBaseParams, ParamBox, PlayerClass, PlayerComponent, PlayerParams, SpawnerClass, SpawnerComponent};
 use bevy_ecs::{entity::Entity, event::EventWriter, query::{With, Without}, system::Query};
 
-use crate::actors::{zone::{components::{AvatarComponent, InterestList}, plugins::{PlayerController, Position, QuestLog}}, Spawned};
+use crate::actors::{zone::{components::{AvatarComponent, InterestList}, plugins::{PlayerController, Position, QuestLog}}, IgnoreQuestState, Spawned};
 
 #[allow(clippy::type_complexity)]
 pub fn update_interests(
-    mut players: Query<(Entity, &ParamBox, &mut InterestList, &PlayerController, &QuestLog), (With<Spawned>, With<PlayerComponent>)>,
+    mut players: Query<(Entity, &ParamBox, &mut InterestList, &PlayerController, &QuestLog, Option<&IgnoreQuestState>), (With<Spawned>, With<PlayerComponent>)>,
     positioned: Query<(Entity, &Position, Option<&ParamBox>), (With<Spawned>, Without<SpawnerComponent>)>,
     avatar_lookup: Query<&AvatarComponent>,
     //mut ev_avatar_event: EventWriter<AvatarEventFired>,
 ) {
-    for (entity, player, mut interests, controller, quest_progress) in players.iter_mut()
+    for (entity, player, mut interests, controller, quest_progress, ignore_quest_state) in players.iter_mut()
     {
         let player = player.get_impl::<dyn PlayerParams>().unwrap();
 
@@ -60,7 +60,8 @@ pub fn update_interests(
                         quest_progress.check_quests_completed(base.visible_on_quest_complete()) ||
                         quest_progress.check_quests_finished(base.visible_on_quest_finished()) ||
                         quest_progress.check_quests_in_progress(base.visible_on_quest_in_progress()) ||
-                        quest_progress.check_quests_available(base.visible_on_quest_available())
+                        quest_progress.check_quests_available(base.visible_on_quest_available()) ||
+                        ignore_quest_state.is_some()
                     )
                 {
                     new_interests.insert(other_ent);

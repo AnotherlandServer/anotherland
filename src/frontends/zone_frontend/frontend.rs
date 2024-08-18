@@ -721,6 +721,16 @@ impl ZoneSession {
                         }.into_message()).await?;
                     } else {
                         warn!("Quest {} not found!", pkt.quest_id);
+
+                        self.send(CPktStream_165_2 {
+                            field_1: oaQuestTemplate { 
+                                quest_id: pkt.quest_id, 
+                                level: 0, 
+                                world_guid: UUID_NIL, 
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }.into_message()).await?;
                     }
                 } else if pkt.player == self.avatar_id {
                     self.instance.zone().handle_message(pkt.into_message()).await;
