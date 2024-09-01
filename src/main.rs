@@ -323,6 +323,8 @@ async fn main() -> AnotherlandResult<()> {
                         for map in active_maps.as_array().unwrap() {
                             // load world by name
                             if let Some(world_def) = WorldDef::get_by_name(db.clone(), map["map"].as_str().unwrap()).await? {
+                                info!("Initializing world: {}", world_def.name);
+
                                 // load and spawn world zones
                                 for zone in ZoneDef::load_for_world(db.clone(), &world_def.guid).await? {
                                     initialize_zone_server(world_def.clone(), zone).await?;
@@ -334,37 +336,6 @@ async fn main() -> AnotherlandResult<()> {
                     }
                 } else {
                     warn!("No active maps found!");
-                }
-            }
-
-            // load all persistent zones
-            // the game does differentiate between primary, secondary and tertriary servers
-            // according to the instance.db database. 
-            // as we currently don't know how the original server architecture defined those,
-            // we currently treat all those zones as "primary", giving each one a dedicated zone actor
-            // with a single shared udp server (cluster frontend).
-            {
-                let db = realm_database().await;
-
-                let zone_collection = ZoneDef::collection(db.clone());
-                let mut zones = zone_collection.find(doc!{
-                    "$or": [
-                        // todo: normalize this field during import
-                        {"server": {"$eq": "Primary"}},
-                        {"server": {"$eq": "primary"}},
-                        {"server": {"$eq": "Secondary"}},
-                        {"server": {"$eq": "secondary"}},
-                        {"server": {"$eq": "Tertriary"}},
-                        {"server": {"$eq": "tertriary"}}
-                    ]
-                }, None).await?;
-
-                while let Some(zone) = zones.try_next().await? {
-                    if let Some(world_def) = WorldDef::get_by_guid(db.clone(), &zone.worlddef_guid).await? {
-                        initialize_zone_server(world_def, zone).await?;
-                    } else {
-                        warn!("Skipping zone {} - {}, world not found", zone.zone, zone.guid);
-                    }
                 }
             }
         }
