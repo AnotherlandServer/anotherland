@@ -17,11 +17,12 @@ use std::{ops::{Deref, DerefMut}, sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ oaPktMoveManagerPosUpdate, raknet::Message, AvatarId, ClassSkills, DynParamSet, NativeParam, NonClientBaseParams, OaZoneConfigParams, ParamBox, ParamClass, ParamSetBox, PlayerAttribute, PlayerClass, PlayerComponent, PlayerParams, PortalParams, SpawnNodeParams, StartingPointComponent, StartingPointParams, Uuid};
+use atlas::{ oaPktMoveManagerPosUpdate, raknet::Message, AvatarId, ClassSkills, DynParamSet, NativeParam, NonClientBaseParams, OaZoneConfigParams, Param, ParamBox, ParamClass, ParamSetBox, PlayerAttribute, PlayerClass, PlayerComponent, PlayerParams, PortalParams, SpawnNodeParams, StartingPointComponent, StartingPointParams, Uuid};
 use bevy::{app::{App, PreUpdate, Update}, utils::hashbrown::HashMap, MinimalPlugins};
 use glam::{Vec3, Quat};
 use log::{debug, info, warn};
 use mongodb::Database;
+use serde::{Deserialize, Serialize};
 use tokio::{runtime::Handle, select, sync::{mpsc, OnceCell}, task::JoinHandle, time};
 use tokio_stream::StreamExt;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -123,6 +124,15 @@ pub struct CurrentTarget(pub Entity);
 pub struct PlayerSpawned {
     pub player: Entity,
     pub mode: PlayerSpawnMode,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AvatarState {
+    pub id: AvatarId,
+    pub instance_id: Option<Uuid>,
+    pub record_id: Option<Uuid>,
+    pub name: String,
+    pub params: ParamBox,
 }
 
 pub struct Zone {
@@ -690,6 +700,17 @@ impl Zone {
         })
     }
 
+    pub fn update_avatar_named_params(&mut self, avatar_id: AvatarId, update_set: HashMap<String, Param>) {
+        self.app.world.resource_scope(|world, lookup_table: Mut<AvatarIdToEntityLookup>| {
+            if let Some(mut params) = lookup_table.get(&avatar_id)
+                .and_then(|ent| world.get_mut::<ParamBox>(*ent)) {
+
+                for (name, param) in update_set {
+                    params.set_param(&name, param);
+                }
+            }
+        })
+    }
 
     pub fn move_player_avatar(&mut self, avatar_id: AvatarId, movement: Movement) {
         self.app.world.resource_scope(|world, lookup_table: Mut<AvatarIdToEntityLookup>| {
@@ -706,11 +727,32 @@ impl Zone {
         })
     }
 
-    pub fn get_avatar_params(&mut self, avatar_id: AvatarId) -> Option<(String, ParamBox)> {
+    pub fn get_avatar(&mut self, avatar_id: AvatarId) -> Option<AvatarState> {
         self.app.world.resource_scope(|world, lookup_table: Mut<AvatarIdToEntityLookup>| {
             lookup_table.get(&avatar_id)
                 .and_then(|ent| world.get_entity(*ent))
-                .map(|ent| (ent.get::<AvatarComponent>().unwrap().name.clone(), ent.get::<ParamBox>().unwrap().clone()))
+                .map(|ent| {
+                    let component = ent.get::<AvatarComponent>().unwrap();
+
+                    AvatarState { 
+                        id: avatar_id, 
+                        instance_id: component.instance_id, 
+                        record_id: component.record_id, 
+                        name: component.name.clone(), 
+                        params: ent.get::<ParamBox>().unwrap().clone() 
+                    }
+                })
+        })
+    }
+
+    pub fn get_target_avatar(&mut self, avatar_id: AvatarId) -> Option<AvatarId> {
+        self.app.world.resource_scope(|world, lookup_table: Mut<AvatarIdToEntityLookup>| {
+            lookup_table.get(&avatar_id)
+                .and_then(|ent| world.get_entity(*ent))
+                .and_then(|ent| ent.get::<CurrentTarget>())
+                .and_then(|target| world.get_entity(target.0))
+                .and_then(|ent| ent.get::<AvatarComponent>())
+                .map(|avatar| avatar.id)
         })
     }
 

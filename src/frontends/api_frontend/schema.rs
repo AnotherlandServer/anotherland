@@ -16,6 +16,7 @@
 use std::collections::HashSet;
 use std::net::{Ipv6Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_graphql::{ComplexObject, Json};
 use async_graphql::{Object, Result, Context, SimpleObject};
@@ -154,6 +155,36 @@ impl MutationRoot {
 
         Ok("ok")
     }
+
+    async fn avatar_play_animation(&self, ctx: &Context<'_>, session_id: String, avatar_id: String, animation: String, duration: Option<f32>, option: Option<i32>) -> Result<&str> {
+        let session = ctx.data::<RemoteActorRef<SessionManager>>()?.get_session(Uuid::parse_str(session_id)?).await
+            .map_err(|e| async_graphql::Error::new(e.to_string()))?;
+
+        if let Some(zone_id) = session.zone_guid {
+            let zone = connect_zone(ctx.clone(), zone_id).await?;
+
+            let avatar_id = avatar_id.parse()
+                .map_err(|_| async_graphql::Error::new("invalid avatar id"))?;
+
+            zone.execute_command(ApiCommand::UpdateAvatarParams { 
+                session_id: session.id, 
+                avatar_id, 
+                params: [
+                    ("action0".to_string(), (
+                        animation,
+                        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f32()
+                    ).into()),
+                    ("action0Duration".to_string(), duration.unwrap_or(1.0).into()),
+                    ("action0Option".to_string(), option.unwrap_or(1).into()),
+                ].into()
+            }).await?;
+
+            Ok("ok")
+        } else {
+            Err(async_graphql::Error::new("character has not entered a zone"))
+        }
+
+    }
 }
 
 #[derive(SimpleObject, Serialize, Deserialize, Clone, Debug)]
@@ -268,16 +299,18 @@ impl Session {
 
             debug!("Got player avatar id: {:?}", avatar_id);
 
-            let (name, params) = if let ApiResult::Avatar { name, params } = zone.execute_command(ApiCommand::GetAvatar { session_id: self.session_id, avatar_id }).await? {
-                Ok((name, params))
+            let avatar = if let ApiResult::Avatar(avatar) = zone.execute_command(ApiCommand::GetAvatar { session_id: self.session_id, avatar_id }).await? {
+                Ok(avatar)
             } else {
                 Err(async_graphql::Error::new("unexpected api response"))
             }?;
 
             Ok(Avatar {
                 id: avatar_id.to_string(),
-                name,
-                params: Json(params)
+                instance_id: avatar.instance_id.map(|id| id.to_string()),
+                record_id: avatar.record_id.map(|id| id.to_string()),
+                name: avatar.name,
+                params: Json(avatar.params)
             })
         } else {
             Err(async_graphql::Error::new("character has not entered a zone"))
@@ -298,16 +331,18 @@ impl Session {
                 let mut result = Vec::new();
 
                 for avatar_id in interests {
-                    let (name, params) = if let ApiResult::Avatar { name, params } = zone.execute_command(ApiCommand::GetAvatar { session_id: self.session_id, avatar_id }).await? {
-                        Ok((name, params))
+                    let avatar = if let ApiResult::Avatar(avatar) = zone.execute_command(ApiCommand::GetAvatar { session_id: self.session_id, avatar_id }).await? {
+                        Ok(avatar)
                     } else {
                         Err(async_graphql::Error::new("unexpected api response"))
                     }?;
 
                     result.push(Avatar {
                         id: avatar_id.to_string(),
-                        name,
-                        params: Json(params)
+                        instance_id: avatar.instance_id.map(|id| id.to_string()),
+                        record_id: avatar.record_id.map(|id| id.to_string()),
+                        name: avatar.name,
+                        params: Json(avatar.params)
                     });
                 }
 
@@ -315,6 +350,41 @@ impl Session {
             }?;
 
             Ok(avatars)
+        } else {
+            Err(async_graphql::Error::new("character has not entered a zone"))
+        }
+    }
+
+    async fn target_avatar(&self, ctx: &Context<'_>) -> Result<Option<Avatar>> {
+        if let Some(zone_id) = self.zone_id {
+            let zone = connect_zone(ctx.clone(), zone_id).await?;
+
+            if let Some(avatar_id) = 
+                if let ApiResult::AvatarId(id) = zone.execute_command(ApiCommand::GetSelectedAvatar { 
+                    session_id: self.session_id, 
+                    avatar_id: None 
+                } ).await? {
+                    Ok(id)
+                } else {
+                    Err(async_graphql::Error::new("unexpected api response"))
+                }?
+            {
+                let avatar = if let ApiResult::Avatar(avatar) = zone.execute_command(ApiCommand::GetAvatar { session_id: self.session_id, avatar_id }).await? {
+                    Ok(avatar)
+                } else {
+                    Err(async_graphql::Error::new("unexpected api response"))
+                }?;
+    
+                Ok(Some(Avatar {
+                    id: avatar_id.to_string(),
+                    instance_id: avatar.instance_id.map(|id| id.to_string()),
+                    record_id: avatar.record_id.map(|id| id.to_string()),
+                    name: avatar.name,
+                    params: Json(avatar.params)
+                }))
+            } else {
+                Ok(None)
+            }
         } else {
             Err(async_graphql::Error::new("character has not entered a zone"))
         }
@@ -375,7 +445,11 @@ impl ZoneConnection {
             }
 
             if let ZoneDownstreamMessage::ApiResult(result) = bson::from_slice(buffer.as_slice()).map_err(|_| AnotherlandError::from_kind(AnotherlandErrorKind::Parse))? {
-                Ok(result)
+                if let ApiResult::Error(e) = result {
+                    Err(async_graphql::Error::new(e))
+                } else {
+                    Ok(result)
+                }
             } else {
                 Err(async_graphql::Error::new("unexpected message"))
             }
@@ -472,6 +546,8 @@ impl Zone {
 #[derive(SimpleObject, Serialize, Deserialize, Clone, Debug)]
 pub struct Avatar {
     pub id: String,
+    pub instance_id: Option<String>,
+    pub record_id: Option<String>,
     pub name: String,
     pub params: Json<ParamBox>,
 }

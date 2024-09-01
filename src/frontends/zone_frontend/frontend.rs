@@ -24,7 +24,7 @@ use quinn::ServerConfig;
 use tokio::{sync::{Mutex, mpsc::{self, Sender}, RwLock}, time, select};
 use tokio_util::{task::TaskTracker, sync::CancellationToken};
 
-use crate::{actors::{AvatarEvent, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, WorldDef, ZoneDef}, scripting::quest::lookup_quest_info, util::{AnotherlandError, AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
+use crate::{actors::{AvatarEvent, AvatarState, Movement, PhysicsState, PlayerSpawnMode, ProximityChatRange, ServerAction, Zone, ZoneRegistry}, cluster::{frontend::Frontend, ActorRef, CheatMessage}, components::{SessionHandler, SessionRef, ZoneFactory}, db::{realm_database, Character, WorldDef, ZoneDef}, scripting::quest::lookup_quest_info, util::{AnotherlandError, AnotherlandErrorKind, AnotherlandResult}, CLUSTER_CERT, NODE};
 use crate::db::DatabaseRecord;
 
 use super::{load_state::ClientLoadState, ApiCommand, ApiResult, TravelType, ZoneDownstreamMessage, ZoneServerListener, ZoneUpstreamMessage};
@@ -53,6 +53,8 @@ pub struct ZoneFrontend {
 
 impl ZoneFrontend {
     pub async fn initialize(world_def: WorldDef, zone_def: ZoneDef) -> AnotherlandResult<Self> {
+        info!("Initializing zone server: {}", zone_def.zone);
+
         Ok(Self {
             name: format!("zone_server_{}", zone_def.guid),
             factory: ZoneFactory::new(realm_database().await, world_def, zone_def).await?,
@@ -99,9 +101,7 @@ impl Frontend for ZoneFrontend {
                         let instances = self.instances.clone();
                         let session_handler = session_handler.clone();
                         let sessions = sessions.clone();
-        
-                        //let mut sessions = HashMap::new();
-        
+
                         self.tasks.spawn(async move {
                             let (downstream_sender, mut downstream_receiver) = mpsc::channel(100);
                             let connection_token = CancellationToken::new();
@@ -184,6 +184,9 @@ impl Frontend for ZoneFrontend {
 
                                                 let sessions_s = sessions.read().await;
 
+                                                debug!("Session id: {:?}", command.session_id());
+                                                debug!("Session: {:#?}", sessions_s.keys());
+
                                                 match command.session_id() {
                                                     Some(id) => {
                                                         if let Some(session) = sessions_s.get(&id) {
@@ -192,7 +195,9 @@ impl Frontend for ZoneFrontend {
                                                                 command 
                                                             }).await;
                                                         } else {
-                                                            let _ = connection.send(&ZoneDownstreamMessage::ApiResult(ApiResult::Error("session not found".to_string()))).await;
+                                                            let _ = connection.send(&ZoneDownstreamMessage::ApiResult(
+                                                                ApiResult::Error("session not connected to zone server".to_string())
+                                                            )).await;
                                                         }
                                                     },
                                                     None => unimplemented!(),
@@ -223,9 +228,9 @@ impl Frontend for ZoneFrontend {
                             trace!("Stopping zone server <-> cluster connection loop");
 
                             let mut sessions_s = sessions.write().await;
-                            local_sessions
-                                .iter()
-                                .map(|session| sessions_s.remove(session));
+                            for session in local_sessions {
+                                sessions_s.remove(&session);
+                            }
         
                             connection_token.cancel();
                         });
@@ -917,15 +922,27 @@ impl ZoneSession {
                 Ok(())
             },
             ApiCommand::GetAvatar { avatar_id, .. } => {
-                if let Some((name, params)) = self.instance.zone().get_avatar_params(*avatar_id).await {
+                if let Some(avatar) = self.instance.zone().get_avatar(*avatar_id).await {
                     let _ = downstream.send(ZoneDownstreamMessage::ApiResult(
-                        ApiResult::Avatar { name, params }
+                        ApiResult::Avatar(avatar)
                     )).await;
                     Ok(())
                 } else {
                     Err(AnotherlandError::app_err("unknown avatar"))
                 }
             },
+            ApiCommand::GetSelectedAvatar { avatar_id, .. } => {
+                let avatar_id = self.instance.zone().get_target_avatar(avatar_id.unwrap_or(self.avatar_id)).await;
+                let _ = downstream.send(ZoneDownstreamMessage::ApiResult(
+                    ApiResult::AvatarId(avatar_id)
+                )).await;
+                Ok(())
+            }
+            ApiCommand::UpdateAvatarParams { avatar_id, params, .. } => {
+                self.instance.zone().update_avatar_named_params(*avatar_id, params.clone().into_iter().collect()).await;
+                let _ = downstream.send(ZoneDownstreamMessage::ApiResult(ApiResult::Ok)).await;
+                Ok(())
+            }
         }
     }
 }

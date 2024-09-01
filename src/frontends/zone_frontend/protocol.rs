@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{marker::PhantomData, net::{SocketAddr, Ipv6Addr}, sync::Arc, time::Duration};
+use std::{collections::{HashMap, HashSet}, marker::PhantomData, net::{Ipv6Addr, SocketAddr}, sync::Arc, time::Duration};
 
-use atlas::{AvatarId, ParamBox, PlayerClass, Uuid};
+use atlas::{AvatarId, Param, ParamSetBox, Uuid};
 use glam::Vec3;
 use log::{trace, debug};
 use nom::AsBytes;
@@ -25,7 +25,7 @@ use serde::{Serialize, Deserialize};
 use tokio::{task::JoinHandle, sync::mpsc::{self, Receiver, Sender}, select};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-use crate::util::{AnotherlandErrorKind, AnotherlandResult};
+use crate::{actors::AvatarState, util::{AnotherlandErrorKind, AnotherlandResult}};
 
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -46,6 +46,8 @@ pub enum ApiCommand {
     GetPlayerAvatarId { session_id: Uuid },
     GetPlayerInterestList { session_id: Uuid },
     GetAvatar { session_id: Uuid, avatar_id: AvatarId },
+    GetSelectedAvatar { session_id: Uuid, avatar_id: Option<AvatarId> },
+    UpdateAvatarParams { session_id: Uuid, avatar_id: AvatarId, params: HashMap<String, Param> },
 }
 
 impl ApiCommand {
@@ -54,6 +56,8 @@ impl ApiCommand {
             ApiCommand::GetPlayerAvatarId { session_id } => Some(*session_id),
             ApiCommand::GetPlayerInterestList { session_id } => Some(*session_id),
             ApiCommand::GetAvatar { session_id, .. } => Some(*session_id),
+            ApiCommand::GetSelectedAvatar { session_id, .. } => Some(*session_id),
+            ApiCommand::UpdateAvatarParams { session_id, .. } => Some(*session_id),
         }
     }
 }
@@ -67,10 +71,12 @@ pub enum ZoneDownstreamMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ApiResult {
+    Ok,
     Error(String),
     PlayerAvatar(AvatarId),
     PlayerInterestList(Vec<AvatarId>),
-    Avatar { name: String, params: ParamBox },
+    Avatar(AvatarState),
+    AvatarId(Option<AvatarId>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
