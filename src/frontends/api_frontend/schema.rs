@@ -26,6 +26,7 @@ use chrono::{DateTime, Utc};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::StreamExt;
 use futures::stream::FuturesUnordered;
+use glam::Vec3;
 use log::debug;
 use quinn::{ClientConfig, Endpoint};
 use serde_derive::{Serialize, Deserialize};
@@ -310,6 +311,8 @@ impl Session {
                 instance_id: avatar.instance_id.map(|id| id.to_string()),
                 record_id: avatar.record_id.map(|id| id.to_string()),
                 name: avatar.name,
+                position: avatar.position.to_array(),
+                rotation: avatar.rotation.to_array(),
                 params: Json(avatar.params)
             })
         } else {
@@ -342,6 +345,8 @@ impl Session {
                         instance_id: avatar.instance_id.map(|id| id.to_string()),
                         record_id: avatar.record_id.map(|id| id.to_string()),
                         name: avatar.name,
+                        position: avatar.position.to_array(),
+                        rotation: avatar.rotation.to_array(),
                         params: Json(avatar.params)
                     });
                 }
@@ -380,6 +385,8 @@ impl Session {
                     instance_id: avatar.instance_id.map(|id| id.to_string()),
                     record_id: avatar.record_id.map(|id| id.to_string()),
                     name: avatar.name,
+                    position: avatar.position.to_array(),
+                    rotation: avatar.rotation.to_array(),
                     params: Json(avatar.params)
                 }))
             } else {
@@ -549,5 +556,7 @@ pub struct Avatar {
     pub instance_id: Option<String>,
     pub record_id: Option<String>,
     pub name: String,
+    pub position: [f32; 3],
+    pub rotation: [f32; 3],
     pub params: Json<ParamBox>,
 }

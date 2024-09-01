@@ -132,6 +132,8 @@ pub struct AvatarState {
     pub instance_id: Option<Uuid>,
     pub record_id: Option<Uuid>,
     pub name: String,
+    pub position: Vec3,
+    pub rotation: Vec3,
     pub params: ParamBox,
 }
 
@@ -733,13 +735,16 @@ impl Zone {
                 .and_then(|ent| world.get_entity(*ent))
                 .map(|ent| {
                     let component = ent.get::<AvatarComponent>().unwrap();
+                    let position = ent.get::<Position>().unwrap();
 
                     AvatarState { 
                         id: avatar_id, 
                         instance_id: component.instance_id, 
                         record_id: component.record_id, 
                         name: component.name.clone(), 
-                        params: ent.get::<ParamBox>().unwrap().clone() 
+                        position: position.position,
+                        rotation: position.rotation.as_unit_vector(),
+                        params: ent.get::<ParamBox>().unwrap().clone()
                     }
                 })
         })
