@@ -17,8 +17,8 @@ use std::{ops::{Deref, DerefMut}, sync::Arc, time::{Duration, Instant}};
 
 use actor_macros::actor_actions;
 use async_trait::async_trait;
-use atlas::{ oaPktMoveManagerPosUpdate, raknet::Message, AvatarId, ClassSkills, DynParamSet, NativeParam, NonClientBaseParams, OaZoneConfigParams, Param, ParamBox, ParamClass, ParamSetBox, PlayerAttribute, PlayerClass, PlayerComponent, PlayerParams, PortalParams, SpawnNodeParams, StartingPointComponent, StartingPointParams, Uuid};
-use bevy::{app::{App, PreUpdate, Update}, utils::hashbrown::HashMap, MinimalPlugins};
+use atlas::{ oaAbilityBarReferences, oaPktMoveManagerPosUpdate, oaPlayerClassData, raknet::Message, AbilityBarReference, AvatarId, ClassSkills, DynParamSet, NativeParam, NonClientBaseParams, OaZoneConfigParams, Param, ParamBox, ParamClass, ParamSetBox, PlayerAttribute, PlayerClass, PlayerComponent, PlayerParams, PortalParams, SpawnNodeParams, StartingPointComponent, StartingPointParams, Uuid};
+use bevy::{app::{App, PreUpdate, Update}, utils::{hashbrown::HashMap, HashSet}, MinimalPlugins};
 use glam::{Vec3, Quat};
 use log::{debug, info, warn};
 use mongodb::Database;
@@ -425,6 +425,55 @@ impl Zone {
                     // bling is stored outside of params in database
                     character.data.set_bling(character.bling.unwrap_or_default());
                     character.data.set_cooldown_passed(true);
+                    character.data.set_current_ability_bar_references(oaAbilityBarReferences {
+                        class_hash: 0xFE0D0DC2,
+                        version: 1,
+                        count: 9,
+                        main_skill_bar: [
+                            AbilityBarReference {
+                                id: 0,
+                                ..Default::default()
+                            },
+                            AbilityBarReference {
+                                id: 1,
+                                ..Default::default()
+                            },
+                            AbilityBarReference {
+                                id: 2,
+                                ..Default::default()
+                            },
+                            AbilityBarReference {
+                                id: 3,
+                                ..Default::default()
+                            },
+                            AbilityBarReference {
+                                id: 4,
+                                ..Default::default()
+                            },
+                            AbilityBarReference {
+                                id: 5,
+                                ..Default::default()
+                            },
+                            AbilityBarReference {
+                                id: 6,
+                                ..Default::default()
+                            },
+                            AbilityBarReference {
+                                id: 7,
+                                ..Default::default()
+                            },
+                            AbilityBarReference {
+                                id: 8,
+                                ..Default::default()
+                            },
+                        ].to_vec(),
+                        ..Default::default()
+                    }.to_bytes());
+                    character.data.set_class_data(oaPlayerClassData {
+                        class_hash: 0x9D35021A,
+                        field_2: 1,
+                        ..Default::default()
+                    }.to_bytes());
 
                     // update zone if stored zone differs or we force spawn to entry point
                     match spawn_mode {
@@ -668,7 +717,7 @@ impl Zone {
                         controller.send_game_message(super::plugins::GameMessage::Normal(format!(
                             "Welcome to Anotherland, {}!\n\
                             Please note that the server currently does not host the full game.\n\
-                            Join the otherland Discord channel to stay updated!",
+                            Join the otherland Discord server to stay updated!",
                             avatar.name
                         )));
                     }
@@ -693,6 +742,10 @@ impl Zone {
                 {
                     if !diff.is_empty() {
                         debug!("{:?}", diff);
+
+                        if let Some(Param::Any(ability_bar_data)) = diff.get(&PlayerAttribute::CurrentAbilityBarReferences) {
+                            println!("{:#?}", oaAbilityBarReferences::from_bytes(&ability_bar_data).unwrap());
+                        }
 
                         if let Ok(player) = params.get_mut::<PlayerClass>() {
                             player.apply(diff);

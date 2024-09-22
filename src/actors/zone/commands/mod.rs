@@ -15,7 +15,7 @@
 
 use std::{str::FromStr, time::{SystemTime, UNIX_EPOCH}};
 
-use atlas::{oaPktCombatUpdate, oaPktCooldownUpdate, oaPktLoopActionIterruptible, oaPktQuestUpdate, CooldownEntry, CooldownUpdate, NonClientBaseComponent, NonClientBaseParams, ParamBox, Uuid};
+use atlas::{oaPktCombatUpdate, oaPktCooldownUpdate, oaPktLoopActionIterruptible, oaPktQuestUpdate, oaPlayerClassData, CooldownEntry, CooldownUpdate, NonClientBaseComponent, NonClientBaseParams, Param, ParamBox, PlayerParams, Uuid};
 use bevy::{app::App, prelude::{Commands, Component}};
 use bevy_ecs::{query::{With, Without}, system::{In, Query}};
 use log::debug;
@@ -111,11 +111,12 @@ fn cmd_update_quest(
 
 fn cmd_toggle_combat(
     In((entity, _, args)): In<CommandsInput>,
-    players: Query<(&AvatarComponent, &PlayerController)>,
+    mut players: Query<(&AvatarComponent, &PlayerController, &mut ParamBox)>,
 ) {
     if 
-        let Ok((avatar, controller)) = players.get(entity) &&
-        let Some(combat) = args.first().and_then(|a| FromStr::from_str(a).ok())
+        let Ok((avatar, controller, mut params)) = players.get_mut(entity) &&
+        let Some(combat) = args.first().and_then(|a| FromStr::from_str(a).ok()) &&
+        let Some(player) = params.get_impl_mut::<dyn PlayerParams>()
     {
         controller.send_message(
             oaPktCombatUpdate {
@@ -128,6 +129,9 @@ fn cmd_toggle_combat(
                 ..Default::default()
             }.into_message()
         );
+
+        player.set_is_in_combat(combat);
+        player.set_sheathed_mode_active(!combat);
     }
 }
 
@@ -166,8 +170,10 @@ fn cmd_cooldown(
                     entry_count: 3,
                     entries: vec![
                         CooldownEntry {
-                            field_0: 20235,
-                            ..Default::default()
+                            field_0: 0,
+                            field_1: true,
+                            field_2: 0.0,
+                            field_3: 30.0,
                         },
                         CooldownEntry {
                             field_0: 20263,
