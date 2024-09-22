@@ -13,13 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{oaPktCombatUpdate, oaPkt_Combat_HpUpdate};
+use atlas::{oaPktCombatUpdate, oaPktThreatListUpdate, oaPkt_Combat_HpUpdate};
+use bevy::prelude::{Commands, Component};
 use bevy_ecs::{entity::Entity, query::{Added, Changed}, removal_detection::RemovedComponents, system::Query};
 use log::debug;
 
-use crate::actors::{zone::plugins::{HitPoints, InCombat}, AvatarComponent, InterestList};
+use crate::actors::{zone::plugins::{HitPoints, InCombat, ThreatList}, AvatarComponent, InterestList};
 
 use super::PlayerController;
+
+#[derive(Component)]
+pub struct PrevThreatList(ThreatList);
 
 pub fn send_hitpoint_updates(
     hitpoints: Query<(Entity, &AvatarComponent, &HitPoints), Changed<HitPoints>>,
@@ -37,6 +41,67 @@ pub fn send_hitpoint_updates(
                     ..Default::default()
                 }.into_message());
             }
+        }
+    }
+}
+
+pub fn send_threat_list(
+    mut players: Query<(Entity, &PlayerController, &AvatarComponent, &ThreatList, Option<&mut PrevThreatList>), Changed<ThreatList>>,
+    avatars: Query<&AvatarComponent>,
+    mut cmds: Commands,
+) {
+    for (ent, controller, player_avatar, threats, prev_threats) in players.iter_mut() {
+        if prev_threats.is_none() {
+            for threat in &threats.0 {
+                if let Ok(avatar) = avatars.get(*threat) {
+                    debug!("Send threat to player {}: {:?}", player_avatar.name, avatar.id);
+
+                    controller.send_message(oaPktThreatListUpdate {
+                        field_1: player_avatar.id,
+                        field_2: true,
+                        field_3: avatar.id,
+                        ..Default::default()
+                    }.into_message());
+                }
+            }
+
+            cmds.entity(ent).insert(PrevThreatList(threats.clone()));
+        } else if let Some(mut prev_threats) = prev_threats {
+            // send new threats
+            for threat in &threats.0 {
+                if 
+                    !prev_threats.0.0.contains(threat) && 
+                    let Ok(avatar) = avatars.get(*threat) 
+                {
+                    debug!("Send threat to player {}: {:?}", player_avatar.name, avatar.id);
+
+                    controller.send_message(oaPktThreatListUpdate {
+                        field_1: player_avatar.id,
+                        field_2: true,
+                        field_3: avatar.id,
+                        ..Default::default()
+                    }.into_message());
+                }
+            }
+
+            // remove ald threats
+            for threat in &prev_threats.0.0 {
+                if 
+                    !threats.0.contains(threat) &&
+                    let Ok(avatar) = avatars.get(*threat) 
+                {
+                    debug!("Remove threat from player {}: {:?}", player_avatar.name, avatar.id);
+
+                    controller.send_message(oaPktThreatListUpdate {
+                        field_1: player_avatar.id,
+                        field_2: false,
+                        field_3: avatar.id,
+                        ..Default::default()
+                    }.into_message());
+                }
+            }
+
+            prev_threats.0 = threats.clone();
         }
     }
 }

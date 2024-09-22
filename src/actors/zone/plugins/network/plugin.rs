@@ -19,7 +19,7 @@ use bevy_ecs::{schedule::IntoSystemConfigs, system::{IntoSystem, Resource, Syste
 
 use crate::actors::zone::{plugins::{remove_old_items, send_param_update_events, send_subjective_param_update_events}, systems::update_interests};
 
-use super::{combat::{send_hitpoint_updates, toggle_off_combat, toggle_on_combat}, initialize_fog_of_war, inventory::{send_item_removals, send_item_updates, track_added_items, ItemTracker}, params::{send_param_updates, send_subjective_param_updates}, positions::send_position_updates, quest::{handle_quest_debug_request, handle_quest_request, notify_quest_abandoned, notify_quest_accepted, update_quest_giver_status}};
+use super::{combat::{send_hitpoint_updates, send_threat_list, toggle_off_combat, toggle_on_combat}, initialize_fog_of_war, inventory::{send_item_removals, send_item_updates, track_added_items, ItemTracker}, params::{send_param_updates, send_subjective_param_updates}, positions::send_position_updates, quest::{handle_quest_debug_request, handle_quest_request, notify_quest_abandoned, notify_quest_accepted, update_quest_giver_status}};
 
 #[derive(Resource)]
 pub struct MessageHandlers(HashMap<(u8, u8), SystemId<CPkt, ()>>);
@@ -48,7 +48,8 @@ impl Plugin for NetworkPlugin {
             toggle_off_combat,
             notify_quest_accepted,
             notify_quest_abandoned,
-            update_quest_giver_status.after(update_interests)
+            update_quest_giver_status.after(update_interests),
+            send_threat_list
         ));
 
         app.register_message_handler((0xa5, 0x4), handle_quest_request);

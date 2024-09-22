@@ -28,7 +28,7 @@ use tokio_stream::StreamExt;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use bevy_ecs::{prelude::*, schedule::ScheduleLabel, system::{Command, RunSystemOnce}};
 
-use crate::{actors::{get_player_height, register_commands, zone::{ behaviors::BehaviorsPlugin, plugins::{insert_player_inventory, AnimationPlugin, AvatarBehaviorPlugin, CombatPlugin, CommandsPlugin, CompletedDialogues, DialoguePlugin, FactionsPlugin, HitPointsPlugin, InventoryPlugin, ParamsPlugin, PersistancePlugin, PositionPlugin, PreviousParamBox, QuestLog, QuestsPlugin, SpawnPlugin, SubjectivityPlugin}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{send_proximity_chat, sepcial_event_controller, setup_combat_style, setup_combat_style_assassin, setup_combat_style_cyber, setup_combat_style_energizer, setup_combat_style_hacker, setup_combat_style_none, setup_combat_style_rage, setup_combat_style_tech, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{get_cached_floor_maps, realm_database, Character, Content, FlightTube, FloorMapInfo, InventoryEntry, StructureContent}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
+use crate::{actors::{get_player_height, register_commands, zone::{ behaviors::BehaviorsPlugin, plugins::{insert_player_inventory, AnimationPlugin, AvatarBehaviorPlugin, CombatPlugin, CommandsPlugin, CompletedDialogues, DialoguePlugin, FactionsPlugin, HitPointsPlugin, InventoryPlugin, ParamsPlugin, PersistancePlugin, PositionPlugin, PreviousParamBox, QuestLog, QuestsPlugin, SpawnPlugin, SubjectivityPlugin, ThreatList}, resources::{EventInfo, EventInfos, ZoneInfo}, subjective_lenses::SubjectiveLensesPlugin, systems::{send_proximity_chat, sepcial_event_controller, setup_combat_style, setup_combat_style_assassin, setup_combat_style_cyber, setup_combat_style_energizer, setup_combat_style_hacker, setup_combat_style_none, setup_combat_style_rage, setup_combat_style_tech, surf_spline, update_interests}}, Spawned}, cluster::actor::Actor, components::{SpecialEvents, ZoneFactory}, db::{get_cached_floor_maps, realm_database, Character, Content, FlightTube, FloorMapInfo, InventoryEntry, StructureContent}, util::{AnotherlandError, AnotherlandResult, OtherlandQuatExt}};
 use crate::db::DatabaseRecord;
 
 use super::{components::{self, AvatarComponent, EntityType, InterestList}, plugins::{award_start_equipment, AvatarEvent, BehaviorExt, CommandsExt, DamageEvent, InCombat, ItemPurchaseRequest, ItemSellRequest, NetworkExt, NetworkPlugin, PlayerController, Position, ServerAction, SubjectivityExt}, resources::Tasks, systems::set_heavy_skill_data, zone_events::ProximityChatEvent, Movement, PhysicsState, PlayerSpawnMode, PortalNodelink, ProximityChatRange, SpawnerState};
@@ -556,6 +556,7 @@ impl Zone {
                         .insert(position.clone())
                         .insert(CompletedDialogues::new(character.completed_dialogues.clone()))
                         .insert(QuestLog::load_from_character(&character))
+                        .insert(ThreatList(HashSet::new()))
                         .id();
 
                     debug!("Spawn mode: {:?}", spawn_mode);
