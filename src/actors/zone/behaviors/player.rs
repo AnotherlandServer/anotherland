@@ -23,7 +23,7 @@ use glam::{Quat, Vec3};
 use log::{debug, error, info, warn};
 use regex::Regex;
 
-use crate::{actors::{get_player_height, zone::{components, plugins::{Behavior, BehaviorArguments, BehaviorExt, PlayerController, Position, ReviveEvent, ServerAction, SpawnNonPlayerAvatarEvent}}, AvatarComponent, DefaultPos, EntityType, RealmDatabase, SplineSurfing, StructureContentTemplate, UuidToEntityLookup, ZONE_ID_LOOKUP}, db::{DatabaseRecord, ZoneDef}, frontends::TravelType, util::OtherlandQuatExt};
+use crate::{actors::{get_player_height, zone::{components, plugins::{Behavior, BehaviorArguments, BehaviorExt, GameMessage, PlayerController, Position, ReviveEvent, ServerAction, SpawnNonPlayerAvatarEvent}}, AvatarComponent, DefaultPos, EntityType, RealmDatabase, SplineSurfing, StructureContentTemplate, UuidToEntityLookup, ZONE_ID_LOOKUP}, db::{DatabaseRecord, ZoneDef}, frontends::TravelType, util::OtherlandQuatExt};
 use crate::actors::zone::FLIGHT_TUBES;
 
 pub struct PlayerBehaviors;
@@ -66,6 +66,7 @@ impl Plugin for PlayerBehaviors {
         app.add_behavior(EntityType::Player, "SplitItemStack", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "RequestDecayItem", unimplemented_behavior);
         app.add_behavior(EntityType::Player, "PlayerPortaPortal", spawn_porta_portal);
+        app.add_behavior(EntityType::Player, "RequestChatMessage", request_chat_message);
     }
 }
 
@@ -236,5 +237,17 @@ fn spawn_porta_portal(
                 params,
             });
         }
+    }
+}
+
+fn request_chat_message(
+    In((instigator, _, behavior)): In<BehaviorArguments>,
+    player: Query<&PlayerController, With<PlayerComponent>>,
+) {
+    if 
+        let Behavior::String(_, args) = behavior &&
+        let Ok(controller) = player.get(instigator)
+    {
+        controller.send_game_message(GameMessage::Normal(args.join(" ")));
     }
 }
