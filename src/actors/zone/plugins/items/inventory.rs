@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, EdnaModuleParams, ItemBaseComponent, ItemBaseParams, ItemEdnaClass, ItemEdnaParams, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PlayerComponent, PlayerParams, PortalItemClass, Slot, SomaforgeItemClass, Uuid};
+use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, EdnaModuleParams, ItemBaseComponent, ItemBaseParams, ItemEdnaClass, ItemEdnaParams, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PlayerComponent, PlayerParams, PortalItemClass, Slot, SomaforgeItemClass, Uuid, UUID_NIL};
 use bevy::utils::hashbrown::HashMap;
 use bevy_ecs::{component::Component, entity::Entity, event::{Event, EventReader, EventWriter}, query::{With, Without}, system::{Commands, EntityCommands, In, Query}};
 use log::warn;
@@ -491,6 +491,12 @@ pub fn perform_equip_item_transactions(
             player_params.set_visible_item_info(
                 [loadout.compile_visual_items(), disguise.compile_visual_items()].concat()
             );
+            
+            if let Some(ItemReference::InventoryItem((id, class, item_ent))) = loadout.get_weapon() {
+                player_params.set_stat_wep_max_dmg(10.0);
+                player_params.set_stat_weapon_dps(5.0);
+                player_params.set_last_equipped_weapon(id);
+            }
         }
     }
 }
@@ -553,6 +559,12 @@ pub fn process_unequip_item_transactions(
             player_params.set_visible_item_info(
                 [loadout.compile_visual_items(), disguise.compile_visual_items()].concat()
             );
+
+            if loadout.get_weapon().is_none() {
+                player_params.set_stat_wep_max_dmg(0.0);
+                player_params.set_stat_weapon_dps(0.0);
+                player_params.set_last_equipped_weapon(UUID_NIL);
+            }
         }
     }
 }

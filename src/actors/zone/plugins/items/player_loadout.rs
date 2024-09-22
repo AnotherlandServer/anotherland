@@ -171,4 +171,8 @@ impl PlayerLoadout {
             .drain()
             .collect()
     }
+
+    pub fn get_weapon(&self) -> Option<ItemReference> {
+        self.slots.get(&Slot::Weapon).cloned()
+    }
 }
