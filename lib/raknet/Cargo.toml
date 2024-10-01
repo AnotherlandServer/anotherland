@@ -7,4 +7,6 @@ description = "A RakNet 3.3x2 implementation, specifically for the otherland nex
 [dependencies]
 bytes = "1.7.2"
 log = { version = "0.4.22", features = ["kv"] }
+rsa = "0.9.6"
+sha1 = "0.10.6"
 tokio = { version = "1.40.0", features = ["full"] }

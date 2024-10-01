@@ -143,20 +143,27 @@ impl RakNetListener {
 
                                 // Open new socket
                                 let (sender, receiver) = channel::<Vec<u8>>(10);
-
-                                RakNetSocket::open(
-                                    &addr, 
-                                    &socket, 
-                                    receiver, 
-                                    MAX_MTU_SIZE as u16, 
-                                    &reaper_sender,
-                                    &connection_sender
-                                ).await;
         
                                 sessions.insert(addr, (
                                     SystemTime::now().duration_since(start_time).unwrap(), 
                                     sender
                                 ));
+
+                                let reaper_sender = reaper_sender.clone();
+                                let connection_sender = connection_sender.clone();
+                                let socket = socket.clone();
+
+                                tokio::spawn(async move {
+                                    if let Ok(socket) = RakNetSocket::open(
+                                        &addr, 
+                                        &socket, 
+                                        receiver, 
+                                        MAX_MTU_SIZE as u16, 
+                                        &reaper_sender
+                                    ).await {
+                                        let _ = connection_sender.send(socket).await;
+                                    }
+                                });
                             }
 
                             response.write_u8(0); // Pad, some routers block 1 byte packets

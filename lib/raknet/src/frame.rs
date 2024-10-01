@@ -20,25 +20,25 @@ use log::debug;
 
 use crate::{buffer::RakNetReader, error::{RakNetError, Result}, reliability::Reliability, MAX_MTU_SIZE};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MessageFrame {
-    pub acks: Option<Vec<RangeInclusive<u32>>>,
-    pub local_system_time: Option<Duration>,
-    pub remote_system_time: Option<Duration>,
-    pub message_number: u32,
-    pub reliability: Reliability,
-    pub order: Option<Order>,
-    pub split: Option<Split>,
-    pub data: Vec<u8>,
+    acks: Option<Vec<RangeInclusive<u32>>>,
+    local_system_time: Option<Duration>,
+    remote_system_time: Option<Duration>,
+    message_number: u32,
+    reliability: Reliability,
+    order: Option<Order>,
+    split: Option<Split>,
+    data: Vec<u8>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Order {
     pub channel: u8,
     pub index: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Split {
     pub id: u16,
     pub index: u32,
@@ -46,13 +46,13 @@ pub struct Split {
 }
 
 impl MessageFrame {
-    pub fn new(message_number: u32, data: Vec<u8>) -> Self {
+    pub fn new(reliability: Reliability, data: Vec<u8>) -> Self {
         Self {
             acks: None,
             local_system_time: None,
             remote_system_time: None,
-            message_number,
-            reliability: Reliability::Unreliable,
+            message_number: 0,
+            reliability,
             order: None,
             split: None,
             data
@@ -165,5 +165,67 @@ impl MessageFrame {
             split,
             data: pkg_data
         })
+    }
+
+    pub fn acks(&self) -> Option<&[RangeInclusive<u32>]> {
+        self.acks.as_ref()
+            .map(|acks| acks.as_slice())
+    }
+
+    pub fn local_system_time(&self) -> Option<Duration> {
+        self.local_system_time
+    }
+
+    pub fn remote_system_time(&self) -> Option<Duration> {
+        self.remote_system_time
+    }
+
+    pub fn message_number(&self) -> u32 {
+        self.message_number
+    }
+
+    pub fn reliability(&self) -> Reliability {
+        self.reliability
+    }
+
+    pub fn order(&self) -> Option<&Order> {
+        self.order.as_ref()
+    }
+
+    pub fn split(&self) -> Option<&Split> {
+        self.split.as_ref()
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn data_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.data
+    }
+
+    pub fn set_message_number(&mut self, number: u32) {
+        self.message_number = number;
+    }
+
+    pub fn set_reliability(&mut self, reliability: Reliability) {
+        self.reliability = reliability;
+    }
+
+    pub fn set_order(&mut self, order: Order) {
+        self.order = Some(order);
+    }
+
+    pub fn set_split(&mut self, split: Split) {
+        self.split = Some(split);
+    }
+
+    pub fn set_acks(&mut self, system_time: Duration, acks: Vec<RangeInclusive<u32>>) {
+        self.acks = Some(acks);
+        self.local_system_time = Some(system_time);
+    }
+
+    pub fn set_remote_system_time(&mut self, system_time: Duration) {
+        self.remote_system_time = Some(system_time);
     }
 }

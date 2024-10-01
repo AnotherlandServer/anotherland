@@ -21,6 +21,8 @@ pub enum RakNetError {
     FrameError,
     UnknownPacketId,
     NotListening,
+    PacketSizeExceedsMTU,
+    HandshakeFailed,
 }
 
 pub type Result<T> = std::result::Result<T, RakNetError>;

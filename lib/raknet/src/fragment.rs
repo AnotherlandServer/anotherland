@@ -26,11 +26,11 @@ struct Fragment {
 impl Fragment {
     pub fn new(
         compound_size: u32,
-        order: Option<Order>
+        order: Option<&Order>
     ) -> Self {
         Self {
             compound_size,
-            order,
+            order: order.cloned(),
             frames: HashMap::new(),
         }
     }
@@ -42,7 +42,7 @@ impl Fragment {
     pub fn insert(&mut self, frame: MessageFrame) {
         if self.is_full() { return; }
 
-        if let Some(split) = frame.split {
+        if let Some(split) = frame.split() {
             if self.frames.contains_key(&split.index) { return; }
 
             self.frames.insert(split.index, frame);
@@ -55,14 +55,15 @@ impl Fragment {
         let mut keys: Vec<u32> = self.frames.keys().cloned().collect();
         keys.sort_unstable();
 
-        let message_number = self.frames[keys.last().unwrap()].message_number;
+        let message_number = self.frames[keys.last().unwrap()].message_number();
+        let reliability = self.frames[keys.last().unwrap()].reliability();
 
         for i in keys {
-            buf.append(&mut self.frames[&i].data);
+            buf.append(self.frames.get_mut(&i).unwrap().data_mut());
         }
 
-        let mut ret = MessageFrame::new(message_number, buf);
-        ret.order = self.order;
+        let mut ret = MessageFrame::new(reliability, buf);
+        if let Some(order) = self.order { ret.set_order(order); }
 
         Ok(ret)
     }
@@ -80,11 +81,11 @@ impl FragmentQ {
     }
 
     pub fn insert(&mut self, frame: MessageFrame) {
-        if let Some(split) = frame.split {
+        if let Some(split) = frame.split() {
             if let Some(fragments) = self.fragments.get_mut(&split.id) {
                 fragments.insert(frame);
             } else {
-                let mut v = Fragment::new(split.count, frame.order);
+                let mut v = Fragment::new(split.count, frame.order());
                 let k = split.id;
 
                 v.insert(frame);
@@ -103,8 +104,8 @@ impl FragmentQ {
         for i in keys {
             let a = self.fragments.get_mut(&i).unwrap();
             if a.is_full() {
+                let a = self.fragments.remove(&i).unwrap();
                 ret.push(a.merge()?);
-                self.fragments.remove(&i);
             }
         }
 
