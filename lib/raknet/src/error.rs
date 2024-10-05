@@ -13,18 +13,29 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[derive(Debug)]
+use thiserror::Error;
+
+#[derive(Error, Debug)]
 pub enum RakNetError {
+    #[error("failed to bind address")]
     BindAddressError,
+    #[error("failed to read packet buffer")]
     ReadPacketBufferError,
-    ParserMismatchError,
+    #[error("invalid message frame")]
     FrameError,
+    #[error("unknown packet id")]
     UnknownPacketId,
+    #[error("socket is not listening")]
     NotListening,
+    #[error("data size is exceeding max mtu")]
     PacketSizeExceedsMTU,
+    #[error("connection handshake failed")]
     HandshakeFailed,
+    #[error("decryption checksum mismatch")]
     DecryptionFailed,
+    #[error("connection was closed")]
     ConnectionClosed,
+    #[error("socket error")]
     SocketError,
 }
 

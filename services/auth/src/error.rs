@@ -13,27 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{net::IpAddr, time::{Duration, SystemTime}};
+use thiserror::Error;
 
-pub fn cur_timestamp(reference_time: SystemTime) -> Duration {
-    SystemTime::now()
-        .duration_since(reference_time)
-        .unwrap()
-}
-
-pub trait BinaryAddress {
-    fn to_bytes(&self) -> Vec<u8>;
-}
-
-impl BinaryAddress for IpAddr {
-    fn to_bytes(&self) -> Vec<u8> {
-        match self {
-            IpAddr::V4(ip) => ip.octets().to_vec(),
-            IpAddr::V6(ip) => ip.to_ipv4()
-                .map(|ip| ip.octets().to_vec())
-                .unwrap_or(ip.octets()[12..].to_vec()) 
-                    // This is not okay, but this version of RakNet has method
-                    // for dealing with IPv6.
-        }
-    }
+#[derive(Error, Debug)]
+pub enum AuthError {
+    #[error("raknet error")]
+    RakNetError(#[from] raknet::RakNetError),
 }

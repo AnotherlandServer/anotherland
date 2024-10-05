@@ -4,10 +4,32 @@
         "./atlas/Cargo.toml",
         "./actor_macros/Cargo.toml",
         "./upk/Cargo.toml",
-        "./tools/kismet-plotter/Cargo.toml"
+        "./tools/kismet-plotter/Cargo.toml",
+        "./lib/raknet/Cargo.toml",
+        "./lib/toolkit/Cargo.toml",
+        "./lib/protocol/Cargo.toml",
+        "./services/cluster_router/Cargo.toml",
+        "./services/auth/Cargo.toml",
     ],
     "yaml.schemas": {
-        "otherland-proto": "${workspaceFolder}/packet_definitions/otherproto.schema.yaml"
+        "otherland-proto": "${workspaceFolder}/packet_definitions/otherproto.schema.yaml",
+        "file:///d%3A/Otherland-Next/Server/packet_definitions/otherland.packet.schema.yaml": [
+            "file:///d%3A/Otherland-Next/Server/packet_definitions/packets/login.yaml",
+            "file:///d%3A/Otherland-Next/Server/packet_definitions/packets/shopping.yaml",
+            "file:///d%3A/Otherland-Next/Server/packet_definitions/packets/actions.yaml"
+        ],
+        "https://json.schemastore.org/phraseapp.json": "file:///d%3A/Otherland-Next/Server/content/dialogue/tutorial_sellars.yaml",
+        "https://json.schemastore.org/pre-commit-config.json": [
+            "file:///d%3A/Otherland-Next/Server/content/otherland.dialogue.schema.yaml"
+        ],
+        "https://json.schemastore.org/postcssrc.json": "file:///d%3A/Otherland-Next/Server/content/quests/1350.yaml",
+        "https://json.schemastore.org/pre-commit-hooks.json": [
+            "file:///d%3A/Otherland-Next/Server/content/dialogue/1357.yaml",
+            "file:///d%3A/Otherland-Next/Server/content/dialogue/1355.yaml"
+        ],
+        "https://json.schemastore.org/omletrc.json": "file:///d%3A/Otherland-Next/Server/content/dialogue/1356.yaml",
+        "https://json.schemastore.org/rehyperc.json": "file:///d%3A/Otherland-Next/Server/content/otherland.quest.schema.yaml",
+        "https://json.schemastore.org/factorial-drupal-breakpoints-css-0.2.0.json": "file:///d%3A/Otherland-Next/Server/content/quests/1352.yaml"
     },
     "licenser.author": "AnotherlandServer",
     "licenser.license": "AGPLv3",

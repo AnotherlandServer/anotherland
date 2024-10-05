@@ -19,7 +19,7 @@ use log::{debug, error, info};
 use rsa::RsaPrivateKey;
 use tokio::{net::{ToSocketAddrs, UdpSocket}, sync::{mpsc::{channel, Receiver, Sender}, Mutex, Notify, Semaphore}, time::sleep};
 
-use crate::{buffer::RakNetWriter, error::{RakNetError, Result}, frame::MessageFrame, packet::read_open_connection_request, reliability::Reliability, PacketID, RakNetSocket, MAX_MTU_SIZE, RECV_BUFFER_SIZE};
+use crate::{buffer::RakNetWriter, error::{RakNetError, Result}, packet::read_open_connection_request,PacketID, RakNetSocket, MAX_MTU_SIZE, RECV_BUFFER_SIZE};
 
 type SessionSender = (Duration, Sender<Vec<u8>>);
 
@@ -106,6 +106,8 @@ impl RakNetListener {
             let rsa_key = self.rsa_key.clone();
 
             let (reaper_sender, reaper_receiver) = channel::<SocketAddr>(10);
+
+            self.start_reaper(&socket, &sessions, reaper_receiver).await;
 
             tokio::spawn(async move {
                 let mut buf = [0u8; RECV_BUFFER_SIZE];
@@ -244,7 +246,6 @@ impl RakNetListener {
         mut reaper_receiver: Receiver<SocketAddr>,
     ) {
         let sessions = sessions.clone();
-        let socket = socket.clone();
         let close_notifier = self.close_notifier.clone();
         let all_session_closed_notifier = self.all_sessions_closed_notifier.clone();
 

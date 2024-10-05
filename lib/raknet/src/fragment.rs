@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use crate::{error::{RakNetError, Result}, frame::{MessageFrame, Order}};
+use crate::{error::Result, frame::{MessageFrame, Order}};
 
 struct Fragment {
     pub compound_size: u32,
@@ -63,6 +63,7 @@ impl Fragment {
         }
 
         let mut ret = MessageFrame::new(reliability, buf);
+        ret.set_message_number(message_number);
         if let Some(order) = self.order { ret.set_order(order); }
 
         Ok(ret)

@@ -18,7 +18,7 @@ use std::net::SocketAddr;
 use aes::{cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit}, Aes128};
 use log::debug;
 use rand::{rngs::OsRng, RngCore};
-use rsa::{RsaPrivateKey, RsaPublicKey};
+use rsa::RsaPrivateKey;
 use sha1::{Digest, Sha1};
 
 use crate::error::{RakNetError, Result};

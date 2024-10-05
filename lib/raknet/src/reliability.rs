@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use core::ops::RangeInclusive;
-use std::{collections::{hash_map::{Entry, VacantEntry}, HashMap}, hash::Hash, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::{hash_map::Entry, HashMap}, net::SocketAddr, sync::Arc, time::Duration};
 
 use log::debug;
 use tokio::sync::Notify;
@@ -145,7 +145,7 @@ impl RecvQ {
                     return Ok(());
                 }
 
-                if let Some(split) = frame.split() {
+                if frame.split().is_some() {
                     self.fragment_queue.insert(frame);
 
                     for i in self.fragment_queue.flush()? {

@@ -13,8 +13,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::error::{RakNetError, Result};
-
 pub const MAX_MTU_SIZE: usize = 1492;
 pub const RECV_BUFFER_SIZE: usize = 2048;
 

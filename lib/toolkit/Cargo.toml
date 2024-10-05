@@ -1,0 +1,13 @@
+[package]
+name = "toolkit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitstream-io = "2.5.3"
+bson = { version = "2.13.0", features = ["uuid-1"] }
+glam = "0.29.0"
+log = { version = "0.4.22", features = ["kv"] }
+nom = "7.1.3"
+serde = "1.0.210"
+uuid = "1.10.0"

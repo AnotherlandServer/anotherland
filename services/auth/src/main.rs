@@ -13,27 +13,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{net::IpAddr, time::{Duration, SystemTime}};
+#![feature(let_chains)]
 
-pub fn cur_timestamp(reference_time: SystemTime) -> Duration {
-    SystemTime::now()
-        .duration_since(reference_time)
-        .unwrap()
-}
+mod auth_session;
+mod error;
 
-pub trait BinaryAddress {
-    fn to_bytes(&self) -> Vec<u8>;
-}
+use auth_session::AuthSessionContext;
+use raknet::RakNetListener;
 
-impl BinaryAddress for IpAddr {
-    fn to_bytes(&self) -> Vec<u8> {
-        match self {
-            IpAddr::V4(ip) => ip.octets().to_vec(),
-            IpAddr::V6(ip) => ip.to_ipv4()
-                .map(|ip| ip.octets().to_vec())
-                .unwrap_or(ip.octets()[12..].to_vec()) 
-                    // This is not okay, but this version of RakNet has method
-                    // for dealing with IPv6.
-        }
+#[tokio::main]
+async fn main() {
+    env_logger::init();
+
+    let mut listener = RakNetListener::bind("0.0.0.0:6112").await.unwrap();
+    listener.generate_random_rsa_key();
+    listener.listen(100).await;
+
+    loop {
+        let socket = listener.accept().await.unwrap();
+        AuthSessionContext::start_auth_session(socket);
     }
 }

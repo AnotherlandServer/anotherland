@@ -13,16 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{net::SocketAddr, sync::{atomic::{AtomicBool, AtomicI64, AtomicU128, AtomicU64, AtomicU8, Ordering}, Arc}, time::{Duration, SystemTime}};
+use std::{net::SocketAddr, sync::{atomic::{AtomicBool, AtomicU128, AtomicU64, Ordering}, Arc}, time::{Duration, SystemTime}};
 
-use log::{debug, error, warn};
-use rand::Rng;
-use rsa::{hazmat::rsa_decrypt_and_check, rand_core::{OsRng, RngCore}, traits::PublicKeyParts, BigUint, RsaPrivateKey};
+use log::{debug, warn};
+use rsa::{hazmat::rsa_decrypt_and_check, rand_core::{OsRng, RngCore}, BigUint, RsaPrivateKey};
 use sha1::{Sha1, Digest};
-use tokio::{net::UdpSocket, sync::{mpsc::{channel, Receiver, Sender}, Mutex, Notify, RwLock, Semaphore}, time::{sleep, Sleep}};
+use tokio::{net::UdpSocket, sync::{mpsc::{channel, Receiver, Sender}, Mutex, Notify, RwLock, Semaphore}, time::sleep};
 use uuid::Uuid;
 
-use crate::{buffer::{RakNetReader, RakNetWriter}, encryption::{aes_decrypt, EncryptionHanshakeContext}, error::Result, frame::MessageFrame, packet::{read_connection_request, write_connection_request_accepted, write_secured_connection_response}, reliability::{self, RecvQ, Reliability, SendQ}, util::cur_timestamp, PacketID, RakNetError};
+use crate::{buffer::{RakNetReader, RakNetWriter}, encryption::{aes_decrypt, EncryptionHanshakeContext}, error::Result, frame::MessageFrame, packet::{write_connection_request_accepted, write_secured_connection_response}, reliability::{self, RecvQ, Reliability, SendQ}, util::cur_timestamp, PacketID, RakNetError};
 
 #[derive(Debug, Clone, Copy)]
 enum ConnectMode {
@@ -40,6 +39,7 @@ enum ConnectMode {
 const RECEIVE_TIMEOUT: u64 = 60000;
 
 pub struct RakNetSocket {
+    id: Uuid,
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
     close_notifier: Arc<Semaphore>,
@@ -78,6 +78,7 @@ impl RakNetSocket {
         hasher.update(random_number);
 
         let socket = Self {
+            id: Uuid::new_v4(),
             local_addr: s.local_addr().unwrap(),
             peer_addr: *addr,
             close_notifier: Arc::new(Semaphore::new(0)),
@@ -149,6 +150,18 @@ impl RakNetSocket {
         }
     }
 
+    pub fn local_addr(&self) -> &SocketAddr {
+        &self.local_addr
+    }
+
+    pub fn peer_addr(&self) -> &SocketAddr {
+        &self.peer_addr
+    }
+
+    pub fn id(&self) -> Uuid {
+        self.id
+    }
+
     fn start_receiver(
         &self,
         mut receiver: Receiver<Vec<u8>>,
@@ -171,7 +184,7 @@ impl RakNetSocket {
         let encryption = self.encryption.clone();
         let aes_key = self.aes_key.clone();
 
-        let guid = Uuid::new_v4();
+        let guid = self.id;
 
         tokio::spawn(async move {
             let mut connect_mode = ConnectMode::UnverifiedSender;
@@ -281,7 +294,6 @@ impl RakNetSocket {
         let sendq = self.sendq.clone();
         let recvq = self.recvq.clone();
         let reference_time = self.reference_time.clone();
-        let mut last_monitor_tick = cur_timestamp(*reference_time);
         let last_heartbeat_time = self.last_heartbeat_time.clone();
         tokio::spawn(async move {
             loop {

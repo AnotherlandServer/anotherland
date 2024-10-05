@@ -1,0 +1,14 @@
+[package]
+name = "auth"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+env_logger = "0.11.5"
+log = "0.4.22"
+protocol = { version = "0.1.0", path = "../../lib/protocol" }
+raknet = { version = "0.1.0", path = "../../lib/raknet" }
+steamworks = "0.11.0"
+thiserror = "1.0.64"
+tokio = { version = "1.40.0", features = ["full"] }
+toolkit = { version = "0.1.0", path = "../../lib/toolkit" }

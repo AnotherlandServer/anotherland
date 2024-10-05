@@ -15,7 +15,7 @@
 
 use std::net::SocketAddr;
 
-use rsa::{traits::PublicKeyParts, RsaPrivateKey, RsaPublicKey};
+use rsa::{traits::PublicKeyParts, RsaPublicKey};
 use uuid::Uuid;
 
 use crate::{buffer::{RakNetReader, RakNetWriter}, error::{RakNetError, Result}, util::BinaryAddress, PacketID};
@@ -27,14 +27,6 @@ pub struct ConnectionRequest {
 
 pub struct InternalPing {
     pub duration: u32,
-}
-
-fn verify_packet_id(buf: &mut RakNetReader, id: u8) -> Result<()> {
-    if buf.read_u8()? != id {
-        Err(RakNetError::ParserMismatchError)
-    } else {
-        Ok(())
-    }
 }
 
 pub fn read_open_connection_request(buf: &[u8]) -> Result<ConnectionRequest> {
