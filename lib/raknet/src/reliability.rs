@@ -14,9 +14,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use core::ops::RangeInclusive;
-use std::{collections::{hash_map::{Entry, VacantEntry}, HashMap}, hash::Hash, net::SocketAddr, time::Duration};
+use std::{collections::{hash_map::{Entry, VacantEntry}, HashMap}, hash::Hash, net::SocketAddr, sync::Arc, time::Duration};
 
 use log::debug;
+use tokio::sync::Notify;
 
 use crate::{error::{RakNetError, Result}, fragment::FragmentQ, frame::{MessageFrame, Order, Split}};
 
@@ -56,8 +57,8 @@ impl Reliability {
         }
     }
 
-    pub fn to_u8(&self) -> u8 {
-        match *self {
+    pub fn to_u8(self) -> u8 {
+        match self {
             Self::Unreliable => 0,
             Self::UnreliableSequenced => 1,
             Self::Reliable => 2,
@@ -228,36 +229,36 @@ pub struct SendQ {
     mtu: u16,
     ack_sequence_number: u32,
     message_number: u32,
-    reliable_frame_index: u32,
     sequenced_frame_index: u32,
     ordered_frame_index: u32,
     compund_id: u16,
     packets: Vec<MessageFrame>,
-    rto: i64,
-    srtt: i64,
-    sent_packet: Vec<(MessageFrame, bool, i64, u32, Vec<u32>)>,
+    rto: Duration,
+    srtt: Duration,
+    sent_packet: Vec<(MessageFrame, bool, Duration, u32, Vec<u32>)>,
+    send_notify: Arc<Notify>,
 }
 
 impl SendQ {
-    pub const DEFAULT_TIMEOUT_MILLIS: i64 = 50;
+    pub const DEFAULT_TIMEOUT_MILLIS: u64 = 50;
 
-    const RTO_UBOUND: i64 = 12000;
-    const RTO_LBOUND: i64 = 50;
+    const RTO_UBOUND: u64 = 12000;
+    const RTO_LBOUND: u64 = 50;
 
-    pub fn new(mtu: u16) -> Self {
+    pub fn new(mtu: u16, send_notify: Arc<Notify>) -> Self {
         Self {
             mtu,
             ack_sequence_number: 0,
             message_number: 0,
             packets: vec![],
             sent_packet: vec![],
-            reliable_frame_index: 0,
             sequenced_frame_index: 0,
             ordered_frame_index: 0,
             compund_id: 0,
+            send_notify,
 
-            rto: Self::DEFAULT_TIMEOUT_MILLIS,
-            srtt: Self::DEFAULT_TIMEOUT_MILLIS,
+            rto: Duration::from_millis(Self::DEFAULT_TIMEOUT_MILLIS),
+            srtt: Duration::from_millis(Self::DEFAULT_TIMEOUT_MILLIS),
         }
     }
 
@@ -343,7 +344,6 @@ impl SendQ {
                         });
 
                         self.packets.push(frame);
-                        self.reliable_frame_index += 1;
                         self.message_number += 1;
                     }
 
@@ -363,38 +363,39 @@ impl SendQ {
                 });
 
                 self.packets.push(frame);
-                self.reliable_frame_index += 1;
                 self.sequenced_frame_index += 1;
             }
         }
-        
+
+        self.send_notify.notify_one();
+
         Ok(())
     }
 
-    fn update_rto(&mut self, rtt: i64) {
-                // SRTT = ( ALPHA * SRTT ) + ((1-ALPHA) * RTT)
+    fn update_rto(&mut self, rtt: Duration) {
+        // SRTT = ( ALPHA * SRTT ) + ((1-ALPHA) * RTT)
         // ALPHA = 0.8
-        self.srtt = ((self.srtt as f64 * 0.8) + (rtt as f64 * 0.2)) as i64;
+        self.srtt = Duration::from_millis(((self.srtt.as_millis_f64() * 0.8) + (rtt.as_millis_f64() * 0.2)) as u64);
         // RTO = min[UBOUND,max[LBOUND,(BETA*SRTT)]]
         // BETA = 1.5
-        let rto_right = (1.5 * self.srtt as f64) as i64;
+        let rto_right = (1.5 * self.srtt.as_millis_f64()) as u64;
         let rto_right = if rto_right > Self::RTO_LBOUND {
             rto_right
         } else {
             Self::RTO_LBOUND
         };
         self.rto = if rto_right < Self::RTO_UBOUND {
-            rto_right
+            Duration::from_millis(rto_right)
         } else {
-            Self::RTO_UBOUND
+            Duration::from_millis(Self::RTO_UBOUND)
         };
     }
 
-    pub fn get_rto(&self) -> i64 {
+    pub fn get_rto(&self) -> Duration {
         self.rto
     }
 
-    pub fn ack(&mut self, sequence: u32, tick: i64) {
+    pub fn ack(&mut self, sequence: u32, tick: Duration) {
         self.ack_sequence_number = sequence;
 
         let mut rtts = vec![];
@@ -413,7 +414,7 @@ impl SendQ {
         }
     }
 
-    pub fn tick(&mut self, tick: i64) {
+    pub fn tick(&mut self, tick: Duration) {
         for i in 0..self.sent_packet.len() {
             let p = &mut self.sent_packet[i];
 
@@ -422,7 +423,7 @@ impl SendQ {
             // TCP timeout calculation is RTOx2, so three consecutive packet losses will make it RTOx8, which is very terrible,
             // while this implementation it is not x2, but x1.5 (Experimental results show that the value of 1.5 is relatively good), which has improved the transmission speed.
             for _ in 0..p.3 {
-                cur_rto = (cur_rto as f64 * 1.5) as i64;
+                cur_rto = Duration::from_millis((cur_rto.as_millis_f64() * 1.5) as u64);
             }
 
             if p.1 && tick - p.2 >= cur_rto {
@@ -431,7 +432,7 @@ impl SendQ {
         }
     }
 
-    pub fn flush(&mut self, tick: i64, peer_addr: &SocketAddr) -> Vec<MessageFrame> {
+    pub fn flush(&mut self, tick: Duration, peer_addr: &SocketAddr) -> Vec<MessageFrame> {
         self.tick(tick);
 
         let mut ret = vec![];
@@ -461,8 +462,7 @@ impl SendQ {
         }
 
         if !self.packets.is_empty() {
-            for i in 0..self.packets.len() {
-                let frame = self.packets.remove(i);
+            for frame in self.packets.drain(..) {
                 if 
                     matches!(frame.reliability(), Reliability::Reliable) ||
                     matches!(frame.reliability(), Reliability::ReliableOrdered) ||

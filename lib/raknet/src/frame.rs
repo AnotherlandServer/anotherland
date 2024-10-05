@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use log::debug;
 
-use crate::{buffer::RakNetReader, error::{RakNetError, Result}, reliability::Reliability, MAX_MTU_SIZE};
+use crate::{buffer::{RakNetReader, RakNetWriter}, error::{RakNetError, Result}, reliability::Reliability, MAX_MTU_SIZE};
 
 #[derive(Debug, Clone)]
 pub struct MessageFrame {
@@ -95,81 +95,94 @@ impl MessageFrame {
         }
 
         // Read remote system time
-        let remote_system_time = if data.read_bit()? {
+        let remote_system_time = if 
+            let Ok(has_system_time) = data.read_bit() &&
+            has_system_time
+        {
             Some(Duration::from_millis(data.read_u32()? as u64))
         } else {
             None
         };
 
-        // Read message number
-        let message_number = data.read_u32()?;
+        if let Ok(message_number) = data.read_u32() {
+            // Read reliability
+            let mut reliability = [0u8; 1];
+            data.read_bits(&mut reliability, 3)?;
 
-        // Read reliability
-        let mut reliability = [0u8; 1];
-        data.read_bits(&mut reliability, 3)?;
+            let reliability = Reliability::from(reliability[0])?;
 
-        let reliability = Reliability::from(reliability[0])?;
+            // Read order info
+            let order = if 
+                matches!(reliability, Reliability::UnreliableSequenced) ||
+                matches!(reliability, Reliability::ReliableSequenced) ||
+                matches!(reliability, Reliability::ReliableOrdered)
+            {
+                let mut channel = [0u8; 1];
+                data.read_bits(&mut channel, 5)?;
 
-        // Read order info
-        let order = if 
-            matches!(reliability, Reliability::UnreliableSequenced) ||
-            matches!(reliability, Reliability::ReliableSequenced) ||
-            matches!(reliability, Reliability::ReliableOrdered)
-        {
-            let mut channel = [0u8; 1];
-            data.read_bits(&mut channel, 5)?;
+                Some(Order {
+                    channel: channel[0],
+                    index: data.read_u32()?,
+                })
+            } else {
+                None
+            };
 
-            Some(Order {
-                channel: channel[0],
-                index: data.read_u32()?,
+            // Read split info
+            let split = if data.read_bit()? {
+                Some(Split {
+                    id: data.read_u16()?,
+                    index: data.read_u32_compressed()?,
+                    count: data.read_u32_compressed()?
+                })
+            } else {
+                None
+            };
+
+            // Read length
+            let data_bit_length = data.read_u16_compressed()? as usize;
+            if data_bit_length / 8 > MAX_MTU_SIZE {
+                debug!("Got length larger than MTU size: {}", data_bit_length / 8);
+                return Err(RakNetError::FrameError);
+            }
+
+            data.byte_align();
+
+            if data_bit_length > data.bits_remaining() {
+                debug!("Length mismatch! Should read {} bits but got only {}.", data_bit_length, data.bits_remaining());
+                return Err(RakNetError::FrameError);
+            }
+
+            // Read packet data
+            let mut pkg_data = vec![0u8; data_bit_length / 8];
+            data.read(&mut pkg_data)?;
+
+            Ok(Self {
+                acks,
+                local_system_time,
+                remote_system_time,
+                message_number,
+                reliability,
+                order,
+                split,
+                data: pkg_data
             })
         } else {
-            None
-        };
-
-        // Read split info
-        let split = if data.read_bit()? {
-            Some(Split {
-                id: data.read_u16()?,
-                index: data.read_u32_compressed()?,
-                count: data.read_u32_compressed()?
+            Ok(Self {
+                acks,
+                local_system_time,
+                remote_system_time,
+                message_number: 0,
+                reliability: Reliability::Unreliable,
+                order: None,
+                split: None,
+                data: vec![]
             })
-        } else {
-            None
-        };
-
-        // Read length
-        let data_bit_length = data.read_u16_compressed()? as usize;
-        if data_bit_length / 8 > MAX_MTU_SIZE {
-            return Err(RakNetError::FrameError);
         }
-
-        data.byte_align();
-
-        if data_bit_length > data.bits_remaining() {
-            debug!("Length mismatch! Should read {} bits but got only {}.", data_bit_length, data.bits_remaining());
-            return Err(RakNetError::FrameError);
-        }
-
-        // Read packet data
-        let mut pkg_data = vec![0u8; data_bit_length / 8];
-        data.read(&mut pkg_data)?;
-
-        Ok(Self {
-            acks,
-            local_system_time,
-            remote_system_time,
-            message_number,
-            reliability,
-            order,
-            split,
-            data: pkg_data
-        })
     }
 
     pub fn acks(&self) -> Option<&[RangeInclusive<u32>]> {
-        self.acks.as_ref()
-            .map(|acks| acks.as_slice())
+        self.acks.as_deref()
     }
 
     pub fn local_system_time(&self) -> Option<Duration> {
@@ -227,5 +240,72 @@ impl MessageFrame {
 
     pub fn set_remote_system_time(&mut self, system_time: Duration) {
         self.remote_system_time = Some(system_time);
+    }
+
+    pub fn serialize(&self) -> Result<Vec<u8>> {
+        let mut writer = RakNetWriter::new();
+
+        if let Some(acks) = self.acks.as_ref() {
+            writer.write_bit(true);
+            writer.write_u32(
+                self.local_system_time
+                        .ok_or(RakNetError::FrameError)?
+                        .as_millis() as u32
+            );
+            writer.write_u16_compressed(acks.len() as u16);
+
+            for ack_range in acks {
+                if *ack_range.start() == *ack_range.end() {
+                    writer.write_bit(true);
+                    writer.write_u32(*ack_range.start());
+                } else {
+                    writer.write_bit(false);
+                    writer.write_u32(*ack_range.start());
+                    writer.write_u32(*ack_range.end());
+                }
+            }
+        } else {
+            writer.write_bit(false);
+        }
+
+        if let Some(system_time) = self.remote_system_time {
+            writer.write_bit(true);
+            writer.write_u32(system_time.as_millis() as u32);
+        } else {
+            writer.write_bit(false);
+        }
+
+        if !self.data.is_empty() {
+            writer.write_u32(self.message_number);
+            writer.write_bits(3, &[self.reliability.to_u8()]);
+
+            if 
+                matches!(self.reliability, Reliability::UnreliableSequenced) ||
+                matches!(self.reliability, Reliability::ReliableSequenced) ||
+                matches!(self.reliability, Reliability::ReliableOrdered)
+            {
+                if let Some(order) = self.order.as_ref() {
+                    writer.write_bits(5, &[order.channel]);
+                    writer.write_u32(order.index);
+                } else {
+                    return Err(RakNetError::FrameError);
+                }
+            }
+
+            if let Some(split) = self.split.as_ref() {
+                writer.write_bit(true);
+
+                writer.write_u16(split.id);
+                writer.write_u32_compressed(split.index);
+                writer.write_u32_compressed(split.count);
+            } else {
+                writer.write_bit(false);
+            }
+
+            writer.write_u16_compressed((self.data.len() * 8) as u16);
+            writer.write_aligned(&self.data);
+        }
+
+        Ok(writer.take_buffer())
     }
 }

@@ -23,6 +23,9 @@ pub enum RakNetError {
     NotListening,
     PacketSizeExceedsMTU,
     HandshakeFailed,
+    DecryptionFailed,
+    ConnectionClosed,
+    SocketError,
 }
 
 pub type Result<T> = std::result::Result<T, RakNetError>;

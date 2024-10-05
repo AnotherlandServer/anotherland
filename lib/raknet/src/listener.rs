@@ -15,8 +15,9 @@
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
 
-use log::{debug, info};
-use tokio::{net::{ToSocketAddrs, UdpSocket}, sync::{mpsc::{channel, Receiver, Sender}, Mutex, Notify, Semaphore}};
+use log::{debug, error, info};
+use rsa::RsaPrivateKey;
+use tokio::{net::{ToSocketAddrs, UdpSocket}, sync::{mpsc::{channel, Receiver, Sender}, Mutex, Notify, Semaphore}, time::sleep};
 
 use crate::{buffer::RakNetWriter, error::{RakNetError, Result}, frame::MessageFrame, packet::read_open_connection_request, reliability::Reliability, PacketID, RakNetSocket, MAX_MTU_SIZE, RECV_BUFFER_SIZE};
 
@@ -30,6 +31,8 @@ pub struct RakNetListener {
     sessions: Arc<Mutex<HashMap<SocketAddr, SessionSender>>>,
     connection_receiver: Receiver<RakNetSocket>,
     connection_sender: Sender<RakNetSocket>,
+    rsa_key: Option<RsaPrivateKey>,
+    all_sessions_closed_notifier: Arc<Notify>,
 }
 
 impl RakNetListener {
@@ -47,10 +50,21 @@ impl RakNetListener {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             connection_receiver,
             connection_sender,
+            rsa_key: None,
+            all_sessions_closed_notifier: Arc::new(Notify::new())
         };
 
         ret.drop_watcher().await;
         Ok(ret)
+    }
+
+    pub fn generate_random_rsa_key(&mut self) {
+        let mut rng = rand::thread_rng();
+        self.rsa_key = Some(RsaPrivateKey::new(&mut rng, 512).unwrap());
+    }
+
+    pub fn install_rsa_key(&mut self, rsa: RsaPrivateKey) {
+        self.rsa_key = Some(rsa);
     }
 
     async fn drop_watcher(&self) {
@@ -89,6 +103,7 @@ impl RakNetListener {
             let close_notify = self.close_notifier.clone();
             let sessions = self.sessions.clone();
             let connection_sender = self.connection_sender.clone();
+            let rsa_key = self.rsa_key.clone();
 
             let (reaper_sender, reaper_receiver) = channel::<SocketAddr>(10);
 
@@ -152,6 +167,7 @@ impl RakNetListener {
                                 let reaper_sender = reaper_sender.clone();
                                 let connection_sender = connection_sender.clone();
                                 let socket = socket.clone();
+                                let rsa_key = rsa_key.clone();
 
                                 tokio::spawn(async move {
                                     if let Ok(socket) = RakNetSocket::open(
@@ -159,7 +175,8 @@ impl RakNetListener {
                                         &socket, 
                                         receiver, 
                                         MAX_MTU_SIZE as u16, 
-                                        &reaper_sender
+                                        &reaper_sender,
+                                        rsa_key
                                     ).await {
                                         let _ = connection_sender.send(socket).await;
                                     }
@@ -171,7 +188,7 @@ impl RakNetListener {
                             // Send connection request result
                             let _ = socket.send_to(response.buffer(), addr).await;
                         }
-                    } else if let Some(sender) = sessions.get_mut(&addr) {
+                    } else if size >= 2 && let Some(sender) = sessions.get_mut(&addr) {
                         sender.0 = SystemTime::now().duration_since(start_time).unwrap();
                         if sender.1.send(buf[0..size].to_vec()).await.is_err() {
                             sessions.remove(&addr);
@@ -202,6 +219,86 @@ impl RakNetListener {
                 }
             }
         }
+    }
+
+    pub async fn close(&mut self) {
+        if self.close_notifier.is_closed() { return; }
+
+        self.close_notifier.close();
+        self.all_sessions_closed_notifier.notified().await;
+
+        // wait for all threads to exit
+        while Arc::strong_count(self.socket.as_ref().unwrap()) != 1 {
+            sleep(Duration::from_millis(10)).await;
+        }
+
+        // close socket
+        self.socket = None;
+        self.listening = false;
+    }
+
+    async fn start_reaper(
+        &self,
+        socket: &Arc<UdpSocket>,
+        sessions: &Arc<Mutex<HashMap<SocketAddr, SessionSender>>>,
+        mut reaper_receiver: Receiver<SocketAddr>,
+    ) {
+        let sessions = sessions.clone();
+        let socket = socket.clone();
+        let close_notifier = self.close_notifier.clone();
+        let all_session_closed_notifier = self.all_sessions_closed_notifier.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let addr: SocketAddr;
+
+                tokio::select! {
+                    a = reaper_receiver.recv() => {
+                        match a {
+                            Some(p) => { addr = p},
+                            None => {
+                                debug!("session reaper closed");
+                                break;
+                            }
+                        };
+                    },
+                    _ = close_notifier.acquire() => {
+                        debug!("session reaper close notified");
+                        break;
+                    }
+                }
+
+                let mut sessions = sessions.lock().await;
+                if sessions.contains_key(&addr) {
+                    sessions.remove(&addr);
+                    debug!("reap session: {}", addr);
+                }
+            }
+
+            let mut sessions = sessions.lock().await;
+
+            for session in sessions.iter() {
+                let _ = session.1.1.send(vec![PacketID::DisconnectionNotification.to_u8()]).await;
+            }
+
+            while !sessions.is_empty() {
+                let addr = match reaper_receiver.recv().await {
+                    Some(p) => p,
+                    None => {
+                        error!("reap session failed. Possibly not closed");
+                        break;
+                    }
+                };
+
+                if sessions.contains_key(&addr) {
+                    sessions.remove(&addr);
+                    debug!("reap session: {}", addr);
+                }
+            }
+
+            all_session_closed_notifier.notify_one();
+            debug!("session reaper closed");
+        });
     }
 }
 

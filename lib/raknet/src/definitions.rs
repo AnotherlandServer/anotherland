@@ -15,7 +15,7 @@
 
 use crate::error::{RakNetError, Result};
 
-pub const MAX_MTU_SIZE: usize = 1024;
+pub const MAX_MTU_SIZE: usize = 1492;
 pub const RECV_BUFFER_SIZE: usize = 2048;
 
 #[derive(Debug, Clone, Copy)]
@@ -46,6 +46,7 @@ pub enum PacketID {
 
 impl PacketID {
     pub fn from(val: u8) -> Self {
+        // All these IDs differ from stock RakNet and are unique to Otherland
         match val {
             1 => PacketID::InternalPing,
             2 => PacketID::PingOpenConnections,
@@ -73,6 +74,7 @@ impl PacketID {
     }
 
     pub fn to_u8(&self) -> u8 {
+        // All these IDs differ from stock RakNet and are unique to Otherland
         match *self {
             PacketID::InternalPing => 1,
             PacketID::PingOpenConnections => 2,
@@ -99,45 +101,3 @@ impl PacketID {
         }
     }
 }
-
-// Message IDs named in a way similar to the RakNet sources for easier comparison
-// All these IDs differ from stock RakNet and are unique to Otherland
-/*pub const ID_INTERNAL_PING: u8 = 1;
-#[allow(unused)]
-pub const ID_PING_OPEN_CONNECTIONS: u8 = 2;
-#[allow(unused)]
-pub const ID_PING: u8 = 3;
-pub const ID_CONNECTED_PONG: u8 = 4;
-pub const ID_CONNECTION_REQUEST: u8 = 5;
-#[allow(unused)]
-pub const ID_SECURED_CONNECTION_RESPONSE: u8 = 6;
-#[allow(unused)]
-pub const ID_SECURED_CONNECTION_CONFIRMATION: u8 = 7;
-pub const ID_OPEN_CONNECTION_REQUEST: u8 = 9;
-pub const ID_OPEN_CONNECTION_REPLY: u8 = 10;
-#[allow(unused)]
-pub const ID_CONNECTION_REQUEST_ACCEPTED: u8 = 11;
-#[allow(unused)]
-pub const ID_CONNECTION_ATTEMPT_FAILED: u8 = 12;
-#[allow(unused)]
-pub const ID_ALREADY_CONNECTED: u8 = 13;
-pub const ID_NEW_INCOMING_CONNECTION: u8 = 14;
-#[allow(unused)]
-pub const ID_NO_FREE_INCOMING_CONNECTIONS: u8 = 15;
-pub const ID_DISCONNECTION_NOTIFICATION: u8 = 16;
-#[allow(unused)]
-pub const ID_CONNECTION_LOST: u8 = 17;
-#[allow(unused)]
-pub const ID_RSA_PUBLIC_KEY_MISMATCH: u8 = 18;
-#[allow(unused)]
-pub const ID_INVALID_PASSWORD: u8 = 19;
-#[allow(unused)]
-pub const ID_MODIFIED_PACKET: u8 = 20;
-#[allow(unused)]
-pub const ID_PONG: u8 = 21;
-#[allow(unused)]
-pub const ID_CONNECTION_BANNED: u8 = 23;
-
-//const ID_RSA_PUBLIC_KEY_MISMATCH: u8 = 121;
-#[allow(unused)]
-const ID_USER_MESSAGE_START: u8 = 100;*/

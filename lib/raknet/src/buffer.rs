@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{io::{Cursor, Read}, marker::PhantomData, net::{Ipv4Addr, SocketAddr, SocketAddrV4}};
+use std::{io::{Cursor, Read}, marker::PhantomData, net::{Ipv4Addr, SocketAddr, SocketAddrV4}, ops::Shr};
 use bytes::{Buf, BufMut};
 use log::debug;
 
@@ -65,8 +65,6 @@ impl <'a>RakNetReader<'a> {
         if self.bits_remaining() < bits {
             return Err(RakNetError::ReadPacketBufferError);
         }
-
-        buf.fill(0);
 
         let mut out_offset = 0;
 
@@ -129,11 +127,11 @@ impl <'a>RakNetReader<'a> {
         // All but the first bytes are byteMatch. If the upper half of the last byte is a 0 (positive) or 16 (negative) then what we read will be a 1 and the remaining 4 bits.
 	    // Otherwise we read a 0 and the 8 bytes
         if self.read_bit()? {
-            self.read_bits(&mut buf[current_byte..], 4)?;
+            self.read_bits(buf, 4)?;
 
-            buf[current_byte] |= half_byte_match;
+            buf[0] |= half_byte_match;
         } else {
-            self.read_bits(&mut buf[current_byte..], 8)?;
+            self.read_bits(buf, 8)?;
         }
 
         Ok(())
@@ -360,9 +358,63 @@ impl RakNetWriter {
 
     pub fn write(&mut self, data: &[u8]) {
         self.add_bits(data.len() * u8::BITS as usize);
+        self.write_bits(data.len() * 8, data);
+    }
 
-        for val in data {
-            self.write_u8(*val);
+    pub fn write_bits(&mut self, mut bits_to_write: usize, data: &[u8]) {
+        let mut offset = 0;
+
+        while bits_to_write > 0 {
+            let mut data = data[offset];
+
+            if bits_to_write < 8 {
+                data <<= 8 - bits_to_write;
+            }
+
+            if self.next_bit_offset == 0 {
+                self.buf.push(data);
+            } else {
+                *self.buf.last_mut().unwrap() |= data.overflowing_shr(self.next_bit_offset as u32).0;
+                if (8 - self.next_bit_offset) < 8 && 8 - self.next_bit_offset < bits_to_write {
+                    self.buf.push(data.overflowing_shl((8 - self.next_bit_offset) as u32).0);
+                }
+            }
+
+            if bits_to_write < 8 {
+                self.next_bit_offset += bits_to_write;
+                self.next_bit_offset %= 8;
+            }
+
+            if bits_to_write >= 8 {
+                bits_to_write -= 8;
+            } else {
+                bits_to_write = 0;
+            }
+
+            offset += 1;
+        }
+    }
+
+    pub fn write_compressed(&mut self, unsigned: bool, data: &[u8]) {
+        let byte_match = if unsigned { 0 } else { 0xFF };
+
+        for b in (1..data.len()).rev() {
+            if data[b] == byte_match {
+                self.write_bit(true);
+            } else {
+                self.write_bit(false);
+                self.write(&data[0..b+1]);
+
+                return;
+            }
+        }
+
+        if (data[0] & 0xF0) == (byte_match & 0xF0) {
+            self.write_bit(true);
+            self.write_bits(4, &[data[0] & 0x0F]);
+        } else {
+            self.write_bit(false);
+            self.write_bits(8, &[data[0]]);
         }
     }
 
@@ -377,7 +429,7 @@ impl RakNetWriter {
         }
 
         if val {
-            *self.buf.last_mut().unwrap() |= 1 << self.next_bit_offset;
+            *self.buf.last_mut().unwrap() |= 0x80 >> self.next_bit_offset;
         }
 
         self.next_bit_offset += 1;
@@ -385,13 +437,12 @@ impl RakNetWriter {
     }
 
     pub fn write_u8(&mut self, val: u8) {
-        self.add_bits(u8::BITS as usize);
+        self.add_bits(8);
 
         if self.next_bit_offset == 0 {
             self.buf.push(val);
         } else {
-            *self.buf.last_mut().unwrap() |= val >> (u8::BITS as usize - self.next_bit_offset);
-            self.buf.push(val << self.next_bit_offset);
+            self.write_bits(8, &[val]);
         }
     }
 
@@ -399,8 +450,16 @@ impl RakNetWriter {
         self.write(&val.to_le_bytes());
     }
 
+    pub fn write_u16_compressed(&mut self, val: u16) {
+        self.write_compressed(true, &val.to_le_bytes());
+    }
+
     pub fn write_u32(&mut self, val: u32) {
         self.write(&val.to_le_bytes());
+    }
+
+    pub fn write_u32_compressed(&mut self, val: u32) {
+        self.write_compressed(true, &val.to_le_bytes());
     }
 
     pub fn write_u64(&mut self, val: u64) {
@@ -586,5 +645,22 @@ mod tests {
         assert_eq!(reader.bit_pos(), 3);
         reader.read_u8().unwrap();
         assert_eq!(reader.bit_pos(), 11); // 3 skipped + 8 read
+    }
+
+    #[test]
+    fn compressed() {
+        let mut buf = RakNetWriter::new();
+        buf.write_u16_compressed(12345);
+        
+        let buf = buf.take_buffer();
+        let mut read = RakNetReader::new(&buf);
+        assert_eq!(read.read_u16_compressed().unwrap(), 12345);
+
+        let mut buf = RakNetWriter::new();
+        buf.write_u16_compressed(1);
+        
+        let buf = buf.take_buffer();
+        let mut read = RakNetReader::new(&buf);
+        assert_eq!(read.read_u16_compressed().unwrap(), 1);
     }
 }

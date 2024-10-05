@@ -13,7 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::{buffer::RakNetReader, error::{RakNetError, Result}, PacketID};
+use std::net::SocketAddr;
+
+use rsa::{traits::PublicKeyParts, RsaPrivateKey, RsaPublicKey};
+use uuid::Uuid;
+
+use crate::{buffer::{RakNetReader, RakNetWriter}, error::{RakNetError, Result}, util::BinaryAddress, PacketID};
 
 #[derive(Debug)]
 pub struct ConnectionRequest {
@@ -42,4 +47,25 @@ pub fn read_connection_request(buf: &[u8]) -> Result<ConnectionRequest> {
     let mut buf = RakNetReader::new(buf);
     
     todo!()
+}
+
+pub fn write_secured_connection_response(writer: &mut RakNetWriter, cookie: &[u8], key: RsaPublicKey) -> Result<()> {
+    writer.write_u8(PacketID::SecuredConnectionResponse.to_u8());
+    writer.write(cookie);
+    writer.write_u32(key.e().get_limb(0) as u32);
+    writer.write(&key.n().to_bytes_le());
+
+    Ok(())
+}
+
+pub fn write_connection_request_accepted(writer: &mut RakNetWriter, peer_addr: SocketAddr, local_addr: SocketAddr, guid: Uuid) -> Result<()> {
+    writer.write_u8(PacketID::ConnectionRequestAccepted.to_u8());
+    writer.write(&peer_addr.ip().to_bytes());
+    writer.write_u16(peer_addr.port());
+    writer.write_u16(0);
+    writer.write(&local_addr.ip().to_bytes());
+    writer.write_u16(local_addr.port());
+    writer.write(guid.as_bytes());
+
+    Ok(())
 }

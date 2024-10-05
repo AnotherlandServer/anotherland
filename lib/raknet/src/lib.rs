@@ -17,6 +17,8 @@
 
 // Enable unstable features
 #![feature(let_chains)]
+#![feature(duration_millis_float)]
+#![feature(integer_atomics)]
 
 mod definitions;
 mod listener;
@@ -27,6 +29,8 @@ mod buffer;
 mod reliability;
 mod frame;
 mod fragment;
+mod encryption;
+mod util;
 
 pub use definitions::*;
 pub use listener::*;
