@@ -8,6 +8,7 @@ description = "A RakNet 3.3x2 implementation, specifically for the otherland nex
 aes = "0.8.4"
 bytes = "1.7.2"
 log = { version = "0.4.22", features = ["kv"] }
+portable-atomic = "1.9.0"
 rand = "0.8.5"
 rsa = { version = "0.9.6", features = ["hazmat"] }
 sha1 = "0.10.6"

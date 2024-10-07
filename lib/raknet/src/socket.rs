@@ -13,9 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{net::SocketAddr, sync::{atomic::{AtomicBool, AtomicU128, AtomicU64, Ordering}, Arc}, time::{Duration, SystemTime}};
+use std::{net::SocketAddr, sync::{atomic::Ordering, Arc}, time::{Duration, SystemTime}};
 
 use log::{debug, warn};
+use portable_atomic::{AtomicBool, AtomicU128, AtomicU64};
 use rsa::{hazmat::rsa_decrypt_and_check, rand_core::{OsRng, RngCore}, BigUint, RsaPrivateKey};
 use sha1::{Sha1, Digest};
 use tokio::{net::UdpSocket, sync::{mpsc::{channel, Receiver, Sender}, Mutex, Notify, RwLock, Semaphore}, time::sleep};

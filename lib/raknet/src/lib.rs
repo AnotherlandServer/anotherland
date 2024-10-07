@@ -18,7 +18,6 @@
 // Enable unstable features
 #![feature(let_chains)]
 #![feature(duration_millis_float)]
-#![feature(integer_atomics)]
 
 mod definitions;
 mod listener;
