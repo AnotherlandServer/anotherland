@@ -8,8 +8,9 @@
         "./lib/raknet/Cargo.toml",
         "./lib/toolkit/Cargo.toml",
         "./lib/protocol/Cargo.toml",
-        "./services/cluster_router/Cargo.toml",
-        "./services/auth/Cargo.toml",
+        "./services/cluster_server/Cargo.toml",
+        "./services/login_server/Cargo.toml",
+        "./services/auth_service/Cargo.toml",
     ],
     "yaml.schemas": {
         "otherland-proto": "${workspaceFolder}/packet_definitions/otherproto.schema.yaml",

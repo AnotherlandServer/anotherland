@@ -1,0 +1,13 @@
+[package]
+name = "auth_service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-graphql = { version = "7.0.11", features = ["chrono", "chrono-tz", "uuid"] }
+async-graphql-poem = "7.0.11"
+chrono = { version = "0.4.38", features = ["serde"] }
+poem = "3.1.1"
+serde = "1.0.210"
+tokio = { version = "1.40.0", features = ["full"] }
+toolkit = { version = "0.1.0", path = "../../lib/toolkit" }

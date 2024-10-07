@@ -16,17 +16,20 @@
 use log::{debug, error};
 use protocol::CPkt;
 use raknet::RakNetSocket;
+use steamworks::Client;
 
 use crate::error::AuthError;
 
 pub struct AuthSessionContext {
     socket: RakNetSocket,
+    steam: Option<Client>,
 }
 
 impl AuthSessionContext {
-    pub fn start_auth_session(socket: RakNetSocket) {
+    pub fn start_auth_session(socket: RakNetSocket, steam: Option<Client>) {
         let mut context = Self {
-            socket
+            socket,
+            steam,
         };
 
         tokio::spawn(async move {
@@ -47,6 +50,9 @@ impl AuthSessionContext {
     fn handle(&mut self, pkt: CPkt) -> Result<(), AuthError> {
         match pkt {
             CPkt::CPktLogin(pkt) => {
+                if let Some(steam) = self.steam.as_ref() {
+                    
+                }
                 Ok(())
             },
             _ => {

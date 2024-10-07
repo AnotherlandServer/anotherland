@@ -13,24 +13,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![feature(let_chains)]
+use async_graphql::{EmptySubscription, Schema};
+use async_graphql_poem::GraphQL;
+use poem::{listener::TcpListener, post, Route, Server};
+use schema::{MutationRoot, QueryRoot};
 
-mod auth_session;
-mod error;
-
-use auth_session::AuthSessionContext;
-use raknet::RakNetListener;
+mod schema;
 
 #[tokio::main]
 async fn main() {
-    env_logger::init();
+    let schema = Schema::build(QueryRoot, MutationRoot, EmptySubscription)
+        .finish();
 
-    let mut listener = RakNetListener::bind("0.0.0.0:6112").await.unwrap();
-    listener.generate_random_rsa_key();
-    listener.listen(100).await;
+    let app = Route::new().at("/", post(GraphQL::new(schema)));
 
-    loop {
-        let socket = listener.accept().await.unwrap();
-        AuthSessionContext::start_auth_session(socket);
-    }
+    Server::new(TcpListener::bind("0.0.0.0:8000"))
+        .run(app)
+        .await
+        .unwrap();
 }
