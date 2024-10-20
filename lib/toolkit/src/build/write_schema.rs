@@ -13,20 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod uuid;
-mod avatarid;
-mod nativeparam;
-mod banner;
+use std::process::Command;
 
-pub use nativeparam::*;
-pub use macros::*;
-pub use banner::*;
-pub mod types;
-pub mod string_parsers;
-pub mod build;
+pub fn build_schema(service: &str) {
+    let output = Command::new(service)
+        .arg("--sdl")
+        .output()
+        .unwrap_or_else(|_| panic!("failed to get {} schema", service));
 
-// reexports
-pub use env_logger;
-pub use dotenvy;
-pub use config;
-pub use once_cell;
+    let sdl = String::from_utf8(output.stdout).unwrap();
+
+    cynic_codegen::register_schema(service)
+        .from_sdl(&sdl)
+        .unwrap();
+}

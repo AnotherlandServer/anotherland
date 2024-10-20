@@ -13,20 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod uuid;
-mod avatarid;
-mod nativeparam;
-mod banner;
-
-pub use nativeparam::*;
-pub use macros::*;
-pub use banner::*;
-pub mod types;
-pub mod string_parsers;
-pub mod build;
-
-// reexports
-pub use env_logger;
-pub use dotenvy;
-pub use config;
-pub use once_cell;
+pub fn print_banner() {
+    print!("Copyright (C) 2024  AnotherlandServer\n\
+    This program comes with ABSOLUTELY NO WARRANTY.\n\
+    This is free software, and you are welcome to redistribute it\n\
+    under certain conditions; See LICENSE for details.\n\n");
+}
