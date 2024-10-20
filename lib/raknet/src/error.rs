@@ -42,6 +42,7 @@ pub enum RakNetError {
 pub type Result<T> = std::result::Result<T, RakNetError>;
 
 // Magic payload to identify offline messages
+#[allow(dead_code)]
 static OFFLINE_MESSSAGE_DATA_ID: &[u8] = &[
     0x00, 0xFF, 0x00, 0xFF, // 0xFF00FF00u32 in little-endian
     0xFE, 0xFE, 0xFE, 0xFE, // 0xFEFEFEFEu32 in little-endian

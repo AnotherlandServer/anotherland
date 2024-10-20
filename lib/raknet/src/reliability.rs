@@ -16,7 +16,7 @@
 use core::ops::RangeInclusive;
 use std::{collections::{hash_map::Entry, HashMap}, net::SocketAddr, sync::Arc, time::Duration};
 
-use log::debug;
+use log::{debug, trace};
 use tokio::sync::Notify;
 
 use crate::{error::{RakNetError, Result}, fragment::FragmentQ, frame::{MessageFrame, Order, Split}};
@@ -76,6 +76,8 @@ impl AckSet {
     }
 
     pub fn insert(&mut self, num: u32) {
+        trace!("Queue ACK: {}", num);
+
         for ack in self.0.iter_mut() {
             if num >= ack.0 && num <= ack.1 { return; }
 
@@ -94,7 +96,7 @@ impl AckSet {
     }
 
     pub fn get_ack(&mut self) -> Vec<(u32, u32)> {
-        self.0.drain(..) .collect()
+        self.0.drain(..).collect()
     }
 }
 
@@ -121,6 +123,8 @@ impl RecvQ {
 
     pub fn insert(&mut self, frame: MessageFrame) -> Result<()> {
         if self.packets.contains_key(&frame.message_number()) { return Ok(()); }
+
+        trace!("Got new message: {:?}", frame);
 
         self.sequence_number_ackset.insert(frame.message_number());
         
@@ -206,22 +210,6 @@ impl RecvQ {
         }
         
         ret
-    }
-
-    pub fn get_ordered_packet_buffer_size(&self) -> usize {
-        self.ordered_packets.len()
-    }
-
-    pub fn get_fragment_queue_size(&self) -> usize {
-        self.fragment_queue.size()
-    }
-
-    pub fn get_ordered_keys(&self) -> Vec<u32> {
-        self.ordered_packets.keys().cloned().collect()
-    }
-
-    pub fn get_size(&self) -> usize {
-        self.packets.len()
     }
 }
 
@@ -391,10 +379,6 @@ impl SendQ {
         };
     }
 
-    pub fn get_rto(&self) -> Duration {
-        self.rto
-    }
-
     pub fn ack(&mut self, sequence: u32, tick: Duration) {
         self.ack_sequence_number = sequence;
 
@@ -482,17 +466,5 @@ impl SendQ {
         }
 
         ret
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.packets.is_empty() && self.sent_packet.is_empty()
-    }
-
-    pub fn get_reliable_queue_size(&self) -> usize {
-        self.packets.len()
-    }
-
-    pub fn get_sent_queue_size(&self) -> usize {
-        self.sent_packet.len()
     }
 }

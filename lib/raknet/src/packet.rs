@@ -18,27 +18,17 @@ use std::net::SocketAddr;
 use rsa::{traits::PublicKeyParts, RsaPublicKey};
 use uuid::Uuid;
 
-use crate::{buffer::{RakNetReader, RakNetWriter}, error::{RakNetError, Result}, util::BinaryAddress, PacketID};
+use crate::{buffer::{RakNetReader, RakNetWriter}, error::Result, util::BinaryAddress, PacketID};
 
 #[derive(Debug)]
 pub struct ConnectionRequest {
     pub version: u8
 }
 
-pub struct InternalPing {
-    pub duration: u32,
-}
-
 pub fn read_open_connection_request(buf: &[u8]) -> Result<ConnectionRequest> {
     let mut buf = RakNetReader::new(buf);
 
     Ok(ConnectionRequest { version: buf.read_u8()? })
-}
-
-pub fn read_connection_request(buf: &[u8]) -> Result<ConnectionRequest> {
-    let mut buf = RakNetReader::new(buf);
-    
-    todo!()
 }
 
 pub fn write_secured_connection_response(writer: &mut RakNetWriter, cookie: &[u8], key: RsaPublicKey) -> Result<()> {

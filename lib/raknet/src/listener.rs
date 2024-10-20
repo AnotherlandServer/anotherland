@@ -107,7 +107,7 @@ impl RakNetListener {
 
             let (reaper_sender, reaper_receiver) = channel::<SocketAddr>(10);
 
-            self.start_reaper(&socket, &sessions, reaper_receiver).await;
+            self.start_reaper(&sessions, reaper_receiver).await;
 
             tokio::spawn(async move {
                 let mut buf = [0u8; RECV_BUFFER_SIZE];
@@ -241,7 +241,6 @@ impl RakNetListener {
 
     async fn start_reaper(
         &self,
-        socket: &Arc<UdpSocket>,
         sessions: &Arc<Mutex<HashMap<SocketAddr, SessionSender>>>,
         mut reaper_receiver: Receiver<SocketAddr>,
     ) {

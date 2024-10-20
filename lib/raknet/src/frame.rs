@@ -45,6 +45,7 @@ pub struct Split {
     pub count: u32,
 }
 
+#[allow(dead_code)]
 impl MessageFrame {
     pub fn new(reliability: Reliability, data: Vec<u8>) -> Self {
         Self {
@@ -219,10 +220,6 @@ impl MessageFrame {
 
     pub fn set_message_number(&mut self, number: u32) {
         self.message_number = number;
-    }
-
-    pub fn set_reliability(&mut self, reliability: Reliability) {
-        self.reliability = reliability;
     }
 
     pub fn set_order(&mut self, order: Order) {

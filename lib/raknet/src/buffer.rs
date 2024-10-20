@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{io::{Cursor, Read}, net::{Ipv4Addr, SocketAddrV4}};
+use std::io::{Cursor, Read};
 use bytes::Buf;
 
 use crate::error::{RakNetError, Result};
@@ -31,6 +31,7 @@ impl <'a>RakNetReader<'a> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn remaining(&self) -> usize {
         (self.buf.remaining() * 8usize - self.bit_offset) / 8usize
     }
@@ -158,6 +159,7 @@ impl <'a>RakNetReader<'a> {
         Ok(buf[0])
     }
 
+    #[allow(dead_code)]
     pub fn read_u8_compressed(&mut self) -> Result<u8> {
         if self.bits_remaining() < u8::BITS as usize {
             return Err(RakNetError::ReadPacketBufferError);
@@ -191,38 +193,6 @@ impl <'a>RakNetReader<'a> {
         Ok(u16::from_le_bytes(buf))
     }
 
-    pub fn read_u24(&mut self) -> Result<u32> {
-        if self.bits_remaining() < u8::BITS as usize {
-            return Err(RakNetError::ReadPacketBufferError);
-        }
-
-        let mut buf = [0; 3];
-        self.read(&mut buf)?;
-        
-        Ok(u32::from_le_bytes([
-            buf[0],
-            buf[1],
-            buf[2],
-            0
-        ]))
-    }
-
-    pub fn read_u24_compressed(&mut self) -> Result<u32> {
-        if self.bits_remaining() < u8::BITS as usize {
-            return Err(RakNetError::ReadPacketBufferError);
-        }
-
-        let mut buf = [0; 3];
-        self.read_compressed(&mut buf, 24, true)?;
-        
-        Ok(u32::from_le_bytes([
-            buf[0],
-            buf[1],
-            buf[2],
-            0
-        ]))
-    }
-
     pub fn read_u32(&mut self) -> Result<u32> {
         if self.bits_remaining() < u8::BITS as usize {
             return Err(RakNetError::ReadPacketBufferError);
@@ -245,6 +215,7 @@ impl <'a>RakNetReader<'a> {
         Ok(u32::from_le_bytes(buf))
     }
 
+    #[allow(dead_code)]
     pub fn read_u64(&mut self) -> Result<u64> {
         if self.bits_remaining() < u8::BITS as usize {
             return Err(RakNetError::ReadPacketBufferError);
@@ -256,6 +227,7 @@ impl <'a>RakNetReader<'a> {
         Ok(u64::from_le_bytes(buf))
     }
 
+    #[allow(dead_code)]
     pub fn read_u64_compressed(&mut self) -> Result<u64> {
         if self.bits_remaining() < u8::BITS as usize {
             return Err(RakNetError::ReadPacketBufferError);
@@ -267,6 +239,7 @@ impl <'a>RakNetReader<'a> {
         Ok(u64::from_le_bytes(buf))
     }
 
+    #[allow(dead_code)]
     pub fn read_i64(&mut self) -> Result<i64> {
         if self.bits_remaining() < u8::BITS as usize {
             return Err(RakNetError::ReadPacketBufferError);
@@ -278,6 +251,7 @@ impl <'a>RakNetReader<'a> {
         Ok(i64::from_le_bytes(buf))
     }
 
+    #[allow(dead_code)]
     pub fn read_i64_compressed(&mut self) -> Result<i64> {
         if self.bits_remaining() < u8::BITS as usize {
             return Err(RakNetError::ReadPacketBufferError);
@@ -289,6 +263,7 @@ impl <'a>RakNetReader<'a> {
         Ok(i64::from_le_bytes(buf))
     }
 
+    #[allow(dead_code)]
     pub fn read_string(&mut self) -> Result<String> {
         let len = self.read_u16()?;
         let mut buf = vec![0u8; len as usize].into_boxed_slice();
@@ -299,13 +274,6 @@ impl <'a>RakNetReader<'a> {
             .map_err(|_| RakNetError::ReadPacketBufferError)
     }
 
-    pub fn read_address(&mut self) -> Result<SocketAddrV4> {
-        let binary_address = self.read_u32()?;
-        let port = self.read_u16()?;
-
-        Ok(SocketAddrV4::new(Ipv4Addr::from_bits(binary_address), port))
-    }
-
     pub fn skip_bits(&mut self, bits: usize) {
         self.bit_offset += bits;
 
@@ -313,6 +281,7 @@ impl <'a>RakNetReader<'a> {
         self.bit_offset &= 7;
     }
 
+    #[allow(dead_code)]
     pub fn bit_pos(&self) -> usize {
         self.buf.position() as usize * u8::BITS as usize + self.bit_offset
     }
@@ -461,14 +430,17 @@ impl RakNetWriter {
         self.write_compressed(true, &val.to_le_bytes());
     }
 
+    #[allow(dead_code)]
     pub fn write_u64(&mut self, val: u64) {
         self.write(&val.to_le_bytes());
     }
 
+    #[allow(dead_code)]
     pub fn write_i64(&mut self, val: i64) {
         self.write(&val.to_le_bytes());
     }
 
+    #[allow(dead_code)]
     pub fn write_string(&mut self, val: &str) {
         self.write_u16(val.len() as u16);
         self.write(val.as_bytes());

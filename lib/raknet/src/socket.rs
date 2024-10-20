@@ -15,16 +15,17 @@
 
 use std::{net::SocketAddr, sync::{atomic::Ordering, Arc}, time::{Duration, SystemTime}};
 
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use portable_atomic::{AtomicBool, AtomicU128, AtomicU64};
 use rsa::{hazmat::rsa_decrypt_and_check, rand_core::{OsRng, RngCore}, BigUint, RsaPrivateKey};
 use sha1::{Sha1, Digest};
 use tokio::{net::UdpSocket, sync::{mpsc::{channel, Receiver, Sender}, Mutex, Notify, RwLock, Semaphore}, time::sleep};
 use uuid::Uuid;
 
-use crate::{buffer::{RakNetReader, RakNetWriter}, encryption::{aes_decrypt, EncryptionHanshakeContext}, error::Result, frame::MessageFrame, packet::{write_connection_request_accepted, write_secured_connection_response}, reliability::{self, RecvQ, Reliability, SendQ}, util::cur_timestamp, PacketID, RakNetError};
+use crate::{buffer::{RakNetReader, RakNetWriter}, encryption::{aes_decrypt, EncryptionHanshakeContext}, error::Result, frame::MessageFrame, packet::{write_connection_request_accepted, write_secured_connection_response}, reliability::{RecvQ, Reliability, SendQ}, util::cur_timestamp, PacketID, RakNetError};
 
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 enum ConnectMode {
     NoAction,
     DisconnectAsap,
@@ -102,7 +103,7 @@ impl RakNetSocket {
             user_data_receiver: Mutex::new(user_data_receiver),
         };
 
-        socket.start_receiver(receiver, user_data_sender, rsa_key);
+        socket.start_receiver(receiver, user_data_sender, rsa_key, s);
         socket.start_tick(s, reaper.clone(), send_notify.clone());
         //socket.start_sender(s, sender_reciever);
         socket.drop_watcher().await;
@@ -167,7 +168,8 @@ impl RakNetSocket {
         &self,
         mut receiver: Receiver<Vec<u8>>,
         user_data_sender: Sender<Vec<u8>>,
-        rsa_encryption: Option<RsaPrivateKey>
+        rsa_encryption: Option<RsaPrivateKey>,
+        s: &Arc<UdpSocket>
     ) {
         let connected = self.close_notifier.clone();
         let peer_addr = self.peer_addr;
@@ -181,9 +183,9 @@ impl RakNetSocket {
         let reference_time = self.reference_time.clone();
         let mut encrytion_context = rsa_encryption
             .map(|rsa_key| EncryptionHanshakeContext::new(peer_addr, rsa_key));
-
         let encryption = self.encryption.clone();
         let aes_key = self.aes_key.clone();
+        let s = s.clone();
 
         let guid = self.id;
 
@@ -195,44 +197,48 @@ impl RakNetSocket {
                     break 'receive_loop;
                 }
 
-                let mut recvq = recvq.lock().await;
-                for f in recvq.flush() {
-                    match Self::handle(
-                        connect_mode,
-                        guid,
-                        &f, 
-                        *reference_time,
-                        &peer_addr, 
-                        &local_addr, 
-                        &sendq, 
-                        &user_data_sender,
-                        encrytion_context.as_mut()
-                    ).await {
-                        Ok(new_mode) => {
-                            match new_mode {
-                                ConnectMode::NoAction => (),
-                                ConnectMode::DisconnectAsapSilently => {
-                                    close_notifier.close();
-                                    connect_mode = new_mode;
-                                },
-                                ConnectMode::Connected => {
-                                    incoming_notify.notify_one();
-                                    connect_mode = new_mode;
-                                },
-                                ConnectMode::SetEncryptionOnMultiple16BytePacket(key) => {
-                                    aes_key.store(key, Ordering::Relaxed);
-                                    connect_mode = new_mode;
-                                },
-                                _ => connect_mode = new_mode,
+                // Flush recv queue
+                {
+                    let mut recvq = recvq.lock().await;
+                    for f in recvq.flush() {
+                        match Self::handle(
+                            connect_mode,
+                            guid,
+                            &f, 
+                            *reference_time,
+                            &peer_addr, 
+                            &local_addr, 
+                            &sendq, 
+                            &user_data_sender,
+                            encrytion_context.as_mut()
+                        ).await {
+                            Ok(new_mode) => {
+                                match new_mode {
+                                    ConnectMode::NoAction => (),
+                                    ConnectMode::DisconnectAsapSilently => {
+                                        close_notifier.close();
+                                        connect_mode = new_mode;
+                                    },
+                                    ConnectMode::Connected => {
+                                        incoming_notify.notify_one();
+                                        connect_mode = new_mode;
+                                    },
+                                    ConnectMode::SetEncryptionOnMultiple16BytePacket(key) => {
+                                        aes_key.store(key, Ordering::Relaxed);
+                                        connect_mode = new_mode;
+                                    },
+                                    _ => connect_mode = new_mode,
+                                }
+                            },
+                            Err(e) => {
+                                debug!("Message handler failed: {:?}", e);
+                                close_notifier.close();
                             }
-                        },
-                        Err(e) => {
-                            debug!("Message handler failed: {:?}", e);
-                            close_notifier.close();
                         }
                     }
                 }
 
+                trace!("Wait for new frames");
                 let mut buf = match receiver.recv().await {
                     Some(buf) => buf,
                     None => {
@@ -267,9 +273,30 @@ impl RakNetSocket {
                             Ordering::Relaxed
                         );
 
-                        if let Err(e) = recvq.insert(frame) {
-                            debug!("Failed to insert frame into receive queue: {:?}", e);
-                            connected.close();
+                        // Insert frame and send acks
+                        {
+                            let mut recvq = recvq.lock().await;
+
+                            if let Err(e) = recvq.insert(frame) {
+                                debug!("Failed to insert frame into receive queue: {:?}", e);
+                                connected.close();
+                            }
+
+                            // send pending acks
+                            let acks = recvq.get_ack();
+
+                            if !acks.is_empty() {
+                                trace!("ACK: {:?}", acks);
+                                
+                                // send ack frame
+                                let mut frame = MessageFrame::new(Reliability::Unreliable, vec![]);
+                                frame.set_acks(cur_timestamp(*reference_time), acks);
+
+
+                                let data = frame.serialize()
+                                        .expect("Failed to serialize message frame!");
+                                let _ = s.send_to(&data, peer_addr).await;
+                            } 
                         }
                     } else {
                         debug!("Received malformed frame: {}", peer_addr);
@@ -303,31 +330,13 @@ impl RakNetSocket {
                     _ = sent_notify.notified() => (),
                 };
 
-                // get acks
-                let acks = {
-                    let mut recvq = recvq.lock().await;
-                    recvq.get_ack()
-                };
-
                 // flush sendq
                 let mut sendq = sendq.write().await;
                 let frames = sendq.flush(cur_timestamp(*reference_time), &peer_addr);
-
-                if !acks.is_empty() {
-                    // send ack frame
-                    let mut frame = MessageFrame::new(Reliability::Unreliable, vec![]);
-                    frame.set_acks(cur_timestamp(*reference_time), acks);
-
-                    debug!("TX: {:?}", frame);
-
-                    let data = frame.serialize()
-                            .expect("Failed to serialize message frame!");
-                    let _ = s.send_to(&data, peer_addr).await;
-                } 
             
                 // send frames
                 for f in frames {
-                    debug!("TX: {:?}", f);
+                    trace!("TX: {:?}", f);
 
                     let data = f.serialize()
                         .expect("Failed to serialize message frame!");
@@ -385,6 +394,7 @@ impl RakNetSocket {
         self.drop_notifier.notified().await;
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn handle(
         connect_mode: ConnectMode,
         guid: Uuid,
@@ -396,7 +406,7 @@ impl RakNetSocket {
         user_data_sender: &Sender<Vec<u8>>,
         encryption_context: Option<&mut EncryptionHanshakeContext>,
     ) -> Result<ConnectMode> {
-        debug!("RX: {:?}", frame);
+        trace!("RX: {:?}", frame);
 
         // Process acks
         if let Some(acks) = frame.acks() {
@@ -503,7 +513,7 @@ impl RakNetSocket {
                                         aes_key[i] = syn_cookie[i] ^ message[i];
                                     }
 
-                                    /*let mut buf = RakNetWriter::new();
+                                    let mut buf = RakNetWriter::new();
                                     write_connection_request_accepted(
                                         &mut buf, 
                                         *peer_addr, 
@@ -512,14 +522,20 @@ impl RakNetSocket {
                                     )?;
 
                                     sendq.write().await
-                                        .insert(Reliability::Reliable, buf.take_buffer())?;*/
+                                        .insert(Reliability::Reliable, buf.take_buffer())?;
 
                                     return Ok(ConnectMode::SetEncryptionOnMultiple16BytePacket(u128::from_le_bytes(aes_key)));
+                                } else {
+                                    warn!("RSA handshake failed");
                                 }
                             } else {
+                                trace!("Syn cookie mismatch. Generating a new one.");
+
                                 // generate a new cookie
                                 context.create_syn_cookie();
                             }
+                        } else {
+                            trace!("No encryption context to handle SecuredConnectionConfirmation");
                         }
 
                         Ok(ConnectMode::NoAction)
