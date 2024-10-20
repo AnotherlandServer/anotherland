@@ -15,6 +15,7 @@
 
 use std::{fmt::{Debug, Display}, ops::Deref, sync::Arc, hash::Hash};
 
+#[allow(dead_code)]
 struct FNameInner {
     name: String,
     flags: u64,

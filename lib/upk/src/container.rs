@@ -17,7 +17,7 @@ use std::{collections::{hash_map::Values, HashMap, VecDeque}, path::{Path, PathB
 
 use futures::{future::BoxFuture, Future, FutureExt};
 use async_trait::async_trait;
-use log::{debug, warn};
+use log::debug;
 use once_cell::sync::Lazy;
 
 use crate::{types::{Intrinsic, ScriptClass, StructProperty}, LocalObject, LocalObjectIndexRef, Object, ObjectRef, PackageFile, UPKResult};
@@ -188,35 +188,11 @@ impl Container {
 
     pub fn build_object_fqn(&self, package: Arc<PackageFile>, original_ref: LocalObjectIndexRef) -> Option<String> {
         let mut segments = Vec::new();
-        let mut prev_object = None;
-
         let mut local_ref = original_ref.clone();
 
         while let Some(object_ref) = package.lookup_local_ref(&local_ref) {
             match &object_ref {
-                LocalObject::Null => {
-                    /*if let Some(prev_object) = prev_object {
-                        match prev_object {
-                            LocalObject::Import(_) => {
-                                if let Some(LocalObject::Import(import)) = package.lookup_local_ref(&original_ref) {
-                                    segments.push(import.package_name().to_string());
-                                }
-                            },
-                            LocalObject::Export(obj_export) => {
-                                let class_object = self.resolve_class(&package, &obj_export.class_ref())
-                                    .unwrap_or_else(|| panic!("Failed to resolve class: {:?}", self.build_object_fqn(package.clone(), obj_export.class_ref())));
-
-                                if class_object.name() == "Class" {
-                                    segments.push("Core".to_owned());
-                                } else {
-                                    segments.push(package.name().to_string());
-                                }
-                            },
-                            _ => unreachable!(),
-                        }
-                    }*/
-                    break;
-                },
+                LocalObject::Null => break,
                 LocalObject::Export(obj_export) => {                   
                     segments.push(obj_export.name().to_owned()); 
                     local_ref = obj_export.owner_ref();
@@ -224,15 +200,12 @@ impl Container {
                 LocalObject::Import(obj_import) => {
                     segments.push(obj_import.name().to_owned());
                     if obj_import.class_name() == "Class" {
-                        //segments.push("Core".to_owned());
                         break;
                     } else {
                         local_ref = obj_import.owner().clone();
                     }
                 }
             }
-
-            prev_object = Some(object_ref);
         }
         
         segments.reverse();

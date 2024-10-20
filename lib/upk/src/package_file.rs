@@ -78,6 +78,7 @@ impl ObjectImportRef {
     }
 }*/
 
+#[allow(dead_code)]
 pub struct Export {
     self_ref: LocalObjectIndexRef,
     obj_type_ref: LocalObjectIndexRef,

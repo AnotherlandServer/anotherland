@@ -18,7 +18,7 @@ use log::debug;
 use nom::{bytes::complete::take, combinator::{fail, map}, error::Error, multi::{count, many_till}, number::complete::{be_u32, le_f32, le_i32, le_u32, le_u64, le_u8}, IResult};
 use async_trait::async_trait;
 use uuid::Uuid;
-use crate::{types::StructProperty, Container, DeserializeUnrealObject, FName, LocalObjectIndexRef, Object, ObjectRef, PackageFile, UPKResult};
+use crate::{types::StructProperty, Container, DeserializeUnrealObject, FName, LocalObjectIndexRef, ObjectRef, PackageFile, UPKResult};
 
 use super::ScriptClass;
 
@@ -133,7 +133,7 @@ fn parse_bool<'a>(_file: &'a Arc<PackageFile>, _container: &'a Container, _objec
     }
 }
 
-fn parse_bytes<'a>(file: &'a Arc<PackageFile>, _container: &'a Container, _object: &'a ObjectRef, attribute: &'a ObjectRef)
+fn parse_bytes<'a>(file: &'a Arc<PackageFile>, _container: &'a Container, _object: &'a ObjectRef, _attribute: &'a ObjectRef)
     -> impl FnMut(&'a [u8]) 
     -> IResult<&'a [u8], ObjectProperty> 
 {

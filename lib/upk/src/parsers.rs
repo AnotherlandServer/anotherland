@@ -19,6 +19,7 @@ use uuid::Uuid;
 // raw data structures
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(super) struct Header {
     pub folder_name: String,
     pub flags: u32,
