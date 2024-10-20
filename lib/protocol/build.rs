@@ -44,9 +44,6 @@ pub fn write_source(name: &str, tokens: TokenStream) -> io::Result<()> {
 }
 
 fn main() {
-    let otherland_client_env = env::var_os("OTHERLAND_CLIENT_PATH").expect("OTHERLAND_CLIENT_PATH not set");
-    let otherland_client_path = Path::new(&otherland_client_env);
-
     // Generate code for atlas packages
     generate_packet_code()
         .expect("Failed to generate packet handling code");

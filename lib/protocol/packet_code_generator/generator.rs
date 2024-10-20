@@ -13,9 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{io, env, collections::HashMap, cell::RefCell, rc::Rc, path::{PathBuf, Path}, fs};
+use std::{io, collections::HashMap, cell::RefCell, rc::Rc};
 
-use proc_macro2::TokenStream;
 use quote::format_ident;
 use ::quote::quote;
 
@@ -24,9 +23,6 @@ use crate::{packet_code_generator::struct_generator::GeneratedStructSource, writ
 use super::{yaml_reader::{load_definitions, PacketDefinitionReference}, struct_generator::GeneratedStruct, code_generator::{generate_enum_code, generate_struct_code, generate_implementation_code}};
 
 pub fn generate_packet_code() -> io::Result<()> {
-    let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR not set");
-    let out_dir_path = Path::new(&out_dir);
-
     let mut packet_definitions = HashMap::new();
     let mut struct_definitions = HashMap::new();
 

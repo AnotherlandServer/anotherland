@@ -30,10 +30,12 @@ pub struct PacketDefintion {
     pub fields: Vec<FieldDefinition>,
 }
 
+type PacketDefintionRef = Rc<RefCell<PacketDefintion>>;
+
 #[derive(Debug, Clone)]
 pub enum PacketDefinitionReference {
     Unresolved(String),
-    Resolved(Rc<RefCell<PacketDefintion>>),
+    Resolved(PacketDefintionRef),
 }
 
 #[derive(Debug)]
@@ -43,10 +45,12 @@ pub struct StructDefinition {
     pub fields: Vec<FieldDefinition>,
 }
 
+type StructDefintionRef = Rc<RefCell<StructDefinition>>;
+
 #[derive(Debug, Clone)]
 pub enum StructDefinitionReference {
     Unresolved(String),
-    Resolved(Rc<RefCell<StructDefinition>>),
+    Resolved(StructDefintionRef),
 }
 
 #[derive(Debug)]
@@ -136,7 +140,7 @@ impl PacketDefintion {
         Ok(definition)
     }
     
-    pub fn resolve_references(&mut self, packets: &HashMap<String, Rc<RefCell<PacketDefintion>>>, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
+    pub fn resolve_references(&mut self, packets: &HashMap<String, PacketDefintionRef>, structs: &HashMap<String, StructDefintionRef>) -> io::Result<()> {
         if let Some(inherit) = &self.inherit {
             match inherit {
                 PacketDefinitionReference::Unresolved(parent_name) => {
@@ -204,7 +208,7 @@ impl StructDefinition {
         Ok(definition)
     }
 
-    pub fn resolve_references(&mut self, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
+    pub fn resolve_references(&mut self, structs: &HashMap<String, StructDefintionRef>) -> io::Result<()> {
         if let Some(inherit) = &self.inherit {
             match inherit {
                 StructDefinitionReference::Unresolved(parent_name) => {
@@ -290,7 +294,7 @@ impl FieldDefinition {
         }
     }
 
-    pub fn resolve_references(&mut self, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
+    pub fn resolve_references(&mut self, structs: &HashMap<String, StructDefintionRef>) -> io::Result<()> {
         match self {
             FieldDefinition::Branch { is_true, is_false, .. } => {
                 for field in is_true {
@@ -479,7 +483,7 @@ impl FieldTypeDefinition {
         }
     }
 
-    pub fn resolve_references(&mut self, structs: &HashMap<String, Rc<RefCell<StructDefinition>>>) -> io::Result<()> {
+    pub fn resolve_references(&mut self, structs: &HashMap<String, StructDefintionRef>) -> io::Result<()> {
         match self {
             FieldTypeDefinition::Struct(struct_reference) => {
                 match struct_reference {
@@ -504,8 +508,8 @@ impl FieldTypeDefinition {
 
 pub fn load_definitions(path: &str) -> 
     io::Result<(
-        HashMap<String, Rc<RefCell<PacketDefintion>>>, 
-        HashMap<String, Rc<RefCell<StructDefinition>>>
+        HashMap<String, PacketDefintionRef>, 
+        HashMap<String, StructDefintionRef>
     )> {
 
     let mut packet_definitions = HashMap::new();

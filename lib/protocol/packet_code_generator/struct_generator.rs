@@ -61,7 +61,6 @@ pub struct GeneratedEnum {
 #[derive(Debug)]
 pub struct GeneratedField {
     pub name: String,
-    pub original_name: String,
     pub r#type: GeneratedFieldType,
     pub optional: bool,
 }
@@ -107,7 +106,6 @@ impl GeneratedStruct {
                     } else {
                         let field = Rc::new(RefCell::new(GeneratedField {
                             name: field_name.clone(),
-                            original_name: name.as_ref().unwrap().to_owned(),
                             r#type: GeneratedFieldType::from_field_definition(r#type, struct_registry),
                             optional: as_optional,
                         }));
