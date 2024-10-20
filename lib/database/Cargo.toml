@@ -1,0 +1,11 @@
+[package]
+name = "database"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[dependencies]
+mongodb = "3.1.0"
+serde = { version = "1.0.210", features = ["derive"] }
+thiserror = "1.0.64"
