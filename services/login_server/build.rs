@@ -13,28 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io;
+use toolkit::build::build_schema;
 
-use cynic::http::CynicReqwestError;
-use thiserror::Error;
-use tokio::task::JoinError;
-
-#[derive(Error, Debug)]
-pub enum AppError {
-    #[error("raknet error")]
-    RakNet(#[from] raknet::RakNetError),
-
-    #[error("io error")]
-    Io(#[from] io::Error),
-
-    #[error("graphql error")]
-    GraphQL(#[from] CynicReqwestError),
-
-    #[error("verification failed")]
-    Verification(&'static str),
-
-    #[error("task paniced")]
-    JoinError(#[from] JoinError)
+fn main() {
+    build_schema("auth_service");
 }
-
-pub type AppResult<T> = Result<T, AppError>;

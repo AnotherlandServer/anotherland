@@ -13,28 +13,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io;
+use tokio::{io::AsyncWriteExt, net::{TcpListener, ToSocketAddrs}};
 
-use cynic::http::CynicReqwestError;
-use thiserror::Error;
-use tokio::task::JoinError;
+use crate::error::AppResult;
 
-#[derive(Error, Debug)]
-pub enum AppError {
-    #[error("raknet error")]
-    RakNet(#[from] raknet::RakNetError),
+pub async fn start_queue_server(bind_addr: impl ToSocketAddrs) -> AppResult<()> {
+    let listener = TcpListener::bind(bind_addr).await?;
 
-    #[error("io error")]
-    Io(#[from] io::Error),
+    tokio::spawn(async move {
+        loop {
+            let (mut client, _) = listener.accept().await.unwrap();
 
-    #[error("graphql error")]
-    GraphQL(#[from] CynicReqwestError),
+            let _ = client.write(&[0x1]).await;
+            let _ = client.shutdown().await;
+        }
+    });
 
-    #[error("verification failed")]
-    Verification(&'static str),
-
-    #[error("task paniced")]
-    JoinError(#[from] JoinError)
+    Ok(())
 }
-
-pub type AppResult<T> = Result<T, AppError>;
