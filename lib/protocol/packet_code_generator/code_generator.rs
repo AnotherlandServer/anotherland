@@ -315,35 +315,17 @@ pub fn generate_field_parser_code(generated_struct: &GeneratedStruct, field: &Fi
             let cond_field_ident = format_ident!("{}", generated_cond_field.name);
             let sub_condition = match &test {
                 BranchTestDefinition::BoolValue => {
-                    //if generated_cond_field.optional {
-                    //    quote!{#cond_field_ident.unwrap()}
-                    //} else {
-                        quote!{#cond_field_ident}
-                    //}
+                    quote!{#cond_field_ident}
                 },
                 BranchTestDefinition::TestFlag(flag) => {
                     let val = TokenStream::from_str(&format!("{}", flag)).unwrap();
-
-                    //if generated_cond_field.optional {
-                    //    quote!{(#cond_field_ident.unwrap() & #val) != 0}
-                    //} else {
-                        quote!{(#cond_field_ident & #val) != 0}
-                    //}
+                    quote!{(#cond_field_ident & #val) != 0}
                 },
                 BranchTestDefinition::TestEqual(val) => {
                     let val = TokenStream::from_str(&format!("{}", val)).unwrap();
-
-                    //if generated_cond_field.optional {
-                    //    quote!{#cond_field_ident.unwrap() == #val}
-                    //} else {
-                        quote!{#cond_field_ident == #val}
-                    //}
+                    quote!{#cond_field_ident == #val}
                 },
             };
-
-            /*if let Some(parent_condition) = condition {
-                sub_condition = quote! { #parent_condition && #sub_condition };
-            };*/
 
             let mut true_code = quote!();
             let mut false_code = quote!();
@@ -427,15 +409,9 @@ pub fn generate_field_parser_code(generated_struct: &GeneratedStruct, field: &Fi
             let field_name = generated_field.name.as_str();
             let parser = generate_nom_parser_for_field(generated_struct, field);
 
-            /*if let Some(condition) = condition {
-                quote! {
-                    let (i, #field_ident) = cond(#condition, context(#field_name, #parser))(i)?;
-                }
-            } else {*/
             quote! {
                 let (i, #field_ident) = context(#field_name, #parser)(i)?;
             }
-            //}
         }
     }
 }
@@ -754,9 +730,6 @@ pub fn generate_field_writer_code(generated_struct: &GeneratedStruct, field_def:
                 FieldTypeDefinition::Packet => {
                     quote! { 
                         if let Some(v) = self.#generated_field_ident.as_ref() {
-                            let (id, subid) = v.get_id();
-                            writer.write(id)?;
-                            writer.write(subid)?;
                             writer.write_bytes(v.to_bytes().as_slice())?;
                         }
                     }
@@ -767,6 +740,21 @@ pub fn generate_field_writer_code(generated_struct: &GeneratedStruct, field_def:
 }
 
 pub fn generate_writer_code(generated_struct: &GeneratedStruct) -> TokenStream {
+    let id_writer = match &generated_struct.definition {
+        GeneratedStructSource::PacketDefintion(def) => 
+        {
+            let def = def.borrow();
+            let id = def.id;
+            let subid = def.sub_id;
+
+            quote! {
+                writer.write(#id)?;
+                writer.write(#subid)?;
+            }
+        },
+        GeneratedStructSource::StructDefinition(_) => quote! {},
+    }; 
+
     let parent_field_writers: Vec<_> =  match &generated_struct.definition {
         GeneratedStructSource::PacketDefintion(def) => {
             let def = def.borrow();
@@ -815,6 +803,7 @@ pub fn generate_writer_code(generated_struct: &GeneratedStruct) -> TokenStream {
                 let mut buf = Vec::new();
                 let mut writer = ByteWriter::endian(&mut buf, LittleEndian);
 
+                #id_writer
                 #(#parent_field_writers)*
                 #(#field_writers)*
                 Ok(buf)
@@ -849,24 +838,6 @@ pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>)
             _ => quote!(),
         };
 
-        /*let tryfrom_code =  match &generated_struct.definition {
-            GeneratedStructSource::PacketDefintion(_) => {
-                quote!{ 
-                    impl <'a>TryFrom<&'a Message> for &'a #struct_ident {
-                        type Error = ();
-        
-                        fn try_from(value: &'a Message) -> Result<Self, Self::Error> {
-                            match value {
-                                Message::AtlasPkt(CPkt::#struct_ident(pkt)) => Ok(pkt.as_ref()),
-                                _ => Err(())
-                            }
-                        }
-                    }
-                }
-            },
-            _ => quote!(),
-        };*/
-
         code.extend(quote! {
             #[allow(dead_code)]
             impl #struct_ident {
@@ -874,8 +845,6 @@ pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>)
                 #writer_code
                 #pkt_code
             }
-
-            //#tryfrom_code
         });
     }
 
