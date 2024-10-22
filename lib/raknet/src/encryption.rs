@@ -15,9 +15,9 @@
 
 use std::net::SocketAddr;
 
-use aes::{cipher::{generic_array::GenericArray, BlockDecrypt, KeyInit}, Aes128};
+use aes::{cipher::{generic_array::GenericArray, BlockDecrypt, BlockEncrypt, KeyInit}, Aes128};
 use log::debug;
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::OsRng, thread_rng, Rng, RngCore};
 use rsa::RsaPrivateKey;
 use sha1::{Digest, Sha1};
 
@@ -144,4 +144,58 @@ pub fn aes_decrypt(key: u128, message: &mut Vec<u8>) -> Result<()> {
     message.truncate(message_len);
 
     Ok(())
+}
+
+pub fn aes_encrypt(key: u128, message: &[u8]) -> Vec<u8> {
+    let padding_bytes = 16 - (((message.len() + 6 - 1) % 16) + 1);
+    let mut checksum = Checksum::new();
+    let mut message_buffer = vec![0; message.len() + 6 + padding_bytes];
+
+    if message_buffer.len() % 16 != 0 { panic!(); }
+
+    // generate random based message part
+    {
+        let mut rng = thread_rng();
+
+        // pad size
+        let mut encoded_pad = rng.gen::<u8>();
+        encoded_pad <<= 4;
+        encoded_pad |= padding_bytes as u8;
+
+        // write random char
+        message_buffer[4] = rng.gen::<u8>();
+
+        // write padding size
+        message_buffer[5] = encoded_pad;
+
+        // write padding
+        rng.fill_bytes(&mut message_buffer[6..6 + padding_bytes]);
+    }
+
+    // copy data
+    message_buffer[6 + padding_bytes..].copy_from_slice(message);
+
+    // generate checksum
+    checksum.write(&message_buffer[4..]);
+    message_buffer[..4].copy_from_slice(&checksum.finish().to_le_bytes());
+
+    // initialize encryption
+    let mut blocks: Vec<&mut [u8]> = message_buffer.chunks_mut(16).collect();
+    let cipher = Aes128::new(GenericArray::from_slice(&key.to_le_bytes()));
+    let mut prev_block = 0;
+
+    // encrypt first block
+    cipher.encrypt_block(GenericArray::from_mut_slice(blocks[0]));
+
+    // encrypt remaining blocks, starting from the end
+    for index in (1..blocks.len()).rev() {
+        for byte_index in 0..16 {
+            blocks[index][byte_index] ^= blocks[prev_block][byte_index];
+        }
+
+        cipher.encrypt_block(GenericArray::from_mut_slice(blocks[index]));
+        prev_block = index;
+    }
+
+    message_buffer
 }

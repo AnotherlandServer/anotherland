@@ -22,7 +22,7 @@ use sha1::{Sha1, Digest};
 use tokio::{net::UdpSocket, sync::{mpsc::{channel, Receiver, Sender}, Mutex, Notify, RwLock, Semaphore}, time::sleep};
 use uuid::Uuid;
 
-use crate::{buffer::{RakNetReader, RakNetWriter}, encryption::{aes_decrypt, EncryptionHanshakeContext}, error::Result, frame::MessageFrame, packet::{write_connection_request_accepted, write_secured_connection_response}, reliability::{RecvQ, Reliability, SendQ}, util::cur_timestamp, PacketID, RakNetError};
+use crate::{buffer::{RakNetReader, RakNetWriter}, encryption::{aes_decrypt, aes_encrypt, EncryptionHanshakeContext}, error::Result, frame::{Message, MessageFrame}, packet::{write_connection_request_accepted, write_secured_connection_response}, reliability::{RecvQ, Reliability, SendQ}, util::cur_timestamp, PacketID, RakNetError};
 
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
@@ -45,7 +45,7 @@ pub struct RakNetSocket {
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
     close_notifier: Arc<Semaphore>,
-    reference_time: Arc<SystemTime>,
+    reference_time: SystemTime,
     last_heartbeat_time: Arc<AtomicU64>,
     //sender: Sender<(Vec<u8>, SocketAddr, bool, u8)>,
     drop_notifier: Arc<Notify>,
@@ -79,6 +79,8 @@ impl RakNetSocket {
         hasher.update(addr.port().to_le_bytes());
         hasher.update(random_number);
 
+        let reference_time = SystemTime::now();
+
         let socket = Self {
             id: Uuid::new_v4(),
             local_addr: s.local_addr().unwrap(),
@@ -89,14 +91,14 @@ impl RakNetSocket {
             // se we get await with a reference_time per connection,
             // to get the most out of the 32-bit timestamps
             // raknet uses.
-            reference_time: Arc::new(SystemTime::now()), 
+            reference_time, 
 
             last_heartbeat_time: Arc::new(AtomicU64::new(0)),
             //sender: sender_sender,
             drop_notifier: Arc::new(Notify::new()),
             incomming_notifier: Arc::new(Notify::new()),
             recvq: Arc::new(Mutex::new(RecvQ::new())),
-            sendq: Arc::new(RwLock::new(SendQ::new(mtu, send_notify.clone()))),
+            sendq: Arc::new(RwLock::new(SendQ::new(mtu, send_notify.clone(), reference_time))),
 
             encryption: Arc::new(AtomicBool::new(false)),
             aes_key: Arc::new(AtomicU128::new(0)),
@@ -186,6 +188,7 @@ impl RakNetSocket {
         let encryption = self.encryption.clone();
         let aes_key = self.aes_key.clone();
         let s = s.clone();
+        let mut remote_time = Duration::default();
 
         let guid = self.id;
 
@@ -205,7 +208,7 @@ impl RakNetSocket {
                             connect_mode,
                             guid,
                             &f, 
-                            *reference_time,
+                            reference_time,
                             &peer_addr, 
                             &local_addr, 
                             &sendq, 
@@ -238,7 +241,6 @@ impl RakNetSocket {
                     }
                 }
 
-                trace!("Wait for new frames");
                 let mut buf = match receiver.recv().await {
                     Some(buf) => buf,
                     None => {
@@ -253,31 +255,51 @@ impl RakNetSocket {
                         buf.len() % 16 == 0 && 
                         let ConnectMode::SetEncryptionOnMultiple16BytePacket(_) = connect_mode
                     {
-                        debug!("Turning on encryption");
-                        encryption.store(true, Ordering::Relaxed);
+                        let mut test_buf = buf.clone();
+
+                        // Test key before enabling encryption
+                        if aes_decrypt(aes_key.load(Ordering::Relaxed), &mut test_buf).is_ok() {
+                            trace!("Turning on encryption");
+                            encryption.store(true, Ordering::Relaxed);
+                        }
                     }
 
                     if encryption.load(Ordering::Relaxed) {
                         if let Err(e) = aes_decrypt(aes_key.load(Ordering::Relaxed), &mut buf) {
-                            debug!("Decryption failed: {:?}", e);
+                            trace!("Decryption failed: {:?}", e);
                             continue;
                         }
                     }
 
                     if let Ok(frame) = MessageFrame::from(&buf) {
+                        // Process acks
+                        if let Some(acks) = frame.acks() {
+                            let mut sendq = sendq.write().await;
+
+                            for acks in acks {
+                                for message_number in acks.clone() {
+                                    sendq.ack(message_number, cur_timestamp(reference_time));
+                                }
+                            }
+                        }
+
                         last_heartbeat_time.store(
-                            cur_timestamp(*reference_time)
+                            cur_timestamp(reference_time)
                                 .as_millis()
                                 .try_into()
                                 .unwrap(), 
                             Ordering::Relaxed
                         );
 
+                        if let Some(time) = frame.remote_system_time() {
+                            remote_time = time;
+                        }
+
                         // Insert frame and send acks
-                        {
+                        for message in frame.into_message_vector() {
                             let mut recvq = recvq.lock().await;
 
-                            if let Err(e) = recvq.insert(frame) {
+                            if let Err(e) = recvq.insert(message) {
                                 debug!("Failed to insert frame into receive queue: {:?}", e);
                                 connected.close();
                             }
@@ -286,17 +308,20 @@ impl RakNetSocket {
                             let acks = recvq.get_ack();
 
                             if !acks.is_empty() {
-                                trace!("ACK: {:?}", acks);
-                                
                                 // send ack frame
-                                let mut frame = MessageFrame::new(Reliability::Unreliable, vec![]);
-                                frame.set_acks(cur_timestamp(*reference_time), acks);
-
+                                let mut frame = MessageFrame::new();
+                                frame.set_acks(remote_time, acks);
 
                                 let data = frame.serialize()
                                         .expect("Failed to serialize message frame!");
-                                let _ = s.send_to(&data, peer_addr).await;
-                            } 
+
+                                if encryption.load(Ordering::Relaxed) {
+                                    let data = aes_encrypt(aes_key.load(Ordering::Relaxed), &data);
+                                    let _ = s.send_to(&data, peer_addr).await;
+                                } else {
+                                    let _ = s.send_to(&data, peer_addr).await;
+                                }
+                            }
                         }
                     } else {
                         debug!("Received malformed frame: {}", peer_addr);
@@ -320,9 +345,11 @@ impl RakNetSocket {
         let s = s.clone();
         let peer_addr = self.peer_addr;
         let sendq = self.sendq.clone();
-        let recvq = self.recvq.clone();
-        let reference_time = self.reference_time.clone();
+        let reference_time = self.reference_time;
         let last_heartbeat_time = self.last_heartbeat_time.clone();
+        let encryption = self.encryption.clone();
+        let aes_key = self.aes_key.clone();
+
         tokio::spawn(async move {
             loop {
                  tokio::select! {
@@ -332,15 +359,23 @@ impl RakNetSocket {
 
                 // flush sendq
                 let mut sendq = sendq.write().await;
-                let frames = sendq.flush(cur_timestamp(*reference_time), &peer_addr);
+                let frames = sendq.flush(cur_timestamp(reference_time), &peer_addr);
             
                 // send frames
                 for f in frames {
                     trace!("TX: {:?}", f);
 
-                    let data = f.serialize()
+                    let mut frame = MessageFrame::new();
+                    frame.add_message(f);
+
+                    let data = frame.serialize()
                         .expect("Failed to serialize message frame!");
-                    let _ = s.send_to(&data, peer_addr).await;
+                    if encryption.load(Ordering::Relaxed) {
+                        let data = aes_encrypt(aes_key.load(Ordering::Relaxed), &data);
+                        let _ = s.send_to(&data, peer_addr).await;
+                    } else {
+                        let _ = s.send_to(&data, peer_addr).await;
+                    }
                 }
 
                 if connected.is_closed() {
@@ -349,7 +384,7 @@ impl RakNetSocket {
 
                 // if we haven't received a message in 60s, close the connection.
                 if (
-                        cur_timestamp(*reference_time) - 
+                        cur_timestamp(reference_time) - 
                         Duration::from_millis(last_heartbeat_time.load(Ordering::Relaxed))
                     ).as_millis() as u64 > RECEIVE_TIMEOUT
                 {
@@ -398,7 +433,7 @@ impl RakNetSocket {
     async fn handle(
         connect_mode: ConnectMode,
         guid: Uuid,
-        frame: &MessageFrame,
+        frame: &Message,
         reference_time: SystemTime,
         peer_addr: &SocketAddr,
         local_addr: &SocketAddr,
@@ -407,17 +442,6 @@ impl RakNetSocket {
         encryption_context: Option<&mut EncryptionHanshakeContext>,
     ) -> Result<ConnectMode> {
         trace!("RX: {:?}", frame);
-
-        // Process acks
-        if let Some(acks) = frame.acks() {
-            let mut sendq = sendq.write().await;
-
-            for acks in acks {
-                for message_number in acks.clone() {
-                    sendq.ack(message_number, cur_timestamp(reference_time));
-                }
-            }
-        }
 
         if !frame.data().is_empty() {
             if matches!(connect_mode, ConnectMode::UnverifiedSender) {

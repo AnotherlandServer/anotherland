@@ -14,12 +14,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use core::ops::RangeInclusive;
-use std::{collections::{hash_map::Entry, HashMap}, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::{hash_map::Entry, HashMap}, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
 
 use log::{debug, trace};
 use tokio::sync::Notify;
 
-use crate::{error::{RakNetError, Result}, fragment::FragmentQ, frame::{MessageFrame, Order, Split}};
+use crate::{error::{RakNetError, Result}, fragment::FragmentQ, frame::{Message, MessageFrame, Order, Split}, util::cur_timestamp};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Reliability {
@@ -76,8 +76,6 @@ impl AckSet {
     }
 
     pub fn insert(&mut self, num: u32) {
-        trace!("Queue ACK: {}", num);
-
         for ack in self.0.iter_mut() {
             if num >= ack.0 && num <= ack.1 { return; }
 
@@ -104,8 +102,8 @@ pub struct RecvQ {
     sequenced_frame_index: u32,
     last_ordered_index: u32,
     sequence_number_ackset: AckSet,
-    packets: HashMap<u32, MessageFrame>,
-    ordered_packets: HashMap<u32, MessageFrame>,
+    packets: HashMap<u32, Message>,
+    ordered_packets: HashMap<u32, Message>,
     fragment_queue: FragmentQ,
 }
 
@@ -121,10 +119,10 @@ impl RecvQ {
         }
     }
 
-    pub fn insert(&mut self, frame: MessageFrame) -> Result<()> {
+    pub fn insert(&mut self, frame: Message) -> Result<()> {
         if self.packets.contains_key(&frame.message_number()) { return Ok(()); }
 
-        trace!("Got new message: {:?}", frame);
+        //trace!("Got new message: {:?}", frame);
 
         self.sequence_number_ackset.insert(frame.message_number());
         
@@ -186,7 +184,7 @@ impl RecvQ {
             .collect()
     }
 
-    pub fn flush(&mut self) -> Vec<MessageFrame> {
+    pub fn flush(&mut self) -> Vec<Message> {
         let mut ret = vec![];
         let mut ordered_keys: Vec<u32> = self.ordered_packets.keys().cloned().collect();
 
@@ -220,11 +218,12 @@ pub struct SendQ {
     sequenced_frame_index: u32,
     ordered_frame_index: u32,
     compund_id: u16,
-    packets: Vec<MessageFrame>,
+    packets: Vec<Message>,
     rto: Duration,
     srtt: Duration,
-    sent_packet: Vec<(MessageFrame, bool, Duration, u32, Vec<u32>)>,
+    sent_packet: Vec<(Message, bool, Duration, u32, Vec<u32>)>,
     send_notify: Arc<Notify>,
+    reference_time: SystemTime,
 }
 
 impl SendQ {
@@ -233,7 +232,7 @@ impl SendQ {
     const RTO_UBOUND: u64 = 12000;
     const RTO_LBOUND: u64 = 50;
 
-    pub fn new(mtu: u16, send_notify: Arc<Notify>) -> Self {
+    pub fn new(mtu: u16, send_notify: Arc<Notify>, reference_time: SystemTime) -> Self {
         Self {
             mtu,
             ack_sequence_number: 0,
@@ -244,6 +243,7 @@ impl SendQ {
             ordered_frame_index: 0,
             compund_id: 0,
             send_notify,
+            reference_time,
 
             rto: Duration::from_millis(Self::DEFAULT_TIMEOUT_MILLIS),
             srtt: Duration::from_millis(Self::DEFAULT_TIMEOUT_MILLIS),
@@ -257,8 +257,7 @@ impl SendQ {
                     return Err(RakNetError::PacketSizeExceedsMTU);
                 }
 
-                let mut frame = MessageFrame::new(reliability, buf);
-                frame.set_message_number(self.message_number);
+                let mut frame = Message::new(self.message_number, reliability, buf);
 
                 self.message_number += 1;
                 self.packets.push(frame);
@@ -268,8 +267,7 @@ impl SendQ {
                     return Err(RakNetError::PacketSizeExceedsMTU);
                 }
 
-                let mut frame = MessageFrame::new(reliability, buf);
-                frame.set_message_number(self.message_number);
+                let mut frame = Message::new(self.message_number, reliability, buf);
 
                 frame.set_order(Order {
                     channel: 0,
@@ -284,8 +282,7 @@ impl SendQ {
                     return Err(RakNetError::PacketSizeExceedsMTU);
                 }
 
-                let mut frame = MessageFrame::new(reliability, buf);
-                frame.set_message_number(self.message_number);
+                let mut frame = Message::new(self.message_number, reliability, buf);
 
                 self.packets.push(frame);
                 self.message_number += 1;
@@ -294,17 +291,17 @@ impl SendQ {
                 let max = (self.mtu - 7) as usize;
 
                 if buf.len() < max {
-                   let mut frame = MessageFrame::new(reliability, buf);
-                   frame.set_message_number(self.message_number);
-                   frame.set_order(Order {
-                    channel: 0,
-                    index: self.ordered_frame_index
-                   });
+                    let mut frame = Message::new(self.message_number, reliability, buf);
+                    frame.set_order(Order {
+                        channel: 0,
+                        index: self.ordered_frame_index
+                    });
 
-                   self.packets.push(frame);
-                   self.ordered_frame_index += 1;
-                   self.message_number += 1;
-                } else {
+                    self.packets.push(frame);
+                    
+                    self.message_number += 1;
+                    self.ordered_frame_index += 1;
+                } else {                 
                     let mut split_packets = buf.len() / max;
                     if buf.len() % max != 0 {
                         split_packets += 1;
@@ -318,7 +315,7 @@ impl SendQ {
                             max * (i + 1)
                         };
 
-                        let mut frame = MessageFrame::new(reliability, buf[begin..end].to_vec());
+                        let mut frame = Message::new(self.message_number, reliability, buf[begin..end].to_vec());
                         frame.set_message_number(self.message_number);
 
                         frame.set_split(Split {
@@ -333,10 +330,10 @@ impl SendQ {
 
                         self.packets.push(frame);
                         self.message_number += 1;
+                        self.ordered_frame_index += 1;
                     }
 
                     self.compund_id += 1;
-                    self.ordered_frame_index += 1;
                 }
             },
             Reliability::ReliableSequenced => {
@@ -344,14 +341,15 @@ impl SendQ {
                     return Err(RakNetError::PacketSizeExceedsMTU);
                 }
 
-                let mut frame = MessageFrame::new(reliability, buf);
+                let mut frame = Message::new(self.message_number, reliability, buf);
                 frame.set_order(Order {
                     channel: 0,
                     index: self.ordered_frame_index
                 });
 
                 self.packets.push(frame);
-                self.sequenced_frame_index += 1;
+                self.message_number += 1;
+                self.ordered_frame_index += 1;
             }
         }
 
@@ -416,7 +414,7 @@ impl SendQ {
         }
     }
 
-    pub fn flush(&mut self, tick: Duration, peer_addr: &SocketAddr) -> Vec<MessageFrame> {
+    pub fn flush(&mut self, tick: Duration, peer_addr: &SocketAddr) -> Vec<Message> {
         self.tick(tick);
 
         let mut ret = vec![];

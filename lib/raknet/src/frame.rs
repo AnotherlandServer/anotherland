@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use core::ops::RangeInclusive;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use log::debug;
 
@@ -23,8 +23,13 @@ use crate::{buffer::{RakNetReader, RakNetWriter}, error::{RakNetError, Result}, 
 #[derive(Debug, Clone)]
 pub struct MessageFrame {
     acks: Option<Vec<RangeInclusive<u32>>>,
-    local_system_time: Option<Duration>,
-    remote_system_time: Option<Duration>,
+    rtt_reference: Option<Duration>,
+    reference_system_time: Option<Duration>,
+    messages: Vec<Message>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Message {
     message_number: u32,
     reliability: Reliability,
     order: Option<Order>,
@@ -47,20 +52,24 @@ pub struct Split {
 
 #[allow(dead_code)]
 impl MessageFrame {
-    pub fn new(reliability: Reliability, data: Vec<u8>) -> Self {
+    pub fn new() -> Self {
         Self {
             acks: None,
-            local_system_time: None,
-            remote_system_time: None,
-            message_number: 0,
-            reliability,
-            order: None,
-            split: None,
-            data
+            rtt_reference: None,
+            reference_system_time: None,
+            messages: vec![],
         }
     }
 
-    pub fn from(buf: &[u8]) -> Result<Self> {
+    pub fn add_message(&mut self, message: Message) {
+        self.messages.push(message);
+    }
+
+    pub fn messages(&self) -> &[Message] { &self.messages }
+
+    pub fn into_message_vector(self) -> Vec<Message> { self.messages }
+
+    pub fn from<'a>(buf: &[u8]) -> Result<Self> {
         let local_system_time;
         let acks;
 
@@ -105,7 +114,14 @@ impl MessageFrame {
             None
         };
 
-        if let Ok(message_number) = data.read_u32() {
+        let mut frame = Self {
+            acks,
+            rtt_reference: local_system_time,
+            reference_system_time: remote_system_time,
+            messages: vec![],
+        };
+
+        while let Ok(message_number) = data.read_u32() {
             // Read reliability
             let mut reliability = [0u8; 1];
             data.read_bits(&mut reliability, 3)?;
@@ -158,28 +174,36 @@ impl MessageFrame {
             let mut pkg_data = vec![0u8; data_bit_length / 8];
             data.read(&mut pkg_data)?;
 
-            Ok(Self {
-                acks,
-                local_system_time,
-                remote_system_time,
+            /*if data.bits_remaining() != 0 { 
+                let mut remainder = vec![0u8; data.remaining()];
+                data.read(&mut remainder).unwrap();
+                
+                debug!("{:?}", Self {
+                    acks,
+                    rtt_reference: local_system_time,
+                    reference_system_time: remote_system_time,
+                    message_number,
+                    reliability,
+                    order,
+                    split,
+                    data: pkg_data
+                });
+
+                debug!("{:?}", remainder);
+
+                panic!("Data remains in frame"); 
+            }*/
+
+            frame.messages.push(Message {
                 message_number,
                 reliability,
                 order,
                 split,
                 data: pkg_data
-            })
-        } else {
-            Ok(Self {
-                acks,
-                local_system_time,
-                remote_system_time,
-                message_number: 0,
-                reliability: Reliability::Unreliable,
-                order: None,
-                split: None,
-                data: vec![]
-            })
+            });
         }
+
+        Ok(frame)
     }
 
     pub fn acks(&self) -> Option<&[RangeInclusive<u32>]> {
@@ -187,11 +211,99 @@ impl MessageFrame {
     }
 
     pub fn local_system_time(&self) -> Option<Duration> {
-        self.local_system_time
+        self.rtt_reference
     }
 
     pub fn remote_system_time(&self) -> Option<Duration> {
-        self.remote_system_time
+        self.reference_system_time
+    }
+
+    pub fn set_acks(&mut self, system_time: Duration, acks: Vec<RangeInclusive<u32>>) {
+        self.acks = Some(acks);
+        self.rtt_reference = Some(system_time);
+    }
+
+    pub fn set_remote_system_time(&mut self, system_time: Duration) {
+        self.reference_system_time = Some(system_time);
+    }
+
+    pub fn serialize(&self) -> Result<Vec<u8>> {
+        let mut writer = RakNetWriter::new();
+
+        if let Some(acks) = self.acks.as_ref() {
+            writer.write_bit(true);
+            writer.write_u32(
+                self.rtt_reference
+                        .ok_or(RakNetError::FrameError)?
+                        .as_millis() as u32
+            );
+            writer.write_u16_compressed(acks.len() as u16);
+
+            for ack_range in acks {
+                if *ack_range.start() == *ack_range.end() {
+                    writer.write_bit(true);
+                    writer.write_u32(*ack_range.start());
+                } else {
+                    writer.write_bit(false);
+                    writer.write_u32(*ack_range.start());
+                    writer.write_u32(*ack_range.end());
+                }
+            }
+        } else {
+            writer.write_bit(false);
+        }
+
+        if let Some(system_time) = self.reference_system_time {
+            writer.write_bit(true);
+            writer.write_u32(system_time.as_millis() as u32);
+        } else {
+            writer.write_bit(false);
+        }
+
+        for message in &self.messages {
+            writer.write_u32(message.message_number);
+            writer.write_bits(3, &[message.reliability.to_u8()]);
+
+            if 
+                matches!(message.reliability, Reliability::UnreliableSequenced) ||
+                matches!(message.reliability, Reliability::ReliableSequenced) ||
+                matches!(message.reliability, Reliability::ReliableOrdered)
+            {
+                if let Some(order) = message.order.as_ref() {
+                    writer.write_bits(5, &[order.channel]);
+                    writer.write_u32(order.index);
+                } else {
+                    return Err(RakNetError::FrameError);
+                }
+            }
+
+            if let Some(split) = message.split.as_ref() {
+                writer.write_bit(true);
+
+                writer.write_u16(split.id);
+                writer.write_u32_compressed(split.index);
+                writer.write_u32_compressed(split.count);
+            } else {
+                writer.write_bit(false);
+            }
+
+            writer.write_u16_compressed((message.data.len() * 8) as u16);
+            writer.write_aligned(&message.data);
+        }
+
+        Ok(writer.take_buffer())
+    }
+}
+
+impl Message {
+    pub fn new(message_number: u32, reliability: Reliability, data: Vec<u8>) -> Self {
+        Self {
+            message_number,
+            reliability,
+            order: None,
+            split: None,
+            data,
+        }
     }
 
     pub fn message_number(&self) -> u32 {
@@ -228,81 +340,5 @@ impl MessageFrame {
 
     pub fn set_split(&mut self, split: Split) {
         self.split = Some(split);
-    }
-
-    pub fn set_acks(&mut self, system_time: Duration, acks: Vec<RangeInclusive<u32>>) {
-        self.acks = Some(acks);
-        self.local_system_time = Some(system_time);
-    }
-
-    pub fn set_remote_system_time(&mut self, system_time: Duration) {
-        self.remote_system_time = Some(system_time);
-    }
-
-    pub fn serialize(&self) -> Result<Vec<u8>> {
-        let mut writer = RakNetWriter::new();
-
-        if let Some(acks) = self.acks.as_ref() {
-            writer.write_bit(true);
-            writer.write_u32(
-                self.local_system_time
-                        .ok_or(RakNetError::FrameError)?
-                        .as_millis() as u32
-            );
-            writer.write_u16_compressed(acks.len() as u16);
-
-            for ack_range in acks {
-                if *ack_range.start() == *ack_range.end() {
-                    writer.write_bit(true);
-                    writer.write_u32(*ack_range.start());
-                } else {
-                    writer.write_bit(false);
-                    writer.write_u32(*ack_range.start());
-                    writer.write_u32(*ack_range.end());
-                }
-            }
-        } else {
-            writer.write_bit(false);
-        }
-
-        if let Some(system_time) = self.remote_system_time {
-            writer.write_bit(true);
-            writer.write_u32(system_time.as_millis() as u32);
-        } else {
-            writer.write_bit(false);
-        }
-
-        if !self.data.is_empty() {
-            writer.write_u32(self.message_number);
-            writer.write_bits(3, &[self.reliability.to_u8()]);
-
-            if 
-                matches!(self.reliability, Reliability::UnreliableSequenced) ||
-                matches!(self.reliability, Reliability::ReliableSequenced) ||
-                matches!(self.reliability, Reliability::ReliableOrdered)
-            {
-                if let Some(order) = self.order.as_ref() {
-                    writer.write_bits(5, &[order.channel]);
-                    writer.write_u32(order.index);
-                } else {
-                    return Err(RakNetError::FrameError);
-                }
-            }
-
-            if let Some(split) = self.split.as_ref() {
-                writer.write_bit(true);
-
-                writer.write_u16(split.id);
-                writer.write_u32_compressed(split.index);
-                writer.write_u32_compressed(split.count);
-            } else {
-                writer.write_bit(false);
-            }
-
-            writer.write_u16_compressed((self.data.len() * 8) as u16);
-            writer.write_aligned(&self.data);
-        }
-
-        Ok(writer.take_buffer())
     }
 }

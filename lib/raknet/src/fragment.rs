@@ -15,12 +15,12 @@
 
 use std::collections::HashMap;
 
-use crate::{error::Result, frame::{MessageFrame, Order}};
+use crate::{error::Result, frame::{Message, MessageFrame, Order}};
 
 struct Fragment {
     pub compound_size: u32,
     pub order: Option<Order>,
-    pub frames: HashMap<u32, MessageFrame>,
+    pub frames: HashMap<u32, Message>,
 }
 
 impl Fragment {
@@ -39,17 +39,17 @@ impl Fragment {
         self.frames.len() >= self.compound_size as usize
     }
 
-    pub fn insert(&mut self, frame: MessageFrame) {
+    pub fn insert(&mut self, message: Message) {
         if self.is_full() { return; }
 
-        if let Some(split) = frame.split() {
+        if let Some(split) = message.split() {
             if self.frames.contains_key(&split.index) { return; }
 
-            self.frames.insert(split.index, frame);
+            self.frames.insert(split.index, message);
         }
     }
 
-    pub fn merge(mut self) -> Result<MessageFrame> {
+    pub fn merge(mut self) -> Result<Message> {
         let mut buf = vec![];
 
         let mut keys: Vec<u32> = self.frames.keys().cloned().collect();
@@ -62,8 +62,7 @@ impl Fragment {
             buf.append(self.frames.get_mut(&i).unwrap().data_mut());
         }
 
-        let mut ret = MessageFrame::new(reliability, buf);
-        ret.set_message_number(message_number);
+        let mut ret = Message::new(message_number, reliability, buf);
         if let Some(order) = self.order { ret.set_order(order); }
 
         Ok(ret)
@@ -81,7 +80,7 @@ impl FragmentQ {
         }
     }
 
-    pub fn insert(&mut self, frame: MessageFrame) {
+    pub fn insert(&mut self, frame: Message) {
         if let Some(split) = frame.split() {
             if let Some(fragments) = self.fragments.get_mut(&split.id) {
                 fragments.insert(frame);
@@ -97,7 +96,7 @@ impl FragmentQ {
         }
     }
 
-    pub fn flush(&mut self) -> Result<Vec<MessageFrame>> {
+    pub fn flush(&mut self) -> Result<Vec<Message>> {
         let mut ret = vec![];
 
         let keys: Vec<u16> = self.fragments.keys().cloned().collect();

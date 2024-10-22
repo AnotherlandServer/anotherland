@@ -35,3 +35,4 @@ pub use definitions::*;
 pub use listener::*;
 pub use socket::*;
 pub use error::*;
+pub use reliability::Reliability;
