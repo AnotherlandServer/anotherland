@@ -2,12 +2,24 @@
 name = "auth_service"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
-async-graphql = { version = "7.0.11", features = ["chrono", "chrono-tz", "uuid"] }
+async-graphql = { version = "7.0.11", features = ["bson", "chrono", "chrono-tz", "uuid"] }
 async-graphql-poem = "7.0.11"
+bcrypt = "0.15.1"
+bson = "2.13.0"
 chrono = { version = "0.4.38", features = ["serde"] }
+clap = { version = "4.5.20", features = ["derive", "env"] }
+database = { version = "0.1.0", path = "../../lib/database" }
+futures = "0.3.31"
+log = "0.4.22"
+messages = { version = "0.1.0", path = "../../lib/messages" }
+mongodb = "3.1.0"
 poem = "3.1.1"
-serde = "1.0.210"
+serde = { version = "1.0.210", features = ["derive"] }
+sha1 = "0.10.6"
 tokio = { version = "1.40.0", features = ["full"] }
 toolkit = { version = "0.1.0", path = "../../lib/toolkit" }
+uuid = { version = "1.10.0", features = ["v1"] }
+zeromq = "0.4.1"
