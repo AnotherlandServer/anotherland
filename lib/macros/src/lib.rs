@@ -41,6 +41,8 @@ pub fn service_main(_attr: proc_macro::TokenStream, item: proc_macro::TokenStrea
                 let _ = toolkit::dotenvy::dotenv();
                 toolkit::env_logger::init();
 
+                #config
+
                 #block
             }
         }
