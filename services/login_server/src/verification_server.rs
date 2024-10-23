@@ -13,53 +13,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use core_api::CoreApi;
 use log::{error, info};
 use steamworks::SteamId;
 use tokio::{io::{self, AsyncWriteExt}, net::{TcpListener, ToSocketAddrs}};
-use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 
-use crate::{error::{AppError, AppResult}, graphql::auth_service::{FindAccountQuery, FindAccountQueryVariables, RegisterSteamAccount, RegisterSteamAccountVariables}, ARGS};
+use crate::error::AppResult;
 
-async fn verify_account(id: &SteamId) -> AppResult<()> {
-    let query = FindAccountQuery::build(FindAccountQueryVariables {
-        steam_id: id.steamid32()
-    });
-
-    let found_account = reqwest::Client::new()
-        .post(ARGS.service_auth_url.clone())
-        .run_graphql(query)
-        .await?;
-
-    if found_account.errors.is_some() {
-        Err(AppError::Verification("query failed"))
-    } else if 
-        let Some(result) = found_account.data &&
-        result.find_account.is_some()
-    {
-        Ok(())
-    } else {
-        let query = RegisterSteamAccount::build(RegisterSteamAccountVariables {
-            steam_id: id.steamid32()
-        });
-
-        let account = reqwest::Client::new()
-            .post(ARGS.service_auth_url.clone())
-            .run_graphql(query)
-            .await?;
-
-        if account.data.is_some() {
-            Ok(())
-        } else {
-            Err(AppError::Verification("account creation failed"))
-        }
+async fn verify_account(auth_api: &CoreApi, id: &SteamId) -> AppResult<()> {
+    if auth_api.find_account(core_api::AccountQuery::SteamId(*id)).await?.is_none() {
+        auth_api.register_steam_account(*id).await?;
     }
+    
+    Ok(())
 }
 
-pub async fn start_verification_server(bind_addr: impl ToSocketAddrs) -> AppResult<()> {
+pub async fn start_verification_server(auth_api: CoreApi, bind_addr: impl ToSocketAddrs) -> AppResult<()> {
     let listener = TcpListener::bind(bind_addr).await.unwrap();
 
     tokio::spawn(async move {
         loop {
+            let auth_api = auth_api.clone();
             let (mut client, peer_addr) = listener.accept().await.unwrap();
             tokio::spawn(async move {
                 info!("Connected: {}", peer_addr);
@@ -87,7 +61,7 @@ pub async fn start_verification_server(bind_addr: impl ToSocketAddrs) -> AppResu
                             }
 
                             let steam_id = SteamId::from_raw(u64::from_le_bytes(raw_steam_id.try_into().unwrap()));
-                            match verify_account(&steam_id).await {
+                            match verify_account(&auth_api, &steam_id).await {
                                 Ok(_) => {
                                     let _ = client.write_all(&[0x5,0x0,0x5,0x0,0x0]).await;
                                 },

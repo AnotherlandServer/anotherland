@@ -15,7 +15,7 @@
 
 use std::io;
 
-use cynic::http::CynicReqwestError;
+use core_api::CoreApiError;
 use thiserror::Error;
 use tokio::task::JoinError;
 
@@ -27,14 +27,14 @@ pub enum AppError {
     #[error("io error")]
     Io(#[from] io::Error),
 
-    #[error("graphql error")]
-    GraphQL(#[from] CynicReqwestError),
-
     #[error("verification failed")]
     Verification(&'static str),
 
     #[error("task paniced")]
-    JoinError(#[from] JoinError)
+    JoinError(#[from] JoinError),
+
+    #[error("core api error")]
+    CoreApi(#[from] CoreApiError),
 }
 
 pub type AppResult<T> = Result<T, AppError>;
