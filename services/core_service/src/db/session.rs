@@ -26,11 +26,6 @@ use super::Account;
 pub struct Session {
     pub id: Uuid,
     pub account: Uuid,
-    pub is_gm: bool,
-    pub realm_id: Option<u32>,
-    pub world_id: Option<u16>,
-    pub zone_guid: Option<Uuid>,
-    pub character_id: Option<u32>,
     pub created: DateTime<Utc>,
     pub last_seen: DateTime<Utc>,
 }
@@ -42,11 +37,6 @@ impl Session {
         let session = Session {
             id: Uuid::new(),
             account: account.id,
-            is_gm: account.is_gm,
-            realm_id: None,
-            world_id: None,
-            zone_guid: None,
-            character_id: None,
             created: Utc::now(),
             last_seen: Utc::now(),
         };
@@ -59,57 +49,6 @@ impl Session {
         Ok(session)
     }
 
-    pub async fn select_realm(&mut self, db: &Database, realm_id: u32) -> DBResult<()> {
-        self.realm_id = Some(realm_id);
-
-        let collection = Self::collection(db);
-
-        collection.update_one(
-            Self::query_one(self.key()), 
-            doc!{"$set": {"realm_id": realm_id}},
-        ).await?;
-
-        Ok(())
-    }
-
-    pub async fn select_world(&mut self, db: &Database, world_id: u16) -> DBResult<()> {
-        self.world_id = Some(world_id);
-
-        let collection = Self::collection(db);
-
-        collection.update_one(
-            Self::query_one(self.key()), 
-            doc!{"$set": {"world_id": world_id as u32}},
-        ).await?;
-
-        Ok(())
-    }
-
-    pub async fn select_character(&mut self, db: &Database, character_id: u32) -> DBResult<()> {
-        self.character_id = Some(character_id);
-
-        let collection = Self::collection(db);
-
-        collection.update_one(
-            Self::query_one(self.key()), 
-            doc!{"$set": {"character_id": character_id}},
-        ).await?;
-
-        Ok(())
-    }
-
-    pub async fn select_zone(&mut self, db: &Database, zone_guid: Uuid) -> DBResult<()> {
-        self.zone_guid = Some(zone_guid);
-
-        let collection = Self::collection(db);
-
-        collection.update_one(
-            Self::query_one(self.key()), 
-            doc!{"$set": {"zone_guid": zone_guid}},
-        ).await?;
-
-        Ok(())
-    }
 }
 
 impl DatabaseRecord<'_> for Session {

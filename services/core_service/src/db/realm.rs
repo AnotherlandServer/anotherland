@@ -19,13 +19,16 @@ use bson::doc;
 use database::{DBResult, DatabaseRecord};
 use mongodb::{options::IndexOptions, Database, IndexModel};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Realm {
     pub id: i32,
     pub name: String,
     pub population: f32,
-    pub endpoint: Option<SocketAddr>,
+    #[serde_as(as = "DisplayFromStr")]
+    pub endpoint: SocketAddr,
 }
 
 impl DatabaseRecord<'_> for Realm {

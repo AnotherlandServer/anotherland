@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::{Context, Error, InputObject, Object, OneofObject, SimpleObject, futures_util::TryStreamExt};
+use async_graphql::{futures_util::TryStreamExt, Context, Enum, Error, InputObject, Object, OneofObject, SimpleObject};
 use bson::{doc, Uuid};
 use chrono::{DateTime, Utc};
 use database::DatabaseRecord;
@@ -33,14 +33,22 @@ pub struct SessionMutationRoot;
 
 #[Object]
 impl SessionRoot {
-    async fn active_sessions(&self, ctx: &Context<'_>) -> Result<Vec<Session>, Error> {
-        todo!()
+    async fn session(&self, ctx: &Context<'_>, id: Uuid) -> Result<Session, Error> {
+        let db = ctx.data::<Database>()?.clone();
+        if 
+            let Some(session) = db::Session::get(&db, &id).await? &&
+            let Some(account) = db::Account::get(&db, &session.account).await?
+        {
+            Ok(Session::from_db(session, account))
+        } else {
+            Err(Error::new("not found"))
+        }
     }
 }
 
 #[Object]
 impl SessionMutationRoot {
-    async fn create_session(&self, ctx: &Context<'_>, auth: AuthInfo) -> Result<Session, Error> {
+    async fn create_session(&self, ctx: &Context<'_>, auth: AuthInfo) -> Result<AuthResult, Error> {
         let db = ctx.data::<Database>()?.clone();
 
         let status = db::Status::get(&db, &()).await?.unwrap_or_default();
@@ -50,15 +58,24 @@ impl SessionMutationRoot {
                 if let Some(mut account) = db::Account::get_by_username_or_mail(&db, &auth.username_or_mail).await? {
                     if let db::Credentials::Username{password, ..} = &account.credentials {
                         if !password.check_password(auth.password) {
-                            return Err(Error::new("WRONG_CREDENTIALS"));
+                            return Ok(AuthResult {
+                                session: None,
+                                error: Some(AuthError::WrongCredentials)
+                            });
                         }
 
                         if account.banned {
-                            return Err(Error::new("ACCOUNT_BANNED"));
+                            return Ok(AuthResult {
+                                session: None,
+                                error: Some(AuthError::Banned)
+                            });
                         }
 
                         if status.cluster_locked.unwrap_or_default() && !account.is_gm {
-                            return Err(Error::new("SERVER_LOCKED"));
+                            return Ok(AuthResult {
+                                session: None,
+                                error: Some(AuthError::ServerLocked)
+                            });
                         }
 
                         // Force logout any existing sessions for this account, as there
@@ -69,22 +86,37 @@ impl SessionMutationRoot {
                         account.save(&db).await?;
 
                         let session = db::Session::create(&db, &account).await?;
-                        Ok(Session::from_db(session, account))
+                        Ok(AuthResult {
+                            session: Some(Session::from_db(session, account)),
+                            error: None,
+                        })
                     } else{
-                        Err(Error::new("WRONG_CREDENTIALS"))
+                        Ok(AuthResult {
+                            session: None,
+                            error: Some(AuthError::WrongCredentials)
+                        })
                     }
                 } else {
-                    Err(Error::new("WRONG_CREDENTIALS"))
+                    Ok(AuthResult {
+                        session: None,
+                        error: Some(AuthError::WrongCredentials)
+                    })
                 }
             },
             AuthInfo::SteamAuth(auth) => {
                 if let Some(mut account) = db::Account::get_by_steam_id(&db, &auth.steam_id).await? {
                     if account.banned {
-                        return Err(Error::new("ACCOUNT_BANNED"));
+                        return Ok(AuthResult {
+                            session: None,
+                            error: Some(AuthError::Banned)
+                        });
                     }
 
                     if status.cluster_locked.unwrap_or_default() && !account.is_gm {
-                        return Err(Error::new("SERVER_LOCKED"));
+                        return Ok(AuthResult {
+                            session: None,
+                            error: Some(AuthError::ServerLocked)
+                        });
                     }
 
                     // Force logout any existing sessions for this account, as there
@@ -95,9 +127,15 @@ impl SessionMutationRoot {
                     account.save(&db).await?;
 
                     let session = db::Session::create(&db, &account).await?;
-                    Ok(Session::from_db(session, account))
+                    Ok(AuthResult {
+                        session: Some(Session::from_db(session, account)),
+                        error: None,
+                    })
                 } else {
-                    Err(Error::new("WRONG_CREDENTIALS"))
+                    Ok(AuthResult {
+                        session: None,
+                        error: Some(AuthError::WrongCredentials)
+                    })
                 }
             },
         }
@@ -157,27 +195,12 @@ impl SessionMutationRoot {
     }
 }
 
-#[derive(SimpleObject, Clone, Debug)]
+#[derive(SimpleObject)]
 pub struct Session {
     id: uuid::Uuid,
     account: Account,
-    is_gm: bool,
-    //active_realm: Option<Realm>,
-    active_character_id: Option<u32>,
     created: DateTime<Utc>,
     last_seen: DateTime<Utc>,
-    
-    #[graphql(skip)]
-    session_id: Uuid,
-
-    #[graphql(skip)]
-    realm_id: Option<u32>,
-
-    #[graphql(skip)]
-    character_id: Option<u32>,
-
-    #[graphql(skip)]
-    zone_id: Option<Uuid>,
 }
 
 impl Session {
@@ -185,15 +208,8 @@ impl Session {
         Self {
             id: session.id.to_uuid_1(),
             account: Account::from_db(account),
-            is_gm: session.is_gm,
-            //active_realm: None,
-            active_character_id: None,
             created: session.created,
             last_seen: session.last_seen,
-            session_id: session.id,
-            realm_id: session.realm_id,
-            character_id: session.character_id,
-            zone_id: session.zone_guid,
         }
     }
 }
@@ -214,4 +230,17 @@ pub struct SteamAuthInfo {
 pub enum AuthInfo {
     EMailAuth(EMailAuthInfo),
     SteamAuth(SteamAuthInfo)
+}
+
+#[derive(Enum, Clone, Copy, Eq, PartialEq)]
+pub enum AuthError {
+    Banned,
+    ServerLocked,
+    WrongCredentials,
+}
+
+#[derive(SimpleObject)]
+pub struct AuthResult {
+    pub session: Option<Session>,
+    pub error: Option<AuthError>,
 }

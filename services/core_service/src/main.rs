@@ -15,11 +15,11 @@
 
 #![feature(let_chains)]
 
-use std::{io::{stdout, Write}, sync::Arc};
+use std::sync::Arc;
 
 use async_graphql::{http::GraphiQLSource, EmptySubscription, Schema};
 use async_graphql_poem::GraphQL;
-use clap::{arg, ArgAction, Args, Command, FromArgMatches, Parser};
+use clap::Parser;
 use database::DatabaseExt;
 use db::{Account, Realm, Session, Status};
 use log::info;
@@ -33,18 +33,16 @@ use zeromq::{PubSocket, Socket};
 mod db;
 mod schema;
 
-type EventSocket = Arc<Mutex<PubSocket>>;
-
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-struct Cli {
+pub struct CoreServiceOptions {
     #[arg(long, env = "GRAPHQL_BIND_ADDR", default_value = "127.0.0.1:8000")]
     graphql_bind_addr: String,
 
-    #[arg(long, env = "AUTH_EVENTS_BIND_URL", default_value = "tcp://127.0.0.1:5000")]
+    #[arg(long, env = "AUTH_EVENTS_BIND_URL", default_value = "tcp://127.0.0.1:15000")]
     auth_events_bind_url: String,
 
-    #[arg(long, env = "REALM_EVENTS_BIND_URL", default_value = "tcp://127.0.0.1:5001")]
+    #[arg(long, env = "REALM_EVENTS_BIND_URL", default_value = "tcp://127.0.0.1:15001")]
     realm_events_bind_url: String,
 
     #[arg(long, env = "MONGO_URI")]
@@ -54,30 +52,16 @@ struct Cli {
     mongo_db: String,
 }
 
+type EventSocket = Arc<Mutex<PubSocket>>;
+
 #[handler]
 async fn graphiql() -> impl IntoResponse {
-    
     Html(GraphiQLSource::build().endpoint("/").finish())
 }
 
 #[toolkit::service_main(cluster)]
 async fn main() {
-    let cli = Command::new("SDL")
-        .arg(arg!(--sdl).action(ArgAction::SetTrue));
-    let cli = Cli::augment_args(cli);
-
-    let matches = cli.get_matches();
-    if matches.get_flag("sdl") {
-        let _ = stdout().write_all(
-            Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)
-            .finish()
-            .sdl()
-            .as_bytes()
-        );
-        return;
-    }
-
-    let args = Cli::from_arg_matches(&matches).unwrap();
+    let args = CoreServiceOptions::parse();
 
     print_banner();
 
@@ -109,7 +93,7 @@ async fn main() {
         .at("/", get(graphiql).post(GraphQL::new(schema.clone())));
 
     tokio::spawn(async move {
-        info!("Starting server on http://{}", args.graphql_bind_addr);
+        info!("Starting core server on http://{}", args.graphql_bind_addr);
         Server::new(TcpListener::bind(args.graphql_bind_addr))
             .run(app)
             .await

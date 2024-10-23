@@ -30,13 +30,11 @@ pub struct AccountMutationRoot;
 
 #[Object]
 impl AccountRoot {
-    async fn account(&self, ctx: &Context<'_>, id: String) -> Result<Account, Error> {
+    async fn account(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Account>, Error> {
         let db = ctx.data::<Database>()?.clone();
-        if let Some(account) = db::Account::get(&db, &Uuid::parse_str(&id)?).await? {
-            Ok(Account::from_db(account))
-        } else {
-            Err(Error::new("not found"))
-        }
+        let res = db::Account::get(&db, &id).await?;
+
+        Ok(res.map(Account::from_db))
     }
 
     async fn find_account(&self, ctx: &Context<'_>, auth_query: AuthQuery) -> Result<Option<Account>, Error> {
@@ -74,85 +72,85 @@ impl AccountMutationRoot {
         ))
     }
 
-    async fn set_password(&self, ctx: &Context<'_>, id: Uuid, password: String) -> Result<Account, Error> {
+    async fn set_password(&self, ctx: &Context<'_>, id: Uuid, password: String) -> Result<Option<Account>, Error> {
         let db = ctx.data::<Database>()?.clone();
         if let Some(mut account) = db::Account::get(&db, &id).await? {
             if let db::Credentials::Username { .. } = account.credentials {
                 account.set_password(password)?;
                 account.save(&db).await?;
     
-                Ok(Account::from_db(account))
+                Ok(Some(Account::from_db(account)))
             } else {
                 Err(Error::new("can't change password of steam account"))
             }
         } else {
-            Err(Error::new("not found"))
+            Ok(None)
         }
     }
 
-    async fn set_one_time_password(&self, ctx: &Context<'_>, id: Uuid, password: String) -> Result<Account, Error> {
+    async fn set_one_time_password(&self, ctx: &Context<'_>, id: Uuid, password: String) -> Result<Option<Account>, Error> {
         let db = ctx.data::<Database>()?.clone();
         if let Some(mut account) = db::Account::get(&db, &id).await? {
             if let db::Credentials::Username { .. } = account.credentials {
                 account.set_one_time_password(password)?;
                 account.save(&db).await?;
     
-                Ok(Account::from_db(account))
+                Ok(Some(Account::from_db(account)))
             } else {
                 Err(Error::new("can't change password of steam account"))
             }
         } else {
-            Err(Error::new("not found"))
+            Ok(None)
         }
     }
 
-    async fn ban_account(&self, ctx: &Context<'_>, id: Uuid, reason: String) -> Result<Account, Error> {
+    async fn ban_account(&self, ctx: &Context<'_>, id: Uuid, reason: String) -> Result<Option<Account>, Error> {
         let db = ctx.data::<Database>()?.clone();
         if let Some(mut account) = db::Account::get(&db, &id).await? {
             account.banned = true;
             account.ban_reason = Some(reason);
             account.save(&db).await?;
 
-            Ok(Account::from_db(account))
+            Ok(Some(Account::from_db(account)))
         } else {
-            Err(Error::new("not found"))
+            Ok(None)
         }
     }
 
-    async fn unban_account(&self, ctx: &Context<'_>, id: Uuid) -> Result<Account, Error> {
+    async fn unban_account(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Account>, Error> {
         let db = ctx.data::<Database>()?.clone();
         if let Some(mut account) = db::Account::get(&db, &id).await? {
             account.banned = false;
             account.ban_reason = None;
             account.save(&db).await?;
 
-            Ok(Account::from_db(account))
+            Ok(Some(Account::from_db(account)))
         } else {
-            Err(Error::new("not found"))
+            Ok(None)
         }
     }
 
-    async fn promote_account(&self, ctx: &Context<'_>, id: Uuid) -> Result<Account, Error> {
+    async fn promote_account(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Account>, Error> {
         let db = ctx.data::<Database>()?.clone();
         if let Some(mut account) = db::Account::get(&db, &id).await? {
             account.is_gm = true;
             account.save(&db).await?;
 
-            Ok(Account::from_db(account))
+            Ok(Some(Account::from_db(account)))
         } else {
-            Err(Error::new("not found"))
+            Ok(None)
         }
     }
 
-    async fn demote_account(&self, ctx: &Context<'_>, id: Uuid) -> Result<Account, Error> {
+    async fn demote_account(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Account>, Error> {
         let db = ctx.data::<Database>()?.clone();
         if let Some(mut account) = db::Account::get(&db, &id).await? {
             account.is_gm = false;
             account.save(&db).await?;
 
-            Ok(Account::from_db(account))
+            Ok(Some(Account::from_db(account)))
         } else {
-            Err(Error::new("not found"))
+            Ok(None)
         }
     }
 }
@@ -179,11 +177,11 @@ pub enum AuthQuery {
     Steam(SteamQuery)
 }
 
-#[derive(SimpleObject, Serialize, Deserialize, Clone, Debug)]
+#[derive(SimpleObject)]
 pub struct Account {
     id: uuid::Uuid,
     numeric_id: i32,
-    credentials: Credentials,
+    identifier: Identifier,
     created: DateTime<Utc>,
     last_login: Option<DateTime<Utc>>,
     banned: bool,
@@ -196,12 +194,12 @@ impl Account {
         Self {
             id: account.id.to_uuid_1(),
             numeric_id: account.numeric_id,
-            credentials: match account.credentials {
+            identifier: match account.credentials {
                 db::Credentials::Username { name, email, .. } => {
-                    Credentials::Username(UsernameCredentials { username: name, email })
+                    Identifier::Username(UsernameIdentifier { username: name, email })
                 },
                 db::Credentials::Steam { steam_id } => {
-                    Credentials::Steam(SteamCredentials { steam_id })
+                    Identifier::Steam(SteamIdentifier { steam_id })
                 }
             },
             created: account.created,
@@ -213,19 +211,19 @@ impl Account {
     }
 }
 
-#[derive(SimpleObject, Serialize, Deserialize, Clone, Debug)]
-pub struct SteamCredentials {
+#[derive(SimpleObject)]
+pub struct SteamIdentifier {
     pub steam_id: String,
 }
 
-#[derive(SimpleObject, Serialize, Deserialize, Clone, Debug)]
-pub struct UsernameCredentials {
+#[derive(SimpleObject)]
+pub struct UsernameIdentifier {
     pub username: String,
     pub email: Option<String>,
 }
 
-#[derive(Union, Serialize, Deserialize, Clone, Debug)]
-pub enum Credentials {
-    Steam(SteamCredentials),
-    Username(UsernameCredentials),
+#[derive(Union)]
+pub enum Identifier {
+    Steam(SteamIdentifier),
+    Username(UsernameIdentifier),
 }

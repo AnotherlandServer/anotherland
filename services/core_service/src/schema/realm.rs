@@ -56,7 +56,7 @@ impl RealmMutationRoot {
             id: input.id,
             name: input.name,
             population: 0.0,
-            endpoint: None
+            endpoint: input.endpoint.parse()?
         }).await?;
         
         Ok(Realm::from_db(realm))
@@ -87,7 +87,7 @@ impl RealmMutationRoot {
             }
 
             if let Some(endpoint) = update.endpoint {
-                realm.endpoint = endpoint.parse().ok();
+                realm.endpoint = endpoint.parse()?;
             }
 
             Ok(Some(Realm::from_db(realm)))
@@ -101,6 +101,7 @@ impl RealmMutationRoot {
 struct RealmCreationInput {
     pub id: i32,
     pub name: String,
+    pub endpoint: String,
 }
 
 #[derive(InputObject)]
@@ -115,7 +116,7 @@ struct Realm {
     pub id: i32,
     pub name: String,
     pub population: f32,
-    pub endpoint: Option<String>,
+    pub endpoint: String,
 }
 
 impl Realm {
@@ -124,7 +125,7 @@ impl Realm {
             id: realm.id,
             name: realm.name.clone(),
             population: realm.population,
-            endpoint: realm.endpoint.map(|adr| adr.to_string()),
+            endpoint: realm.endpoint.to_string(),
         }
     }
 }
