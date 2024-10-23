@@ -23,7 +23,6 @@ pub use macros::*;
 pub use banner::*;
 pub mod types;
 pub mod string_parsers;
-pub mod build;
 
 // reexports
 pub use env_logger;
