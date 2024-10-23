@@ -1,0 +1,17 @@
+[package]
+name = "core_api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+base64 = "0.22.1"
+chrono = "0.4.38"
+cynic = { version = "3.8.0", features = ["http-reqwest", "http-reqwest-blocking"] }
+reqwest = "0.12.8"
+steamworks = "0.11.0"
+thiserror = "1.0.65"
+toolkit = { version = "0.1.0", path = "../toolkit" }
+
+[build-dependencies]
+core_service = { version = "0.1.0", path = "../../services/core_service" }
+cynic-codegen = "3.8.0"
