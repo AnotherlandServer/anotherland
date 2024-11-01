@@ -1,60 +1,23 @@
-[package]
-name = "anotherland"
-version = "0.1.0"
-edition = "2021"
-license = "AGPL-3.0-or-later"
-
-[build]
-incremental = true
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-tokio = { version = "1", features = ["full", "macros", "rt-multi-thread", "parking_lot"] }
-rand = "0.8.5"
-nom = "7.1.3"
-chrono = { version = "0.4.26", features = ["serde"] }
-bitstream-io = "1.6.0"
-sha1 = "0.10.5"
-num-traits = "0.2.15"
-async-trait = "0.1.72"
-glam = { version = "0.24.1", features = ["serde"] }
-log = { version = "0.4.20", features = ["kv_unstable", "kv_unstable_serde"] }
-log4rs = "1.2.0"
-config = "0.14.0"
-serde = { version = "1.0.183", features = ["derive"] }
-once_cell = "1.18.0"
-serde_derive = "1.0.188"
-glob = "0.3.1"
-bcrypt = "0.15.0"
-fnv = "1.0.7"
-clap = { version = "4.4.6", features = ["derive", "env"] }
-dotenvy = "0.15.7"
-mongodb = { version = "2.7.0", features = ["tokio-runtime"] }
-bson = { version = "2.7.0", features = ["uuid-1", "serde_with-3"] }
-serde_json = "1.0.107"
-sqlite = "0.31.1"
-tokio-stream = "0.1.14"
-rabbitmq-stream-client = "0.4.0"
-atlas = { version = "0.1.0", path = "atlas" }
-futures = "0.3.28"
-async-graphql = { version = "6.0.11", features = ["chrono", "chrono-tz", "uuid", "graphiql"] }
-poem = "1.3.59"
-async-graphql-poem = "6.0.11"
-actor_macros = { version = "0.1.0", path = "actor_macros" }
-tokio-util = { version = "0.7.10", features = ["rt", "net", "codec"] }
-quinn = { version = "0.10.2", features = ["rustls"] }
-rcgen = "0.12.0"
-rustls = "0.21"
-serde_with = "3.4.0"
-parking_lot = { version = "0.12.1", features = ["send_guard"] }
-bevy_ecs = "0.13.2"
-bevy = { version = "0.13.2", default-features = false }
-upk = { version = "0.1.0", path = "upk" }
-bspline = "1.1.0"
-regex = "1.10.3"
-prometheus = { version = "0.13.3", features = ["process"] }
-lazy_static = "1.4.0"
-yaml-rust2 = "0.8.1"
-hashlink = "0.9.1"
-bitvec = "1.0.1"
+[workspace]
+resolver = "2"
+members = [ 
+    "lib/core_api", 
+    "lib/config", 
+    "lib/database",
+    "lib/macros", 
+    "lib/messages",
+    "lib/protocol",
+    "lib/raknet",
+    "lib/toolkit",
+    "lib/upk", 
+    "lib/zone",
+    "lib/obj_params",
+    "services/core_service",
+    "services/cluster_server", 
+    "services/dungeon_service", 
+    "services/frontend_server",
+    "services/login_server", 
+    "services/realm_manager_service", 
+    "services/world_service",
+    "tools/kismet-plotter"
+]
