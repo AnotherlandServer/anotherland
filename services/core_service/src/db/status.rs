@@ -56,7 +56,7 @@ impl DatabaseRecord<'_> for Status {
         "status"
     }
 
-    fn query_one(key: &Self::PrimaryKey) -> Document {
+    fn query_one(_key: &Self::PrimaryKey) -> Document {
         doc!{}
     }
 }

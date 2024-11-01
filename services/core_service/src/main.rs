@@ -17,14 +17,14 @@
 
 use std::sync::Arc;
 
-use async_graphql::{http::GraphiQLSource, EmptySubscription, Schema};
+use async_graphql::{EmptySubscription, Schema};
 use async_graphql_poem::GraphQL;
 use clap::Parser;
 use database::DatabaseExt;
 use db::{Account, Realm, Session, Status};
 use log::info;
 use mongodb::Client;
-use poem::{get, handler, listener::TcpListener, web::Html, IntoResponse, Route, Server};
+use poem::{listener::TcpListener, post, Route, Server};
 use schema::{MutationRoot, QueryRoot};
 use tokio::sync::Mutex;
 use toolkit::print_banner;
@@ -35,7 +35,7 @@ mod schema;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-pub struct CoreServiceOptions {
+pub struct Args {
     #[arg(long, env = "GRAPHQL_BIND_ADDR", default_value = "127.0.0.1:8000")]
     graphql_bind_addr: String,
 
@@ -54,14 +54,9 @@ pub struct CoreServiceOptions {
 
 type EventSocket = Arc<Mutex<PubSocket>>;
 
-#[handler]
-async fn graphiql() -> impl IntoResponse {
-    Html(GraphiQLSource::build().endpoint("/").finish())
-}
-
 #[toolkit::service_main(cluster)]
 async fn main() {
-    let args = CoreServiceOptions::parse();
+    let args = Args::parse();
 
     print_banner();
 
@@ -90,7 +85,7 @@ async fn main() {
         .finish();
 
     let app = Route::new()
-        .at("/", get(graphiql).post(GraphQL::new(schema.clone())));
+        .at("/", post(GraphQL::new(schema.clone())));
 
     tokio::spawn(async move {
         info!("Starting core server on http://{}", args.graphql_bind_addr);

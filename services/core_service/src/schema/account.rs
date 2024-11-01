@@ -18,7 +18,6 @@ use bson::Uuid;
 use chrono::{DateTime, Utc};
 use database::DatabaseRecord;
 use mongodb::Database;
-use serde::{Deserialize, Serialize};
 
 use crate::db;
 
