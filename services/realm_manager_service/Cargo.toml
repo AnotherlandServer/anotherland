@@ -1,0 +1,18 @@
+[package]
+name = "realm_manager_service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-graphql = { version = "7.0.11", features = ["bson", "chrono", "chrono-tz", "uuid"] }
+async-graphql-poem = "7.0.11"
+clap = { version = "4.5.20", features = ["derive", "env"] }
+cynic = { version = "3.8.0", features = ["http-reqwest", "reqwest"] }
+database = { version = "0.1.0", path = "../../lib/database" }
+log = "0.4.22"
+mongodb = "3.1.0"
+reqwest = "0.12.8"
+thiserror = "1.0.65"
+tokio = { version = "1.41.0", features = ["full"] }
+toolkit = { version = "0.1.0", path = "../../lib/toolkit" }
+zeromq = "0.4.1"

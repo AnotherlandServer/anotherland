@@ -13,20 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
+use thiserror::Error;
+use tokio::task::JoinError;
 
-use raknet::RakNetListener;
-use tokio::time::sleep;
-use log::debug;
+#[derive(Error, Debug)]
+pub enum FrontendError {
+    #[error("raknet error")]
+    RakNet(#[from] raknet::RakNetError),
 
-#[toolkit::service_main]
-async fn main() {
-    let mut listener = RakNetListener::bind("0.0.0.0:6112").await.unwrap();
-    listener.listen(100).await;
-
-    loop {
-        let socket = listener.accept().await;
-        debug!("Got new connection!");
-        sleep(Duration::from_millis(10)).await;
-    }
+    #[error("task paniced")]
+    JoinError(#[from] JoinError)
 }
+
+pub type FrontendResult<T> = Result<T, FrontendError>;
