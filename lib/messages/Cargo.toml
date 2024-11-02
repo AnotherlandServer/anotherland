@@ -1,0 +1,11 @@
+[package]
+name = "messages"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flexbuffers = "2.0.0"
+serde = { version = "1.0.210", features = ["serde_derive"] }
+thiserror = "1.0.64"
+toolkit = { version = "0.1.0", path = "../toolkit" }
+zeromq = "0.4.1"
