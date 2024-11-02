@@ -617,6 +617,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         let enum_name = format_ident!("{}", class.name.to_case(Case::UpperCamel));
         let class_name = format_ident!("{}", class.name.to_case(Case::UpperCamel));
         let enum_lookup_name = format_ident!("{}_ATTRIBUTES", class.name.to_case(Case::UpperSnake));
+        let enum_lookup_id_name = format_ident!("{}_ATTRIBUTES_ID", class.name.to_case(Case::UpperSnake));
 
         let enum_entries: Vec<_> = class.paramid.iter().map(|v| {
             let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
@@ -747,6 +748,13 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             quote!(#name_literal => #enum_name::#entry_name,)
         }).collect();
 
+        let static_id_lookup: Vec<_> = class.paramid.iter().map(|v| {
+            let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
+            let id_literal = &v.1;
+
+            quote!(#id_literal => #enum_name::#entry_name,)
+        }).collect();
+
         let static_info: Vec<_> = class.paramid.iter().map(|v| {
             let entry_name = format_ident!("{}", v.0.to_case(Case::UpperCamel));
             quote!(Self::#entry_name => &Self::#entry_name,)
@@ -830,6 +838,10 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
             static #enum_lookup_name: phf::Map<&'static str, #enum_name> = phf_map! {
                 #(#static_lookup)*
+            };
+
+            static #enum_lookup_id_name: phf::Map<u16, #enum_name> = phf_map! {
+                #(#static_id_lookup)*
             };
 
             impl Attribute for #enum_name {
@@ -917,6 +929,20 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         }
     }).collect();
 
+    let class_get_attribute_by_id: Vec<_> = paramlist.classes.iter().map(|v| {
+        let class = v.borrow();
+        let class_name = format_ident!("{}", class.name.to_case(Case::UpperCamel));
+        let enum_lookup_id_name = format_ident!("{}_ATTRIBUTES_ID", class.name.to_case(Case::UpperSnake));
+
+
+        quote! {
+            Self::#class_name => {
+                #enum_lookup_id_name.get(&attr)
+                    .map(|a| a.static_info())
+            }
+        }
+    }).collect();
+
     let class_names: Vec<_> = paramlist.classes.iter().map(|v| {
         let class = v.borrow();
         let class_name: syn::Ident = format_ident!("{}", class.name.to_case(Case::UpperCamel));
@@ -924,6 +950,30 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         quote!{ Self::#class_name => #class_name_literal, }
     }).collect();
+
+    let class_parser: Vec<_> = paramlist.classes.iter().map(|v| {
+        let class = v.borrow();
+        let class_name: syn::Ident = format_ident!("{}", class.name.to_case(Case::UpperCamel));
+        let class_name_literal = &class.name;
+
+        quote!{ #class_name_literal => Ok(Self::#class_name), }
+    }).collect();
+
+    let class_create_set: Vec<_> = paramlist.classes.iter().map(|v| {
+        let class = v.borrow();
+        let class_name: syn::Ident = format_ident!("{}", class.name.to_case(Case::UpperCamel));
+
+        quote!{ Self::#class_name => Box::new(ParamSet::<#class_name>::new_from_attributes(attributes)), }
+    }).collect();
+
+    let class_from_id: Vec<_> = paramlist.classes.iter().map(|v| {
+        let class = v.borrow();
+        let class_name: syn::Ident = format_ident!("{}", class.name.to_case(Case::UpperCamel));
+        let class_id_literal = class.unique_id;
+
+        quote!{ #class_id_literal => Some(Self::#class_name), }
+    }).collect();
+
 
     write_source("generated_params.rs", quote! {
         use glam::Vec3;
@@ -956,6 +1006,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use crate::ParamError;
         use crate::Value;
         use crate::GameObjectData;
+        use crate::GenericParamSet;
 
         #(#param_name_enums)*
 
@@ -979,14 +1030,40 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 }
             }
 
+            pub(crate) fn get_attribute_from_id(&self, attr: u16) -> Option<&'static dyn AttributeInfo> {
+                match self {
+                    #(#class_get_attribute_by_id),*
+                }
+            }
+
+            pub fn from_id(id: u16) -> Option<Self> {
+                match id {
+                    #(#class_from_id)*
+                    _ => None,
+                }
+            }
+
             pub fn name(&self) -> &'static str {
                 match self {
                     #(#class_names)*
                 }
             }
 
-            pub(crate) fn deserialize<'de, D: serde::Deserializer<'de>>(&self, deserializer: D) -> Result<GameObjectData, D::Error> {
-                todo!()
+            pub(crate) fn create_param_set(&self, attributes: Vec<(&'static dyn AttributeInfo, Value)>) -> Box<dyn GenericParamSet> {
+                match self {
+                    #(#class_create_set)*
+                }
+            }
+        }
+
+        impl FromStr for Class {
+            type Err = ParamError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    #(#class_parser)*
+                    _ => Err(ParamError::UnknownClass),
+                }
             }
         }
     })

@@ -22,4 +22,7 @@ pub enum ParamError {
 
     #[error("unknown attribute id")]
     UnknownAttributeId,
+
+    #[error("unknown class")]
+    UnknownClass,
 }

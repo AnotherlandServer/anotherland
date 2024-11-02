@@ -35,3 +35,4 @@ pub use generated::*;
 pub use error::*;
 pub use object::*;
 pub use reader::*;
+pub use param::*;

@@ -19,15 +19,14 @@ use std::{collections::{HashMap, HashSet}, io};
 use bitstream_io::ByteWrite;
 use glam::{Quat, Vec3, Vec4};
 use nom::{bytes::complete::take, combinator::{fail, map}, error::{context, VerboseError}, multi::{self, count}, number::{self, complete::{le_f32, le_i32, le_i64}}, IResult};
-use serde::{ser::{SerializeSeq, SerializeTuple}, Serialize};
+use serde::Serialize;
 use serde_json::Value as JsonValue;
 use toolkit::types::{AvatarId, Uuid};
 
-use crate::ParamFlag;
+use crate::{ParamFlag, ParamType};
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
-    None,
     String(String), // 1
     StringPair((String, String)), // 2
     StringFloatPair((String, f32)), // 3
@@ -711,15 +710,55 @@ impl Value {
         }
     }
 
-    pub fn is_set(&self) -> bool {
-        !matches!(self, Value::None)
+    pub fn r#type(&self) -> ParamType {
+        match self {
+            Value::String(_) => ParamType::String,
+            Value::StringPair(_) => ParamType::StringPair,
+            Value::StringFloatPair(_) => ParamType::StringFloatPair,
+            Value::StringSet(_) => ParamType::StringSet,
+            Value::Guid(_) => ParamType::Guid,
+            Value::GuidPair(_) => ParamType::GuidPair,
+            Value::Bool(_) => ParamType::Bool,
+            Value::Int(_) => ParamType::Int,
+            Value::BitField128(_) => ParamType::BitField128,
+            Value::BitSetFilter(_) => ParamType::BitSetFilter,
+            Value::Float(_) => ParamType::Float,
+            Value::FloatRange(_) => ParamType::FloatRange,
+            Value::Vector3(_) => ParamType::Vector3,
+            Value::Vector3Uts(_) => ParamType::Vector3Uts,
+            Value::Vector4(_) => ParamType::Vector4,
+            Value::LocalizedString(_) => ParamType::LocalizedString,
+            Value::AvatarId(_) => ParamType::AvatarId,
+            Value::UniqueId(_) => ParamType::UniqueId,
+            Value::JsonValue(_) => ParamType::JsonValue,
+            Value::Int64(_) => ParamType::Int64,
+            Value::Quarternion(_) => ParamType::Quarternion,
+            Value::Positionable(_, _) => ParamType::Positionable,
+            Value::ContentRef(_) => ParamType::ContentRef,
+            Value::ContentRefAndInt(_) => ParamType::ContentRefAndInt,
+            Value::ContentRefAndFloat(_) => ParamType::ContentRefAndFloat,
+            Value::ContentRefList(_) => ParamType::ContentRefList,
+            Value::ClassRefPowerRangeList(_) => ParamType::ClassRefPowerRangeList,
+            Value::VectorInt(_) => ParamType::VectorInt,
+            Value::VectorInt64(_) => ParamType::VectorInt64,
+            Value::VectorFloat(_) => ParamType::VectorFloat,
+            Value::VectorString(_) => ParamType::VectorString,
+            Value::AvatarIdSet(_) => ParamType::AvatarIdSet,
+            Value::VectorAvatarId(_) => ParamType::VectorAvatarId,
+            Value::GuidSet(_) => ParamType::GuidSet,
+            Value::VectorGuid(_) => ParamType::VectorGuid,
+            Value::HashmapStringInt(_) => ParamType::HashmapStringInt,
+            Value::HashmapStringString(_) => ParamType::HashmapStringString,
+            Value::Any(_) => ParamType::Any,
+            Value::VectorLocalizedString(_) => ParamType::VectorLocalizedString,
+            Value::InstanceGroup(_) => ParamType::InstanceGroup,
+        }
     }
 }
 
 impl Clone for Value {
     fn clone(&self) -> Self {
         match self {
-            Self::None => Self::None,
             Self::String(arg0) => Self::String(arg0.clone()),
             Self::StringPair(arg0) => Self::StringPair(arg0.clone()),
             Self::StringFloatPair(arg0) => Self::StringFloatPair(arg0.clone()),
@@ -770,67 +809,32 @@ impl Serialize for Value {
         S: serde::Serializer {
         
         match self {
-            Value::None => serializer.serialize_none(),
-            Value::String(val) => serializer.serialize_str(val),
-            Value::StringPair(pair) => {
-                let mut state = serializer.serialize_tuple(2)?;
-                state.serialize_element(&pair.0)?;
-                state.serialize_element(&pair.1)?;
-                state.end()
-            },
-            Value::StringFloatPair(pair) => {
-                let mut state = serializer.serialize_tuple(2)?;
-                state.serialize_element(&pair.0)?;
-                state.serialize_element(&pair.1)?;
-                state.end()
-            },
-            Value::StringSet(hash_set) => {
-                let mut state = serializer.serialize_seq(Some(hash_set.len()))?;
-                for elem in hash_set {
-                    state.serialize_element(elem)?;
-                }
-                state.end()
-            },
-            Value::Guid(uuid) => serializer.serialize_str(&uuid.to_string()),
-            Value::GuidPair(pair) => {
-                let mut state = serializer.serialize_tuple(2)?;
-                state.serialize_element(&pair.0.to_string())?;
-                state.serialize_element(&pair.1.to_string())?;
-                state.end()
-            },
-            Value::Bool(val) => serializer.serialize_bool(*val),
-            Value::Int(val) => serializer.serialize_i32(*val),
-            Value::BitField128(val) => serializer.serialize_u128(*val),
-            Value::BitSetFilter(val) => serializer.serialize_u32(*val),
-            Value::Float(val) => serializer.serialize_f32(*val),
-            Value::FloatRange(pair) => {
-                let mut state = serializer.serialize_tuple(2)?;
-                state.serialize_element(&pair.0)?;
-                state.serialize_element(&pair.1)?;
-                state.end()
-            },
+            Value::String(val) => val.serialize(serializer),
+            Value::StringPair(pair) => pair.serialize(serializer),
+            Value::StringFloatPair(pair) => pair.serialize(serializer),
+            Value::StringSet(hash_set) => hash_set.serialize(serializer),
+            Value::Guid(uuid) => uuid.serialize(serializer),
+            Value::GuidPair(pair) => pair.serialize(serializer),
+            Value::Bool(val) => val.serialize(serializer),
+            Value::Int(val) => val.serialize(serializer),
+            Value::BitField128(val) => val.serialize(serializer),
+            Value::BitSetFilter(val) => val.serialize(serializer),
+            Value::Float(val) => val.serialize(serializer),
+            Value::FloatRange(pair) => pair.serialize(serializer),
             Value::Vector3(val) => val.serialize(serializer),
-            Value::Vector3Uts(pair) => {
-                let mut state = serializer.serialize_tuple(2)?;
-                state.serialize_element(&pair.0)?;
-                state.serialize_element(&pair.1)?;
-                state.end()
-            },
+            Value::Vector3Uts(pair) => pair.serialize(serializer),
             Value::Vector4(val) => val.serialize(serializer),
-            Value::LocalizedString(uuid) => serializer.serialize_str(&uuid.to_string()),
-            Value::AvatarId(avatar_id) => serializer.serialize_str(&avatar_id.to_string()),
-            Value::UniqueId(val) => serializer.serialize_i32(*val),
+            Value::LocalizedString(uuid) => uuid.serialize(serializer),
+            Value::AvatarId(avatar_id) => avatar_id.serialize(serializer),
+            Value::UniqueId(val) => val.serialize(serializer),
             Value::JsonValue(val) => val.serialize(serializer),
-            Value::Int64(val) => serializer.serialize_i64(*val),
+            Value::Int64(val) => val.serialize(serializer),
             Value::Quarternion(quat) => quat.serialize(serializer),
             Value::Positionable(quat, vec3) => {
-                let mut state = serializer.serialize_tuple(2)?;
-                state.serialize_element(quat)?;
-                state.serialize_element(vec3)?;
-                state.end()
+                (quat, vec3).serialize(serializer)
             },
-            Value::ContentRef(val) => serializer.serialize_str(val),
-            Value::ContentRefAndInt(val) => serializer.serialize_str(val),
+            Value::ContentRef(val) => val.serialize(serializer),
+            Value::ContentRefAndInt(val) => val.serialize(serializer),
             Value::ContentRefAndFloat(val) => serializer.serialize_str(val),
             Value::ContentRefList(val) => serializer.serialize_str(val),
             Value::ClassRefPowerRangeList(val) => serializer.serialize_str(val),
@@ -844,9 +848,39 @@ impl Serialize for Value {
             Value::VectorGuid(vec) => vec.serialize(serializer),
             Value::HashmapStringInt(hash_map) => hash_map.serialize(serializer),
             Value::HashmapStringString(hash_map) => hash_map.serialize(serializer),
-            Value::Any(vec) => serializer.serialize_str(&BASE64_STANDARD.encode(vec)),
+            Value::Any(vec) => {
+                if serializer.is_human_readable() {
+                    BASE64_STANDARD.encode(vec).serialize(serializer)
+                } else {
+                    vec.serialize(serializer)
+                }
+            },
             Value::VectorLocalizedString(vec) => vec.serialize(serializer),
-            Value::InstanceGroup(val) => serializer.serialize_str(val),
+            Value::InstanceGroup(val) => val.serialize(serializer),
         }
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Value::Bool(value)
+    }
+}
+
+impl From<i32> for Value {
+    fn from(value: i32) -> Self {
+        Value::Int(value)
+    }
+}
+
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Value::String(value)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::String(value.to_string())
     }
 }
