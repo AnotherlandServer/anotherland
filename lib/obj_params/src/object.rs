@@ -13,14 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::{HashMap, HashSet}, fmt::Debug};
+use std::fmt::Debug;
 
-use base64::prelude::*;
-use glam::{Quat, Vec3, Vec4};
-use serde::{de::{self, DeserializeSeed, SeqAccess, Visitor}, ser::{SerializeMap, SerializeStruct}, Deserialize, Serialize};
-use toolkit::types::{AvatarId, Uuid};
+use serde::{Deserialize, Serialize};
 
-use crate::{Attribute, AttributeInfo, Class, GenericParamSet, ParamFlag, ParamSet, ParamType, Value};
+use crate::{Attribute, Class, GenericParamSet, ParamFlag, ParamSet, Value};
 
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]

@@ -281,7 +281,7 @@ impl ParamWriter for dyn GenericParamSet {
     }
 }
 
-fn read_attribute<'a>(class: Class, i: &'a [u8]) -> IResult<&'a [u8], (&'static dyn AttributeInfo, Value), VerboseError<&'a [u8]>> {
+fn read_attribute(class: Class, i: &[u8]) -> IResult<&[u8], (&'static dyn AttributeInfo, Value), VerboseError<&[u8]>> {
     let (i, attribute_id) = context("Attribute Id", number::complete::le_u16)(i)?;
     let attribute = match class.get_attribute_from_id(attribute_id) {
         Some(attribute) => attribute,

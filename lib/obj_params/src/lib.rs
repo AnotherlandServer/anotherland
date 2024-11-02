@@ -24,7 +24,6 @@ mod set;
 mod generated;
 mod object;
 mod error;
-mod reader;
 
 pub use flags::*;
 pub use value::*;
@@ -34,5 +33,4 @@ pub use set::*;
 pub use generated::*;
 pub use error::*;
 pub use object::*;
-pub use reader::*;
 pub use param::*;

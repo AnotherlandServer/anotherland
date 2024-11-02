@@ -13,9 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{io, ops::{Deref, DerefMut}};
+use std::ops::{Deref, DerefMut};
 
-use bitstream_io::ByteWrite;
 use log::warn;
 use nom::{combinator::fail, error::{context, VerboseError}, number, IResult};
 
@@ -73,15 +72,6 @@ impl <T: Attribute> Param <T> {
             state: State::Unchanged,
             val
         }))
-    }
-
-    pub(crate) fn write<W>(&self, writer: &mut W) -> Result<(), io::Error> 
-        where W: ByteWrite
-    {
-        writer.write(self.attr.id())?;
-        self.value().write(writer)?;
-
-        Ok(())
     }
 }
 
