@@ -45,10 +45,9 @@ pub trait DatabaseRecord<'de>: DeserializeOwned + Serialize + Send + Sync + Unpi
     async fn create(db: &Database, record: Self) -> DBResult<Self> {
         let collection = Self::collection(db);
 
-        collection.update_one(
-            Self::query_one(record.key()), 
-            doc!{"$set": bson::to_bson(&record).unwrap().as_document().unwrap()},
-        ).upsert(true).await?;
+        collection.insert_one(
+            &record
+        ).await?;
 
         Ok(record)
     }

@@ -19,6 +19,9 @@ use thiserror::Error;
 pub enum DatabaseError {
     #[error("mongodb error")]
     Mongodb(#[from] mongodb::error::Error),
+
+    #[error("custom error")]
+    Custom(&'static str),
 }
 
 pub type DBResult<T> = std::result::Result<T, DatabaseError>;
