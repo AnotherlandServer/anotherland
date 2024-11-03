@@ -13,21 +13,28 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::MergedObject;
-use character::{CharacterMutationRoot, CharacterRoot};
-use premium_currency::{PremiumCurrencyMutationRoot, PremiumCurrencyRoot};
+use cynic::serde::{Deserialize, Serialize};
+use database::DatabaseRecord;
+use mongodb::bson::Uuid;
+use obj_params::GameObjectData;
 
-mod character;
-mod premium_currency;
+#[derive(Serialize, Deserialize)]
+pub struct Character {
+    pub id: Uuid,
+    pub account: Uuid,
+    pub index: i32,
+    pub name: String,
+    pub data: GameObjectData,
+}
 
-#[derive(MergedObject, Default)]
-pub struct QueryRoot(
-    pub CharacterRoot,
-    pub PremiumCurrencyRoot,
-);
+impl DatabaseRecord<'_> for Character {
+    type PrimaryKey = Uuid;
 
-#[derive(MergedObject, Default)]
-pub struct MutationRoot(
-    pub CharacterMutationRoot,
-    pub PremiumCurrencyMutationRoot,
-);
+    fn key(&self) -> &Self::PrimaryKey {
+        &self.id
+    }
+
+    fn collection_name() -> &'static str {
+        "characters"
+    }
+}
