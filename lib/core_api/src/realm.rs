@@ -23,8 +23,8 @@ use crate::{CoreApi, CoreApiError, CoreApiResult};
 pub struct Realm {
     id: i32,
     name: String,
-    population: f64,
-    endoint: SocketAddrV4,
+    population: Option<f64>,
+    endpoint: Option<SocketAddrV4>,
 }
 
 impl Realm {
@@ -33,14 +33,14 @@ impl Realm {
             id: realm.id,
             name: realm.name,
             population: realm.population,
-            endoint: realm.endpoint.parse().unwrap(),
+            endpoint: realm.endpoint.map(|s| s.parse().unwrap()),
         }
     }
 
     pub fn id(&self) -> i32 { self.id }
     pub fn name(&self) -> &str { &self.name }
-    pub fn population(&self) -> f64 { self.population }
-    pub fn endpoint(&self) -> &SocketAddrV4 { &self.endoint }
+    pub fn population(&self) -> Option<f64> { self.population }
+    pub fn endpoint(&self) -> Option<&SocketAddrV4> { self.endpoint.as_ref() }
 }
 
 impl CoreApi {
@@ -97,7 +97,7 @@ pub(crate) mod realm_graphql {
     pub struct Realm {
         pub id: i32,
         pub name: String,
-        pub population: f64,
-        pub endpoint: String,
+        pub population: Option<f64>,
+        pub endpoint: Option<String>,
     }
 }

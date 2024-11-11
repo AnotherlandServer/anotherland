@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 base64 = "0.22.1"
 chrono = "0.4.38"
+cluster = { version = "0.1.0", path = "../cluster" }
+core_service = { version = "0.1.0", path = "../../services/core_service" }
 cynic = { version = "3.8.0", features = ["http-reqwest", "http-reqwest-blocking"] }
 reqwest = "0.12.8"
 steamworks = "0.11.0"

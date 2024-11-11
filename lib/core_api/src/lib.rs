@@ -25,3 +25,7 @@ pub use account::*;
 pub use session::*;
 pub use realm::*;
 pub use error::*;
+
+// reexport
+pub use core_service::proto;
+pub use cluster::{ClusterResult, Error as ClusterError};

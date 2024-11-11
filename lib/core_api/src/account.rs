@@ -15,7 +15,7 @@
 
 use std::fmt::Display;
 
-use account_graphql::{EmailQuery, FindAccount, FindAccountVariables, RegisterSteamAccount, RegisterSteamAccountVariables, SteamQuery, UsernameQuery};
+use account_graphql::{AuthQuery, EmailQuery, FindAccount, FindAccountVariables, RegisterSteamAccount, RegisterSteamAccountVariables, SteamQuery, UsernameQuery};
 use chrono::{DateTime, Utc};
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use steamworks::SteamId;
@@ -111,26 +111,26 @@ impl CoreApi {
 
     pub async fn find_account(&self, query: AccountQuery) -> CoreApiResult<Option<Account>> {
         let query = match &query {
-            AccountQuery::Username(username) => FindAccountVariables {
+            AccountQuery::Username(username) => AuthQuery {
                 username: Some(UsernameQuery { username }),
                 email: None,
-                steam_id: None,
+                steam: None,
             },
-            AccountQuery::Email(email) => FindAccountVariables {
+            AccountQuery::Email(email) => AuthQuery {
                 username: None,
                 email: Some(EmailQuery { email }),
-                steam_id: None,
+                steam: None,
             },
-            AccountQuery::SteamId(steam_id) => FindAccountVariables {
+            AccountQuery::SteamId(steam_id) => AuthQuery {
                 username: None,
                 email: None,
-                steam_id: Some(SteamQuery { steam_id: steam_id.steamid32() }),
+                steam: Some(SteamQuery { steam_id: steam_id.steamid32() }),
             },
         };
 
         let response = self.0.client
             .post(self.0.base_url.clone())
-            .run_graphql(FindAccount::build(query)).await?;
+            .run_graphql(FindAccount::build(FindAccountVariables { auth_query: query })).await?;
 
         if let Some(account) = response.data.map(|res| res.find_account) {
             Ok(account.map(|account| Account::from_graphql(self, account)))
@@ -169,8 +169,17 @@ pub(crate) mod account_graphql {
 
     #[derive(cynic::QueryVariables, Debug)]
     pub struct FindAccountVariables<'a> {
+        pub auth_query: AuthQuery<'a>,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "core_service")]
+    pub struct AuthQuery<'a> {
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub email: Option<EmailQuery<'a>>,
-        pub steam_id: Option<SteamQuery>,
+        #[cynic(skip_serializing_if="Option::is_none")]
+        pub steam: Option<SteamQuery>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub username: Option<UsernameQuery<'a>>,
     }
 
@@ -209,7 +218,7 @@ pub(crate) mod account_graphql {
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "core_service", graphql_type = "QueryRoot", variables = "FindAccountVariables")]
     pub struct FindAccount {
-        #[arguments(authQuery: { email: $email, steam: $steam_id, username: $username })]
+        #[arguments(authQuery: $auth_query)]
         pub find_account: Option<Account>,
     }
     
