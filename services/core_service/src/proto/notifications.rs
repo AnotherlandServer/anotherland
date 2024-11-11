@@ -13,18 +13,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![feature(let_chains)]
+use cluster::Notification;
+use serde::{Deserialize, Serialize};
+use toolkit::types::Uuid;
 
-use async_graphql::{EmptySubscription, Schema};
-use schema::{MutationRoot, QueryRoot};
+#[derive(Serialize, Deserialize)]
+pub enum CoreNotification {
+    SessionTerminated(Uuid),
+    RealmListUpdated,
+}
 
-mod db;
-mod schema;
-pub mod proto;
-mod realm_status_registry;
-
-pub fn get_schema_sdl() -> String {
-    Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)
-        .finish()
-        .sdl()
+impl Notification for CoreNotification {
+    fn topic_name(&self) -> &'static str {
+        match self {
+            CoreNotification::SessionTerminated(_) => "core.session.terminated",
+            CoreNotification::RealmListUpdated => "core.realms.updated",
+        }
+    }
 }

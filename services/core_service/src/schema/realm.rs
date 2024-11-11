@@ -13,12 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::{net::SocketAddr, sync::Arc};
+
 use async_graphql::{Context, Error, InputObject, Object, SimpleObject};
 use database::DatabaseRecord;
 use futures::TryStreamExt;
 use mongodb::Database;
 
-use crate::db;
+use crate::{db, realm_status_registry::RealmStatusRegistry};
 
 #[derive(Default)]
 pub struct RealmRoot;
@@ -30,11 +32,13 @@ pub struct RealmMutationRoot;
 impl RealmRoot {
     async fn realms(&self, ctx: &Context<'_>) -> Result<Vec<Realm>, Error> {
         let db = ctx.data::<Database>()?.clone();
+        let status_registry = ctx.data::<Arc<RealmStatusRegistry>>()?;
         let mut cursor = db::Realm::list(&db).await?;
         let mut res = vec![];
 
         while let Some(realm) = cursor.try_next().await? {
-            res.push(Realm::from_db(realm));
+            let status = status_registry.status(&realm.id).await;
+            res.push(Realm::from_db(realm, status));
         }
 
         Ok(res)
@@ -42,7 +46,9 @@ impl RealmRoot {
 
     async fn realm(&self, ctx: &Context<'_>, id: i32) -> Result<Option<Realm>, Error> {
         let db = ctx.data::<Database>()?.clone();
-        Ok(db::Realm::get(&db, &id).await?.map(Realm::from_db))
+        let status_registry = ctx.data::<Arc<RealmStatusRegistry>>()?;
+        let status = status_registry.status(&id).await;
+        Ok(db::Realm::get(&db, &id).await?.map(|realm| Realm::from_db(realm, status)))
     }
 }
 
@@ -53,11 +59,9 @@ impl RealmMutationRoot {
         let realm = db::Realm::create(&db, db::Realm {
             id: input.id,
             name: input.name,
-            population: 0.0,
-            endpoint: input.endpoint.parse()?
         }).await?;
         
-        Ok(Realm::from_db(realm))
+        Ok(Realm::from_db(realm, None))
     }
 
     async fn delete_realm(&self, ctx: &Context<'_>, id: i32) -> Result<Option<Realm>, Error> {
@@ -66,7 +70,7 @@ impl RealmMutationRoot {
         if let Some(realm) = db::Realm::get(&db, &id).await? {
             realm.delete(&db).await?;
 
-            Ok(Some(Realm::from_db(realm)))
+            Ok(Some(Realm::from_db(realm, None)))
         } else {
             Ok(None)
         }
@@ -74,21 +78,22 @@ impl RealmMutationRoot {
 
     async fn update_realm(&self, ctx: &Context<'_>, id: i32, update: RealmUpdateInput) -> Result<Option<Realm>, Error> {
         let db = ctx.data::<Database>()?.clone();
+        let status_registry = ctx.data::<Arc<RealmStatusRegistry>>()?;
 
         if let Some(mut realm) = db::Realm::get(&db, &id).await? {
             if let Some(name) = update.name {
                 realm.name = name;
             }
 
-            if let Some(population) = update.population {
-                realm.population = population;
-            }
-
             if let Some(endpoint) = update.endpoint {
-                realm.endpoint = endpoint.parse()?;
+                status_registry.register_endpoint(id, endpoint.parse()?).await;
             }
 
-            Ok(Some(Realm::from_db(realm)))
+            if let Some(population) = update.population {
+                status_registry.update_population(&id, population).await;
+            }
+
+            Ok(Some(Realm::from_db(realm, status_registry.status(&id).await)))
         } else {
             Ok(None)
         }
@@ -99,7 +104,6 @@ impl RealmMutationRoot {
 struct RealmCreationInput {
     pub id: i32,
     pub name: String,
-    pub endpoint: String,
 }
 
 #[derive(InputObject)]
@@ -113,17 +117,26 @@ struct RealmUpdateInput {
 struct Realm {
     pub id: i32,
     pub name: String,
-    pub population: f32,
-    pub endpoint: String,
+    pub population: Option<f32>,
+    pub endpoint: Option<String>,
 }
 
 impl Realm {
-    fn from_db(realm: db::Realm) -> Self {
-        Self {
-            id: realm.id,
-            name: realm.name.clone(),
-            population: realm.population,
-            endpoint: realm.endpoint.to_string(),
+    fn from_db(realm: db::Realm, status: Option<(SocketAddr, f32)>) -> Self {
+        if let Some((endpoint, population)) = status {
+            Self {
+                id: realm.id,
+                name: realm.name.clone(),
+                population: Some(population),
+                endpoint: Some(endpoint.to_string()),
+            }
+        } else {
+            Self {
+                id: realm.id,
+                name: realm.name.clone(),
+                population: None,
+                endpoint: None,
+            }
         }
     }
 }

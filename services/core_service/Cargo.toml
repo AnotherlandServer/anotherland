@@ -22,7 +22,7 @@ clap = { version = "4.5.20", features = ["derive", "env"] }
 database = { version = "0.1.0", path = "../../lib/database" }
 futures = "0.3.31"
 log = "0.4.22"
-messages = { version = "0.1.0", path = "../../lib/messages" }
+cluster = { version = "0.1.0", path = "../../lib/cluster" }
 mongodb = "3.1.0"
 poem = "3.1.1"
 serde = { version = "1.0.210", features = ["derive"] }
@@ -32,4 +32,3 @@ thiserror = "1.0.65"
 tokio = { version = "1.40.0", features = ["full"] }
 toolkit = { version = "0.1.0", path = "../../lib/toolkit" }
 uuid = { version = "1.10.0", features = ["v1"] }
-zeromq = "0.4.1"

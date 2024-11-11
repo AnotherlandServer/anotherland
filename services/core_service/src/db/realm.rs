@@ -26,9 +26,6 @@ use serde_with::{serde_as, DisplayFromStr};
 pub struct Realm {
     pub id: i32,
     pub name: String,
-    pub population: f32,
-    #[serde_as(as = "DisplayFromStr")]
-    pub endpoint: SocketAddr,
 }
 
 impl DatabaseRecord<'_> for Realm {

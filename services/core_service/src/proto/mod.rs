@@ -13,18 +13,29 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![feature(let_chains)]
+mod notifications;
 
-use async_graphql::{EmptySubscription, Schema};
-use schema::{MutationRoot, QueryRoot};
+use std::net::SocketAddr;
 
-mod db;
-mod schema;
-pub mod proto;
-mod realm_status_registry;
+use cluster::{ClusterClient, ClusterServer, Request, Response};
+pub use notifications::*;
+use serde::{Deserialize, Serialize};
 
-pub fn get_schema_sdl() -> String {
-    Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)
-        .finish()
-        .sdl()
+#[derive(Serialize, Deserialize)]
+pub enum CoreRequest {
+    ConnectRealm(i32, SocketAddr),
+    UpdateRealmPopulation(f32)
 }
+
+impl Request for CoreRequest {}
+
+
+#[derive(Serialize, Deserialize)]
+pub enum CoreResponse {
+
+}
+
+impl Response for CoreResponse {}
+
+pub type CoreServer = ClusterServer<CoreRequest, CoreResponse, CoreNotification>;
+pub type CoreClient = ClusterClient<CoreRequest, CoreResponse, CoreNotification>;

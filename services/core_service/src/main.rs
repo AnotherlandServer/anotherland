@@ -20,18 +20,22 @@ use std::sync::Arc;
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_poem::GraphQL;
 use clap::Parser;
+use core_server_runner::run_core_server;
 use database::DatabaseExt;
 use db::{Account, Realm, Session, Status};
 use log::info;
 use mongodb::Client;
 use poem::{listener::TcpListener, post, Route, Server};
+use proto::CoreServer;
+use realm_status_registry::RealmStatusRegistry;
 use schema::{MutationRoot, QueryRoot};
-use tokio::sync::Mutex;
 use toolkit::print_banner;
-use zeromq::{PubSocket, Socket};
 
 mod db;
 mod schema;
+mod proto;
+mod realm_status_registry;
+mod core_server_runner;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -39,20 +43,15 @@ pub struct Args {
     #[arg(long, env = "GRAPHQL_BIND_ADDR", default_value = "127.0.0.1:8000")]
     graphql_bind_addr: String,
 
-    #[arg(long, env = "AUTH_EVENTS_BIND_URL", default_value = "tcp://127.0.0.1:15000")]
-    auth_events_bind_url: String,
-
-    #[arg(long, env = "REALM_EVENTS_BIND_URL", default_value = "tcp://127.0.0.1:15001")]
-    realm_events_bind_url: String,
+    #[arg(long, env = "ZMQ_BIND_ADDR", default_value = "tcp://127.0.0.1:15000")]
+    zmq_bind_url: String,
 
     #[arg(long, env = "MONGO_URI")]
     mongo_uri: String,
 
-    #[arg(long, env = "MONGO_DB", default_value = "auth")]
+    #[arg(long, env = "MONGO_DB", default_value = "core")]
     mongo_db: String,
 }
-
-type EventSocket = Arc<Mutex<PubSocket>>;
 
 #[toolkit::service_main(cluster)]
 async fn main() {
@@ -71,17 +70,23 @@ async fn main() {
     db.init_collection::<Status>().await;
     db.init_collection::<Realm>().await;
 
-    // Open auth event socket
-    let mut socket = PubSocket::new();
-    let endpoint = socket.bind(&args.auth_events_bind_url).await
-        .expect("failed to bind auth event socket");
+    // Cluster server
+    let server = Arc::new(
+        CoreServer::bind(&args.zmq_bind_url).await
+            .expect("failed to start cluster server")
+    );
 
-    info!("Publishing auth events on {}", endpoint);
+    // Status registry
+    let status_registry = Arc::new(RealmStatusRegistry::new(server.clone()));
+
+    // Run server
+    run_core_server(server.clone(), status_registry.clone()).await;
 
     // Start graphql api
     let schema = Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)
         .data(db)
-        .data(Arc::new(Mutex::new(socket)))
+        .data(server)
+        .data(status_registry)
         .finish();
 
     let app = Route::new()

@@ -13,15 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
 use async_graphql::{futures_util::TryStreamExt, Context, Enum, Error, InputObject, Object, OneofObject, SimpleObject};
 use bson::{doc, Uuid};
 use chrono::{DateTime, Utc};
 use database::DatabaseRecord;
-use messages::{auth::AuthSrvEvent, message::StructuredMessage};
 use mongodb::Database;
-use zeromq::SocketSend;
 
-use crate::{db, EventSocket};
+use crate::{db, proto::{CoreNotification, CoreServer}};
 
 use super::account::Account;
 
@@ -143,11 +143,11 @@ impl SessionMutationRoot {
 
     async fn destroy_session(&self, ctx: &Context<'_>, id: Uuid) -> Result<Session, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut socket = ctx.data::<EventSocket>()?.lock().await;
+        let socket = ctx.data::<Arc<CoreServer>>()?.clone();
         
         if let Some(session) = db::Session::get(&db, &id).await? {
             session.delete(&db).await?;
-            socket.send(AuthSrvEvent::SessionTerminated(id).into_message()?).await?;
+            socket.notify(CoreNotification::SessionTerminated(id)).await?;
 
             if let Some(account) = db::Account::get(&db, &session.account).await? {
                 Ok(Session::from_db(session, account))
@@ -161,13 +161,13 @@ impl SessionMutationRoot {
 
     async fn destroy_all_unprivileged_sessions(&self, ctx: &Context<'_>) -> Result<Vec<Session>, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut socket = ctx.data::<EventSocket>()?.lock().await;
+        let socket = ctx.data::<Arc<CoreServer>>()?.clone();
         let mut cursor = db::Session::list(&db).await?;
         let mut removed_sessions = vec![];
 
         while let Some(session) = cursor.try_next().await? {
             session.delete(&db).await?;
-            socket.send(AuthSrvEvent::SessionTerminated(session.id).into_message()?).await?;
+            socket.notify(CoreNotification::SessionTerminated(session.id)).await?;
 
             if let Some(account) = db::Account::get(&db, &session.account).await? {
                 removed_sessions.push(Session::from_db(session, account));
@@ -179,10 +179,10 @@ impl SessionMutationRoot {
 
     async fn force_logout_account(&self, ctx: &Context<'_>, account_id: Uuid) -> Result<Option<Session>, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut socket = ctx.data::<EventSocket>()?.lock().await;
+        let socket = ctx.data::<Arc<CoreServer>>()?.clone();
         
         if let Some(session) = db::Session::collection(&db).find_one_and_delete(doc!{"account": account_id}).await? {
-            socket.send(AuthSrvEvent::SessionTerminated(session.id).into_message()?).await?;
+            socket.notify(CoreNotification::SessionTerminated(session.id)).await?;
 
             if let Some(account) = db::Account::get(&db, &session.account).await? {
                 Ok(Some(Session::from_db(session, account)))
