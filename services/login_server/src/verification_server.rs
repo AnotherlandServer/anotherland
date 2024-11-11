@@ -66,7 +66,7 @@ pub async fn start_verification_server(auth_api: CoreApi, bind_addr: impl ToSock
                                     let _ = client.write_all(&[0x5,0x0,0x5,0x0,0x0]).await;
                                 },
                                 Err(e) => {
-                                    error!("Failed to verify steam id {}: {}", steam_id.steamid32(), e);
+                                    error!("Failed to verify steam id {}: {:#?}", steam_id.steamid32(), e);
                                     let _ = client.shutdown().await;
                                     return;
                                 }

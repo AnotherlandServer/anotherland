@@ -13,42 +13,95 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core_api::{CoreApi, LoginError};
+use core_api::{CoreApi, LoginError, Realm};
 use log::{debug, error};
 use protocol::{oaPktRealmStatusList, CPkt, CPktLoginResult, CpktLoginLoginType, CpktLoginResultUiState, RealmStatus};
 use raknet::{RakNetSocket, Reliability};
 use steamworks::SteamId;
-use tokio::select;
+use tokio::{select, sync::broadcast};
+use toolkit::types::Uuid;
 
 use crate::error::AppError;
 
 pub struct AuthSessionContext {
     auth_api: CoreApi,
     socket: RakNetSocket,
-    authenticated: bool,
+    session_id: Option<Uuid>,
+}
+
+fn serialize_realm(realm: &Realm) -> RealmStatus {
+    if let Some(population) = realm.population() {
+        RealmStatus {
+            id: realm.id(),
+            name: realm.name().to_string(),
+            channel_count: 1,
+            channel_id: vec![1],
+            channel_population_count: 1,
+            channel_population: vec![population as f32],
+        }
+    } else {
+        RealmStatus {
+            id: realm.id(),
+            name: format!("[OFFLINE] {}", realm.name()),
+            channel_count: 1,
+            channel_id: vec![1],
+            channel_population_count: 1,
+            channel_population: vec![0.0],
+        }
+    }
 }
 
 impl AuthSessionContext {
-    pub fn start_auth_session(auth_api: CoreApi, socket: RakNetSocket) {
+    pub fn start_auth_session(auth_api: CoreApi, socket: RakNetSocket, mut realm_update: broadcast::Receiver<()>) {
         let mut context = Self {
             auth_api,
             socket,
-            authenticated: false,
+            session_id: None,
         };
 
         tokio::spawn(async move {
             loop {
                 select! {
-                    Ok(buf) = context.socket.recv() => {
-                        if let Ok((_, pkt)) = CPkt::from_bytes(&buf) {
-                            if let Err(e) = context.handle(pkt).await {
-                                error!("Message handler error: {:?}", e);
+                    res = context.socket.recv() => {
+                        match res {
+                            Ok(buf) => {
+                                if let Ok((_, pkt)) = CPkt::from_bytes(&buf) {
+                                    if let Err(e) = context.handle(pkt).await {
+                                        error!("Message handler error: {:?}", e);
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                break;
                             }
                         }
+                    },
+                    _ = realm_update.recv() => {
+                        let _ = context.update_realm_list().await;
                     }
                 }
             }
         });
+    }
+
+    async fn update_realm_list(&self) -> Result<(), AppError> {
+        if self.session_id.is_none() { return Ok(()); }
+        
+        // Get realm list
+        let realms = self.auth_api.get_realms().await?;
+
+        // Realm list
+        let realms = realms.iter()
+            .map(serialize_realm)
+            .collect::<Vec<_>>();
+
+        self.socket.send(&oaPktRealmStatusList {
+            realm_count: realms.len() as u32,
+            realms,
+            ..Default::default()
+        }.into_pkt().to_bytes(), Reliability::ReliableOrdered).await?;
+
+        Ok(())
     }
 
     async fn handle(&mut self, pkt: CPkt) -> Result<(), AppError> {
@@ -67,14 +120,17 @@ impl AuthSessionContext {
 
                 match result {
                     Ok(session) => {
-                        self.authenticated = true;
+                        self.session_id = Some(*session.id());
 
                         // We've got a session! 
                         // Now get the realm list.
                         let realms = self.auth_api.get_realms().await?;
                         
                         // Send login result
-                        if let Some(realm) = realms.first() && realms.len() == 1 {
+                        if 
+                            let Some(realm) = realms.first() && realms.len() == 1 &&
+                            let Some(endpoint) = realm.endpoint()
+                        {
                             // Login result
                             self.socket.send(&CPktLoginResult {
                                 login_success: true,
@@ -84,8 +140,8 @@ impl AuthSessionContext {
                                 magic_bytes: Some(pkt.fingerprint.clone()),
                                 session_id: Some(*session.id()),
                                 realm_id: Some(realm.id()),
-                                realm_ip: Some(realm.endpoint().ip().to_bits()),
-                                realm_port: Some(realm.endpoint().port()),
+                                realm_ip: Some(u32::from_be(endpoint.ip().to_bits())),
+                                realm_port: Some(endpoint.port()),
                                 ..Default::default()
                             }.into_pkt().to_bytes(), Reliability::ReliableOrdered).await?;
                         } else {
@@ -101,17 +157,8 @@ impl AuthSessionContext {
                             }.into_pkt().to_bytes(), Reliability::ReliableOrdered).await?;
     
                             // Realm list
-                            let realms = realms.into_iter()
-                                .map(|realm| {   
-                                    RealmStatus {
-                                        id: realm.id(),
-                                        name: realm.name().to_string(),
-                                        channel_count: 1,
-                                        channel_id: vec![1],
-                                        channel_population_count: 1,
-                                        channel_population: vec![realm.population() as f32],
-                                    }
-                                })
+                            let realms = realms.iter()
+                                .map(serialize_realm)
                                 .collect::<Vec<_>>();
     
                             self.socket.send(&oaPktRealmStatusList {
@@ -136,6 +183,38 @@ impl AuthSessionContext {
                             ..Default::default()
                         }.into_pkt().to_bytes(), Reliability::ReliableOrdered).await?;
                     }
+                }
+
+                Ok(())
+            },
+            CPkt::oaPktRealmSelect(pkt) => {
+                if 
+                    let Some(realm) = self.auth_api.get_realm(pkt.realm_id).await? &&
+                    let Some(endpoint) = realm.endpoint()
+                {
+                    // Login result
+                    self.socket.send(&CPktLoginResult {
+                        login_success: true,
+                        ui_state: CpktLoginResultUiState::CharacterSelection,
+                        user_id: Some(1),
+                        username: Some("".to_string()),
+                        magic_bytes: Some(vec![]),
+                        session_id: self.session_id,
+                        realm_id: Some(realm.id()),
+                        realm_ip: Some(endpoint.ip().to_bits()),
+                        realm_port: Some(endpoint.port()),
+                        ..Default::default()
+                    }.into_pkt().to_bytes(), Reliability::ReliableOrdered).await?;
+                } else {
+                    let err = "#Login.ERROR_NOFRONTENDSERVER#";
+
+                    self.socket.send(&CPktLoginResult {
+                        login_success: false,
+                        ui_state: CpktLoginResultUiState::RealmSelection,
+                        message_len: Some(err.len() as u8),
+                        message: Some(err.as_bytes().to_vec()),
+                        ..Default::default()
+                    }.into_pkt().to_bytes(), Reliability::ReliableOrdered).await?;
                 }
 
                 Ok(())

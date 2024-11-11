@@ -35,6 +35,9 @@ pub enum AppError {
 
     #[error("core api error")]
     CoreApi(#[from] CoreApiError),
+
+    #[error("cluster error")]
+    ClusterError(#[from] core_api::ClusterError),
 }
 
 pub type AppResult<T> = Result<T, AppError>;
