@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
+use std::{collections::HashMap, io, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
 
 use log::{debug, error, info};
 use rsa::RsaPrivateKey;
@@ -127,6 +127,8 @@ impl RakNetListener {
                                     addr = p.1;
                                 },
                                 Err(e) => {
+                                    debug!("Kind: {:?}",  e.kind());
+                                    if e.kind() == io::ErrorKind::ConnectionReset { continue; }
                                     debug!("Listener recv error: {}", e);
                                     break 'net_loop;
                                 }
