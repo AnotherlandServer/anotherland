@@ -1,0 +1,11 @@
+[package]
+name = "realm_api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cluster = { version = "0.1.0", path = "../cluster" }
+realm_manager_service = { version = "0.1.0", path = "../../services/realm_manager_service" }
+reqwest = "0.12.9"
+thiserror = "2.0.2"
+toolkit = { version = "0.1.0", path = "../toolkit" }
