@@ -4,3 +4,6 @@
 [submodule "content"]
 	path = content
 	url = https://github.com/AnotherlandServer/content.git
+[submodule "external/zmq.rs"]
+	path = external/zmq.rs
+	url = https://github.com/plehmkuhl/zmq.rs.git
