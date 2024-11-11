@@ -5,7 +5,7 @@ members = [
     "lib/config", 
     "lib/database",
     "lib/macros", 
-    "lib/messages",
+    "lib/cluster",
     "lib/protocol",
     "lib/raknet",
     "lib/toolkit",
@@ -19,5 +19,6 @@ members = [
     "services/login_server", 
     "services/realm_manager_service", 
     "services/world_service",
-    "tools/kismet-plotter"
-]
+    "tools/kismet-plotter",
+    "external/zmq.rs"
+, "lib/realm_api"]
