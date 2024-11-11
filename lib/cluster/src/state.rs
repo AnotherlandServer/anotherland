@@ -13,11 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![feature(ascii_char)]
+use serde::{Deserialize, Serialize};
 
-mod error;
-
-pub mod auth;
-pub mod message;
-
-pub use error::*;
+#[derive(Serialize, Deserialize)]
+pub enum StateMessage {
+    Subscribe(String),
+    Unsubscribe(String),
+}

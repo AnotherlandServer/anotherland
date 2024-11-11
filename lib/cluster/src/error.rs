@@ -13,16 +13,32 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use serde::{Deserialize, Serialize};
-use toolkit::types::Uuid;
+use std::io;
 
-use crate::message::StructuredMessage;
+use thiserror::Error;
 
-#[derive(Serialize, Deserialize)]
-pub enum AuthSrvEvent {
-    SessionTerminated(Uuid)
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error("serialize failed")]
+    Serialize(#[from] flexbuffers::SerializationError),
+
+    #[error("deserialize failed")]
+    Deserialize(#[from] flexbuffers::DeserializationError),
+
+    #[error("zmq error")]
+    ZmqError(#[from] zeromq::ZmqError),
+
+    #[error("io error")]
+    IoError(#[from] io::Error),
+    
+    #[error("received empty message")]
+    EmptyMessage,
+
+    #[error("invalid topic")]
+    InvalidTopic,
+
+    #[error("custom")]
+    Custom(&'static str),
 }
 
-impl <'de>StructuredMessage<'de> for AuthSrvEvent {
-    fn topic_name() -> &'static str { "AuthSrvEvent" }
-}
+pub type ClusterResult<T> = Result<T, Error>;

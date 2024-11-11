@@ -13,21 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use thiserror::Error;
+use flexbuffers::FlexbufferSerializer;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use zeromq::ZmqMessage;
 
-#[derive(Error, Debug)]
-pub enum Error {
-    #[error("serialize failed")]
-    Serialize(#[from] flexbuffers::SerializationError),
+use crate::{Error, ClusterResult};
 
-    #[error("deserialize failed")]
-    Deserialize(#[from] flexbuffers::DeserializationError),
-    
-    #[error("received empty message")]
-    EmptyMessage,
-
-    #[error("invalid topic")]
-    InvalidTopic,
+pub trait Notification: Serialize + DeserializeOwned  + Send{
+    fn topic_name(&self) -> &'static str;
 }
-
-pub type MessageResult<T> = Result<T, Error>;
