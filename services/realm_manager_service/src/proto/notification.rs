@@ -13,16 +13,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use cynic::{http::CynicReqwestError, GraphQlError};
-use thiserror::Error;
+use cluster::Notification;
+use core_service::proto::CoreNotification;
+use serde::{Deserialize, Serialize};
 
-#[derive(Error, Debug)]
-pub enum CoreApiError {
-    #[error("request error")]
-    Request(#[from] CynicReqwestError),
-
-    #[error("graphql error")]
-    GraphQl(Vec<GraphQlError>),
+#[derive(Serialize, Deserialize)]
+pub enum RealmNotification {
+    ClusterNotification(CoreNotification)
 }
 
-pub type CoreApiResult<T> = std::result::Result<T, CoreApiError>;
+impl Notification for RealmNotification {
+    fn topic_name(&self) -> &'static str {
+        match self {
+            RealmNotification::ClusterNotification(notification) => notification.topic_name(),
+        }
+    }
+}

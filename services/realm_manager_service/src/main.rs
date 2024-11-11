@@ -13,23 +13,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
+use std::{net::SocketAddrV4, sync::Arc};
 
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_poem::GraphQL;
 use clap::Parser;
+use core_service::proto::{CoreRequest, CoreClient, CoreNotification};
 use database::DatabaseExt;
 use db::Character;
 use log::info;
 use mongodb::Client;
 use poem::{listener::TcpListener, post, Route, Server};
+use proto::{RealmNotification, RealmServer};
 use reqwest::Url;
 use schema::{MutationRoot, QueryRoot};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc::Receiver, Mutex};
 use toolkit::print_banner;
 
 mod schema;
 mod db;
+mod proto;
+mod error;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -40,14 +44,23 @@ pub struct Args {
     #[arg(long, env = "SERVICE_AUTH_API_URL", default_value = "http://127.0.0.1:8000")]
     service_auth_url: Url,
 
-    #[arg(long, env = "SERVICE_AUTH_EVENTS_ADDR", default_value = "tcp://127.0.0.1:15000")]
-    service_auth_events_addr: String,
+    #[arg(long, env = "CORE_ZMQ_ADDR", default_value = "tcp://127.0.0.1:15000")]
+    core_zmq_addr: String,
+
+    #[arg(long, env = "ZMQ_BIND_ADDR", default_value = "tcp://127.0.0.1:15001")]
+    zmq_bind_url: String,
 
     #[arg(long, env = "MONGO_URI")]
     mongo_uri: String,
 
     #[arg(long, env = "MONGO_DB", default_value = "realm")]
     mongo_db: String,
+
+    #[arg(long, env = "REALM_ID")]
+    realm_id: i32,
+
+    #[arg(long, env = "REALM_FRONTEND_ID")]
+    frontend_ip: SocketAddrV4,
 }
 
 #[toolkit::service_main(realm)]
@@ -70,6 +83,28 @@ async fn main() {
 
     let app = Route::new()
         .at("/", post(GraphQL::new(schema.clone())));
+
+    // Connect to core service
+    let (core_client, core_notifications) = CoreClient::connect(&args.core_zmq_addr).await
+        .expect("core service connect failed");
+
+    // Create realm zmq server
+    let server = Arc::new(RealmServer::bind(&args.zmq_bind_url).await
+        .expect("failed to start realm server"));
+
+    // Forward cluster notification to realm sub-services
+    async fn forward_notifications(server: Arc<RealmServer>, mut notifications: Receiver<CoreNotification>) {
+        tokio::spawn(async move {
+            while let Some(notification) = notifications.recv().await {
+                let _ = server.notify(RealmNotification::ClusterNotification(notification)).await;
+            }
+        });
+    }
+
+    forward_notifications(server.clone(), core_notifications).await;
+
+    let _ = core_client.subscribe("core.session.").await; // subscribe to session notifications
+    let _ = core_client.send(CoreRequest::ConnectRealm(args.realm_id, args.frontend_ip.into())).await;
 
     tokio::spawn(async move {
         info!("Starting realm server on http://{}", args.graphql_bind_addr);

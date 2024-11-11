@@ -13,16 +13,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use cynic::{http::CynicReqwestError, GraphQlError};
-use thiserror::Error;
+#![feature(let_chains)]
 
-#[derive(Error, Debug)]
-pub enum CoreApiError {
-    #[error("request error")]
-    Request(#[from] CynicReqwestError),
+use async_graphql::{EmptySubscription, Schema};
+use schema::{MutationRoot, QueryRoot};
 
-    #[error("graphql error")]
-    GraphQl(Vec<GraphQlError>),
+mod db;
+mod schema;
+pub mod error;
+pub mod proto;
+
+pub fn get_schema_sdl() -> String {
+    Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)
+        .finish()
+        .sdl()
 }
-
-pub type CoreApiResult<T> = std::result::Result<T, CoreApiError>;
