@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use core_api::CoreApiError;
 use thiserror::Error;
 use tokio::task::JoinError;
 
@@ -22,7 +23,13 @@ pub enum FrontendError {
     RakNet(#[from] raknet::RakNetError),
 
     #[error("task paniced")]
-    JoinError(#[from] JoinError)
+    JoinError(#[from] JoinError),
+
+    #[error("core api error")]
+    CoreApi(#[from] CoreApiError),
+
+    #[error("cluster error")]
+    ClusterError(#[from] core_api::ClusterError),
 }
 
 pub type FrontendResult<T> = Result<T, FrontendError>;
