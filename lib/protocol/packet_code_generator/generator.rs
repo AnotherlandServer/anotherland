@@ -211,6 +211,7 @@ pub fn generate_packet_code() -> io::Result<()> {
             use toolkit::string_parsers::*;
             use toolkit::types::Uuid;
             use toolkit::types::AvatarId;
+            use crate::OABuffer;
 
             #[allow(non_camel_case_types)]
             #[derive(Debug, Clone)]

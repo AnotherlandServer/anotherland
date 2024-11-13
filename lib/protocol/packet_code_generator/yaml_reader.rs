@@ -453,6 +453,7 @@ impl FieldTypeDefinition {
                 "f32" |
                 "f64" |
                 "uuid" |
+                "buffer" |
                 "nativeparam" |
                 "avatar_id" => Ok(Self::Primitive(type_name.to_owned())),
                 "cstring" => {

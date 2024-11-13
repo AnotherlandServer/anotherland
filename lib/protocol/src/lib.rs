@@ -14,3 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 include!(concat!(env!("OUT_DIR"), "/generated_packets.rs"));
+
+mod buffer;
+
+pub use buffer::*;
