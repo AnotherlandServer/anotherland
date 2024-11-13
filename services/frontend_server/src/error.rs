@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use core_api::CoreApiError;
+use realm_api::RealmApiError;
 use thiserror::Error;
 use tokio::task::JoinError;
 
@@ -27,6 +28,9 @@ pub enum FrontendError {
 
     #[error("core api error")]
     CoreApi(#[from] CoreApiError),
+
+    #[error("realm api error")]
+    RealmApi(#[from] RealmApiError),
 
     #[error("cluster error")]
     ClusterError(#[from] core_api::ClusterError),

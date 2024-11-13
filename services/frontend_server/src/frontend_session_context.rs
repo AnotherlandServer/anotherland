@@ -13,10 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use bitstream_io::{ByteWriter, LittleEndian};
 use core_api::{CoreApi, Session};
-use log::{debug, error};
-use protocol::CPkt;
-use raknet::RakNetSocket;
+use log::{debug, error, warn};
+use obj_params::{ParamWriter, Player};
+use protocol::{oaCharacter, oaPktCharacterFailure, CPkt, CPktStream_126_1, CPktStream_126_5};
+use raknet::{RakNetSocket, Reliability};
 use realm_api::RealmApi;
 
 use crate::error::FrontendError;
@@ -46,12 +48,14 @@ impl FrontendSessionContext {
                 match context.socket.recv().await {
                     Ok(buf) => {
                         if let Ok((_, pkt)) = CPkt::from_bytes(&buf) {
-                            if let Some(session) = session.as_ref() {
-                                if let Err(e) = context.handle(pkt, session).await {
+                            if session.is_none() {
+                                if let Err(e) = context.handle_unauthenticated(&pkt, &mut session).await {
                                     error!("Message handler error: {:?}", e);
                                 }
-                            } else {
-                                if let Err(e) = context.handle_unauthenticated(pkt, &mut session).await {
+                            }
+
+                            if let Some(session) = session.as_ref() {
+                                if let Err(e) = context.handle(pkt, session).await {
                                     error!("Message handler error: {:?}", e);
                                 }
                             }
@@ -65,13 +69,91 @@ impl FrontendSessionContext {
         });
     }
 
-    async fn handle_unauthenticated(&mut self, pkt: CPkt, session: &mut Option<Session>) -> Result<(), FrontendError> {
-        debug!("unauthenticated {:?}", pkt);
+    async fn handle_unauthenticated(&mut self, pkt: &CPkt, session: &mut Option<Session>) -> Result<(), FrontendError> {
+        if let CPkt::oaPktRequestCharacterList(pkt) = pkt {
+            *session = self.core_api.get_session(&pkt.session_id).await?;
+        }
+
         Ok(())
     }
 
     async fn handle(&mut self, pkt: CPkt, session: &Session) -> Result<(), FrontendError> {
-        debug!("authenticated {:?}", pkt);
+        match pkt {
+            CPkt::oaPktRequestCharacterList(pkt) => {
+                let realm_characters = self.realm_api.get_characters_for_account(
+                    session.account().id()
+                ).await?;
+
+                let mut characters: Vec<oaCharacter> = realm_characters
+                    .into_iter()
+                    .map(|character| {
+                        let mut serialized = Vec::new();
+                        let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
+
+                        character.data().write_to_client(&mut writer).unwrap();
+
+                        oaCharacter {
+                            id: character.index(),
+                            name: character.name().to_string(),
+                            world_id: 0,
+                            params: serialized.into(),
+                            ..Default::default()
+                        }
+                    })
+                    .collect();
+
+                self.socket.send(
+                    &CPktStream_126_1 {
+                        count: characters.len() as u32,
+                        characters,
+                        ..Default::default()
+                    }.into_pkt().to_bytes(),
+                    Reliability::ReliableOrdered
+                ).await?;
+            },
+            CPkt::oaPktCharacterCreate(pkt) => {
+                match self.realm_api.create_character(session.account().id(), pkt.character_name).await {
+                    Ok(character) => {
+                        let mut serialized = Vec::new();
+                        let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
+
+                        character.data().write_to_client(&mut writer).unwrap();
+
+                        self.socket.send(
+                            &CPktStream_126_5 {
+                                character: oaCharacter {
+                                    id: character.index(),
+                                    name: character.name().to_string(),
+                                    world_id: 0,
+                                    params: serialized.into(),
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            }.into_pkt().to_bytes(), 
+                            Reliability::ReliableOrdered
+                        ).await?;
+                    },
+                    Err(e) => {
+                        self.socket.send(
+                            &oaPktCharacterFailure {
+                                error_code: protocol::OaPktCharacterFailureErrorCode::NameExists,
+                                ..Default::default()
+                            }.into_pkt().to_bytes(), Reliability::ReliableOrdered
+                        ).await?;
+                    }
+                }
+            },
+            CPkt::oaPktCharacterDelete(pkt) => {
+                todo!()
+            },
+            CPkt::oaPktCharacterSelect(pkt) => {
+                todo!()
+            },
+            _ => {
+                warn!("Unhandled pkt: {:?}", pkt);
+            }
+        }
+
         Ok(())
     }
 }
