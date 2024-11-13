@@ -17,7 +17,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Attribute, Class, GenericParamSet, ParamFlag, ParamSet, Value};
+use crate::{Attribute, Class, GenericParamSet, ParamFlag, ParamSet, ParamWriter, Value};
 
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
@@ -94,6 +94,20 @@ impl GameObjectData {
 impl Debug for GameObjectData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+impl ParamWriter for GameObjectData {
+    fn write<W: bitstream_io::ByteWrite>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        self.0.write(writer)
+    }
+
+    fn write_to_client<W: bitstream_io::ByteWrite>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        self.0.write_to_client(writer)
+    }
+
+    fn write_to_privileged_client<W: bitstream_io::ByteWrite>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        self.0.write_to_privileged_client(writer)
     }
 }
 

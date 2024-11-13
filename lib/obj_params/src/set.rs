@@ -16,7 +16,7 @@
 use std::{any::type_name, collections::{HashMap, HashSet}, fmt::Debug, io};
 
 use base64::prelude::*;
-use bitstream_io::ByteWrite;
+use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use glam::{Quat, Vec3, Vec4};
 use log::warn;
 use nom::{combinator::fail, error::{context, VerboseError}, multi, number, IResult};
@@ -38,6 +38,7 @@ pub trait GenericParamSet: Debug + Send + Sync {
     fn clear_changes(&mut self);
     fn changes(&self) -> Box<dyn GenericParamSet>;
     fn client_params(&self) -> Box<dyn GenericParamSet>;
+    fn client_privileged_params(&self) -> Box<dyn GenericParamSet>;
 
     fn values<'a>(&'a self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, &'a Value)> + 'a>;
     fn drain<'a>(&'a mut self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)> + 'a>;
@@ -46,6 +47,7 @@ pub trait GenericParamSet: Debug + Send + Sync {
 pub trait ParamWriter {
     fn write<W: ByteWrite>(&self, writer: &mut W) -> Result<(), io::Error>;
     fn write_to_client<W: ByteWrite>(&self, writer: &mut W) -> Result<(), io::Error>;
+    fn write_to_privileged_client<W: ByteWrite>(&self, writer: &mut W) -> Result<(), io::Error>;
 }
 
 pub trait ParamReader {
@@ -225,7 +227,22 @@ impl <T: Attribute> GenericParamSet for ParamSet<T> {
     fn client_params(&self) -> Box<dyn GenericParamSet> {
         <T as Attribute>::class().create_param_set(
             self.values.values()
-                .filter(|&p| !p.attribute().has_flag(&ParamFlag::ClientUnknown))
+                .filter(|&p| 
+                    !p.attribute().has_flag(&ParamFlag::ClientUnknown) &&
+                    !p.attribute().has_flag(&ParamFlag::ClientPrivileged)
+                )
+                .map(|p| (p.attribute().static_info(), p.value().clone()))
+                .collect()
+        )
+    }
+
+    fn client_privileged_params(&self) -> Box<dyn GenericParamSet> {
+        <T as Attribute>::class().create_param_set(
+            self.values.values()
+                .filter(|&p| 
+                    !p.attribute().has_flag(&ParamFlag::ClientUnknown) ||
+                    p.attribute().has_flag(&ParamFlag::ClientPrivileged)
+                )
                 .map(|p| (p.attribute().static_info(), p.value().clone()))
                 .collect()
         )
@@ -266,6 +283,26 @@ impl ParamWriter for dyn GenericParamSet {
         let filtered_params: Vec<_> = self.values()
         .filter(|&(a, val)| 
             !a.has_flag(&ParamFlag::ClientUnknown) &&
+            !a.has_flag(&ParamFlag::ClientPrivileged) &&
+            !val.should_skip()
+        )
+        .collect();
+
+        writer.write(1u8)?;
+        writer.write(filtered_params.len() as u16)?;
+
+        for (_, v) in filtered_params {
+            v.write(writer)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_to_privileged_client<W: ByteWrite>(&self, writer: &mut W) -> Result<(), io::Error> {
+        let filtered_params: Vec<_> = self.values()
+        .filter(|&(a, val)| 
+            (!a.has_flag(&ParamFlag::ClientUnknown) ||
+            a.has_flag(&ParamFlag::ClientPrivileged)) &&
             !val.should_skip()
         )
         .collect();
