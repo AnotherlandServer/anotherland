@@ -123,7 +123,7 @@ impl CoreApi {
         }
     }
 
-    pub async fn get_session(&self, id: &Uuid) -> CoreApiResult<Session> {
+    pub async fn get_session(&self, id: &Uuid) -> CoreApiResult<Option<Session>> {
         let response = self.0.client
             .post(self.0.base_url.clone())
             .run_graphql(GetSession::build(GetSessionVariables {
@@ -131,9 +131,11 @@ impl CoreApi {
             })).await?;
 
         if let Some(session) = response.data.map(|res| res.session) {
-            Ok(Session::from_graphql(self, session))
+            Ok(session.map(|session| Session::from_graphql(self, session)))
+        } else if let Some(errors) = response.errors {
+            Err(CoreApiError::GraphQl(errors))
         } else {
-            Err(CoreApiError::GraphQl(response.errors.unwrap()))
+            unreachable!()
         }
     }
 }
@@ -168,7 +170,7 @@ pub(crate) mod session_graphql {
     #[cynic(schema = "core_service", graphql_type = "QueryRoot", variables = "GetSessionVariables")]
     pub struct GetSession {
         #[arguments(id: $id)]
-        pub session: Session,
+        pub session: Option<Session>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]
