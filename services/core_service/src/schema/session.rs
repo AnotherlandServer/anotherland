@@ -33,15 +33,15 @@ pub struct SessionMutationRoot;
 
 #[Object]
 impl SessionRoot {
-    async fn session(&self, ctx: &Context<'_>, id: Uuid) -> Result<Session, Error> {
+    async fn session(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Session>, Error> {
         let db = ctx.data::<Database>()?.clone();
         if 
             let Some(session) = db::Session::get(&db, &id).await? &&
             let Some(account) = db::Account::get(&db, &session.account).await?
         {
-            Ok(Session::from_db(session, account))
+            Ok(Some(Session::from_db(session, account)))
         } else {
-            Err(Error::new("not found"))
+            Ok(None)
         }
     }
 }
