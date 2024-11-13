@@ -13,16 +13,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use core_api::CoreApiError;
 use cynic::{http::CynicReqwestError, GraphQlError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum CoreApiError {
+pub enum RealmError {
     #[error("request error")]
     Request(#[from] CynicReqwestError),
 
     #[error("graphql error")]
     GraphQl(Vec<GraphQlError>),
+
+    #[error("core api error")]
+    CoreApi(#[from] CoreApiError),
 }
 
-pub type CoreApiResult<T> = std::result::Result<T, CoreApiError>;
+pub type RealmResult<T> = std::result::Result<T, RealmError>;

@@ -17,7 +17,7 @@ async-graphql-poem = "7.0.11"
 chrono = { version = "0.4.38", features = ["serde"] }
 clap = { version = "4.5.20", features = ["derive", "env"] }
 cluster = { version = "0.1.0", path = "../../lib/cluster" }
-core_service = { version = "0.1.0", path = "../core_service" }
+core_api = { version = "0.1.0", path = "../../lib/core_api" }
 cynic = { version = "3.8.0", features = ["http-reqwest", "reqwest"] }
 database = { version = "0.1.0", path = "../../lib/database" }
 log = "0.4.22"

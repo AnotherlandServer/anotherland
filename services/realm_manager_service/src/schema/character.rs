@@ -42,7 +42,10 @@ impl CharacterRoot {
 
     async fn characters_for_account(&self, ctx: &Context<'_>, account_id: Uuid) -> Result<Vec<Character>, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut res = db::Character::collection(&db).find(doc! {"account": account_id}).await?;
+        let mut res = db::Character::collection(&db)
+            .find(doc! {"account": account_id})
+            .sort(doc! {"index": 1})
+            .await?;
         let mut characters = Vec::new();
 
         while let Some(character) = res.try_next().await? {

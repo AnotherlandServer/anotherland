@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use cluster::Notification;
-use core_service::proto::CoreNotification;
+use core_api::proto::CoreNotification;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]

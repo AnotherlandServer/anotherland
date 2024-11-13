@@ -18,9 +18,11 @@ use std::{net::SocketAddrV4, sync::Arc};
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_poem::GraphQL;
 use clap::Parser;
-use core_service::proto::{CoreRequest, CoreClient, CoreNotification};
+use core_api::CoreApi;
+use core_api::proto::{CoreRequest, CoreClient, CoreNotification};
 use database::DatabaseExt;
 use db::Character;
+use error::RealmResult;
 use log::info;
 use mongodb::Client;
 use poem::{listener::TcpListener, post, Route, Server};
@@ -41,8 +43,8 @@ pub struct Args {
     #[arg(long, env = "GRAPHQL_BIND_ADDR", default_value = "127.0.0.1:8001")]
     graphql_bind_addr: String,
 
-    #[arg(long, env = "SERVICE_AUTH_API_URL", default_value = "http://127.0.0.1:8000")]
-    service_auth_url: Url,
+    #[arg(long, env = "SERVICE_CORE_API_URL", default_value = "http://127.0.0.1:8000")]
+    service_core_url: Url,
 
     #[arg(long, env = "CORE_ZMQ_ADDR", default_value = "tcp://127.0.0.1:15000")]
     core_zmq_addr: String,
@@ -59,15 +61,24 @@ pub struct Args {
     #[arg(long, env = "REALM_ID")]
     realm_id: i32,
 
-    #[arg(long, env = "REALM_FRONTEND_ID")]
+    #[arg(long, env = "REALM_FRONTEND_IP")]
     frontend_ip: SocketAddrV4,
 }
 
 #[toolkit::service_main(realm)]
-async fn main() {
+async fn main() -> RealmResult<()> {
     let args = Args::parse();
 
     print_banner();
+
+    // Init core api
+    let core_api = CoreApi::new(args.service_core_url);
+
+    // Get realm info
+    let realm = core_api.get_realm(args.realm_id).await?
+        .expect("Realm not found");
+
+    info!("Starting up realm {}...", realm.name());
 
     // Init database
     let client = Client::with_uri_str(&args.mongo_uri).await
@@ -114,5 +125,7 @@ async fn main() {
             .unwrap();
     })
     .await
-    .unwrap()
+    .unwrap();
+
+    Ok(())
 }
