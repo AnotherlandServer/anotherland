@@ -13,14 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod base;
-mod character;
-mod error;
-mod schema;
+#[cynic::schema("realm_manager_service")]
+pub mod schema {}
 
-pub use base::*;
-pub use error::*;
+#[derive(cynic::Scalar, Debug, Clone)]
+#[cynic(graphql_type = "UUID")]
+pub struct Uuid(pub String);
 
-// reexport
-pub use realm_manager_service::proto;
-pub use cluster::{ClusterResult, Error as ClusterError};
+#[derive(cynic::Scalar, Debug, Clone)]
+#[cynic(graphql_type = "JSON")]
+pub struct Json(pub String);

@@ -13,14 +13,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod base;
-mod character;
-mod error;
-mod schema;
+use cynic::{http::CynicReqwestError, GraphQlError};
+use thiserror::Error;
 
-pub use base::*;
-pub use error::*;
+#[derive(Error, Debug)]
+pub enum RealmApiError {
+    #[error("request error")]
+    Request(#[from] CynicReqwestError),
 
-// reexport
-pub use realm_manager_service::proto;
-pub use cluster::{ClusterResult, Error as ClusterError};
+    #[error("graphql error")]
+    GraphQl(Vec<GraphQlError>),
+
+    #[error("json error")]
+    Json(#[from] serde_json::Error),
+
+    #[error("uuid error")]
+    Uuid(#[from] bson::uuid::Error),
+}
+
+pub type RealmApiResult<T> = std::result::Result<T, RealmApiError>;

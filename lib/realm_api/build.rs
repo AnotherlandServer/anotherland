@@ -13,14 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod base;
-mod character;
-mod error;
-mod schema;
-
-pub use base::*;
-pub use error::*;
-
-// reexport
-pub use realm_manager_service::proto;
-pub use cluster::{ClusterResult, Error as ClusterError};
+fn main() {
+    cynic_codegen::register_schema("realm_manager_service")
+        .from_sdl(&realm_manager_service::get_schema_sdl())
+        .unwrap();
+}

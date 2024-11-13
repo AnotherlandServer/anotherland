@@ -4,8 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bson = "2.13.0"
 cluster = { version = "0.1.0", path = "../cluster" }
+cynic = { version = "3.8.0", features = ["http-reqwest"] }
+obj_params = { version = "0.1.0", path = "../obj_params" }
 realm_manager_service = { version = "0.1.0", path = "../../services/realm_manager_service" }
 reqwest = "0.12.9"
+serde_json = "1.0.132"
 thiserror = "2.0.2"
 toolkit = { version = "0.1.0", path = "../toolkit" }
+
+[build-dependencies]
+cynic-codegen = "3.8.0"
+realm_manager_service = { version = "0.1.0", path = "../../services/realm_manager_service" }
