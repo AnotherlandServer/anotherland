@@ -127,7 +127,8 @@ impl RakNetListener {
                                     addr = p.1;
                                 },
                                 Err(e) => {
-                                    debug!("Kind: {:?}",  e.kind());
+                                    // Workaround for WSAECONNRESET after sending to a closed socket.
+                                    // https://github.com/tokio-rs/tokio/issues/2017
                                     if e.kind() == io::ErrorKind::ConnectionReset { continue; }
                                     debug!("Listener recv error: {}", e);
                                     break 'net_loop;

@@ -39,6 +39,7 @@ pub enum PacketID {
     ModifiedPacket,
     Pong,
     ConnectionBanned,
+    GamePerformanceReport,
     User(u8),
 }
 
@@ -67,6 +68,7 @@ impl PacketID {
             20 => PacketID::ModifiedPacket,
             21 => PacketID::Pong,
             23 => PacketID::ConnectionBanned,
+            138 => PacketID::GamePerformanceReport,
             _ => PacketID::User(val),
         }
     }
@@ -95,6 +97,7 @@ impl PacketID {
             PacketID::ModifiedPacket => 20,
             PacketID::Pong => 21,
             PacketID::ConnectionBanned => 23,
+            PacketID::GamePerformanceReport => 138,
             PacketID::User(id) => id,
         }
     }

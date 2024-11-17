@@ -218,6 +218,17 @@ impl RakNetSocket {
                             Ok(new_mode) => {
                                 match new_mode {
                                     ConnectMode::NoAction => (),
+                                    ConnectMode::DisconnectAsap => {
+                                        for _ in 0..10 {
+                                            let mut sendq = sendq.write().await;
+                                            sendq.insert(Reliability::Unreliable, [
+                                                PacketID::DisconnectionNotification.to_u8()
+                                            ].to_vec()).unwrap();
+                                        }
+
+                                        close_notifier.close();
+                                        connect_mode = new_mode;
+                                    },
                                     ConnectMode::DisconnectAsapSilently => {
                                         close_notifier.close();
                                         connect_mode = new_mode;
@@ -321,6 +332,15 @@ impl RakNetSocket {
                                 } else {
                                     let _ = s.send_to(&data, peer_addr).await;
                                 }
+                            } else if matches!(connect_mode, ConnectMode::DisconnectOnNoAck) {
+                                let mut sendq = sendq.write().await;
+                                for _ in 0..10 {
+                                    sendq.insert(Reliability::Unreliable, [
+                                        PacketID::DisconnectionNotification.to_u8()
+                                    ].to_vec()).unwrap();
+                                }
+
+                                connected.close();
                             }
                         }
                     } else {
@@ -498,7 +518,7 @@ impl RakNetSocket {
                     },
                     PacketID::ConnectedPong => Ok(ConnectMode::NoAction),
                     PacketID::DisconnectionNotification => {
-                        Ok(ConnectMode::DisconnectAsap)
+                        Ok(ConnectMode::DisconnectOnNoAck)
                     },
                     PacketID::InternalPing => {
                         let mut buf = RakNetReader::new(frame.data());
@@ -563,7 +583,11 @@ impl RakNetSocket {
                         }
 
                         Ok(ConnectMode::NoAction)
-                    }
+                    },
+                    PacketID::GamePerformanceReport => {
+                        // Packet contains a 32-bit integer, containing the games tick count.
+                        Ok(ConnectMode::NoAction)
+                    },
                     PacketID::User(_) => {
                         match user_data_sender.send(frame.data().to_vec()).await {
                             Ok(_) => Ok(ConnectMode::NoAction),
