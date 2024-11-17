@@ -13,8 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use character_graphql::{CreateCharacter, CreateCharacterVariables, DeleteCharacter, DeleteCharacterVariables, GetCharacter, GetCharacterVariables, GetCharactersForAccount, GetCharactersForAccountVariables};
+use character_graphql::{CreateCharacter, CreateCharacterVariables, DeleteCharacter, DeleteCharacterVariables, GetAccountCharacter, GetAccountCharacterVariables, GetCharacter, GetCharacterVariables, GetCharactersForAccount, GetCharactersForAccountVariables};
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
+use log::debug;
 use obj_params::GameObjectData;
 use toolkit::types::Uuid;
 
@@ -63,7 +64,7 @@ impl Character {
             account: Uuid::parse_str(&other.account.0)?,
             index: other.index,
             name: other.name,
-            data: serde_json::from_str(&other.data.0)?,
+            data: serde_json::from_value(other.data.0)?,
         })
     }
 }
@@ -89,6 +90,27 @@ impl RealmApi {
         }
     }
 
+    pub async fn get_character_for_account(&self, account_id: &Uuid, index: i32) -> RealmApiResult<Option<Character>> {
+        let response = self.0.client
+            .post(self.0.base_url.clone())
+            .run_graphql(GetAccountCharacter::build(GetAccountCharacterVariables {
+                account_id: schema::Uuid(account_id.to_string()),
+                index,
+            })).await?;
+
+        if let Some(GetAccountCharacter { account_character }) = response.data {
+            if let Some(character) = account_character {
+                Ok(Some(Character::from_graphql(self, character)?))
+            } else {
+                Ok(None)
+            }
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
+
     pub async fn create_character(&self, account_id: &Uuid, name: String) -> RealmApiResult<Character> {
         let response = self.0.client
             .post(self.0.base_url.clone())
@@ -100,6 +122,7 @@ impl RealmApi {
         if let Some(CreateCharacter { create_character }) = response.data {
             Ok(Character::from_graphql(self, create_character)?)
         } else if let Some(errors) = response.errors {
+            debug!("Errors: {:#?}", errors);
             Err(RealmApiError::GraphQl(errors))
         } else {
             unreachable!()
@@ -157,6 +180,20 @@ pub(crate) mod character_graphql {
         #[arguments(accountId: $account_id)]
         pub characters_for_account: Vec<Character>,
     }
+
+    #[derive(cynic::QueryVariables, Debug)]
+    pub struct GetAccountCharacterVariables {
+        pub account_id: Uuid,
+        pub index: i32,
+    }
+    
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "GetAccountCharacterVariables")]
+    pub struct GetAccountCharacter {
+        #[arguments(accountId: $account_id, index: $index)]
+        pub account_character: Option<Character>,
+    }
+
     
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "GetCharacterVariables")]
