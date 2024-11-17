@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub enum CoreRequest {
     ConnectRealm(i32, SocketAddr),
+    DisconnectRealm(i32, SocketAddr),
     UpdateRealmPopulation(f32)
 }
 

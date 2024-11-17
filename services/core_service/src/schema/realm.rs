@@ -20,7 +20,7 @@ use database::DatabaseRecord;
 use futures::TryStreamExt;
 use mongodb::Database;
 
-use crate::{db, realm_status_registry::RealmStatusRegistry};
+use crate::{db, realm_status_registry::{RealmStatus, RealmStatusRegistry}};
 
 #[derive(Default)]
 pub struct RealmRoot;
@@ -122,13 +122,13 @@ struct Realm {
 }
 
 impl Realm {
-    fn from_db(realm: db::Realm, status: Option<(SocketAddr, f32)>) -> Self {
-        if let Some((endpoint, population)) = status {
+    fn from_db(realm: db::Realm, status: Option<RealmStatus>) -> Self {
+        if let Some(RealmStatus { endpoints, population }) = status {
             Self {
                 id: realm.id,
                 name: realm.name.clone(),
                 population: Some(population),
-                endpoint: Some(endpoint.to_string()),
+                endpoint: endpoints.first().map(|addr| addr.to_string()),
             }
         } else {
             Self {

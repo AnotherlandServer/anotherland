@@ -16,13 +16,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use cluster::PeerIdentity;
+
 use crate::proto::{CoreServer, CoreRequest};
 use crate::realm_status_registry::RealmStatusRegistry;
 
 pub async fn run_core_server(server: Arc<CoreServer>, status_registry: Arc<RealmStatusRegistry>) {
     tokio::spawn(async move {
         let mut events = server.events();
-        let mut registered_realms = HashMap::new();
+        let mut registered_realm_endpoints = HashMap::new();
 
         loop {
             tokio::select! {
@@ -30,8 +32,10 @@ pub async fn run_core_server(server: Arc<CoreServer>, status_registry: Arc<Realm
                     match event {
                         cluster::ClusterEvent::Accepted(_) => (),
                         cluster::ClusterEvent::Disconnected(identity) => {
-                            if let Some(id) = registered_realms.remove(&identity) {
-                                status_registry.unregister_endpoint(id).await;
+                            if let Some((id, endpoints)) = registered_realm_endpoints.remove(&identity) {
+                                for endpoint in endpoints {
+                                    status_registry.unregister_endpoint(id, endpoint).await;
+                                }
                             }
                         },
                     }
@@ -39,11 +43,23 @@ pub async fn run_core_server(server: Arc<CoreServer>, status_registry: Arc<Realm
                 Ok((identity, msg)) = server.recv() => {
                     match msg {
                         CoreRequest::ConnectRealm(id, endpoint) => {
-                            registered_realms.insert(identity, id);
+                            let entry = registered_realm_endpoints.entry(identity)
+                                .or_insert((id, vec![]));
+
+                            entry.1.push(endpoint);
                             status_registry.register_endpoint(id, endpoint).await;
                         },
+                        CoreRequest::DisconnectRealm(id, endpoint) => {
+                            if let Some(entry) = registered_realm_endpoints.get_mut(&identity) {
+                                entry.1.retain_mut(|compare_endpoint| compare_endpoint != &endpoint);
+                            }
+
+                            if !status_registry.unregister_endpoint(id, endpoint).await {
+                                registered_realm_endpoints.remove(&identity);
+                            }
+                        },
                         CoreRequest::UpdateRealmPopulation(population) => {
-                            if let Some(id) = registered_realms.get(&identity) {
+                            if let Some((id, _)) = registered_realm_endpoints.get(&identity) {
                                 status_registry.update_population(id, population).await;
                             }
                         },

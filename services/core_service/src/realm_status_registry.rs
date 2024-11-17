@@ -19,8 +19,14 @@ use tokio::sync::RwLock;
 
 use crate::proto::{CoreNotification, CoreServer};
 
+#[derive(Default, Clone)]
+pub struct RealmStatus {
+    pub endpoints: Vec<SocketAddr>,
+    pub population: f32,
+}
+
 pub struct RealmStatusRegistry {
-    registry: RwLock<HashMap<i32, (SocketAddr, f32)>>,
+    registry: RwLock<HashMap<i32, RealmStatus>>,
     server: Arc<CoreServer>,
 }
 
@@ -34,28 +40,40 @@ impl RealmStatusRegistry {
 
     pub async fn register_endpoint(&self, id: i32, endpoint: SocketAddr) {
         let mut registry = self.registry.write().await;
-        registry.insert(id, (endpoint, 0.0));
+        let entry = registry.entry(id)
+            .or_insert(RealmStatus::default());
+        entry.endpoints.push(endpoint);
 
         let _ = self.server.notify(CoreNotification::RealmListUpdated).await;
     }
 
-    pub async fn unregister_endpoint(&self, id: i32) {
+    pub async fn unregister_endpoint(&self, id: i32, endpoint: SocketAddr) -> bool {
         let mut registry = self.registry.write().await;
-        registry.remove(&id);
+        let online = if let Some(entry) = registry.get_mut(&id) {
+            entry.endpoints.retain_mut(|addr| addr != &endpoint);
+            !entry.endpoints.is_empty()
+        } else {
+            false
+        };
+
+        if !online {
+            registry.remove(&id);
+        }
 
         let _ = self.server.notify(CoreNotification::RealmListUpdated).await;
+        online
     }
 
     pub async fn update_population(&self, id: &i32, population: f32) {
         let mut registry = self.registry.write().await;
-        if let Some((_, current_pop)) = registry.get_mut(id) {
-            *current_pop = population;
+        if let Some(status) = registry.get_mut(id) {
+            status.population = population;
         }
 
         let _ = self.server.notify(CoreNotification::RealmListUpdated).await;
     }
 
-    pub async fn status(&self, id: &i32) -> Option<(SocketAddr, f32)> {
+    pub async fn status(&self, id: &i32) -> Option<RealmStatus> {
         let registry = self.registry.read().await;
         registry.get(id).cloned()
     }
