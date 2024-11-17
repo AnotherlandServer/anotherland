@@ -16,8 +16,7 @@
 use async_graphql::{futures_util::TryStreamExt, Context, Error, InputObject, Object, SimpleObject};
 use database::DatabaseRecord;
 use mongodb::{bson::{doc, Uuid}, Database};
-use obj_params::{GameObjectData, Player};
-use serde_json::Value;
+use obj_params::{GameObjectData, Player, Value};
 
 use crate::db;
 
@@ -32,6 +31,22 @@ impl CharacterRoot {
     async fn character(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Character>, Error> {
         let db = ctx.data::<Database>()?.clone();
         let res = db::Character::get(&db, &id).await?;
+
+        if let Some(character) = res {
+            Ok(Some(Character::from_db(character)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn account_character(&self, ctx: &Context<'_>, account_id: Uuid, index: i32) -> Result<Option<Character>, Error> {
+        let db = ctx.data::<Database>()?.clone();
+        let res = db::Character::collection(&db).find_one(doc! {
+            "$and": [
+                { "account": account_id },
+                { "index": index }
+            ]
+        }).await?;
 
         if let Some(character) = res {
             Ok(Some(Character::from_db(character)?))
@@ -60,12 +75,67 @@ impl CharacterRoot {
 impl CharacterMutationRoot {
     async fn create_character(&self, ctx: &Context<'_>, input: CreateCharacterInput) -> Result<Character, Error> {
         let db = ctx.data::<Database>()?.clone();
+        let mut cursor = db::Character::collection(&db).aggregate(vec![
+            doc! {
+                "$match": { "account": input.account }
+            },
+            doc! {
+                "$sort": { "index": -1 }
+            },
+            doc! {
+                "$limit": 1
+            }
+        ]).with_type::<db::Character>().await?;
+
+        let next_index = if cursor.advance().await? {
+            let character = cursor.deserialize_current()?;
+            character.index + 1
+        } else {
+            1
+        };
+
+        let mut data = GameObjectData::new::<Player>();
+        data.set(Player::WorldMapGuid, "f6b8f8b7-a726-4d36-9634-f6d403943fff");
+        data.set(Player::ZoneGuid, Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
+        data.set(Player::Zone, "ClassSelection_P");
+        data.set(Player::TutorialMode, true);
+        data.set(Player::CurrentSkin, "Simuloid");
+        data.set(Player::VisibleItemInfo, vec![
+            20647, // PlayerCharSkinSimuloid0001Default0004
+            21190, // SkinColorSimuloid0006Default0002
+            21566, // TattooFace0001Default0002
+            21550, // Scars0002Default0002
+            21633, // CharFaceMale0012Default0002
+            21184, // EyeColor0015Default0002
+            21571, // LipColor0011Default0002
+            21585, // HairSkin0002Default0002
+            21638, // HairColor0017Default0002
+        ]);
+        data.set(Player::DefaultItemsContentGuid, vec![
+            20647, // PlayerCharSkinSimuloid0001Default0004
+            21190, // SkinColorSimuloid0006Default0002
+            21566, // TattooFace0001Default0002
+            21550, // Scars0002Default0002
+            21633, // CharFaceMale0012Default0002
+            21184, // EyeColor0015Default0002
+            21571, // LipColor0011Default0002
+            21585, // HairSkin0002Default0002
+            21638, // HairColor0017Default0002
+        ]);
+        data.set(Player::CustomizationGender, 1.0);
+        data.set(Player::CustomizationHeight, 0.5);
+        data.set(Player::CustomizationBustSize, 0.5);
+        data.set(Player::CustomizationFat, 0.0);
+        data.set(Player::CustomizationSkinny, 0.7);
+        data.set(Player::CustomizationMuscular, 0.3);
+        data.set(Player::MoveSpeed, 292.0);
+
         let character = db::Character::create(&db, db::Character {
             id: Uuid::new(),
             account: input.account,
-            index: db::NextCharacterId::get_next_id(&db, &input.account).await?,
+            index: next_index,
             name: input.name,
-            data: GameObjectData::new::<Player>()
+            data,
         }).await?;
 
         Character::from_db(character)
@@ -96,7 +166,7 @@ pub struct Character {
     account: Uuid,
     index: i32,
     name: String,
-    data: Value
+    data: serde_json::Value
 }
 
 impl Character {

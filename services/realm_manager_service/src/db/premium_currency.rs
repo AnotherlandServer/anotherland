@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use database::{DBResult, DatabaseError, DatabaseRecord};
-use mongodb::{bson::{doc, Bson, Uuid}, error::{TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT}, options::{ReadConcern, WriteConcern}, ClientSession, Database};
+use mongodb::{bson::{doc, Bson, Uuid}, error::{TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT}, options::{IndexOptions, ReadConcern, WriteConcern}, ClientSession, Database, IndexModel};
 use serde::{Deserialize, Serialize};
 
 use super::PremiumCurrencyTransaction;
@@ -105,5 +105,16 @@ impl DatabaseRecord<'_> for PremiumCurrency {
 
     fn collection_name() -> &'static str {
         "premium_currency"
+    }
+
+    async fn build_index(db: &Database) -> DBResult<()> {
+        let collection = Self::collection(db);
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "account_id": 1 })
+            .options(IndexOptions::builder().unique(true).build())
+            .build()).await?;
+
+        Ok(())
     }
 }

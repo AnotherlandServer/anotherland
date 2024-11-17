@@ -14,11 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod character;
-mod next_character_id;
 mod premium_currency;
 mod premium_currency_transaction;
 
 pub use character::*;
-pub use next_character_id::*;
 pub use premium_currency::*;
 pub use premium_currency_transaction::*;

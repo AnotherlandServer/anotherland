@@ -15,7 +15,7 @@
 
 use cynic::serde::{Deserialize, Serialize};
 use database::DatabaseRecord;
-use mongodb::bson::Uuid;
+use mongodb::{bson::{doc, Uuid}, options::IndexOptions, IndexModel};
 use obj_params::GameObjectData;
 
 #[derive(Serialize, Deserialize)]
@@ -36,5 +36,28 @@ impl DatabaseRecord<'_> for Character {
 
     fn collection_name() -> &'static str {
         "characters"
+    }
+
+    async fn build_index(db: &mongodb::Database) -> database::DBResult<()> {
+        let collection = Self::collection(db);
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "id": 1 })
+            .options(IndexOptions::builder().unique(true).build())
+            .build()).await?;
+
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "name": 1 })
+            .options(IndexOptions::builder().unique(true).build())
+            .build()).await?;
+
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "account": 1, "index": 1 })
+            .options(IndexOptions::builder().unique(true).build())
+            .build()).await?;
+
+        Ok(())
     }
 }

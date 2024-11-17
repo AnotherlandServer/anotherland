@@ -21,7 +21,7 @@ use clap::Parser;
 use core_api::CoreApi;
 use core_api::proto::{CoreRequest, CoreClient, CoreNotification};
 use database::DatabaseExt;
-use db::Character;
+use db::{Character, PremiumCurrency, PremiumCurrencyTransaction};
 use error::RealmResult;
 use log::info;
 use mongodb::Client;
@@ -86,6 +86,8 @@ async fn main() -> RealmResult<()> {
     let db = client.database(&args.mongo_db);
 
     db.init_collection::<Character>().await;
+    db.init_collection::<PremiumCurrencyTransaction>().await;
+    db.init_collection::<PremiumCurrency>().await;
 
     // Start graphql api
     let schema = Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)

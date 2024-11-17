@@ -15,7 +15,7 @@
 
 use chrono::{DateTime, Utc};
 use database::{DBResult, DatabaseError, DatabaseRecord};
-use mongodb::{bson::{doc, Bson, Document, Uuid}, ClientSession, Database};
+use mongodb::{bson::{doc, Bson, Document, Uuid}, options::IndexOptions, ClientSession, Database, IndexModel};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -72,5 +72,16 @@ impl DatabaseRecord<'_> for PremiumCurrencyTransaction {
 
     fn collection_name() -> &'static str {
         "premium_currency_transactions"
+    }
+
+    async fn build_index(db: &Database) -> DBResult<()> {
+        let collection = Self::collection(db);
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "account_id": 1 })
+            .options(IndexOptions::builder().unique(true).build())
+            .build()).await?;
+
+        Ok(())
     }
 }
