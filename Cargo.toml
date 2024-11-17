@@ -22,3 +22,9 @@ members = [
     "tools/kismet-plotter",
     "external/zmq.rs"
 , "lib/realm_api"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
