@@ -3352,6 +3352,7 @@ dependencies = [
  "cluster",
  "cynic",
  "cynic-codegen",
+ "log",
  "obj_params",
  "realm_manager_service",
  "reqwest",
