@@ -162,6 +162,9 @@ impl FrontendSessionContext {
                     ).await?;
                 }
             },
+            CPkt::oaPktRequestSelectWorld(pkt) => {
+
+            },
             CPkt::oaPktCharacterSelect(pkt) => {
                 info!("Selected character: {}", pkt.character_id);
             },

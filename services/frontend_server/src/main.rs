@@ -22,7 +22,7 @@ use frontend_session_context::FrontendSessionContext;
 use log::info;
 use once_cell::sync::Lazy;
 use raknet::RakNetListener;
-use realm_api::{proto::RealmClient, RealmApi};
+use realm_api::{proto::{NodeType, RealmClient, RealmRequest}, RealmApi};
 use reqwest::Url;
 use toolkit::print_banner;
 
@@ -43,6 +43,9 @@ struct Cli {
 
     #[arg(long, env = "RAKNET_BIND_ADDR", default_value = "0.0.0.0:6113")]
     raknet_bind_addr: SocketAddr,
+
+    #[arg(long, env = "PUBLIC_ADDR")]
+    public_addr: SocketAddr,
 }
 
 static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
@@ -69,6 +72,9 @@ async fn main() -> FrontendResult<()> {
         listener.listen(100).await;
     
         info!("Server started...");
+
+        // notify realm server we're online
+        realm_client.send(RealmRequest::RegisterNode(NodeType::FrontendNode, ARGS.public_addr.to_string())).await?;
     
         loop {
             let socket = listener.accept().await.unwrap();
