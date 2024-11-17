@@ -29,3 +29,5 @@ pub use server::*;
 pub use client::*;
 pub use message::*;
 pub use notification::*;
+
+pub use zeromq::util::PeerIdentity;
