@@ -272,7 +272,8 @@ impl ParamWriter for dyn GenericParamSet {
         writer.write(filtered_params.len() as u16)?;
 
         
-        for (_, v) in filtered_params {
+        for (a, v) in filtered_params {
+            writer.write(a.id())?;
             v.write(writer)?;
         }
 
@@ -291,7 +292,8 @@ impl ParamWriter for dyn GenericParamSet {
         writer.write(1u8)?;
         writer.write(filtered_params.len() as u16)?;
 
-        for (_, v) in filtered_params {
+        for (a, v) in filtered_params {
+            writer.write(a.id())?;
             v.write(writer)?;
         }
 
@@ -310,7 +312,8 @@ impl ParamWriter for dyn GenericParamSet {
         writer.write(1u8)?;
         writer.write(filtered_params.len() as u16)?;
 
-        for (_, v) in filtered_params {
+        for (a, v) in filtered_params {
+            writer.write(a.id())?;
             v.write(writer)?;
         }
 
