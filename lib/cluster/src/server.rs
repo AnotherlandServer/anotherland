@@ -125,7 +125,6 @@ impl <T: Request + 'static, TR: Response, N: Notification>ClusterServer<T, TR, N
                 loop {
                     tokio::select! {
                         Some(message) = tx_receiver.recv() => {
-                            debug!("Send: {:?}", message);
                             let _ = socket.send(message).await;
                         },
                         Ok(message) = socket.recv() => {
