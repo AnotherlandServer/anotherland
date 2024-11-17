@@ -509,11 +509,12 @@ pub fn generate_parser_code(generated_struct: &GeneratedStruct) -> TokenStream {
 
 pub fn generate_primitive_writer_code(primitive: &str, generated_field: &GeneratedField) -> TokenStream {
     let field_name_ident = format_ident!("{}", generated_field.name);
+    let field_type = generate_field_type_code(&generated_field.r#type);
     let field_getter = if generated_field.optional {
         if primitive == "buffer" {
-            quote! { self.#field_name_ident.as_ref().unwrap() }
+            quote! { self.#field_name_ident.as_ref().unwrap_or(&#field_type::default()) }
         } else {
-            quote! { self.#field_name_ident.unwrap() }
+            quote! { self.#field_name_ident.unwrap_or_default() }
         }
     } else {
         quote! { self.#field_name_ident }
