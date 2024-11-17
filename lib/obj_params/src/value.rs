@@ -873,6 +873,12 @@ impl From<i32> for Value {
     }
 }
 
+impl From<f32> for Value {
+    fn from(value: f32) -> Self {
+        Value::Float(value)
+    }
+}
+
 impl From<String> for Value {
     fn from(value: String) -> Self {
         Value::String(value)
@@ -882,5 +888,17 @@ impl From<String> for Value {
 impl From<&str> for Value {
     fn from(value: &str) -> Self {
         Value::String(value.to_string())
+    }
+}
+
+impl From<Uuid> for Value {
+    fn from(value: Uuid) -> Self {
+        Value::Guid(value)
+    }
+}
+
+impl From<Vec<i32>> for Value {
+    fn from(value: Vec<i32>) -> Self {
+        Value::VectorInt(value)
     }
 }
