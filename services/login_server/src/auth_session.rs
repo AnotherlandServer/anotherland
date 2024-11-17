@@ -35,7 +35,7 @@ fn serialize_realm(realm: &Realm) -> RealmStatus {
             id: realm.id(),
             name: realm.name().to_string(),
             channel_count: 1,
-            channel_id: vec![1],
+            channel_id: vec![realm.id() as u32], // Due to a client bug, we have to identify realms based on channel ids. 
             channel_population_count: 1,
             channel_population: vec![population as f32],
         }
@@ -44,7 +44,7 @@ fn serialize_realm(realm: &Realm) -> RealmStatus {
             id: realm.id(),
             name: format!("[OFFLINE] {}", realm.name()),
             channel_count: 1,
-            channel_id: vec![1],
+            channel_id: vec![realm.id() as u32], // Due to a client bug, we have to identify realms based on channel ids. 
             channel_population_count: 1,
             channel_population: vec![0.0],
         }
@@ -188,8 +188,14 @@ impl AuthSessionContext {
                 Ok(())
             },
             CPkt::oaPktRealmSelect(pkt) => {
+                /*
+                    The client returns an index of the client-internal realm array as realm id,
+                    which does not necessarily matches with the real realm id.
+                    Therefore we use the channel_id to identify the realm.
+                    We can do this, because we currently always assume only a single channel per realm.
+                */
                 if 
-                    let Some(realm) = self.auth_api.get_realm(pkt.realm_id).await? &&
+                    let Some(realm) = self.auth_api.get_realm(pkt.channel_id).await? &&
                     let Some(endpoint) = realm.endpoint()
                 {
                     // Login result
@@ -198,10 +204,10 @@ impl AuthSessionContext {
                         ui_state: CpktLoginResultUiState::CharacterSelection,
                         user_id: Some(1),
                         username: Some("".to_string()),
-                        magic_bytes: Some(vec![]),
+                        magic_bytes: Some(vec![0; 16]),
                         session_id: self.session_id,
                         realm_id: Some(realm.id()),
-                        realm_ip: Some(endpoint.ip().to_bits()),
+                        realm_ip: Some(u32::from_be(endpoint.ip().to_bits())),
                         realm_port: Some(endpoint.port()),
                         ..Default::default()
                     }.into_pkt().to_bytes(), Reliability::ReliableOrdered).await?;
