@@ -15,9 +15,9 @@
 
 use bitstream_io::{ByteWriter, LittleEndian};
 use core_api::{CoreApi, Session};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use obj_params::{ParamWriter, Player};
-use protocol::{oaCharacter, oaPktCharacterFailure, CPkt, CPktStream_126_1, CPktStream_126_5};
+use protocol::{oaCharacter, oaPktCharacterDeleteSuccess, oaPktCharacterFailure, CPkt, CPktStream_126_1, CPktStream_126_5};
 use raknet::{RakNetSocket, Reliability};
 use realm_api::RealmApi;
 
@@ -144,10 +144,26 @@ impl FrontendSessionContext {
                 }
             },
             CPkt::oaPktCharacterDelete(pkt) => {
-                todo!()
+                if let Some(character) = self.realm_api.get_character_for_account(session.account().id(), pkt.character_id).await? {
+                    character.delete().await?;
+
+                    self.socket.send(
+                        &oaPktCharacterDeleteSuccess {
+                            character_id: pkt.character_id,
+                            ..Default::default()
+                        }.into_pkt().to_bytes(), Reliability::ReliableOrdered
+                    ).await?;
+                } else {
+                    self.socket.send(
+                        &oaPktCharacterFailure {
+                            error_code: protocol::OaPktCharacterFailureErrorCode::CharacterInvalid,
+                            ..Default::default()
+                        }.into_pkt().to_bytes(), Reliability::ReliableOrdered
+                    ).await?;
+                }
             },
             CPkt::oaPktCharacterSelect(pkt) => {
-                todo!()
+                info!("Selected character: {}", pkt.character_id);
             },
             _ => {
                 warn!("Unhandled pkt: {:?}", pkt);
