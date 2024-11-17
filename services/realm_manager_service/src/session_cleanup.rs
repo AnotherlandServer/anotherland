@@ -13,26 +13,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use cluster::Notification;
-use core_api::proto::CoreNotification;
-use mongodb::bson::Uuid;
-use serde::{Deserialize, Serialize};
+use core_api::CoreApi;
+use database::DatabaseRecord;
+use futures_util::TryStreamExt;
+use log::debug;
+use mongodb::{bson::doc, Database};
 
-use super::NodeType;
+use crate::db::SessionExt;
 
-#[derive(Serialize, Deserialize)]
-pub enum RealmNotification {
-    ClusterNotification(CoreNotification),
-    NodeAdded((Uuid, NodeType, String)),
-    NodeRemoved(Uuid)
-}
-
-impl Notification for RealmNotification {
-    fn topic_name(&self) -> &'static str {
-        match self {
-            RealmNotification::ClusterNotification(notification) => notification.topic_name(),
-            RealmNotification::NodeAdded(_) => "cluster.node.added",
-            RealmNotification::NodeRemoved(_) => "cluster.node.removed",
+pub fn start_session_cleanup(db: Database, core_api: CoreApi) {
+    tokio::spawn(async move {
+        if let Ok(mut cursor) = SessionExt::collection(&db).find(doc!{}).await {
+            while let Ok(Some(session_ext)) = cursor.try_next().await {
+                if let Ok(None) = core_api.get_session(&session_ext.id).await {
+                    debug!("Cleaning up session {}", session_ext.id);
+                    let _ = SessionExt::collection(&db).delete_one(doc! { "id": session_ext.id }).await;
+                }
+            }
         }
-    }
+    });
 }

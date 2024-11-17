@@ -16,7 +16,9 @@
 mod character;
 mod premium_currency;
 mod premium_currency_transaction;
+mod session_ext;
 
 pub use character::*;
 pub use premium_currency::*;
 pub use premium_currency_transaction::*;
+pub use session_ext::*;

@@ -16,18 +16,22 @@
 use async_graphql::MergedObject;
 use character::{CharacterMutationRoot, CharacterRoot};
 use premium_currency::{PremiumCurrencyMutationRoot, PremiumCurrencyRoot};
+use session_ext::{SessionExtMutationRoot, SessionExtRoot};
 
 mod character;
 mod premium_currency;
+mod session_ext;
 
 #[derive(MergedObject, Default)]
 pub struct QueryRoot(
     pub CharacterRoot,
     pub PremiumCurrencyRoot,
+    pub SessionExtRoot,
 );
 
 #[derive(MergedObject, Default)]
 pub struct MutationRoot(
     pub CharacterMutationRoot,
     pub PremiumCurrencyMutationRoot,
+    pub SessionExtMutationRoot,
 );

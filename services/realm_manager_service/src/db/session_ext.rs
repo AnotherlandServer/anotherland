@@ -13,34 +13,36 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod notification;
-pub use notification::*;
-
-use cluster::{ClusterClient, ClusterServer, Request, Response};
+use database::DatabaseRecord;
+use mongodb::{bson::{doc, Uuid}, options::IndexOptions, IndexModel};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-pub enum RealmRequest {
-    RegisterNode(NodeType, String),
+pub struct SessionExt {
+    pub id: Uuid,
+    pub selected_world: Option<u16>,
+    pub selected_character: Option<i32>,
 }
 
-impl Request for RealmRequest {}
+impl DatabaseRecord<'_> for SessionExt {
+    type PrimaryKey = Uuid;
 
+    fn key(&self) -> &Self::PrimaryKey {
+        &self.id
+    }
 
-#[derive(Serialize, Deserialize)]
-pub enum RealmResponse {
+    fn collection_name() -> &'static str {
+        "session_ext"
+    }
 
+    async fn build_index(db: &mongodb::Database) -> database::DBResult<()> {
+        let collection = Self::collection(db);
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "id": 1 })
+            .options(IndexOptions::builder().unique(true).build())
+            .build()).await?;
+
+        Ok(())
+    }
 }
-
-impl Response for RealmResponse {}
-
-#[derive(Serialize, Deserialize, Clone, Copy)]
-pub enum NodeType {
-    FrontendNode,
-    ClusterNode,
-    WorldNode,
-    DungeonNode,
-}
-
-pub type RealmServer = ClusterServer<RealmRequest, RealmResponse, RealmNotification>;
-pub type RealmClient = ClusterClient<RealmRequest, RealmResponse, RealmNotification>;
