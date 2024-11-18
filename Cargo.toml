@@ -20,8 +20,8 @@ members = [
     "services/realm_manager_service", 
     "services/world_service",
     "tools/kismet-plotter",
-    "external/zmq.rs"
-, "lib/realm_api"]
+    "lib/realm_api"
+]
 
 [profile.dev]
 panic = "abort"
