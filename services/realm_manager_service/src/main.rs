@@ -136,8 +136,8 @@ async fn main() -> RealmResult<()> {
         tokio::spawn(async move {
             while let Ok((peer, req)) = server.recv().await {
                 match req {
-                    proto::RealmRequest::RegisterNode(node_type, url) => {
-                        node_registry.register_node(peer, node_type, url).await;
+                    proto::RealmRequest::RegisterNode(node_type, endpoint) => {
+                        node_registry.register_node(peer, node_type, endpoint).await;
                     },
                 }
             }

@@ -14,6 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod notification;
+use std::net::SocketAddr;
+
 pub use notification::*;
 
 use cluster::{ClusterClient, ClusterServer, Request, Response};
@@ -21,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub enum RealmRequest {
-    RegisterNode(NodeType, String),
+    RegisterNode(NodeType, SocketAddr),
 }
 
 impl Request for RealmRequest {}

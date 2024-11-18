@@ -13,28 +13,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::net::SocketAddr;
-
-use cluster::Notification;
-use core_api::proto::CoreNotification;
+use async_graphql::{Context, Enum, Error, Object, SimpleObject};
 use mongodb::bson::Uuid;
-use serde::{Deserialize, Serialize};
 
-use super::NodeType;
+#[derive(Default)]
+pub struct NodesRoot;
 
-#[derive(Serialize, Deserialize)]
-pub enum RealmNotification {
-    ClusterNotification(CoreNotification),
-    NodeAdded((Uuid, NodeType, SocketAddr)),
-    NodeRemoved(Uuid)
+#[Object]
+impl NodesRoot {
+    async fn nodes(&self, ctx: &Context<'_>, id: Uuid) -> Result<Vec<Node>, Error> {
+        
+        todo!()
+    }
 }
 
-impl Notification for RealmNotification {
-    fn topic_name(&self) -> &'static str {
-        match self {
-            RealmNotification::ClusterNotification(notification) => notification.topic_name(),
-            RealmNotification::NodeAdded(_) => "cluster.node.added",
-            RealmNotification::NodeRemoved(_) => "cluster.node.removed",
-        }
-    }
+#[derive(Enum, Clone, Copy, PartialEq, Eq)]
+pub enum NodeType {
+    Frontend,
+    Cluster,
+    World,
+    Dungeon,
+}
+
+#[derive(SimpleObject)]
+pub struct Node {
+    id: Uuid,
+    r#type: NodeType,
+    endpoint: String,
 }

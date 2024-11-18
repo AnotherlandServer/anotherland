@@ -21,6 +21,7 @@ use session_ext::{SessionExtMutationRoot, SessionExtRoot};
 mod character;
 mod premium_currency;
 mod session_ext;
+mod nodes;
 
 #[derive(MergedObject, Default)]
 pub struct QueryRoot(
