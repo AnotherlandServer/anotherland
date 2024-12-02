@@ -13,4 +13,4 @@ serde = { version = "1.0.210", features = ["serde_derive"] }
 thiserror = "1.0.64"
 tokio = { version = "1.41.0", features = ["full"] }
 toolkit = { version = "0.1.0", path = "../toolkit" }
-zeromq = { version = "0.4.1", path = "../../external/zmq.rs" }
+zeromq = { version = "0.4.1", git = "https://github.com/plehmkuhl/zmq.rs.git" }
