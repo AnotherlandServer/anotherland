@@ -74,7 +74,7 @@ async fn main() -> FrontendResult<()> {
         info!("Server started...");
 
         // notify realm server we're online
-        realm_client.send(RealmRequest::RegisterNode(NodeType::FrontendNode, ARGS.public_addr.to_string())).await?;
+        realm_client.send(RealmRequest::RegisterNode(NodeType::FrontendNode, ARGS.public_addr)).await?;
     
         loop {
             let socket = listener.accept().await.unwrap();
