@@ -15,8 +15,9 @@
 
 use async_graphql::{futures_util::TryStreamExt, Context, Error, InputObject, Object, SimpleObject};
 use database::DatabaseRecord;
-use mongodb::{bson::{doc, Uuid}, Database};
+use mongodb::{bson::doc, Database};
 use obj_params::{GameObjectData, Player, Value};
+use toolkit::types::Uuid;
 
 use crate::db;
 
@@ -96,7 +97,7 @@ impl CharacterMutationRoot {
 
         let mut data = GameObjectData::new::<Player>();
         data.set(Player::WorldMapGuid, "f6b8f8b7-a726-4d36-9634-f6d403943fff");
-        data.set(Player::ZoneGuid, Uuid::parse_str("4635f288-ec24-4e73-b75c-958f2607a30e").unwrap());
+        data.set(Player::ZoneGuid, "4635f288-ec24-4e73-b75c-958f2607a30e".parse::<Uuid>().unwrap());
         data.set(Player::Zone, "ClassSelection_P");
         data.set(Player::TutorialMode, true);
         data.set(Player::CurrentSkin, "Simuloid");

@@ -13,7 +13,7 @@ name = "core_service"
 path = "src\\main.rs"
 
 [dependencies]
-async-graphql = { version = "7.0.11", features = ["bson", "chrono", "chrono-tz", "uuid"] }
+async-graphql = { version = "7.0.11", features = ["bson", "chrono", "chrono-tz"] }
 async-graphql-poem = "7.0.11"
 bcrypt = "0.15.1"
 bson = "2.13.0"
@@ -31,4 +31,3 @@ sha1 = "0.10.6"
 thiserror = "1.0.65"
 tokio = { version = "1.40.0", features = ["full"] }
 toolkit = { version = "0.1.0", path = "../../lib/toolkit" }
-uuid = { version = "1.10.0", features = ["v1"] }

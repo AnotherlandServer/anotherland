@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_graphql::{Context, Enum, Error, Object, SimpleObject};
-use mongodb::bson::Uuid;
+use toolkit::types::Uuid;
 
 #[derive(Default)]
 pub struct NodesRoot;

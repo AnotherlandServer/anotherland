@@ -14,7 +14,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_graphql::{Context, Error, Object, SimpleObject};
-use mongodb::{bson::Uuid, Database};
+use mongodb::Database;
+use toolkit::types::Uuid;
 
 use crate::db;
 

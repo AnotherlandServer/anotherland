@@ -60,8 +60,8 @@ impl Character {
     fn from_graphql(api: &RealmApi, other: character_graphql::Character) -> RealmApiResult<Self> {
         Ok(Self {
             api_base: api.clone(),
-            id: Uuid::parse_str(&other.id.0)?,
-            account: Uuid::parse_str(&other.account.0)?,
+            id: other.id.0.parse()?,
+            account: other.account.0.parse()?,
             index: other.index,
             name: other.name,
             data: serde_json::from_value(other.data.0)?,

@@ -20,4 +20,3 @@ bson = { version = "2.13.0", features = ["uuid-1"] }
 log = "0.4.22"
 nom = "7.1.3"
 toolkit = { version = "0.1.0", path = "../toolkit" }
-uuid = { version = "1.10.0", features = ["v1", "v4"] }

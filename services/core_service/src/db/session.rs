@@ -13,12 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bson::{doc, Uuid};
+use bson::doc;
 use chrono::{DateTime, Utc};
 use database::{DBResult, DatabaseRecord};
 use log::debug;
 use mongodb::{Database, IndexModel, options::IndexOptions};
 use serde::{Deserialize, Serialize};
+use toolkit::types::Uuid;
 
 use super::Account;
 

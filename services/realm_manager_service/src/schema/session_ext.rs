@@ -16,7 +16,8 @@
 use async_graphql::{Context, Error, Object, SimpleObject};
 use core_api::CoreApi;
 use database::DatabaseRecord;
-use mongodb::{bson::{doc, Uuid}, options::ReturnDocument, Database};
+use mongodb::{bson::doc, options::ReturnDocument, Database};
+use toolkit::types::Uuid;
 
 use crate::db;
 

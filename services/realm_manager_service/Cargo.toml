@@ -12,7 +12,7 @@ name = "realm_manager_service"
 path = "src\\main.rs"
 
 [dependencies]
-async-graphql = { version = "7.0.11", features = ["bson", "chrono", "chrono-tz", "uuid"] }
+async-graphql = { version = "7.0.11", features = ["bson", "chrono", "chrono-tz"] }
 async-graphql-poem = "7.0.11"
 chrono = { version = "0.4.38", features = ["serde"] }
 clap = { version = "4.5.20", features = ["derive", "env"] }

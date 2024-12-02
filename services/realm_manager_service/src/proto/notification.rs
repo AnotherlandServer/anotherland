@@ -17,8 +17,8 @@ use std::net::SocketAddr;
 
 use cluster::Notification;
 use core_api::proto::CoreNotification;
-use mongodb::bson::Uuid;
 use serde::{Deserialize, Serialize};
+use toolkit::types::Uuid;
 
 use super::NodeType;
 

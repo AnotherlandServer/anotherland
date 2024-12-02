@@ -15,8 +15,9 @@
 
 use cynic::serde::{Deserialize, Serialize};
 use database::DatabaseRecord;
-use mongodb::{bson::{doc, Uuid}, options::IndexOptions, IndexModel};
+use mongodb::{bson::doc, options::IndexOptions, IndexModel};
 use obj_params::GameObjectData;
+use toolkit::types::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub struct Character {

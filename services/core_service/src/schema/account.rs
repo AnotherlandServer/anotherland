@@ -14,10 +14,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_graphql::{Context, Error, InputObject, Object, OneofObject, SimpleObject, Union};
-use bson::Uuid;
 use chrono::{DateTime, Utc};
 use database::DatabaseRecord;
 use mongodb::Database;
+use toolkit::types::Uuid;
 
 use crate::db;
 
@@ -178,7 +178,7 @@ pub enum AuthQuery {
 
 #[derive(SimpleObject)]
 pub struct Account {
-    id: uuid::Uuid,
+    id: Uuid,
     numeric_id: i32,
     identifier: Identifier,
     created: DateTime<Utc>,
@@ -191,7 +191,7 @@ pub struct Account {
 impl Account {
     pub fn from_db(account: db::Account) -> Self {
         Self {
-            id: account.id.to_uuid_1(),
+            id: account.id,
             numeric_id: account.numeric_id,
             identifier: match account.credentials {
                 db::Credentials::Username { name, email, .. } => {

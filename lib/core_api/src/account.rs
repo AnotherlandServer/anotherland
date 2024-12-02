@@ -61,7 +61,7 @@ impl Account {
         Self {
             api_base: api_base.clone(),
 
-            id: Uuid::parse_str(&account.id.0).unwrap(),
+            id: account.id.0.parse().unwrap(),
             numeric_id: account.numeric_id,
             identifier: match account.identifier {
                 account_graphql::Identifier::SteamIdentifier(steam_identifier) => 

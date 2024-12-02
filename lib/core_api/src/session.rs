@@ -36,7 +36,7 @@ impl Session {
         Self {
             api_base: api_base.clone(),
 
-            id: Uuid::parse_str(&session.id.0).unwrap(),
+            id: session.id.0.parse().unwrap(),
             account: Account::from_graphql(api_base, session.account),
             created: session.last_seen.0.parse().unwrap(),
             last_seen: session.last_seen.0.parse().unwrap(),

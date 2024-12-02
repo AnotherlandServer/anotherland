@@ -16,10 +16,11 @@
 use std::sync::Arc;
 
 use async_graphql::{futures_util::TryStreamExt, Context, Enum, Error, InputObject, Object, OneofObject, SimpleObject};
-use bson::{doc, Uuid};
+use bson::doc;
 use chrono::{DateTime, Utc};
 use database::DatabaseRecord;
 use mongodb::Database;
+use toolkit::types::Uuid;
 
 use crate::{db, proto::{CoreNotification, CoreServer}};
 
@@ -197,7 +198,7 @@ impl SessionMutationRoot {
 
 #[derive(SimpleObject)]
 pub struct Session {
-    id: uuid::Uuid,
+    id: Uuid,
     account: Account,
     created: DateTime<Utc>,
     last_seen: DateTime<Utc>,
@@ -206,7 +207,7 @@ pub struct Session {
 impl Session {
     fn from_db(session: db::Session, account: db::Account) -> Self {
         Self {
-            id: session.id.to_uuid_1(),
+            id: session.id,
             account: Account::from_db(account),
             created: session.created,
             last_seen: session.last_seen,

@@ -17,8 +17,8 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use cluster::{ClusterEvent, PeerIdentity};
 use core_api::proto::{CoreClient, CoreRequest};
-use mongodb::bson::Uuid;
 use tokio::sync::{broadcast::Receiver, RwLock};
+use toolkit::types::Uuid;
 
 use crate::proto::{NodeType, RealmNotification, RealmServer};
 

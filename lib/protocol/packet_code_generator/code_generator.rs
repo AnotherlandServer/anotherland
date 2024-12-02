@@ -161,7 +161,7 @@ pub fn generate_nom_parser_for_primitive(primitive: &str) -> TokenStream {
         "i64" => quote! {le_i64},
         "f32" => quote! {le_f32},
         "f64" => quote! {le_f64},
-        "uuid" => quote! {map(take(16usize), |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into())},
+        "uuid" => quote! {map(take(16usize), |v: &[u8]| Uuid::from_bytes_le(v.try_into().unwrap()))},
         "buffer" => quote! {OABuffer::from_bytes},
         "nativeparam" => quote! {NativeParam::parse_struct},
         "avatar_id" => quote! {map(le_u64, |v| v.into())},

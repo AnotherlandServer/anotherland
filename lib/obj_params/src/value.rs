@@ -143,7 +143,7 @@ impl Value {
                 context("Guid", |i| {
                     let (i, uuid) = map(
                         take(16usize), 
-                        |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                        |v: &[u8]| Uuid::from_bytes_le(v.try_into().unwrap())
                     )(i)?;
 
                     Ok((i, Value::Guid(uuid)))
@@ -153,12 +153,12 @@ impl Value {
                 context("GuidPair", |i| {
                     let (i, uuid_a) = map(
                         take(16usize), 
-                        |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                        |v: &[u8]| Uuid::from_bytes_le(v.try_into().unwrap())
                     )(i)?;
 
                     let (i, uuid_b) = map(
                         take(16usize), 
-                        |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                        |v: &[u8]| Uuid::from_bytes_le(v.try_into().unwrap())
                     )(i)?;
 
                     Ok((i, Value::GuidPair((uuid_a, uuid_b))))
@@ -224,7 +224,7 @@ impl Value {
                 context("LocalizedString", |i| {
                     let (i, uuid) = map(
                         take(16usize), 
-                        |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                        |v: &[u8]| Uuid::from_bytes_le(v.try_into().unwrap())
                     )(i)?;
 
                     Ok((i, Value::LocalizedString(uuid)))
@@ -404,7 +404,7 @@ impl Value {
                     let (i, data) = multi::count(
                         map(
                             take(16usize), 
-                            |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                            |v: &[u8]| Uuid::from_bytes_le(v.try_into().unwrap())
                         ), count as usize)(i)?;
 
                     Ok((i, Value::GuidSet(data.into_iter().collect())))
@@ -416,7 +416,7 @@ impl Value {
                     let (i, data) = multi::count(
                         map(
                             take(16usize), 
-                            |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                            |v: &[u8]| Uuid::from_bytes_le(v.try_into().unwrap())
                         ), count as usize)(i)?;
 
                     Ok((i, Value::VectorGuid(data)))
@@ -436,7 +436,7 @@ impl Value {
                     let (i, data) = multi::count(
                         map(
                             take(16usize), 
-                            |v: &[u8]| uuid::Uuid::from_bytes_le(v.try_into().unwrap()).into()
+                            |v: &[u8]| Uuid::from_bytes_le(v.try_into().unwrap())
                         ), count as usize)(i)?;
 
                     Ok((i, Value::VectorLocalizedString(data)))

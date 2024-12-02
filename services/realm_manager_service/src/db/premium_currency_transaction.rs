@@ -15,8 +15,9 @@
 
 use chrono::{DateTime, Utc};
 use database::{DBResult, DatabaseError, DatabaseRecord};
-use mongodb::{bson::{doc, Bson, Document, Uuid}, options::IndexOptions, ClientSession, Database, IndexModel};
+use mongodb::{bson::{doc, Bson, Document}, options::IndexOptions, ClientSession, Database, IndexModel};
 use serde::{Deserialize, Serialize};
+use toolkit::types::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub struct PremiumCurrencyTransaction {

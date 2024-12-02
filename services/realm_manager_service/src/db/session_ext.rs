@@ -14,8 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use database::DatabaseRecord;
-use mongodb::{bson::{doc, Uuid}, options::IndexOptions, IndexModel};
+use mongodb::{bson::doc, options::IndexOptions, IndexModel};
 use serde::{Deserialize, Serialize};
+use toolkit::types::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub struct SessionExt {

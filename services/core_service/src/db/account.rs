@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bson::{doc, Uuid};
+use bson::doc;
 use chrono::{Utc, DateTime};
 use database::{DBResult, DatabaseRecord};
 use mongodb::{Database, options::IndexOptions, IndexModel};
 use serde::{Serialize, Deserialize};
 use sha1::{Sha1, Digest};
-use toolkit::config::CLUSTER_CONF;
+use toolkit::{config::CLUSTER_CONF, types::Uuid};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Credentials {
