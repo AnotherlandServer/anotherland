@@ -18,8 +18,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use crate::DBResult;
 
 #[allow(async_fn_in_trait)]
-pub trait DatabaseRecord<'de>: DeserializeOwned + Serialize + Send + Sync + Unpin {
-    type PrimaryKey: Deserialize<'de> + Serialize + Send + Sync;
+pub trait DatabaseRecord: DeserializeOwned + Serialize + Send + Sync + Unpin {
+    type PrimaryKey: DeserializeOwned + Serialize + Send + Sync;
     
     fn key(&self) -> &Self::PrimaryKey;
     fn collection_name() -> &'static str;

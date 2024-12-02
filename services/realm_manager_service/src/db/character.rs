@@ -27,7 +27,7 @@ pub struct Character {
     pub data: GameObjectData,
 }
 
-impl DatabaseRecord<'_> for Character {
+impl DatabaseRecord for Character {
     type PrimaryKey = Uuid;
 
     fn key(&self) -> &Self::PrimaryKey {

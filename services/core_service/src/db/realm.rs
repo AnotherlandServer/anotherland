@@ -28,7 +28,7 @@ pub struct Realm {
     pub name: String,
 }
 
-impl DatabaseRecord<'_> for Realm {
+impl DatabaseRecord for Realm {
     type PrimaryKey = i32;
 
     fn key(&self) -> &Self::PrimaryKey {

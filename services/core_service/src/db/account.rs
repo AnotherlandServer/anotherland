@@ -152,7 +152,7 @@ impl Account {
     }
 }
 
-impl<'de> DatabaseRecord<'de> for Account {
+impl DatabaseRecord for Account {
     type PrimaryKey = Uuid;
 
     fn key(&self) -> &Self::PrimaryKey {

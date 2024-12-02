@@ -19,11 +19,11 @@ use crate::DatabaseRecord;
 
 #[allow(async_fn_in_trait)]
 pub trait DatabaseExt {
-    async fn init_collection<'de, T: DatabaseRecord<'de>>(&self);
+    async fn init_collection<T: DatabaseRecord>(&self);
 }
 
 impl DatabaseExt for Database {
-    async fn init_collection<'de, T: DatabaseRecord<'de>>(&self) {
+    async fn init_collection<T: DatabaseRecord>(&self) {
         T::build_index(self).await
             .expect("Failed to build collection index");
     }

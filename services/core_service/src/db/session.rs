@@ -51,7 +51,7 @@ impl Session {
 
 }
 
-impl DatabaseRecord<'_> for Session {
+impl DatabaseRecord for Session {
     type PrimaryKey = Uuid;
 
     fn key(&self) -> &Self::PrimaryKey {

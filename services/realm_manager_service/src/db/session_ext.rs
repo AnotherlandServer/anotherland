@@ -24,7 +24,7 @@ pub struct SessionExt {
     pub selected_character: Option<i32>,
 }
 
-impl DatabaseRecord<'_> for SessionExt {
+impl DatabaseRecord for SessionExt {
     type PrimaryKey = Uuid;
 
     fn key(&self) -> &Self::PrimaryKey {

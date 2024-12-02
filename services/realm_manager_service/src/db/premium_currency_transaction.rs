@@ -63,7 +63,7 @@ impl PremiumCurrencyTransaction {
     }
 }
 
-impl DatabaseRecord<'_> for PremiumCurrencyTransaction {
+impl DatabaseRecord for PremiumCurrencyTransaction {
     type PrimaryKey = Uuid;
 
     fn key(&self) -> &Self::PrimaryKey {

@@ -45,7 +45,7 @@ impl Status {
     }
 }
 
-impl DatabaseRecord<'_> for Status {
+impl DatabaseRecord for Status {
     type PrimaryKey = ();
 
     fn key(&self) -> &Self::PrimaryKey {
