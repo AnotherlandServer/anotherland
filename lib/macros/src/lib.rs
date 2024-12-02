@@ -20,8 +20,6 @@ use syn::{parse_macro_input, ItemFn};
 pub fn service_main(_attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(item as ItemFn);
 
-    println!("attr: {}", _attr);
-
     let output = {
         let attrs = input.attrs;
         let sig = input.sig;
