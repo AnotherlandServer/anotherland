@@ -12,6 +12,7 @@ members = [
     "lib/upk", 
     "lib/zone",
     "lib/obj_params",
+    "lib/realm_api",
     "services/core_service",
     "services/cluster_server", 
     "services/dungeon_service", 
@@ -20,8 +21,7 @@ members = [
     "services/realm_manager_service", 
     "services/world_service",
     "tools/kismet-plotter",
-    "lib/realm_api"
-]
+    "tools/seed-realm"]
 
 [profile.dev]
 panic = "abort"
