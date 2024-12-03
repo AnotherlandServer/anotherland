@@ -3,13 +3,16 @@
 ![Anotherland Logo](/images/anotherland-logo.jpg)
 
 ## Introduction
-Welcome to the Anotherland Server Emulator project, a community-driven initiative to resurrect the MMORPG, Otherland. This emulator aims to recreate the experience of Otherland by providing tools and instructions to set up and run your own server for the game.
+Welcome to the **Anotherland Server Emulator** project, a community-driven initiative to resurrect the MMORPG, *Otherland*. This emulator aims to recreate the experience of *Otherland* by providing tools and instructions to set up and run your own server for the game.
+
+Currently, the project is undergoing a major rewrite and is not yet playable. If you simply want to run a local instance of the server,  
+you should check out the tag `v0.1.1` and follow the README there, or use the pre-compiled Docker image with the same name.
 
 ## Prerequisites
 Before you begin, ensure you have the following installed:
-- Rust 1.78.0-nightly
-- A legally acquired copy of the game (Otherland Next)
-- MongoDB
+- **Rust 1.85.0-nightly**
+- A legally acquired copy of the game (*Otherland Next*)
+- **MongoDB**
 
 ## Compilation
 Clone the repository to your local machine:
@@ -17,61 +20,57 @@ Clone the repository to your local machine:
 git clone https://github.com/AnotherlandServer/anotherland.git
 ```
 
-Make sure to set the environment variable `OTHERLAND_CLIENT_PATH` to the path of your game client installation.
+Set the environment variable `OTHERLAND_CLIENT_PATH` to the path of your game client installation.
 
-Build using cargo:
+Build the project using Cargo:
 ```bash
 cargo build
 ```
 
-## Usage
-The server can be run as a single process using the `standalone-server` command or distributed across multiple processes.
+## Architecture
+The server is divided into multiple services that can be run across distributed machines.
 
-### Basic Command Structure
-```bash
-anotherland [OPTIONS] --external-ip <EXTERNAL_IP> --mongo-uri <MONGO_URI> <COMMAND>
-```
+### Per-cluster services:
+- **`core_service`**  
+  Provides central services like authentication and realm registration. It serves as the entry point for clients and the central registry for realms. This service also exposes a GraphQL API for internal use.
+  
+- **`login_server`**  
+  The primary server for clients to connect to. This is the gateway to the *Otherland* cluster and allows clients to select a realm to log into. It exposes the main RakNet connection, the TCP queue, and the TCP verification service. After login, clients are redirected to a `frontend_server` of the selected realm.
 
-### Commands
-- `init-db` - Initialize an empty database.
-- `data-import` - Import game data from the client.
-- `standalone-server` - Run all components in a single process.
-- `help` - Display help information.
-
-### Options
-- `--external-ip <EXTERNAL_IP>` - Set the external IP address.
-- `--mongo-uri <MONGO_URI>` - MongoDB connection URI.
-- `--mongo-cluster-db <MONGO_CLUSTER_DB>` - MongoDB cluster database name (default: `anotherland`).
-
-Additional options are available for each command. Use the `--help` option with any command to see more details.
-
-## Configuration
-Configure the server by setting the necessary environment variables. Examples include:
-- `EXTERNAL_IP=192.168.178.45`
-- `MONGO_URI=mongodb://localhost:27017`
-- `MONGO_CLUSTER_DB=anotherland`
-- `MAX_ACTIVE_SESSIONS=10`
-
-## Populating the database
-Before running the server, the database needs to be populated. 
-This is done by extracing data from the game client. For this to succeed, you first need to decompress the games UPK files. Gildor's Unreal Package Decompressor can be used for this: https://www.gildor.org/downloads
-
-Afterwards, run antotherland with the `data-import` command and provide the game client path as last parameter.
-Run `anotherland data-import --help` for additional options. 
+### Per-realm services:
+- **`realm_manager_service`**  
+  The cornerstone for each realm. It manages the realm's database and acts as a registry for cluster frontends and distributed zones.
+  
+- **`world_service`** *(not yet implemented)*  
+  Responsible for running a collection of zones (maps) defined by the database.
+  
+- **`dungeon_service`** *(not yet implemented)*  
+  Responsible for running dungeon instances.
+  
+- **`myland_service`** *(not yet implemented)*  
+  Responsible for running Myland instances.
+  
+- **`emergency_service`** *(not yet implemented)*  
+  Responsible for handling emergencies.
+  
+- **`battleground_service`** *(not yet implemented)*  
+  Responsible for running battlegrounds.
+  
+- **`frontend_server`**  
+  A staging area for clients immediately after connecting to a realm. It serves clients until they’ve selected a character to play as, at which point they are redirected to one of the `cluster_server` endpoints.
+  
+- **`cluster_server`** *(not yet implemented)*  
+  Routes connected clients’ requests to the appropriate zone or dungeon server.
 
 ## Running the Server
-To run the server in standalone mode, use the following command:
-```bash
-anotherland --external-ip <EXTERNAL_IP> --mongo-uri <MONGO_URI> standalone-server
-```
-
-For distributed execution, start each server component separately using the relevant command.
+Run each process at least once. You can use the `--help` argument with each process to view available options and their default values.  
+When specifying public addresses (e.g., for the `frontend_server`), avoid using `127.0.0.1`, as the *Otherland* client may struggle to resolve it.
 
 ## Contribution
-Currently, we are not accepting contributions as Anotherland is in its initial development phase. Our immediate goal is to build a stable foundation for the project. We appreciate your interest and enthusiasm, and we intend to open the project for community contributions in the future.
+Currently, we are not accepting contributions as Anotherland is in its initial development phase. Our immediate goal is to build a stable foundation for the project. We appreciate your interest and enthusiasm and intend to open the project for community contributions in the future.
 
 ## License
 This project is licensed under the [AGPL-3.0 License](LICENSE).
 
 ## Disclaimer
-This project is a fan-based initiative and is not officially affiliated with, endorsed by, or connected to any of the original creators or entities involved in the development of Otherland, including Game OL GmbH, DRAGO Entertainment S.A., or Tad Williams. This emulator is developed and maintained by enthusiasts with no commercial intent and respects the intellectual property rights of the original creators.
+This project is a fan-based initiative and is not officially affiliated with, endorsed by, or connected to any of the original creators or entities involved in the development of *Otherland*, including Game OL GmbH, DRAGO Entertainment S.A., or Tad Williams. This emulator is developed and maintained by enthusiasts with no commercial intent and respects the intellectual property rights of the original creators.
