@@ -40,7 +40,10 @@ pub fn service_main(attr: proc_macro::TokenStream, item: proc_macro::TokenStream
                 extern crate toolkit;
 
                 let _ = toolkit::dotenvy::dotenv();
-                toolkit::env_logger::init();
+                toolkit::env_logger::Builder::from_env(
+                    toolkit::env_logger::Env::default()
+                    .default_filter_or("info")
+                ).init();
 
                 #config
 
