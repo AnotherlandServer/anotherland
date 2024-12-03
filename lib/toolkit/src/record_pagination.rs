@@ -13,7 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::{connection::{query, Connection, CursorType, Edge, EmptyFields}, Error, ObjectType};
+use std::fmt::Display;
+
+use async_graphql::{connection::{query, Connection, CursorType, Edge, EmptyFields}, Error, ErrorExtensions, ObjectType};
 use database::DatabaseRecord;
 use futures_util::{StreamExt, TryStreamExt};
 use mongodb::{bson::{doc, Document}, Database};
@@ -30,7 +32,8 @@ pub async fn record_query<R: DatabaseRecord, T>(
 ) -> Result<RecordConnection<T>, Error> 
 where 
     <R as DatabaseRecord>::PrimaryKey: CursorType,
-    T: From<R> + ObjectType
+    T: TryFrom<R> + ObjectType,
+    <T as TryFrom<R>>::Error: 'static + Display + Send + Sync
 {
     query(after, before, first, last, |after, before, first, last| async move {
         let collection = R::collection(&db);
@@ -68,7 +71,7 @@ where
         let mut records = vec![];
 
         while let Some(record) = cursor.try_next().await? {
-            records.push(T::from(record));
+            records.push(T::try_from(record)?);
         }
 
         let mut connection = Connection::new(start > 0, end < total);

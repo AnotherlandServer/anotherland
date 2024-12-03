@@ -15,9 +15,10 @@
 
 #![feature(let_chains)]
 
+use darling::{FromDeriveInput, FromField};
 use proc_macro::TokenStream;
-use quote::{format_ident, quote, ToTokens};
-use syn::{parse::Parse, parse_macro_input, punctuated::Punctuated, Expr, ExprLit, ExprPath, ExprTuple, ImplItem, ItemFn, ItemImpl, ItemStruct, Lit, MacroDelimiter, PatPath, Token, Type, TypePath};
+use quote::{format_ident, quote};
+use syn::{parse_macro_input, DeriveInput, ExprPath, ItemFn};
 
 #[proc_macro_attribute]
 pub fn service_main(attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -55,83 +56,115 @@ pub fn service_main(attr: proc_macro::TokenStream, item: proc_macro::TokenStream
     proc_macro::TokenStream::from(output)
 }
 
-struct RecordSchemaInput {
-    /*db_type: ExprPath,
-    schema_type: ExprPath,*/
-    base_name: String,
+#[derive(FromDeriveInput)]
+#[darling(attributes(graphql_crud))]
+struct GraphqlCrudStructOps {
+    name: String,
 }
 
-impl Parse for RecordSchemaInput {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let mut fields = input.parse_terminated(Expr::parse, Token![,])?
-            .into_iter();
-
-        Ok(Self {
-            /*db_type: fields.next()
-                .and_then(|ele| {
-                    if let Expr::Path(p) = ele {
-                        Some(p)
-                    } else {
-                        None
-                    }
-                })
-                .expect("Failed to extract record datatype"),
-            schema_type: fields.next()
-                .and_then(|ele| {
-                    if let Expr::Path(p) = ele {
-                        Some(p)
-                    } else {
-                        None
-                    }
-                })
-                .expect("Failed to extract schema datatype"),*/
-            base_name: fields.next()
-                .and_then(|ele| {
-                    if 
-                        let Expr::Lit(lit) = ele && 
-                        let Lit::Str(s) = lit.lit
-                    {
-                        Some(s.value())
-                    } else {
-                        None
-                    }
-                })
-                .expect("Failed to extract schema datatype"),
-        })
-    }
+#[derive(FromField)]
+#[darling(attributes(graphql_crud))]
+struct GraphqlCrudFieldOps {
+    #[darling(default)]
+    skip: bool,
+    #[darling(default)]
+    serialize_as: Option<ExprPath>,
 }
 
-#[proc_macro_attribute]
-pub fn graphql_crud(attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let ast = parse_macro_input!(item as ItemStruct);
-    let args = parse_macro_input!(attr as RecordSchemaInput);
+#[proc_macro_derive(GraphqlCrud, attributes(graphql_crud))]
+pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ast = parse_macro_input!(item as DeriveInput);
+    let opts = match GraphqlCrudStructOps::from_derive_input(&ast) {
+        Ok(opts) => opts,
+        Err(e) => {
+            return syn::Error::new_spanned(ast, e).to_compile_error().into();
+        }
+    };
 
-    //let record_type = args.db_type.clone();
-    //let schema_type = args.schema_type.clone();
-    let record_ident = ast.ident.clone();
+    let struct_name = ast.ident.clone();
+
     let schema_query_root = format_ident!("{}QueryRoot", ast.ident);
     let schema_mutation_root = format_ident!("{}MutationRoot", ast.ident);
     
     let record_input_ident = format_ident!("{}Input", ast.ident);
-    let read_single_ident = format_ident!("{}", args.base_name);
-    let read_multiple_ident = format_ident!("{}s", args.base_name);
-    let delete_single_ident = format_ident!("delete_{}", args.base_name);
-    let create_single_ident = format_ident!("create_{}", args.base_name);
-    let update_single_ident = format_ident!("update_{}", args.base_name);
-    let create_multiple_ident = format_ident!("batch_create_{}s", args.base_name);
+    let read_single_ident = format_ident!("{}", opts.name);
+    let read_multiple_ident = format_ident!("{}s", opts.name);
+    let delete_single_ident = format_ident!("delete_{}", opts.name);
+    let create_single_ident = format_ident!("create_{}", opts.name);
+    let update_single_ident = format_ident!("update_{}", opts.name);
+    let create_multiple_ident = format_ident!("batch_create_{}s", opts.name);
 
-    let fields = ast.fields.clone();
-    let field_assigners: Vec<_> = ast.fields
-        .iter()
-        .map(|field| {
-            let ident = field.ident.as_ref().unwrap();
-            quote! { #ident: value.#ident }
-        })
-        .collect();
+    let fields = if let syn::Data::Struct(data) = &ast.data {
+        if let syn::Fields::Named(fields) = &data.fields {
+            &fields.named
+        } else {
+            panic!("Expected named fields in struct");
+        }
+    } else {
+        panic!("GraphqlCrud only supports structs");
+    };
+
+    let schema_fields: Vec<_> = fields.iter().filter_map(|field| {
+        let field_opts = match GraphqlCrudFieldOps::from_field(field) {
+            Ok(opts) => opts,
+            Err(e) => {
+                return Some(syn::Error::new_spanned(field, e).to_compile_error())
+            },
+        };
+
+        if field_opts.skip {
+            None
+        } else if let Some(serialize_as) = &field_opts.serialize_as {
+            let ident = &field.ident;
+            let vis = &field.vis;
+            let ty = serialize_as;
+
+            Some(quote!{ #vis #ident: #ty })
+        } else {
+            Some(quote!{ #field })
+        }
+    }).collect();
+
+    let field_serializer: Vec<_> = fields.iter().filter_map(|field| {
+        let field_name = &field.ident;
+
+        let field_opts = match GraphqlCrudFieldOps::from_field(field) {
+            Ok(opts) => opts,
+            Err(e) => {
+                return Some(syn::Error::new_spanned(field, e).to_compile_error())
+            },
+        };
+
+        if field_opts.skip {
+            None
+        } else if field_opts.serialize_as.is_some() {
+            Some(quote!{ #field_name: value.#field_name.try_into()? })
+        } else {
+            Some(quote!{ #field_name: value.#field_name })
+        }
+    }).collect();
+
+    let field_deserializer: Vec<_> = fields.iter().map(|field| {
+        let field_name = &field.ident;
+        let field_ty = &field.ty;
+
+        let field_opts = match GraphqlCrudFieldOps::from_field(field) {
+            Ok(opts) => opts,
+            Err(e) => {
+                return syn::Error::new_spanned(field, e).to_compile_error()
+            },
+        };
+
+        if field_opts.skip {
+            quote!{ #field_name: <#field_ty as Default>::default() }
+        } else if field_opts.serialize_as.is_some() {
+            quote!{ #field_name: value.#field_name.try_into()? }
+        } else {
+            quote!{ #field_name: value.#field_name }
+        }
+    }).collect();
 
     let output: TokenStream = quote! {
-        #ast
-
         mod schema {
             extern crate toolkit;
 
@@ -146,26 +179,32 @@ pub fn graphql_crud(attr: proc_macro::TokenStream, item: proc_macro::TokenStream
             pub struct #schema_mutation_root;
 
             #[derive(async_graphql::SimpleObject)]
-            pub struct #record_ident
-            #fields
+            pub struct #struct_name {
+                #(#schema_fields),*
+            }
 
             #[derive(async_graphql::InputObject)]
-            pub struct #record_input_ident
-            #fields
+            pub struct #record_input_ident {
+                #(#schema_fields),*
+            }
 
-            impl From<super::#record_ident> for #record_ident {
-                fn from(value: super::#record_ident) -> Self {
-                    Self {
-                        #(#field_assigners),*
-                    }
+            impl std::convert::TryFrom<super::#struct_name> for #struct_name {
+                type Error = toolkit::anyhow::Error;
+
+                fn try_from(value: super::#struct_name) -> Result<Self, Self::Error> {
+                    Ok(Self {
+                        #(#field_serializer),*
+                    })
                 }
             }
 
-            impl From<#record_input_ident> for super::#record_ident {
-                fn from(value: #record_input_ident) -> Self {
-                    Self {
-                        #(#field_assigners),*
-                    }
+            impl std::convert::TryFrom<#record_input_ident> for super::#struct_name {
+                type Error = toolkit::anyhow::Error;
+
+                fn try_from(value: #record_input_ident) -> Result<Self, Self::Error> {
+                    Ok(Self {
+                        #(#field_deserializer),*
+                    })
                 }
             }
 
@@ -174,12 +213,14 @@ pub fn graphql_crud(attr: proc_macro::TokenStream, item: proc_macro::TokenStream
                 async fn #read_single_ident(
                     &self, 
                     ctx: &async_graphql::Context<'_>, 
-                    id: <super::#record_ident as DatabaseRecord>::PrimaryKey
-                ) -> Result<Option<#record_ident>, async_graphql::Error> {
+                    id: <super::#struct_name as DatabaseRecord>::PrimaryKey
+                ) -> Result<Option<#struct_name>, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
                     Ok(
-                        super::#record_ident::get(&db, &id).await?
-                        .map(|r| r.into())
+                        match super::#struct_name::get(&db, &id).await? {
+                            Some(record) => Some(record.try_into()?),
+                            None => None,
+                        }
                     )
                 }
 
@@ -190,9 +231,9 @@ pub fn graphql_crud(attr: proc_macro::TokenStream, item: proc_macro::TokenStream
                     before: Option<String>,
                     first: Option<i32>,
                     last: Option<i32>
-                ) -> Result<RecordConnection<#record_ident>, async_graphql::Error> {
+                ) -> Result<RecordConnection<#struct_name>, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
-                    record_query::<super::#record_ident, _>(db, None, after, before, first, last).await
+                    record_query::<super::#struct_name, _>(db, None, after, before, first, last).await
                 }
             }
 
@@ -201,12 +242,12 @@ pub fn graphql_crud(attr: proc_macro::TokenStream, item: proc_macro::TokenStream
                 async fn #delete_single_ident(
                     &self, 
                     ctx: &async_graphql::Context<'_>, 
-                    id: <super::#record_ident as DatabaseRecord>::PrimaryKey
-                ) -> Result<Option<#record_ident>, async_graphql::Error> {
+                    id: <super::#struct_name as DatabaseRecord>::PrimaryKey
+                ) -> Result<Option<#struct_name>, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
-                    if let Some(record) = super::#record_ident::get(&db, &id).await? {
+                    if let Some(record) = super::#struct_name::get(&db, &id).await? {
                         record.delete(&db).await?;
-                        Ok(Some(record.into()))
+                        Ok(Some(record.try_into()?))
                     } else {
                         Ok(None)
                     }
@@ -216,33 +257,35 @@ pub fn graphql_crud(attr: proc_macro::TokenStream, item: proc_macro::TokenStream
                     &self, 
                     ctx: &async_graphql::Context<'_>, 
                     input: #record_input_ident
-                ) -> Result<#record_ident, async_graphql::Error> {
+                ) -> Result<#struct_name, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
-                    let record: super::#record_ident = input.into();
-
-                    <super::#record_ident as DatabaseRecord>::collection(&db)
-                        .insert_one(record.clone())
+                    let record = <super::#struct_name as DatabaseRecord>
+                        ::create(&db, input.try_into()?)
                         .await?;
-        
-                    Ok(record.into())
+
+                    Ok(record.try_into()?)
                 }
 
                 async fn #create_multiple_ident(
                     &self, 
                     ctx: &async_graphql::Context<'_>, 
                     input: Vec<#record_input_ident>
-                ) -> Result<Vec<#record_ident>, async_graphql::Error> {
+                ) -> Result<Vec<#struct_name>, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
-                    let records: Vec<super::#record_ident> = input
+                    let records = input
                         .into_iter()
-                        .map(|r| r.into())
-                        .collect();
+                        .map(|r| r.try_into())
+                        .collect::<Result<Vec<super::#struct_name>, toolkit::anyhow::Error>>()?;
 
-                    <super::#record_ident as DatabaseRecord>::collection(&db)
+                    <super::#struct_name as DatabaseRecord>::collection(&db)
                         .insert_many(&records)
                         .await?;
         
-                    Ok(records.into_iter().map(|r| r.into()).collect())
+                    Ok(records
+                        .into_iter()
+                        .map(|r| r.try_into())
+                        .collect::<Result<Vec<_>, toolkit::anyhow::Error>>()?
+                    )
                 }
             }
         }

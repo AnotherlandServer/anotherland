@@ -6,6 +6,7 @@ license = "AGPL-3.0-or-later"
 publish = false
 
 [dependencies]
+anyhow = "1.0.93"
 async-graphql = { version = "7.0.11", features = ["uuid"] }
 bitstream-io = "2.5.3"
 bson = { version = "2.13.0", features = ["uuid-1"] }
@@ -22,4 +23,5 @@ mongodb = "3.1.0"
 nom = "7.1.3"
 once_cell = "1.20.2"
 serde = "1.0.210"
+thiserror = "2.0.3"
 uuid = { version = "1.10.0", features = ["serde", "v4"] }

@@ -30,3 +30,4 @@ pub use env_logger;
 pub use dotenvy;
 pub use config;
 pub use once_cell;
+pub use anyhow;

@@ -16,10 +16,10 @@
 use database::DatabaseRecord;
 use mongodb::{bson::doc, options::IndexOptions, IndexModel};
 use serde::{Deserialize, Serialize};
-use toolkit::{graphql_crud, types::Uuid};
+use toolkit::{types::Uuid, GraphqlCrud};
 
-#[derive(Clone, Serialize, Deserialize)]
-#[graphql_crud("zone")]
+#[derive(Serialize, Deserialize, GraphqlCrud)]
+#[graphql_crud(name = "zone")]
 pub struct Zone {
     pub id: i64,
     pub guid: Uuid,
