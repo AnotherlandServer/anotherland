@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::MergedObject;
+use async_graphql::{scalar, MergedObject};
 use character::{CharacterMutationRoot, CharacterRoot};
 use premium_currency::{PremiumCurrencyMutationRoot, PremiumCurrencyRoot};
 use session_ext::{SessionExtMutationRoot, SessionExtRoot};
@@ -24,6 +24,9 @@ mod character;
 mod premium_currency;
 mod session_ext;
 mod nodes;
+mod types;
+
+pub use types::*;
 
 #[derive(MergedObject, Default)]
 pub struct QueryRoot(

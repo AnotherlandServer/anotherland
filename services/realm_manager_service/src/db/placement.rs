@@ -14,16 +14,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use database::DatabaseRecord;
-use obj_params::GameObjectData;
+use mongodb::{bson::doc, options::IndexOptions, IndexModel};
+use obj_params::{Class, GameObjectData};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud};
+
+use crate::schema::ClassWrapper;
 
 #[derive(Serialize, Deserialize, GraphqlCrud)]
 #[graphql_crud(name = "placement")]
 pub struct Placement {
     id: Uuid,
     zone_guid: Uuid,
-    class: i64,
+    #[graphql_crud(serialize_as = ClassWrapper)]
+    class: Class,
     content_guid: Uuid,
     editor_name: String,
     #[graphql_crud(serialize_as = serde_json::Value)]
@@ -44,5 +48,22 @@ impl DatabaseRecord for Placement {
 
     fn collection_name() -> &'static str {
         "placements"
+    }
+
+    async fn build_index(db: &mongodb::Database) -> database::DBResult<()> {
+        let collection = Self::collection(db);
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "id": 1 })
+            .options(IndexOptions::builder().unique(true).build())
+            .build()).await?;
+
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "zone_guid": 1 })
+            .options(IndexOptions::builder().unique(false).build())
+            .build()).await?;
+
+        Ok(())
     }
 }

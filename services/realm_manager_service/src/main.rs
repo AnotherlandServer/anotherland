@@ -23,7 +23,7 @@ use clap::Parser;
 use core_api::CoreApi;
 use core_api::proto::{CoreRequest, CoreClient, CoreNotification};
 use database::{DatabaseExt, DatabaseRecord};
-use db::{Character, PremiumCurrency, PremiumCurrencyTransaction, SessionExt, WorldDef, Zone};
+use db::{Character, Placement, PremiumCurrency, PremiumCurrencyTransaction, SessionExt, WorldDef, Zone};
 use error::RealmResult;
 use log::info;
 use mongodb::bson::doc;
@@ -95,6 +95,7 @@ async fn main() -> RealmResult<()> {
     db.init_collection::<SessionExt>().await;
     db.init_collection::<WorldDef>().await;
     db.init_collection::<Zone>().await;
+    db.init_collection::<Placement>().await;
 
     info!("Cleaning up session storage...");
     start_session_cleanup(db.clone(), core_api.clone());
