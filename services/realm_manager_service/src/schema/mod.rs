@@ -18,6 +18,8 @@ use character::{CharacterMutationRoot, CharacterRoot};
 use premium_currency::{PremiumCurrencyMutationRoot, PremiumCurrencyRoot};
 use session_ext::{SessionExtMutationRoot, SessionExtRoot};
 
+use crate::db;
+
 mod character;
 mod premium_currency;
 mod session_ext;
@@ -28,6 +30,8 @@ pub struct QueryRoot(
     pub CharacterRoot,
     pub PremiumCurrencyRoot,
     pub SessionExtRoot,
+    pub db::WorldDefQueryRoot,
+    pub db::ZoneQueryRoot,
 );
 
 #[derive(MergedObject, Default)]
@@ -35,4 +39,6 @@ pub struct MutationRoot(
     pub CharacterMutationRoot,
     pub PremiumCurrencyMutationRoot,
     pub SessionExtMutationRoot,
+    pub db::WorldDefMutationRoot,
+    pub db::ZoneMutationRoot,
 );
