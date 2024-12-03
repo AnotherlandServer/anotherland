@@ -8,4 +8,4 @@ license = "GPL-3.0-or-later"
 clap = { version = "4.5.1", features = ["cargo", "derive"] }
 futures = "0.3.30"
 tokio = { version = "1.36.0", features = ["tokio-macros", "rt-multi-thread"] }
-upk = { version = "0.1.0", path = "../../upk" }
+upk = { version = "0.1.0", path = "../../lib/upk" }
