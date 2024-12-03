@@ -5,8 +5,7 @@
 ## Introduction
 Welcome to the **Anotherland Server Emulator** project, a community-driven initiative to resurrect the MMORPG, *Otherland*. This emulator aims to recreate the experience of *Otherland* by providing tools and instructions to set up and run your own server for the game.
 
-Currently, the project is undergoing a major rewrite and is not yet playable. If you simply want to run a local instance of the server,  
-you should check out the tag `v0.1.1` and follow the README there, or use the pre-compiled Docker image with the same name.
+Currently, the project is undergoing a major rewrite and is not yet playable. If you simply want to run a local instance of the server, you should check out the tag `v0.1.1` and follow the README there, or use the pre-compiled Docker image with the same name.
 
 ## Prerequisites
 Before you begin, ensure you have the following installed:
@@ -63,8 +62,7 @@ The server is divided into multiple services that can be run across distributed 
   Routes connected clients’ requests to the appropriate zone or dungeon server.
 
 ## Running the Server
-Run each process at least once. You can use the `--help` argument with each process to view available options and their default values.  
-When specifying public addresses (e.g., for the `frontend_server`), avoid using `127.0.0.1`, as the *Otherland* client may struggle to resolve it.
+Run each process at least once. You can use the `--help` argument with each process to view available options and their default values. When specifying public addresses (e.g., for the `frontend_server`), avoid using `127.0.0.1`, as the *Otherland* client may struggle to resolve it.
 
 ## Contribution
 Currently, we are not accepting contributions as Anotherland is in its initial development phase. Our immediate goal is to build a stable foundation for the project. We appreciate your interest and enthusiasm and intend to open the project for community contributions in the future.
