@@ -7,6 +7,8 @@ edition = "2021"
 bson = "2.13.0"
 cluster = { version = "0.1.0", path = "../cluster" }
 cynic = { version = "3.8.0", features = ["http-reqwest"] }
+derive_builder = "0.20.2"
+futures = "0.3.31"
 log = "0.4.22"
 obj_params = { version = "0.1.0", path = "../obj_params" }
 realm_manager_service = { version = "0.1.0", path = "../../services/realm_manager_service" }

@@ -19,6 +19,8 @@ use async_graphql::{connection::CursorType, InputType, InputValueResult, OutputT
 use serde::{Deserialize, Serialize};
 use uuid::Bytes;
 
+pub use bson::uuid::Error as Error;
+
 // The ultimate Uuid type. Acts like bson::Uuid for mongodb serialzation but also
 // integrates with async_graphql like uuid::Uuid.
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]

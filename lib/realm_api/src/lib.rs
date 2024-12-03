@@ -17,9 +17,14 @@ mod base;
 mod character;
 mod error;
 mod schema;
+mod worlddef;
+mod zone;
 
 pub use base::*;
 pub use error::*;
+pub use character::*;
+pub use worlddef::*;
+pub use zone::*;
 
 // reexport
 pub use realm_manager_service::proto;
