@@ -78,9 +78,9 @@ impl Zone {
         Ok(Self {
             api_base: Some(api.clone()),
             id: other.id as i64,
-            guid: other.guid.0.parse()?,
-            worlddef_guid: other.worlddef_guid.0.parse()?,
-            parent_zone_guid: other.parent_zone_guid.0.parse()?,
+            guid: other.guid,
+            worlddef_guid: other.worlddef_guid,
+            parent_zone_guid: other.parent_zone_guid,
             zone: other.zone,
             zone_type: other.zone_type,
             is_instance: other.is_instance,
@@ -95,9 +95,9 @@ impl Zone {
     fn into_graphql<'a>(&'a self) -> ZoneInput<'a> {
         ZoneInput {
             id: self.id as i32,
-            guid: schema::Uuid(self.guid.to_string()),
-            worlddef_guid: schema::Uuid(self.worlddef_guid.to_string()),
-            parent_zone_guid: schema::Uuid(self.parent_zone_guid.to_string()),
+            guid: self.guid,
+            worlddef_guid: self.worlddef_guid,
+            parent_zone_guid: self.parent_zone_guid,
             zone: &self.zone,
             zone_type: self.zone_type,
             is_instance: self.is_instance,
@@ -171,6 +171,8 @@ impl RealmApi {
 }
 
 pub(crate) mod zone_graphql {
+    use toolkit::types::Uuid;
+
     use crate::schema::*;
 
     #[derive(cynic::QueryVariables, Debug)]

@@ -69,18 +69,18 @@ impl WorldDef {
         Ok(Self {
             api_base: Some(api.clone()),
             id: other.id as u16,
-            guid: other.guid.0.parse()?,
+            guid: other.guid,
             name: other.name,
-            umap_guid: other.umap_guid.0.parse()?
+            umap_guid: other.umap_guid
         })
     }
 
     fn into_graphql<'a>(&'a self) -> WorldDefInput<'a> {
         WorldDefInput {
             id: self.id as i32,
-            guid: schema::Uuid(self.guid.to_string()),
+            guid: self.guid,
             name: &self.name,
-            umap_guid: schema::Uuid(self.umap_guid.to_string()),
+            umap_guid: self.umap_guid,
         }
     }
 }
@@ -115,9 +115,9 @@ impl RealmApi {
             .post(self.0.base_url.clone())
             .run_graphql(CreateWorlddef::build(CreateWorlddefVariables {
                 id: world.id as i32,
-                guid: schema::Uuid(world.guid.to_string()),
+                guid: world.guid,
                 name: &world.name,
-                umap_guid: schema::Uuid(world.umap_guid.to_string()),
+                umap_guid: world.umap_guid,
             })).await?;
 
         if let Some(CreateWorlddef { create_worlddef }) = response.data {
@@ -149,6 +149,8 @@ impl RealmApi {
 }
 
 pub(crate) mod worlddef_graphql {
+    use toolkit::types::Uuid;
+
     use crate::schema::*;
 
     #[derive(cynic::QueryVariables, Debug)]

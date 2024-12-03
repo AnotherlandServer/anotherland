@@ -13,15 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use cynic::impl_scalar;
 use serde_json::Value;
 
 #[cynic::schema("realm_manager_service")]
 pub mod schema {}
 
 #[derive(cynic::Scalar, Debug, Clone)]
-#[cynic(graphql_type = "UUID")]
-pub struct Uuid(pub String);
-
-#[derive(cynic::Scalar, Debug, Clone)]
 #[cynic(graphql_type = "JSON")]
 pub struct Json(pub Value);
+
+impl_scalar!(obj_params::Class, schema::Class);
+impl_scalar!(toolkit::types::Uuid, schema::UUID);

@@ -43,7 +43,7 @@ impl Character {
         let response = self.api_base.0.client
             .post(self.api_base.0.base_url.clone())
             .run_graphql(DeleteCharacter::build(DeleteCharacterVariables {
-                id: schema::Uuid(self.id.to_string())
+                id: self.id
             })).await?;
 
         if let Some(DeleteCharacter { .. }) = response.data {
@@ -60,8 +60,8 @@ impl Character {
     fn from_graphql(api: &RealmApi, other: character_graphql::Character) -> RealmApiResult<Self> {
         Ok(Self {
             api_base: api.clone(),
-            id: other.id.0.parse()?,
-            account: other.account.0.parse()?,
+            id: other.id,
+            account: other.account,
             index: other.index,
             name: other.name,
             data: serde_json::from_value(other.data.0)?,
@@ -74,7 +74,7 @@ impl RealmApi {
         let response = self.0.client
             .post(self.0.base_url.clone())
             .run_graphql(GetCharacter::build(GetCharacterVariables {
-                id: schema::Uuid(id.to_string())
+                id: *id
             })).await?;
 
         if let Some(GetCharacter { character }) = response.data {
@@ -94,7 +94,7 @@ impl RealmApi {
         let response = self.0.client
             .post(self.0.base_url.clone())
             .run_graphql(GetAccountCharacter::build(GetAccountCharacterVariables {
-                account_id: schema::Uuid(account_id.to_string()),
+                account_id: *account_id,
                 index,
             })).await?;
 
@@ -115,7 +115,7 @@ impl RealmApi {
         let response = self.0.client
             .post(self.0.base_url.clone())
             .run_graphql(CreateCharacter::build(CreateCharacterVariables {
-                account: schema::Uuid(account_id.to_string()),
+                account: *account_id,
                 name: &name,
             })).await?;
 
@@ -133,7 +133,7 @@ impl RealmApi {
         let response = self.0.client
             .post(self.0.base_url.clone())
             .run_graphql(GetCharactersForAccount::build(GetCharactersForAccountVariables {
-                account_id: schema::Uuid(account_id.to_string())
+                account_id: *account_id
             })).await?;
 
         if let Some(GetCharactersForAccount { characters_for_account }) = response.data {
@@ -151,6 +151,8 @@ impl RealmApi {
 }
 
 pub(crate) mod character_graphql {
+    use toolkit::types::Uuid;
+
     use crate::schema::*;
 
     #[derive(cynic::QueryVariables, Debug)]
