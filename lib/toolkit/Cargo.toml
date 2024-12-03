@@ -11,11 +11,14 @@ bitstream-io = "2.5.3"
 bson = { version = "2.13.0", features = ["uuid-1"] }
 config = { version = "0.1.0", path = "../config" }
 cynic-codegen = "3.8.0"
+database = { version = "0.1.0", path = "../database" }
 dotenvy = "0.15.7"
 env_logger = "0.11.5"
+futures-util = "0.3.31"
 glam = "0.29.0"
 log = { version = "0.4.22", features = ["kv"] }
 macros = { version = "0.1.0", path = "../macros" }
+mongodb = "3.1.0"
 nom = "7.1.3"
 once_cell = "1.20.2"
 serde = "1.0.210"
