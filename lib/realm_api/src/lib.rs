@@ -19,12 +19,14 @@ mod error;
 mod schema;
 mod worlddef;
 mod zone;
+mod placement;
 
 pub use base::*;
 pub use error::*;
 pub use character::*;
 pub use worlddef::*;
 pub use zone::*;
+pub use placement::*;
 
 // reexport
 pub use realm_manager_service::proto;
