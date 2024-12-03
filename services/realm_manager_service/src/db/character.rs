@@ -35,6 +35,10 @@ impl DatabaseRecord for Character {
         &self.id
     }
 
+    fn key_name() -> &'static str {
+        "id"
+    }
+
     fn collection_name() -> &'static str {
         "characters"
     }

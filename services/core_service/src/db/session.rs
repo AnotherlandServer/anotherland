@@ -58,6 +58,10 @@ impl DatabaseRecord for Session {
     fn key(&self) -> &Self::PrimaryKey {
         &self.id
     }
+
+    fn key_name() -> &'static str {
+        "id"
+    }
     
     fn collection_name() -> &'static str {
         "sessions"

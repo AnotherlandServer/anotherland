@@ -104,6 +104,10 @@ impl DatabaseRecord for PremiumCurrency {
         &self.account_id
     }
 
+    fn key_name() -> &'static str {
+        "account_id"
+    }
+
     fn collection_name() -> &'static str {
         "premium_currency"
     }

@@ -52,6 +52,10 @@ impl DatabaseRecord for Status {
         &()
     }
 
+    fn key_name() -> &'static str {
+        ""
+    }
+
     fn collection_name() -> &'static str {
         "status"
     }

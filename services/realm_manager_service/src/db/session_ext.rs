@@ -32,6 +32,10 @@ impl DatabaseRecord for SessionExt {
         &self.id
     }
 
+    fn key_name() -> &'static str {
+        "id"
+    }
+
     fn collection_name() -> &'static str {
         "session_ext"
     }

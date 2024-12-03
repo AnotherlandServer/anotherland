@@ -22,6 +22,7 @@ pub trait DatabaseRecord: DeserializeOwned + Serialize + Send + Sync + Unpin {
     type PrimaryKey: DeserializeOwned + Serialize + Send + Sync;
     
     fn key(&self) -> &Self::PrimaryKey;
+    fn key_name() -> &'static str;
     fn collection_name() -> &'static str;
 
     fn collection(db: &Database) -> Collection<Self> {
