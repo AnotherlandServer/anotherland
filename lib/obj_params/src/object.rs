@@ -28,12 +28,16 @@ impl GameObjectData {
         Self(Box::new(ParamSet::<T>::new()))
     }
 
+    pub fn new_for_class(class: Class) -> Self {
+        Self(class.create_param_set(vec![]))
+    }
+
     pub fn from_set<T: Attribute + 'static>(set: ParamSet<T>) -> Self {
         Self(Box::new(set))
     }
 
-    pub fn from_generic_set(set: impl GenericParamSet + 'static) -> Self {
-        Self(Box::new(set))
+    pub fn from_generic_set(set: Box<dyn GenericParamSet>) -> Self {
+        Self(set)
     }
 
     pub fn class(&self) -> Class { self.0.class() }

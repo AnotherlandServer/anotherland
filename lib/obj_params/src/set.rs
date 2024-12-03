@@ -383,7 +383,7 @@ impl Serialize for dyn GenericParamSet {
 
         let mut state = serializer.serialize_struct("ParamSet", 2)?;
 
-        state.serialize_field("class", self.class().name())?;
+        state.serialize_field("class", &self.class())?;
         state.serialize_field("attributes", &DynSetSerializer(self))?;
         state.end()
     }
@@ -508,24 +508,7 @@ impl <'de> Deserialize<'de> for DynSetDeserializer {
     where
         D: de::Deserializer<'de> {
 
-        struct ClassVisitor;
-
-        impl Visitor<'_> for ClassVisitor {
-            type Value = Class;
-        
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("paramset class")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Class, E>
-                where E: de::Error,
-            {
-                value.parse()
-                    .map_err(|_| de::Error::invalid_value(de::Unexpected::Str(value), &"a class name"))
-            }
-        }
-        
-        deserializer.deserialize_str(ClassVisitor)
+        Class::deserialize(deserializer)
             .map(DynSetDeserializer)
     }
 }

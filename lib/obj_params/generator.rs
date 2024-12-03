@@ -1010,15 +1010,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         #(#param_name_enums)*
 
-        /*pub enum AttributeUnion {
-            #(#attribute_container),*
-        }
-
-        impl Deref for AttributeUnion {
-            
-        }*/
-
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
         pub enum Class {
             #(#param_class_enum),*
         }
