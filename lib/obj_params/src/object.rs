@@ -111,6 +111,22 @@ impl ParamWriter for GameObjectData {
     }
 }
 
+impl TryFrom<serde_json::Value> for GameObjectData {
+    type Error = serde_json::Error;
+    
+    fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
+        serde_json::from_value(value)
+    }
+}
+
+impl TryFrom<GameObjectData> for serde_json::Value {
+    type Error = serde_json::Error;
+
+    fn try_from(value: GameObjectData) -> Result<Self, Self::Error> {
+        serde_json::to_value(value)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::{GameObjectData, Player};

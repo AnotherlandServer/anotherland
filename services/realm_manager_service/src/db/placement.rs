@@ -13,18 +13,36 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod character;
-mod premium_currency;
-mod premium_currency_transaction;
-mod session_ext;
-mod worlddef;
-mod zone;
-mod placement;
+use database::DatabaseRecord;
+use obj_params::GameObjectData;
+use serde::{Deserialize, Serialize};
+use toolkit::{types::Uuid, GraphqlCrud};
 
-pub use character::*;
-pub use premium_currency::*;
-pub use premium_currency_transaction::*;
-pub use session_ext::*;
-pub use worlddef::*;
-pub use zone::*;
-pub use placement::*;
+#[derive(Serialize, Deserialize, GraphqlCrud)]
+#[graphql_crud(name = "placement")]
+pub struct Placement {
+    id: Uuid,
+    zone_guid: Uuid,
+    class: i64,
+    content_guid: Uuid,
+    editor_name: String,
+    #[graphql_crud(serialize_as = serde_json::Value)]
+    data: GameObjectData,
+    phase_tag: String,
+}
+
+impl DatabaseRecord for Placement {
+    type PrimaryKey = Uuid;
+
+    fn key(&self) -> &Self::PrimaryKey {
+        &self.id
+    }
+
+    fn key_name() -> &'static str {
+        "id"
+    }
+
+    fn collection_name() -> &'static str {
+        "placements"
+    }
+}

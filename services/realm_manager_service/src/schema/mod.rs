@@ -32,6 +32,7 @@ pub struct QueryRoot(
     pub SessionExtRoot,
     pub db::WorldDefQueryRoot,
     pub db::ZoneQueryRoot,
+    pub db::PlacementQueryRoot,
 );
 
 #[derive(MergedObject, Default)]
@@ -41,4 +42,5 @@ pub struct MutationRoot(
     pub SessionExtMutationRoot,
     pub db::WorldDefMutationRoot,
     pub db::ZoneMutationRoot,
+    pub db::PlacementMutationRoot,
 );
