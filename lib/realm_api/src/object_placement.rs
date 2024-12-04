@@ -17,14 +17,14 @@ use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
 use futures::io::Cursor;
 use obj_params::{Class, GameObjectData};
-use placement_graphql::{BatchCreatePlacements, BatchCreatePlacementsVariables, CreatePlacement, CreatePlacementVariables, DeletePlacement, DeletePlacementVariables, GetPlacement, GetPlacementVariables, PlacementInput};
+use object_placement_graphql::{BatchCreateObjectPlacements, BatchCreateObjectPlacementsVariables, CreateObjectPlacement, CreateObjectPlacementVariables, DeleteObjectPlacement, DeleteObjectPlacementVariables, GetObjectPlacement, GetObjectPlacementVariables, ObjectPlacementInput};
 use toolkit::types::Uuid;
 
 use crate::{schema, RealmApi, RealmApiError, RealmApiResult};
 
 #[derive(Builder)]
 #[builder(pattern = "owned")]
-pub struct Placement {
+pub struct ObjectPlacement {
     #[builder(setter(skip))]
     api_base: Option<RealmApi>,
 
@@ -37,16 +37,16 @@ pub struct Placement {
     phase_tag: String,
 }
 
-impl Placement {
+impl ObjectPlacement {
     pub async fn delete(&self) -> RealmApiResult<()> {
         if let Some(api_base) = &self.api_base {
             let response = api_base.0.client
                 .post(api_base.0.base_url.clone())
-                .run_graphql(DeletePlacement::build(DeletePlacementVariables {
+                .run_graphql(DeleteObjectPlacement::build(DeleteObjectPlacementVariables {
                     id: self.id
                 })).await?;
 
-            if let Some(DeletePlacement { .. }) = response.data {
+            if let Some(DeleteObjectPlacement { .. }) = response.data {
                 Ok(())
             } else if let Some(errors) = response.errors {
                 Err(RealmApiError::GraphQl(errors))
@@ -58,7 +58,7 @@ impl Placement {
         }
     }
 
-    fn from_graphql(api: &RealmApi, other: placement_graphql::Placement) -> RealmApiResult<Self> {
+    fn from_graphql(api: &RealmApi, other: object_placement_graphql::ObjectPlacement) -> RealmApiResult<Self> {
         Ok(Self {
             api_base: Some(api.clone()),
             id: other.id,
@@ -71,8 +71,8 @@ impl Placement {
         })
     }
 
-    fn into_graphql<'a>(&'a self) -> PlacementInput<'a> {
-        PlacementInput {
+    fn into_graphql<'a>(&'a self) -> ObjectPlacementInput<'a> {
+        ObjectPlacementInput {
             id: self.id.into(),
             zone_guid: self.zone_guid.into(),
             class: self.class,
@@ -85,16 +85,16 @@ impl Placement {
 }
 
 impl RealmApi {
-    pub async fn get_placement(&self, id: Uuid) -> RealmApiResult<Option<Placement>> {
+    pub async fn get_object_placement(&self, id: Uuid) -> RealmApiResult<Option<ObjectPlacement>> {
         let response = self.0.client
             .post(self.0.base_url.clone())
-            .run_graphql(GetPlacement::build(GetPlacementVariables {
+            .run_graphql(GetObjectPlacement::build(GetObjectPlacementVariables {
                 id
             })).await?;
 
-        if let Some(GetPlacement { placement }) = response.data {
-            if let Some(placement) = placement {
-                Ok(Some(Placement::from_graphql(self, placement)?))
+        if let Some(GetObjectPlacement { object_placement }) = response.data {
+            if let Some(object_placement) = object_placement {
+                Ok(Some(ObjectPlacement::from_graphql(self, object_placement)?))
             } else {
                 Ok(None)
             }
@@ -105,19 +105,19 @@ impl RealmApi {
         }
     }
 
-    pub async fn get_placementss(&self) -> RealmApiResult<Cursor<Placement>> {
+    pub async fn get_object_placements(&self) -> RealmApiResult<Cursor<ObjectPlacement>> {
         todo!()
     }
 
-    pub async fn create_placement(&self, placement: Placement) -> RealmApiResult<Placement> {
+    pub async fn create_object_placement(&self, placement: ObjectPlacement) -> RealmApiResult<ObjectPlacement> {
         let response = self.0.client
             .post(self.0.base_url.clone())
-            .run_graphql(CreatePlacement::build(CreatePlacementVariables {
+            .run_graphql(CreateObjectPlacement::build(CreateObjectPlacementVariables {
                 input: placement.into_graphql()
             })).await?;
 
-        if let Some(CreatePlacement { create_placement }) = response.data {
-            Ok(Placement::from_graphql(self, create_placement)?)
+        if let Some(CreateObjectPlacement { create_object_placement }) = response.data {
+            Ok(ObjectPlacement::from_graphql(self, create_object_placement)?)
         } else if let Some(errors) = response.errors {
             Err(RealmApiError::GraphQl(errors))
         } else {
@@ -125,16 +125,16 @@ impl RealmApi {
         }
     }
 
-    pub async fn batch_create_placements(&self, placements: Vec<Placement>) -> RealmApiResult<()> {
+    pub async fn batch_create_object_placements(&self, placements: Vec<ObjectPlacement>) -> RealmApiResult<()> {
         let response = self.0.client
             .post(self.0.base_url.clone())
-            .run_graphql(BatchCreatePlacements::build(BatchCreatePlacementsVariables {
+            .run_graphql(BatchCreateObjectPlacements::build(BatchCreateObjectPlacementsVariables {
                 input: placements.iter()
                     .map(|placement| placement.into_graphql())
                     .collect()
             })).await?;
 
-        if let Some(BatchCreatePlacements { .. }) = response.data {
+        if let Some(BatchCreateObjectPlacements { .. }) = response.data {
             Ok(())
         } else if let Some(errors) = response.errors {
             Err(RealmApiError::GraphQl(errors))
@@ -144,56 +144,56 @@ impl RealmApi {
     }
 }
 
-pub(crate) mod placement_graphql {
+pub(crate) mod object_placement_graphql {
     use obj_params::Class;
     use toolkit::types::Uuid;
 
     use crate::schema::*;
 
     #[derive(cynic::QueryVariables, Debug)]
-    pub struct GetPlacementsVariables<'a> {
+    pub struct GetObjectPlacementsVariables<'a> {
         pub after: Option<&'a str>,
         pub first: Option<i32>,
     }
     
     #[derive(cynic::QueryVariables, Debug)]
-    pub struct BatchCreatePlacementsVariables<'a> {
-        pub input: Vec<PlacementInput<'a>>,
+    pub struct BatchCreateObjectPlacementsVariables<'a> {
+        pub input: Vec<ObjectPlacementInput<'a>>,
     }
     
     #[derive(cynic::QueryVariables, Debug)]
-    pub struct GetPlacementVariables {
+    pub struct GetObjectPlacementVariables {
         pub id: Uuid,
     }
     
     #[derive(cynic::QueryVariables, Debug)]
-    pub struct DeletePlacementVariables {
+    pub struct DeleteObjectPlacementVariables {
         pub id: Uuid,
     }
     
     #[derive(cynic::QueryVariables, Debug)]
-    pub struct CreatePlacementVariables<'a> {
-        pub input: PlacementInput<'a>,
+    pub struct CreateObjectPlacementVariables<'a> {
+        pub input: ObjectPlacementInput<'a>,
     }
     
     #[derive(cynic::QueryFragment, Debug)]
-    #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "GetPlacementsVariables")]
-    pub struct GetPlacements {
+    #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "GetObjectPlacementsVariables")]
+    pub struct GetObjectPlacements {
         #[arguments(after: $after, first: $first)]
-        pub placements: PlacementConnection,
+        pub object_placements: ObjectPlacementConnection,
     }
     
     #[derive(cynic::QueryFragment, Debug)]
-    #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "GetPlacementVariables")]
-    pub struct GetPlacement {
+    #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "GetObjectPlacementVariables")]
+    pub struct GetObjectPlacement {
         #[arguments(id: $id)]
-        pub placement: Option<Placement>,
+        pub object_placement: Option<ObjectPlacement>,
     }
     
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service")]
-    pub struct PlacementConnection {
-        pub nodes: Vec<Placement>,
+    pub struct ObjectPlacementConnection {
+        pub nodes: Vec<ObjectPlacement>,
         pub page_info: PageInfo,
     }
     
@@ -205,22 +205,22 @@ pub(crate) mod placement_graphql {
     }
     
     #[derive(cynic::QueryFragment, Debug)]
-    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "DeletePlacementVariables")]
-    pub struct DeletePlacement {
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "DeleteObjectPlacementVariables")]
+    pub struct DeleteObjectPlacement {
         #[arguments(id: $id)]
-        pub delete_placement: Option<Placement>,
+        pub delete_object_placement: Option<ObjectPlacement>,
     }
     
     #[derive(cynic::QueryFragment, Debug)]
-    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "CreatePlacementVariables")]
-    pub struct CreatePlacement {
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "CreateObjectPlacementVariables")]
+    pub struct CreateObjectPlacement {
         #[arguments(input: $input)]
-        pub create_placement: Placement,
+        pub create_object_placement: ObjectPlacement,
     }
     
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service")]
-    pub struct Placement {
+    pub struct ObjectPlacement {
         pub class: Class,
         pub content_guid: Uuid,
         pub data: Json,
@@ -231,15 +231,15 @@ pub(crate) mod placement_graphql {
     }
     
     #[derive(cynic::QueryFragment, Debug)]
-    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "BatchCreatePlacementsVariables")]
-    pub struct BatchCreatePlacements {
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "BatchCreateObjectPlacementsVariables")]
+    pub struct BatchCreateObjectPlacements {
         #[arguments(input: $input)]
-        pub batch_create_placements: Vec<Placement>,
+        pub batch_create_object_placements: Vec<ObjectPlacement>,
     }
     
     #[derive(cynic::InputObject, Debug)]
     #[cynic(schema = "realm_manager_service")]
-    pub struct PlacementInput<'a> {
+    pub struct ObjectPlacementInput<'a> {
         pub id: Uuid,
         pub zone_guid: Uuid,
         pub class: Class,

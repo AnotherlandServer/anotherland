@@ -13,12 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
+use std::{ops::Mul, path::PathBuf};
 
 use clap::{command, Parser};
 use error::{SeedRealmError, SeedRealmResult};
+use indicatif::MultiProgress;
+use indicatif_log_bridge::LogWrapper;
 use log::info;
 use once_cell::sync::Lazy;
+use object_placement::import_object_placements;
 use realm_api::RealmApi;
 use reqwest::Url;
 use toolkit::print_banner;
@@ -28,6 +31,7 @@ use zone::import_zone;
 mod error;
 mod worlddef;
 mod zone;
+mod object_placement;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -39,10 +43,25 @@ struct Cli {
 }
 
 static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
+pub static MP: Lazy<MultiProgress> = Lazy::new(MultiProgress::new);
 
-#[toolkit::service_main]
+#[tokio::main]
 async fn main() -> SeedRealmResult<()> {
     Lazy::force(&ARGS);
+
+    let _ = toolkit::dotenvy::dotenv();
+    let logger = toolkit::env_logger::Builder::from_env(
+            toolkit::env_logger::Env::default()
+            .default_filter_or("info")
+        ).build();
+    let level = logger.filter();
+    Lazy::force(&MP);
+
+    LogWrapper::new(MP.clone(), logger)
+        .try_init()
+        .unwrap();
+
+    log::set_max_level(level);
 
     print_banner();
 
@@ -50,6 +69,7 @@ async fn main() -> SeedRealmResult<()> {
 
     import_worlddef(&ARGS.client_path, &realm_api).await?;
     import_zone(&ARGS.client_path, &realm_api).await?;
+    import_object_placements(&ARGS.client_path, &realm_api).await?;
 
     Ok(())
 }

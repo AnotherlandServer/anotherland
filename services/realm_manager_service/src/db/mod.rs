@@ -19,7 +19,7 @@ mod premium_currency_transaction;
 mod session_ext;
 mod worlddef;
 mod zone;
-mod placement;
+mod object_placement;
 
 pub use character::*;
 pub use premium_currency::*;
@@ -27,4 +27,4 @@ pub use premium_currency_transaction::*;
 pub use session_ext::*;
 pub use worlddef::*;
 pub use zone::*;
-pub use placement::*;
+pub use object_placement::*;

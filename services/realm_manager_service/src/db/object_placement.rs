@@ -22,8 +22,8 @@ use toolkit::{types::Uuid, GraphqlCrud};
 use crate::schema::ClassWrapper;
 
 #[derive(Serialize, Deserialize, GraphqlCrud)]
-#[graphql_crud(name = "placement")]
-pub struct Placement {
+#[graphql_crud(name = "object_placement")]
+pub struct ObjectPlacement {
     id: Uuid,
     zone_guid: Uuid,
     #[graphql_crud(serialize_as = ClassWrapper)]
@@ -35,7 +35,7 @@ pub struct Placement {
     phase_tag: String,
 }
 
-impl DatabaseRecord for Placement {
+impl DatabaseRecord for ObjectPlacement {
     type PrimaryKey = Uuid;
 
     fn key(&self) -> &Self::PrimaryKey {
@@ -47,7 +47,7 @@ impl DatabaseRecord for Placement {
     }
 
     fn collection_name() -> &'static str {
-        "placements"
+        "object_placements"
     }
 
     async fn build_index(db: &mongodb::Database) -> database::DBResult<()> {
