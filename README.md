@@ -62,7 +62,30 @@ The server is divided into multiple services that can be run across distributed 
   Routes connected clients’ requests to the appropriate zone or dungeon server.
 
 ## Running the Server
-Run each process at least once. You can use the `--help` argument with each process to view available options and their default values. When specifying public addresses (e.g., for the `frontend_server`), avoid using `127.0.0.1`, as the *Otherland* client may struggle to resolve it.
+### Bootstrap
+1. Start the `core_service` and wait for the GraphQL interface to become available. Use the [Rover CLI](https://www.apollographql.com/docs/rover) with the `rover dev` command to launch an IDE for interfacing with the GraphQL API.
+2. Use the `createRealm` mutation to create your first realm.
+3. Start the `realm_manager_service` with the `--realm-id` parameter, specifying the ID of the realm you just created, to begin setting up the realm.
+4. Once the service is fully started, use the `seed-realm` tool to seed the realm database by extracting content from the *Otherland* client files.
+
+5. After completing these steps, start the remaining services and connect to your realm.
+
+### General Notes
+- Use the `--help` argument with each process to view available options and their default values.  
+- When specifying public addresses (e.g., for the `frontend_server`), avoid using `127.0.0.1`, as the *Otherland* client may struggle to resolve it.
+
+## Connecting to a Server
+1. Open `UnrealEgine3/AmunGame/Config/DefaultUI.ini` within the client’s folder and locate the line:
+   ```
+   +ConfigureLoginAddress=(srvName="#UI.EU_Server_LIVE#", srvAddress="78.46.105.144", srvPort=6112, queuePort=53292)
+   ```
+   Replace the `srvName` option with any name you like. Set `srvAddress` to the public IP of your server. If you run Anotherland with default parameters, you don't need to modify `srvPort` or `queuePort`.
+
+2. Open `Atlas/data/otherlandgame/config/clientcfg.ini` and locate the line:
+   ```
+   verificationSrv =78.46.105.144
+   ```
+   Replace the IP address with the public IP of your server to enable Steam login.
 
 ## Contribution
 Currently, we are not accepting contributions as Anotherland is in its initial development phase. Our immediate goal is to build a stable foundation for the project. We appreciate your interest and enthusiasm and intend to open the project for community contributions in the future.
