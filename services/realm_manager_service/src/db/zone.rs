@@ -23,11 +23,15 @@ use toolkit::{types::Uuid, GraphqlCrud};
 pub struct Zone {
     pub id: i64,
     pub guid: Uuid,
+    #[graphql_crud(filter)]
     pub worlddef_guid: Uuid,
+    #[graphql_crud(filter)]
     pub parent_zone_guid: Uuid,
     pub zone: String,
+    #[graphql_crud(filter)]
     pub zone_type: i32,
     pub is_instance: bool,
+    #[graphql_crud(filter)]
     pub server: String,
     pub level: String,
     pub layer: String,
