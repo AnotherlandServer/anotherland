@@ -31,3 +31,4 @@ pub use dotenvy;
 pub use config;
 pub use once_cell;
 pub use anyhow;
+pub use bson;

@@ -69,6 +69,8 @@ struct GraphqlCrudFieldOps {
     skip: bool,
     #[darling(default)]
     serialize_as: Option<ExprPath>,
+    #[darling(default)]
+    filter: bool,
 }
 
 #[proc_macro_derive(GraphqlCrud, attributes(graphql_crud))]
@@ -89,6 +91,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
     let record_input_ident = format_ident!("{}Input", ast.ident);
     let read_single_ident = format_ident!("{}", opts.name);
     let read_multiple_ident = format_ident!("{}s", opts.name);
+    let read_multiple_filter_ident = format_ident!("{}Filter", ast.ident);
     let delete_single_ident = format_ident!("delete_{}", opts.name);
     let create_single_ident = format_ident!("create_{}", opts.name);
     let update_single_ident = format_ident!("update_{}", opts.name);
@@ -112,18 +115,86 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
             },
         };
 
+        let ident = &field.ident;
+        let vis = &field.vis;
+        let ty = &field.ty;
+
         if field_opts.skip {
             None
         } else if let Some(serialize_as) = &field_opts.serialize_as {
-            let ident = &field.ident;
-            let vis = &field.vis;
-            let ty = serialize_as;
-
-            Some(quote!{ #vis #ident: #ty })
+            Some(quote!{ #vis #ident: #serialize_as })
         } else {
-            Some(quote!{ #field })
+            Some(quote!{ #vis #ident: #ty })
         }
     }).collect();
+
+    let filters: Vec<_> = fields.iter().filter_map(|field| {
+        let field_opts = match GraphqlCrudFieldOps::from_field(field) {
+            Ok(opts) => opts,
+            Err(e) => {
+                return Some(syn::Error::new_spanned(field, e).to_compile_error())
+            },
+        };
+
+        if field_opts.filter {
+            let ident = &field.ident;
+            let ty = &field.ty;
+
+            if let Some(serialize_as) = &field_opts.serialize_as {
+                Some(quote!{ pub #ident: Option<#serialize_as> })
+            } else {
+                Some(quote!{ pub #ident: Option<#ty> })
+            }
+        } else {
+            None
+        }
+    }).collect();
+
+    let filter_expressions: Vec<_> = fields.iter().filter_map(|field| {
+        let field_opts = match GraphqlCrudFieldOps::from_field(field) {
+            Ok(opts) => opts,
+            Err(e) => {
+                return Some(syn::Error::new_spanned(field, e).to_compile_error())
+            },
+        };
+
+        if field_opts.filter {
+            let ident = &field.ident;
+            let field_name = field.ident.as_ref().unwrap().to_string();
+            Some(quote!{ 
+                if let Some(val) = &self.#ident {
+                    expressions.push(doc!{ #field_name: val }); 
+                }
+            })
+        } else {
+            None
+        }
+    }).collect();
+
+    let (filter_input, filter_param, filter_pass) = if filters.is_empty() {
+        (quote!(), quote!(), quote!(None))
+    } else {
+        (
+            quote!{
+                #[derive(async_graphql::InputObject)]
+                pub struct #read_multiple_filter_ident {
+                    #(#filters),*
+                }
+
+                impl #read_multiple_filter_ident {
+                    fn into_query(self) -> Document {
+                        let mut expressions: Vec<Document> = vec![];
+
+                        #(#filter_expressions)*
+
+                        doc!{ "$and": expressions }
+                    }
+                }
+            }, 
+            quote!(filter: Option<#read_multiple_filter_ident>,),
+            quote!(filter.map(#read_multiple_filter_ident::into_query))
+        )
+    };
 
     let field_serializer: Vec<_> = fields.iter().filter_map(|field| {
         let field_name = &field.ident;
@@ -170,6 +241,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 
             use super::*;
             use database::DatabaseRecord;
+            use toolkit::bson::{Document, doc};
             use toolkit::record_pagination::*;
 
             #[derive(Default)]
@@ -187,6 +259,8 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
             pub struct #record_input_ident {
                 #(#schema_fields),*
             }
+
+            #filter_input
 
             impl std::convert::TryFrom<super::#struct_name> for #struct_name {
                 type Error = toolkit::anyhow::Error;
@@ -227,13 +301,21 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
                 async fn #read_multiple_ident(
                     &self, 
                     ctx: &async_graphql::Context<'_>, 
+                    #filter_param
                     after: Option<String>,
                     before: Option<String>,
                     first: Option<i32>,
                     last: Option<i32>
                 ) -> Result<RecordConnection<#struct_name>, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
-                    record_query::<super::#struct_name, _>(db, None, after, before, first, last).await
+                    record_query::<super::#struct_name, _>(
+                        db, 
+                        #filter_pass, 
+                        after, 
+                        before, 
+                        first, 
+                        last
+                    ).await
                 }
             }
 
