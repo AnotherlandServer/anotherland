@@ -20,6 +20,7 @@ mod schema;
 mod worlddef;
 mod zone;
 mod object_placement;
+mod object_template;
 
 pub use base::*;
 pub use error::*;
@@ -27,6 +28,7 @@ pub use character::*;
 pub use worlddef::*;
 pub use zone::*;
 pub use object_placement::*;
+pub use object_template::*;
 
 // reexport
 pub use realm_manager_service::proto;

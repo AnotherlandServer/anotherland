@@ -20,6 +20,7 @@ use error::{SeedRealmError, SeedRealmResult};
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
 use log::info;
+use object_template::import_object_templates;
 use once_cell::sync::Lazy;
 use object_placement::import_object_placements;
 use realm_api::RealmApi;
@@ -32,6 +33,7 @@ mod error;
 mod worlddef;
 mod zone;
 mod object_placement;
+mod object_template;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -70,6 +72,9 @@ async fn main() -> SeedRealmResult<()> {
     import_worlddef(&ARGS.client_path, &realm_api).await?;
     import_zone(&ARGS.client_path, &realm_api).await?;
     import_object_placements(&ARGS.client_path, &realm_api).await?;
+    import_object_templates(&ARGS.client_path, &realm_api).await?;
+
+    info!("Import completed!");
 
     Ok(())
 }

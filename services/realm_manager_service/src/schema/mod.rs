@@ -36,6 +36,7 @@ pub struct QueryRoot(
     pub db::WorldDefQueryRoot,
     pub db::ZoneQueryRoot,
     pub db::ObjectPlacementQueryRoot,
+    pub db::ObjectTemplateQueryRoot,
 );
 
 #[derive(MergedObject, Default)]
@@ -46,4 +47,5 @@ pub struct MutationRoot(
     pub db::WorldDefMutationRoot,
     pub db::ZoneMutationRoot,
     pub db::ObjectPlacementMutationRoot,
+    pub db::ObjectTemplateMutationRoot,
 );
