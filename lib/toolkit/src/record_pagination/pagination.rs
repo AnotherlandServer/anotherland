@@ -15,9 +15,9 @@
 
 use std::fmt::Display;
 
-use async_graphql::{connection::{query, Connection, CursorType, Edge, EmptyFields}, Error, ErrorExtensions, ObjectType};
+use async_graphql::{connection::{query, Connection, CursorType, Edge, EmptyFields}, Error, ObjectType};
 use database::DatabaseRecord;
-use futures_util::{StreamExt, TryStreamExt};
+use futures_util::TryStreamExt;
 use mongodb::{bson::{doc, Document}, Database};
 
 pub type RecordConnection<T> = Connection<i64, T, EmptyFields, EmptyFields>;
@@ -60,7 +60,7 @@ where
                 end - last as i64
             };
         }
-    
+
         let mut cursor = collection
             .find(filter)
             .sort(doc!{ R::key_name(): 1 })
