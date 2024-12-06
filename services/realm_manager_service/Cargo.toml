@@ -6,11 +6,11 @@ license = "AGPL-3.0-or-later"
 
 [lib]
 name = "realm_manager_service"
-path = "src\\lib.rs"
+path = "src/lib.rs"
 
 [[bin]]
 name = "realm_manager_service"
-path = "src\\main.rs"
+path = "src/main.rs"
 
 [dependencies]
 async-graphql = { version = "7.0.11", features = ["bson", "chrono", "chrono-tz"] }

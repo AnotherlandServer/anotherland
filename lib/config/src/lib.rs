@@ -34,7 +34,7 @@ pub static CLUSTER_CONF: Lazy<ConfClusterConfig> = Lazy::new(|| {
 
     if cfg!(unix) {
         builder = builder.add_source(
-            glob("/etc/anotherland/login/*.toml")
+            glob("/etc/anotherland/*.toml")
                 .unwrap()
                 .map(|path| File::from(path.unwrap()))
                 .collect::<Vec<_>>(),
@@ -61,7 +61,7 @@ pub static REALM_CONF: Lazy<ConfRealmMain> = Lazy::new(|| {
 
     if cfg!(unix) {
         builder = builder.add_source(
-            glob("/etc/anotherland/realm/*.toml")
+            glob("/etc/anotherland/*.toml")
                 .unwrap()
                 .map(|path| File::from(path.unwrap()))
                 .collect::<Vec<_>>(),

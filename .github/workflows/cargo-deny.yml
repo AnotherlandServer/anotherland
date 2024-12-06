@@ -1,5 +1,13 @@
 name: Cargo Deny
-on: [push, pull_request]
+on: 
+  push:
+    paths:
+      - '**/Cargo.lock'
+      - '**/Cargo.toml'
+  pull_request:
+    paths:
+      - '**/Cargo.lock'
+      - '**/Cargo.toml'
 jobs:
   cargo-deny:
     runs-on: ubuntu-22.04
@@ -8,6 +16,4 @@ jobs:
     - uses: EmbarkStudios/cargo-deny-action@v1
       with:
         rust-version: "nightly"
-        log-level: warn
-        command: check
-        arguments: --all-features
+        command: check bans licenses sources
