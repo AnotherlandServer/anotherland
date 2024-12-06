@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_graphql::scalar;
+use mongodb::bson;
 use obj_params::Class;
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +30,12 @@ impl From<Class> for ClassWrapper {
 impl From<ClassWrapper> for Class {
     fn from(value: ClassWrapper) -> Self {
         value.0
+    }
+}
+
+impl From<&ClassWrapper> for mongodb::bson::Bson {
+    fn from(value: &ClassWrapper) -> Self {
+        bson::to_bson(value).unwrap()
     }
 }
 

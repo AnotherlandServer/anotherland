@@ -25,13 +25,15 @@ use crate::schema::ClassWrapper;
 #[graphql_crud(name = "object_placement")]
 pub struct ObjectPlacement {
     id: Uuid,
+    #[graphql_crud(filter)]
     zone_guid: Uuid,
-    #[graphql_crud(serialize_as = ClassWrapper)]
+    #[graphql_crud(serialize_as = ClassWrapper, filter)]
     class: Class,
     content_guid: Uuid,
     editor_name: String,
     #[graphql_crud(serialize_as = serde_json::Value)]
     data: GameObjectData,
+    #[graphql_crud(filter)]
     phase_tag: String,
 }
 
@@ -61,6 +63,12 @@ impl DatabaseRecord for ObjectPlacement {
         collection.create_index(
             IndexModel::builder()
             .keys(doc! { "zone_guid": 1 })
+            .options(IndexOptions::builder().unique(false).build())
+            .build()).await?;
+
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "class": 1 })
             .options(IndexOptions::builder().unique(false).build())
             .build()).await?;
 

@@ -15,7 +15,7 @@
 
 use async_graphql::Enum;
 use database::DatabaseRecord;
-use mongodb::{bson::doc, options::IndexOptions, IndexModel};
+use mongodb::{bson::{self, doc}, options::IndexOptions, IndexModel};
 use obj_params::{Class, GameObjectData};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud};
@@ -41,13 +41,20 @@ pub enum Category {
     Structures,
 }
 
+impl From<Category> for mongodb::bson::Bson {
+    fn from(value: Category) -> Self {
+        bson::to_bson(&value).unwrap()
+    }
+}
+
 #[derive(Serialize, Deserialize, GraphqlCrud)]
 #[graphql_crud(name = "object_template")]
 pub struct ObjectTemplate {
     id: Uuid,
+    #[graphql_crud(filter)]
     category: Category,
     name: String,
-    #[graphql_crud(serialize_as = ClassWrapper)]
+    #[graphql_crud(serialize_as = ClassWrapper, filter)]
     class: Class,
     #[graphql_crud(serialize_as = serde_json::Value)]
     data: GameObjectData,
@@ -79,6 +86,12 @@ impl DatabaseRecord for ObjectTemplate {
         collection.create_index(
             IndexModel::builder()
             .keys(doc! { "category": 1 })
+            .options(IndexOptions::builder().unique(false).build())
+            .build()).await?;
+
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "class": 1 })
             .options(IndexOptions::builder().unique(false).build())
             .build()).await?;
 
