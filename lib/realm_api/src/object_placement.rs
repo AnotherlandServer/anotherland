@@ -17,10 +17,71 @@ use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
 use futures::io::Cursor;
 use obj_params::{Class, GameObjectData};
-use object_placement_graphql::{BatchCreateObjectPlacements, BatchCreateObjectPlacementsVariables, CreateObjectPlacement, CreateObjectPlacementVariables, DeleteObjectPlacement, DeleteObjectPlacementVariables, GetObjectPlacement, GetObjectPlacementVariables, ObjectPlacementInput};
-use toolkit::types::Uuid;
+use object_placement_graphql::{BatchCreateObjectPlacements, BatchCreateObjectPlacementsVariables, CreateObjectPlacement, CreateObjectPlacementVariables, DeleteObjectPlacement, DeleteObjectPlacementVariables, GetObjectPlacement, GetObjectPlacementVariables, GetObjectPlacements, GetObjectPlacementsVariables, ObjectPlacementFilter, ObjectPlacementInput};
+use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
 
 use crate::{schema, RealmApi, RealmApiError, RealmApiResult};
+
+#[derive(Builder)]
+#[builder(pattern = "owned", build_fn(private))]
+pub struct ObjectPlacementQuery {
+    #[builder(private)]
+    api_base: RealmApi,
+
+    #[builder(setter(strip_option), default)]
+    zone_guid: Option<Uuid>,
+
+    #[builder(setter(strip_option), default)]
+    class: Option<Class>,
+
+    #[builder(setter(strip_option), default)]
+    phase_tag: Option<String>,
+}
+
+impl ObjectPlacementQuery {
+    fn get_filter(&self) -> ObjectPlacementFilter<'_> {
+        ObjectPlacementFilter {
+            class: self.class,
+            zone_guid: self.zone_guid,
+            phase_tag: self.phase_tag.as_deref(),
+        }
+    }
+}
+
+impl RecordQuery for ObjectPlacementQuery {
+    type Record = ObjectPlacement;
+    type Error = RealmApiError;
+
+    async fn query_next(&mut self, after: Option<String>, limit: usize) -> Result<RecordPage<Self::Record>, Self::Error> {
+        let response = self.api_base.0.client
+            .post(self.api_base.0.base_url.clone())
+            .run_graphql(GetObjectPlacements::build(GetObjectPlacementsVariables {
+                filter: Some(self.get_filter()),
+                after: after.as_deref(),
+                first: Some(limit as i32)
+            })).await?;
+
+        if let Some(GetObjectPlacements { object_placements }) = response.data {
+            Ok(RecordPage {
+                at_end: !object_placements.page_info.has_next_page,
+                last_cursor: object_placements.page_info.end_cursor,
+                records: object_placements.nodes.into_iter()
+                    .map(|zone| ObjectPlacement::from_graphql(&self.api_base, zone))
+                    .collect::<Result<Vec<_>, Self::Error>>()?,
+            })
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+impl ObjectPlacementQueryBuilder {
+    pub async fn query(self) -> RealmApiResult<RecordCursor<ObjectPlacementQuery>> {
+        Ok(RecordCursor::new(self.build().unwrap()))
+    }
+}
 
 #[derive(Builder)]
 #[builder(pattern = "owned")]
@@ -105,8 +166,9 @@ impl RealmApi {
         }
     }
 
-    pub async fn get_object_placements(&self) -> RealmApiResult<Cursor<ObjectPlacement>> {
-        todo!()
+    pub async fn query_object_placements(&self) -> ObjectPlacementQueryBuilder {
+        ObjectPlacementQueryBuilder::create_empty()
+            .api_base(self.clone())
     }
 
     pub async fn create_object_placement(&self, placement: ObjectPlacement) -> RealmApiResult<ObjectPlacement> {
@@ -152,6 +214,7 @@ pub(crate) mod object_placement_graphql {
 
     #[derive(cynic::QueryVariables, Debug)]
     pub struct GetObjectPlacementsVariables<'a> {
+        pub filter: Option<ObjectPlacementFilter<'a>>,
         pub after: Option<&'a str>,
         pub first: Option<i32>,
     }
@@ -179,7 +242,7 @@ pub(crate) mod object_placement_graphql {
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "GetObjectPlacementsVariables")]
     pub struct GetObjectPlacements {
-        #[arguments(after: $after, first: $first)]
+        #[arguments(filter: $filter, after: $after, first: $first)]
         pub object_placements: ObjectPlacementConnection,
     }
     
@@ -247,5 +310,13 @@ pub(crate) mod object_placement_graphql {
         pub editor_name: &'a str,
         pub data: Json,
         pub phase_tag: &'a str,
-    }    
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct ObjectPlacementFilter<'a> {
+        pub zone_guid: Option<Uuid>,
+        pub class: Option<Class>,
+        pub phase_tag: Option<&'a str>,
+    }
 }

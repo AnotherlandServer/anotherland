@@ -13,13 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::future::Future;
+
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
 use futures::io::Cursor;
-use toolkit::types::Uuid;
-use zone_graphql::{BatchCreateZones, BatchCreateZonesVariables, CreateZone, CreateZoneVariables, DeleteZone, DeleteZoneVariables, GetZone, GetZoneVariables, ZoneInput};
+use log::debug;
+use toolkit::{record_pagination::{RecordPage, RecordQuery, RecordCursor}, types::Uuid};
+use zone_graphql::{BatchCreateZones, BatchCreateZonesVariables, CreateZone, CreateZoneVariables, DeleteZone, DeleteZoneVariables, GetZone, GetZoneVariables, GetZones, GetZonesVariables, ZoneConnection, ZoneFilter, ZoneInput};
 
-use crate::{schema, RealmApi, RealmApiError, RealmApiResult};
+use crate::{RealmApi, RealmApiError, RealmApiResult};
 
 #[derive(Builder)]
 pub struct Zone {
@@ -38,6 +41,70 @@ pub struct Zone {
     layer: String,
     realu_zone_type: String,
     game_controller: String,
+}
+
+#[derive(Builder)]
+#[builder(pattern = "owned", build_fn(private))]
+pub struct ZoneQuery {
+    #[builder(private)]
+    api_base: RealmApi,
+
+    #[builder(setter(strip_option), default)]
+    worlddef_guid: Option<Uuid>,
+
+    #[builder(setter(strip_option), default)]
+    zone_type: Option<i32>,
+
+    #[builder(setter(strip_option), default)]
+    server: Option<String>,
+}
+
+impl ZoneQuery {
+    fn get_filter(&self) -> ZoneFilter<'_> {
+        ZoneFilter { 
+            worlddef_guid: self.worlddef_guid, 
+            parent_zone_guid: None, 
+            zone_type: self.zone_type, 
+            server: self.server.as_deref(), 
+        }
+    }
+}
+
+impl RecordQuery for ZoneQuery {
+    type Error = RealmApiError;
+    type Record = Zone;
+    
+    async fn query_next(&mut self, after: Option<String>, limit: usize) -> Result<RecordPage<Self::Record>, Self::Error> {
+        debug!("Query zones...");
+
+        let response = self.api_base.0.client
+            .post(self.api_base.0.base_url.clone())
+            .run_graphql(GetZones::build(GetZonesVariables {
+                filter: Some(self.get_filter()),
+                after: after.as_deref(),
+                first: Some(limit as i32)
+            })).await?;
+
+        if let Some(GetZones { zones }) = response.data {
+            Ok(RecordPage {
+                at_end: !zones.page_info.has_next_page,
+                last_cursor: zones.page_info.end_cursor,
+                records: zones.nodes.into_iter()
+                    .map(|zone| Zone::from_graphql(&self.api_base, zone))
+                    .collect::<Result<Vec<_>, Self::Error>>()?,
+            })
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+impl ZoneQueryBuilder {
+    pub async fn query(self) -> RealmApiResult<RecordCursor<ZoneQuery>> {
+        Ok(RecordCursor::new(self.build().unwrap()))
+    }
 }
 
 impl Zone {
@@ -131,8 +198,9 @@ impl RealmApi {
         }
     }
 
-    pub async fn get_zones(&self) -> RealmApiResult<Cursor<Zone>> {
-        todo!()
+    pub fn query_zones(&self) -> ZoneQueryBuilder {
+        ZoneQueryBuilder::create_empty()
+            .api_base(self.clone())
     }
 
     pub async fn create_zone(&self, zone: Zone) -> RealmApiResult<Zone> {
@@ -182,6 +250,7 @@ pub(crate) mod zone_graphql {
     
     #[derive(cynic::QueryVariables, Debug)]
     pub struct GetZonesVariables<'a> {
+        pub filter: Option<ZoneFilter<'a>>,
         pub after: Option<&'a str>,
         pub first: Option<i32>,
     }
@@ -204,7 +273,7 @@ pub(crate) mod zone_graphql {
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "GetZonesVariables")]
     pub struct GetZones {
-        #[arguments(after: $after, first: $first)]
+        #[arguments(filter: $filter, after: $after, first: $first)]
         pub zones: ZoneConnection,
     }
     
@@ -229,6 +298,15 @@ pub(crate) mod zone_graphql {
         pub has_next_page: bool,
     }
     
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct ZoneFilter<'a> {
+        pub worlddef_guid: Option<Uuid>,
+        pub parent_zone_guid: Option<Uuid>,
+        pub zone_type: Option<i32>,
+        pub server: Option<&'a str>,
+    }
+
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "DeleteZoneVariables")]
     pub struct DeleteZone {
