@@ -1,7 +1,7 @@
 [package]
 name = "raknet"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "AGPL-3.0-or-later"
 publish = false
 description = "A RakNet 3.3x2 implementation, specifically for the otherland next mmo. Loosely inspired by https://github.com/b23r0/rust-raknet"

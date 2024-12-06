@@ -158,12 +158,12 @@ pub fn aes_encrypt(key: u128, message: &[u8]) -> Vec<u8> {
         let mut rng = thread_rng();
 
         // pad size
-        let mut encoded_pad = rng.gen::<u8>();
+        let mut encoded_pad = rng.r#gen::<u8>();
         encoded_pad <<= 4;
         encoded_pad |= padding_bytes as u8;
 
         // write random char
-        message_buffer[4] = rng.gen::<u8>();
+        message_buffer[4] = rng.r#gen::<u8>();
 
         // write padding size
         message_buffer[5] = encoded_pad;
