@@ -53,6 +53,7 @@ pub struct ObjectTemplate {
     id: Uuid,
     #[graphql_crud(filter)]
     category: Category,
+    #[graphql_crud(filter)]
     name: String,
     #[graphql_crud(serialize_as = ClassWrapper, filter)]
     class: Class,
@@ -80,6 +81,12 @@ impl DatabaseRecord for ObjectTemplate {
         collection.create_index(
             IndexModel::builder()
             .keys(doc! { "id": 1 })
+            .options(IndexOptions::builder().unique(true).build())
+            .build()).await?;
+
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "name": 1 })
             .options(IndexOptions::builder().unique(true).build())
             .build()).await?;
 

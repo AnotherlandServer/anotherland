@@ -17,12 +17,73 @@ use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
 use futures::io::Cursor;
 use obj_params::{Class, GameObjectData};
-use object_template_graphql::{BatchCreateObjectTemplates, BatchCreateObjectTemplatesVariables, CreateObjectTemplate, CreateObjectTemplateVariables, DeleteObjectTemplate, DeleteObjectTemplateVariables, GetObjectTemplate, GetObjectTemplateVariables, ObjectTemplateInput};
-use toolkit::types::Uuid;
+use object_template_graphql::{BatchCreateObjectTemplates, BatchCreateObjectTemplatesVariables, CreateObjectTemplate, CreateObjectTemplateVariables, DeleteObjectTemplate, DeleteObjectTemplateVariables, GetObjectTemplate, GetObjectTemplateVariables, GetObjectTemplates, GetObjectTemplatesVariables, ObjectTemplateFilter, ObjectTemplateInput};
+use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
 
 use crate::{schema, RealmApi, RealmApiError, RealmApiResult};
 
 pub use object_template_graphql::Category;
+
+#[derive(Builder)]
+#[builder(pattern = "owned", build_fn(private))]
+pub struct ObjectTemplateQuery {
+    #[builder(private)]
+    api_base: RealmApi,
+
+    #[builder(setter(strip_option), default)]
+    name: Option<String>,
+
+    #[builder(setter(strip_option), default)]
+    class: Option<Class>,
+
+    #[builder(setter(strip_option), default)]
+    category: Option<Category>,
+}
+
+impl ObjectTemplateQuery {
+    fn get_filter(&self) -> ObjectTemplateFilter<'_> {
+        ObjectTemplateFilter { 
+            category: self.category, 
+            name: self.name.as_deref(), 
+            class: self.class, 
+        }
+    }
+}
+
+impl RecordQuery for ObjectTemplateQuery {
+    type Record = ObjectTemplate;
+    type Error = RealmApiError;
+
+    async fn query_next(&mut self, after: Option<String>, limit: usize) -> Result<RecordPage<Self::Record>, Self::Error> {
+        let response = self.api_base.0.client
+            .post(self.api_base.0.base_url.clone())
+            .run_graphql(GetObjectTemplates::build(GetObjectTemplatesVariables {
+                filter: Some(self.get_filter()),
+                after: after.as_deref(),
+                first: Some(limit as i32)
+            })).await?;
+
+        if let Some(GetObjectTemplates { object_templates }) = response.data {
+            Ok(RecordPage {
+                at_end: !object_templates.page_info.has_next_page,
+                last_cursor: object_templates.page_info.end_cursor,
+                records: object_templates.nodes.into_iter()
+                    .map(|zone| ObjectTemplate::from_graphql(&self.api_base, zone))
+                    .collect::<Result<Vec<_>, Self::Error>>()?,
+            })
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+impl ObjectTemplateQueryBuilder {
+    pub async fn query(self) -> RealmApiResult<RecordCursor<ObjectTemplateQuery>> {
+        Ok(RecordCursor::new(self.build().unwrap()))
+    }
+}
 
 #[derive(Builder)]
 #[builder(pattern = "owned")]
@@ -30,11 +91,11 @@ pub struct ObjectTemplate {
     #[builder(setter(skip))]
     api_base: Option<RealmApi>,
 
-    id: Uuid,
-    category: Category,
-    name: String,
-    class: Class,
-    data: GameObjectData,
+    pub id: Uuid,
+    pub category: Category,
+    pub name: String,
+    pub class: Class,
+    pub data: GameObjectData,
 }
 
 impl ObjectTemplate {
@@ -69,7 +130,7 @@ impl ObjectTemplate {
         })
     }
 
-    fn into_graphql<'a>(&'a self) -> ObjectTemplateInput<'a> {
+    fn into_graphql(&self) -> ObjectTemplateInput {
         ObjectTemplateInput {
             id: self.id,
             category: self.category,
@@ -101,8 +162,9 @@ impl RealmApi {
         }
     }
 
-    pub async fn get_object_templates(&self) -> RealmApiResult<Cursor<ObjectTemplate>> {
-        todo!()
+    pub fn query_object_templates(&self) -> ObjectTemplateQueryBuilder {
+        ObjectTemplateQueryBuilder::create_empty()
+            .api_base(self.clone())
     }
 
     pub async fn create_object_template(&self, template: ObjectTemplate) -> RealmApiResult<ObjectTemplate> {
@@ -148,6 +210,7 @@ pub(crate) mod object_template_graphql {
 
     #[derive(cynic::QueryVariables, Debug)]
     pub struct GetObjectTemplatesVariables<'a> {
+        pub filter: Option<ObjectTemplateFilter<'a>>,
         pub after: Option<&'a str>,
         pub first: Option<i32>,
     }
@@ -175,7 +238,7 @@ pub(crate) mod object_template_graphql {
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "GetObjectTemplatesVariables")]
     pub struct GetObjectTemplates {
-        #[arguments(after: $after, first: $first)]
+        #[arguments(filter: $filter, after: $after, first: $first)]
         pub object_templates: ObjectTemplateConnection,
     }
     
@@ -259,5 +322,13 @@ pub(crate) mod object_template_graphql {
         Skills,
         Spawners,
         Structures,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct ObjectTemplateFilter<'a> {
+        pub category: Option<Category>,
+        pub name: Option<&'a str>,
+        pub class: Option<Class>,
     }
 }
