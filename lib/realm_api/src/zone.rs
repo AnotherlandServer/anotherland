@@ -24,6 +24,8 @@ use zone_graphql::{BatchCreateZones, BatchCreateZonesVariables, CreateZone, Crea
 
 use crate::{RealmApi, RealmApiError, RealmApiResult};
 
+pub use zone_graphql::ZoneType;
+
 #[derive(Builder)]
 pub struct Zone {
     #[builder(setter(skip))]
@@ -34,7 +36,7 @@ pub struct Zone {
     worlddef_guid: Uuid,
     parent_zone_guid: Uuid,
     zone: String,
-    zone_type: i32,
+    zone_type: ZoneType,
     is_instance: bool,
     server: String,
     level: String,
@@ -53,7 +55,7 @@ pub struct ZoneQuery {
     worlddef_guid: Option<Uuid>,
 
     #[builder(setter(strip_option), default)]
-    zone_type: Option<i32>,
+    zone_type: Option<ZoneType>,
 
     #[builder(setter(strip_option), default)]
     server: Option<String>,
@@ -61,7 +63,7 @@ pub struct ZoneQuery {
 
 impl ZoneQuery {
     fn get_filter(&self) -> ZoneFilter<'_> {
-        ZoneFilter { 
+        ZoneFilter {
             worlddef_guid: self.worlddef_guid, 
             parent_zone_guid: None, 
             zone_type: self.zone_type, 
@@ -75,8 +77,6 @@ impl RecordQuery for ZoneQuery {
     type Record = Zone;
     
     async fn query_next(&mut self, after: Option<String>, limit: usize) -> Result<RecordPage<Self::Record>, Self::Error> {
-        debug!("Query zones...");
-
         let response = self.api_base.0.client
             .post(self.api_base.0.base_url.clone())
             .run_graphql(GetZones::build(GetZonesVariables {
@@ -113,7 +113,7 @@ impl Zone {
     pub fn worlddef_guid(&self) -> &Uuid { &self.worlddef_guid }
     pub fn parent_zone_guid(&self) -> &Uuid { &self.parent_zone_guid }
     pub fn zone(&self) -> &str { &self.zone }
-    pub fn zone_type(&self) -> &i32 { &self.zone_type }
+    pub fn zone_type(&self) -> &ZoneType { &self.zone_type }
     pub fn is_instance(&self) -> &bool { &self.is_instance }
     pub fn server(&self) -> &str { &self.server }
     pub fn level(&self) -> &str { &self.level }
@@ -303,7 +303,7 @@ pub(crate) mod zone_graphql {
     pub struct ZoneFilter<'a> {
         pub worlddef_guid: Option<Uuid>,
         pub parent_zone_guid: Option<Uuid>,
-        pub zone_type: Option<i32>,
+        pub zone_type: Option<ZoneType>,
         pub server: Option<&'a str>,
     }
 
@@ -342,7 +342,7 @@ pub(crate) mod zone_graphql {
         pub server: String,
         pub worlddef_guid: Uuid,
         pub zone: String,
-        pub zone_type: i32,
+        pub zone_type: ZoneType,
     }
     
     #[derive(cynic::InputObject, Debug)]
@@ -353,12 +353,19 @@ pub(crate) mod zone_graphql {
         pub worlddef_guid: Uuid,
         pub parent_zone_guid: Uuid,
         pub zone: &'a str,
-        pub zone_type: i32,
+        pub zone_type: ZoneType,
         pub is_instance: bool,
         pub server: &'a str,
         pub level: &'a str,
         pub layer: &'a str,
         pub realu_zone_type: &'a str,
         pub game_controller: &'a str,
+    }
+
+    #[derive(cynic::Enum, Clone, Copy, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub enum ZoneType {
+        World,
+        Ghost,
     }
 }

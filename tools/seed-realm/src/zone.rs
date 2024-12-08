@@ -46,7 +46,11 @@ pub async fn import_zone(game_client_path: &Path, api: &RealmApi) -> SeedRealmRe
                     .worlddef_guid(row.read::<&str,_>("uxWorldDefGuid").parse().unwrap())
                     .parent_zone_guid(row.read::<&str,_>("uxParentZoneGuid").parse().unwrap())
                     .zone(row.read::<&str,_>("sZone").to_owned())
-                    .zone_type(row.read::<i64,_>("iType") as i32)
+                    .zone_type(match row.read::<i64,_>("iType") {
+                        0 => realm_api::ZoneType::World,
+                        1 => realm_api::ZoneType::Ghost,
+                        _ => panic!("unknown zone type"),
+                    })
                     .is_instance(row.read::<i64,_>("bInstance") != 0)
                     .server(row.read::<&str,_>("sServer").to_owned())
                     .level(row.read::<&str,_>("sLevel").to_owned())

@@ -13,10 +13,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use async_graphql::Enum;
 use database::DatabaseRecord;
-use mongodb::{bson::doc, options::IndexOptions, IndexModel};
+use mongodb::{bson::{self, doc}, options::IndexOptions, IndexModel};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud};
+
+#[derive(Enum, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum ZoneType {
+    World,
+    Ghost,
+}
+
+impl From<ZoneType> for mongodb::bson::Bson {
+    fn from(value: ZoneType) -> Self {
+        bson::to_bson(&value).unwrap()
+    }
+}
 
 #[derive(Serialize, Deserialize, GraphqlCrud)]
 #[graphql_crud(name = "zone")]
@@ -29,7 +42,7 @@ pub struct Zone {
     pub parent_zone_guid: Uuid,
     pub zone: String,
     #[graphql_crud(filter)]
-    pub zone_type: i32,
+    pub zone_type: ZoneType,
     pub is_instance: bool,
     #[graphql_crud(filter)]
     pub server: String,
