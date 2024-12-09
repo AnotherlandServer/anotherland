@@ -17,6 +17,7 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use cluster::{ClusterEvent, PeerIdentity};
 use core_api::proto::{CoreClient, CoreRequest};
+use log::info;
 use tokio::sync::{broadcast::Receiver, RwLock};
 use toolkit::types::Uuid;
 
@@ -53,6 +54,9 @@ impl NodeRegistry {
 
         let entry = state.nodes.entry(peer_identity)
             .or_insert((Uuid::new(), node_type, endpoint));
+
+        info!("Registered {} at {}", node_type, endpoint);
+
         let _ = realm_server.notify(RealmNotification::NodeAdded((entry.0, entry.1, entry.2))).await;
 
         if matches!(entry.1, NodeType::FrontendNode) {
@@ -70,6 +74,8 @@ impl NodeRegistry {
                     let core = state.core.clone();            
 
                     if let Some((id, node_type, endpoint)) = state.nodes.remove(&peer_identity) {
+                        info!("Unregisted {} at {}", node_type, endpoint);
+                        
                         let _ = realm_server.notify(RealmNotification::NodeRemoved(id)).await;
 
                         if matches!(node_type, NodeType::FrontendNode) {

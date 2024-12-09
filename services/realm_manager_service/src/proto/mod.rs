@@ -14,16 +14,21 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod notification;
-use std::net::SocketAddr;
+use std::{fmt::Display, net::SocketAddr};
 
 pub use notification::*;
 
 use cluster::{ClusterClient, ClusterServer, Request, Response};
 use serde::{Deserialize, Serialize};
+use toolkit::types::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub enum RealmRequest {
     RegisterNode(NodeType, SocketAddr),
+    RegisterInstance {
+        zone: Uuid,
+        instance: Uuid,
+    }
 }
 
 impl Request for RealmRequest {}
@@ -42,6 +47,17 @@ pub enum NodeType {
     ClusterNode,
     WorldNode,
     DungeonNode,
+}
+
+impl Display for NodeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NodeType::FrontendNode => f.write_str("FrontendNode"),
+            NodeType::ClusterNode => f.write_str("ClusterNode"),
+            NodeType::WorldNode => f.write_str("WorldNode"),
+            NodeType::DungeonNode => f.write_str("DungeonNode"),
+        }
+    }
 }
 
 pub type RealmServer = ClusterServer<RealmRequest, RealmResponse, RealmNotification>;

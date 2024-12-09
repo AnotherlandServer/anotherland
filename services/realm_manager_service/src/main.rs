@@ -143,6 +143,9 @@ async fn main() -> RealmResult<()> {
                     proto::RealmRequest::RegisterNode(node_type, endpoint) => {
                         node_registry.register_node(peer, node_type, endpoint).await;
                     },
+                    proto::RealmRequest::RegisterInstance { zone, instance } => {
+                        info!("Registered instance ({}, {})", zone, instance);
+                    }
                 }
             }
         });
