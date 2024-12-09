@@ -22,7 +22,7 @@ use frontend_session_context::FrontendSessionContext;
 use log::info;
 use once_cell::sync::Lazy;
 use raknet::RakNetListener;
-use realm_api::{proto::{NodeType, RealmClient, RealmRequest}, RealmApi};
+use realm_api::{proto::{NodeAddress, NodeType, RealmClient, RealmRequest}, RealmApi};
 use reqwest::Url;
 use toolkit::print_banner;
 
@@ -74,7 +74,7 @@ async fn main() -> FrontendResult<()> {
         info!("Server started...");
 
         // notify realm server we're online
-        realm_client.send(RealmRequest::RegisterNode(NodeType::FrontendNode, ARGS.public_addr)).await?;
+        realm_client.send(RealmRequest::RegisterNode(NodeType::Frontend, NodeAddress::Public(ARGS.public_addr))).await?;
     
         loop {
             let socket = listener.accept().await.unwrap();
