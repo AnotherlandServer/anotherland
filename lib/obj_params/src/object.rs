@@ -17,7 +17,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Attribute, Class, GenericParamSet, ParamFlag, ParamSet, ParamWriter, Value};
+use crate::{Attribute, Class, GenericParamSet, ParamError, ParamFlag, ParamResult, ParamSet, ParamWriter, Value};
 
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
@@ -42,18 +42,18 @@ impl GameObjectData {
 
     pub fn class(&self) -> Class { self.0.class() }
 
-    pub fn get<'a, T: Attribute, V>(&'a self, attr: T) -> &'a V 
-        where &'a V: From<&'a Value>
+    pub fn get<'a, T: Attribute, V>(&'a self, attr: T) -> ParamResult<&'a V>
+        where &'a V: TryFrom<&'a Value, Error = ParamError>
     {
         if let Some(value) = self.0.get_param(attr.name()) {
-            value.into()
+            value.try_into()
         } else if <T as Attribute>::class() == self.0.class() {
-            attr.default().into()
+            attr.default().try_into()
         } else {
             self.0.class().get_attribute(attr.name())
                 .unwrap_or_else(|| panic!("Class {:?} doesn't implement attribute {}", self.0.class(), attr.name()))
                 .default()
-                .into()
+                .try_into()
         }
     }
 

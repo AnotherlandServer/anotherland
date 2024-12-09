@@ -25,4 +25,9 @@ pub enum ParamError {
 
     #[error("unknown class")]
     UnknownClass,
+
+    #[error("type mismatch")]
+    TypeMismatch,
 }
+
+pub type ParamResult<T> = Result<T, ParamError>;

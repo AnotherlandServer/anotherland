@@ -23,7 +23,7 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use toolkit::types::{AvatarId, Uuid};
 
-use crate::{ParamFlag, ParamType};
+use crate::{ParamError, ParamFlag, ParamType};
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
@@ -900,5 +900,41 @@ impl From<Uuid> for Value {
 impl From<Vec<i32>> for Value {
     fn from(value: Vec<i32>) -> Self {
         Value::VectorInt(value)
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a bool {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::Bool(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a i32 {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::Int(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a String {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::String(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
     }
 }
