@@ -13,31 +13,73 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::{Context, Enum, Error, Object, SimpleObject};
+use async_graphql::{Context, Enum, Error, Object, OneofObject, SimpleObject, Union};
 use toolkit::types::Uuid;
+
+use crate::{node_registry::{self, NodeRegistry, NodeSocketAddress}, proto::{self, NodeType}};
 
 #[derive(Default)]
 pub struct NodesRoot;
 
 #[Object]
 impl NodesRoot {
-    async fn nodes(&self, ctx: &Context<'_>, id: Uuid) -> Result<Vec<Node>, Error> {
-        
-        todo!()
+    async fn node(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Node>, Error> {
+        let registry = ctx.data::<NodeRegistry>()?;
+        Ok(registry.node(id).await
+            .map(|node| node.into()))
+    }
+
+    async fn nodes(&self, ctx: &Context<'_>) -> Result<Vec<Node>, Error> {
+        let registry = ctx.data::<NodeRegistry>()?;
+        Ok(
+            registry.nodes().await
+                .into_iter()
+                .map(|node| node.into())
+                .collect()
+        )
     }
 }
 
-#[derive(Enum, Clone, Copy, PartialEq, Eq)]
-pub enum NodeType {
-    Frontend,
-    Cluster,
-    World,
-    Dungeon,
+#[derive(SimpleObject)]
+pub struct PublicAddress {
+    ip: String,
+    port: u16,
+}
+
+#[derive(SimpleObject)]
+pub struct InternalAddress {
+    ip: String,
+    port: u16,
+}
+
+#[derive(Union)]
+pub enum NodeAddress {
+    PublicAddress(PublicAddress),
+    InternalAddress(InternalAddress),
 }
 
 #[derive(SimpleObject)]
 pub struct Node {
     id: Uuid,
-    r#type: NodeType,
-    endpoint: String,
+    ty: NodeType,
+    addr: NodeAddress,
+}
+
+impl From<node_registry::Node> for Node {
+    fn from(value: node_registry::Node) -> Self {
+        Node {
+            id: value.id,
+            ty: value.ty,
+            addr: match value.addr {
+                NodeSocketAddress::Public(addr) => NodeAddress::PublicAddress(PublicAddress { 
+                    ip: addr.ip().to_string(), 
+                    port: addr.port(), 
+                }),
+                NodeSocketAddress::Internal(addr) => NodeAddress::InternalAddress(InternalAddress { 
+                    ip: addr.ip().to_string(), 
+                    port: addr.port(), 
+                }),
+            },
+        }
+    }
 }

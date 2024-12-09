@@ -13,20 +13,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::net::SocketAddr;
-
+use chrono::{DateTime, Utc};
 use cluster::Notification;
 use core_api::proto::CoreNotification;
 use serde::{Deserialize, Serialize};
 use toolkit::types::Uuid;
+
+use crate::node_registry::{Node, NodeSocketAddress};
 
 use super::NodeType;
 
 #[derive(Serialize, Deserialize)]
 pub enum RealmNotification {
     ClusterNotification(CoreNotification),
-    NodeAdded((Uuid, NodeType, SocketAddr)),
-    NodeRemoved(Uuid)
+    NodeAdded(Node),
+    NodeRemoved(Uuid),
+    InstanceRequested {
+        transaction_id: Uuid,
+        zone: Uuid,
+        key: Option<Uuid>,
+        valid_until: DateTime<Utc>,
+    },
 }
 
 impl Notification for RealmNotification {
@@ -35,6 +42,7 @@ impl Notification for RealmNotification {
             RealmNotification::ClusterNotification(notification) => notification.topic_name(),
             RealmNotification::NodeAdded(_) => "cluster.node.added",
             RealmNotification::NodeRemoved(_) => "cluster.node.removed",
+            RealmNotification::InstanceRequested { .. } => "realm.instance.request",
         }
     }
 }

@@ -14,21 +14,57 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 mod notification;
-use std::{fmt::Display, net::SocketAddr};
+use std::{fmt::{Debug, Display}, net::SocketAddr};
 
+use async_graphql::Enum;
+use chrono::{DateTime, Utc};
 pub use notification::*;
 
 use cluster::{ClusterClient, ClusterServer, Request, Response};
 use serde::{Deserialize, Serialize};
 use toolkit::types::Uuid;
 
+#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
+pub struct InstanceKey(Uuid, Uuid);
+
+impl InstanceKey {
+    pub fn new(zone: Uuid, instance: Uuid) -> Self {
+        Self(zone, instance)
+    }
+
+    pub fn zone(&self) -> Uuid { self.0 }
+    pub fn instance(&self) -> Uuid { self.1 }
+}
+
+impl Display for InstanceKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("({}, {})", self.0, self.1))
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum NodeAddress {
+    Public(SocketAddr),
+    Internal(u16),
+}
+
+impl Display for NodeAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <Self as Debug>::fmt(self, f)
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub enum RealmRequest {
-    RegisterNode(NodeType, SocketAddr),
-    RegisterInstance {
-        zone: Uuid,
-        instance: Uuid,
-    }
+    RegisterNode(NodeType, NodeAddress),
+    InstanceOffering {
+        transaction_id: Uuid,
+        key: InstanceKey,
+    },
+    InstanceProvisioned {
+        transaction_id: Uuid
+    },
+    RemoveInstance(InstanceKey),
 }
 
 impl Request for RealmRequest {}
@@ -36,26 +72,29 @@ impl Request for RealmRequest {}
 
 #[derive(Serialize, Deserialize)]
 pub enum RealmResponse {
-
+    InstanceOfferingAccepted { 
+        transaction_id: Uuid,
+        key: InstanceKey 
+    },
 }
 
 impl Response for RealmResponse {}
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Enum, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum NodeType {
-    FrontendNode,
-    ClusterNode,
-    WorldNode,
-    DungeonNode,
+    Frontend,
+    Cluster,
+    World,
+    Dungeon,
 }
 
 impl Display for NodeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            NodeType::FrontendNode => f.write_str("FrontendNode"),
-            NodeType::ClusterNode => f.write_str("ClusterNode"),
-            NodeType::WorldNode => f.write_str("WorldNode"),
-            NodeType::DungeonNode => f.write_str("DungeonNode"),
+            NodeType::Frontend => f.write_str("Frontend"),
+            NodeType::Cluster => f.write_str("Cluster"),
+            NodeType::World => f.write_str("World"),
+            NodeType::Dungeon => f.write_str("Dungeon"),
         }
     }
 }

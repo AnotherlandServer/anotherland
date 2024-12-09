@@ -14,12 +14,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![feature(let_chains)]
+#![feature(hash_extract_if)]
 
 use async_graphql::{EmptySubscription, Schema};
 use schema::{MutationRoot, QueryRoot};
 
 mod db;
 mod schema;
+mod node_registry;
+mod instance_registry;
+
 pub mod error;
 pub mod proto;
 

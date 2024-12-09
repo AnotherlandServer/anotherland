@@ -15,6 +15,8 @@
 
 use async_graphql::{scalar, MergedObject};
 use character::{CharacterMutationRoot, CharacterRoot};
+use instances::{InstancesMutationRoot, InstancesRoot};
+use nodes::NodesRoot;
 use premium_currency::{PremiumCurrencyMutationRoot, PremiumCurrencyRoot};
 use session_ext::{SessionExtMutationRoot, SessionExtRoot};
 
@@ -25,6 +27,7 @@ mod premium_currency;
 mod session_ext;
 mod nodes;
 mod types;
+mod instances;
 
 pub use types::*;
 
@@ -33,6 +36,8 @@ pub struct QueryRoot(
     pub CharacterRoot,
     pub PremiumCurrencyRoot,
     pub SessionExtRoot,
+    pub NodesRoot,
+    pub InstancesRoot,
     pub db::WorldDefQueryRoot,
     pub db::ZoneQueryRoot,
     pub db::ObjectPlacementQueryRoot,
@@ -44,6 +49,7 @@ pub struct MutationRoot(
     pub CharacterMutationRoot,
     pub PremiumCurrencyMutationRoot,
     pub SessionExtMutationRoot,
+    pub InstancesMutationRoot,
     pub db::WorldDefMutationRoot,
     pub db::ZoneMutationRoot,
     pub db::ObjectPlacementMutationRoot,

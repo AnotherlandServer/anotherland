@@ -13,27 +13,34 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use core_api::CoreApiError;
-use cynic::{http::CynicReqwestError, GraphQlError};
-use thiserror::Error;
-use toolkit::anyhow;
+use async_graphql::{Context, Error, Object, SimpleObject};
+use toolkit::types::Uuid;
 
-#[derive(Error, Debug)]
-pub enum RealmError {
-    #[error(transparent)]
-    Request(#[from] CynicReqwestError),
+use super::nodes::Node;
 
-    #[error("graphql error")]
-    GraphQl(Vec<GraphQlError>),
+#[derive(Default)]
+pub struct InstancesRoot;
 
-    #[error(transparent)]
-    CoreApi(#[from] CoreApiError),
+#[derive(Default)]
+pub struct InstancesMutationRoot;
 
-    #[error(transparent)]
-    Cluster(#[from] cluster::Error),
-
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
+#[Object]
+impl InstancesRoot {
+    pub async fn instance(&self, _ctx: &Context<'_>, id: Uuid) -> Result<Option<Instance>, Error> {
+        todo!()
+    }
 }
 
-pub type RealmResult<T> = std::result::Result<T, RealmError>;
+#[Object]
+impl InstancesMutationRoot {
+    pub async fn join_instance(&self, _ctx: &Context<'_>, session_id: Uuid, zone_id: Uuid, instance_id: Option<Uuid>) -> Result<Instance, Error> {
+        todo!()
+    }
+}
+
+#[derive(SimpleObject)]
+pub struct Instance {
+    zone_id: Uuid,
+    instance_id: Uuid,
+    node: Node,
+}

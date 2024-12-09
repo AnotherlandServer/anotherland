@@ -13,23 +13,47 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, fmt::Display, net::SocketAddr, sync::Arc};
 
 use cluster::{ClusterEvent, PeerIdentity};
 use core_api::proto::{CoreClient, CoreRequest};
 use log::info;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast::Receiver, RwLock};
 use toolkit::types::Uuid;
 
-use crate::proto::{NodeType, RealmNotification, RealmServer};
+use crate::proto::{NodeAddress, NodeType, RealmNotification, RealmServer};
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub enum NodeSocketAddress {
+    Public(SocketAddr),
+    Internal(SocketAddr),
+}
+
+impl Display for NodeSocketAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Public(adr) => adr.fmt(f),
+            Self::Internal(adr) => adr.fmt(f),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Node {
+    pub id: Uuid,
+    pub ty: NodeType,
+    pub addr: NodeSocketAddress,
+}
 
 struct NodeRegistryData {
     realm_id: i32,
     realm_server: Arc<RealmServer>,
     core: Arc<CoreClient>,
-    nodes: HashMap<PeerIdentity, (Uuid, NodeType, SocketAddr)>,
+    nodes: HashMap<PeerIdentity, Node>,
 }
 
+#[derive(Clone)]
 pub struct NodeRegistry(Arc<RwLock<NodeRegistryData>>);
 
 impl NodeRegistry {
@@ -47,19 +71,26 @@ impl NodeRegistry {
         Self(data)
     }
 
-    pub async fn register_node(&self, peer_identity: PeerIdentity, node_type: NodeType, endpoint: SocketAddr) {
+    pub async fn register_node(&self, peer_identity: PeerIdentity, node_type: NodeType, address: NodeSocketAddress) {
         let mut state = self.0.write().await;
         let realm_server = state.realm_server.clone();
         let core = state.core.clone();
 
         let entry = state.nodes.entry(peer_identity)
-            .or_insert((Uuid::new(), node_type, endpoint));
+            .or_insert(Node {
+                id: Uuid::new(), 
+                ty: node_type, 
+                addr: address
+            });
 
-        info!("Registered {} at {}", node_type, endpoint);
+        info!("Registered {} at {}", node_type, address);
 
-        let _ = realm_server.notify(RealmNotification::NodeAdded((entry.0, entry.1, entry.2))).await;
+        let _ = realm_server.notify(RealmNotification::NodeAdded(entry.clone())).await;
 
-        if matches!(entry.1, NodeType::FrontendNode) {
+        if 
+            matches!(entry.ty, NodeType::Frontend) &&
+            let NodeSocketAddress::Public(endpoint) = entry.addr
+        {
             // Register new frontend node with core server, so clients can connect to it
             let _ = core.send(CoreRequest::ConnectRealm(state.realm_id, endpoint)).await;
         }
@@ -73,12 +104,15 @@ impl NodeRegistry {
                     let realm_server = state.realm_server.clone();
                     let core = state.core.clone();            
 
-                    if let Some((id, node_type, endpoint)) = state.nodes.remove(&peer_identity) {
-                        info!("Unregisted {} at {}", node_type, endpoint);
+                    if let Some(node) = state.nodes.remove(&peer_identity) {
+                        info!("Unregisted {} at {}", node.ty, node.addr);
                         
-                        let _ = realm_server.notify(RealmNotification::NodeRemoved(id)).await;
+                        let _ = realm_server.notify(RealmNotification::NodeRemoved(node.id)).await;
 
-                        if matches!(node_type, NodeType::FrontendNode) {
+                        if 
+                            matches!(node.ty, NodeType::Frontend) &&
+                            let NodeSocketAddress::Public(endpoint) = node.addr
+                        {
                             // Unregister frontend node from core server
                             let _ = core.send(CoreRequest::DisconnectRealm(state.realm_id, endpoint)).await;
                         }
@@ -86,5 +120,25 @@ impl NodeRegistry {
                 }
             }
         });
+    }
+
+    pub async fn node_for_peer(&self, peer: &PeerIdentity) -> Option<Node> {
+        let s = self.0.read().await;
+        s.nodes.get(peer)
+            .cloned()
+    }
+
+    pub async fn node(&self, id: Uuid) -> Option<Node> {
+        let s = self.0.read().await;
+        s.nodes.values()
+            .find(|node| node.id == id)
+            .cloned()
+    }
+
+    pub async fn nodes(&self) -> Vec<Node> {
+        let s = self.0.read().await;
+        s.nodes.values()
+            .cloned()
+            .collect()
     }
 }

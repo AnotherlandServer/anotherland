@@ -14,27 +14,35 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![feature(let_chains)]
+#![feature(hash_extract_if)]
 
+use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 use std::{net::SocketAddrV4, sync::Arc};
 
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_poem::GraphQL;
 use clap::Parser;
+use cluster::{ClusterEvent, Endpoint, Host, PeerIdentity};
 use core_api::CoreApi;
 use core_api::proto::{CoreRequest, CoreClient, CoreNotification};
 use database::{DatabaseExt, DatabaseRecord};
 use db::{Character, ObjectPlacement, ObjectTemplate, PremiumCurrency, PremiumCurrencyTransaction, SessionExt, WorldDef, Zone};
 use error::RealmResult;
-use log::info;
+use instance_registry::InstanceRegistry;
+use log::{error, info, warn};
 use mongodb::bson::doc;
 use mongodb::{Client, Database};
-use node_registry::NodeRegistry;
+use node_registry::{NodeRegistry, NodeSocketAddress};
 use poem::{listener::TcpListener, post, Route, Server};
-use proto::{RealmNotification, RealmServer};
+use proto::{NodeAddress, RealmNotification, RealmServer};
 use reqwest::Url;
 use schema::{MutationRoot, QueryRoot};
 use session_cleanup::start_session_cleanup;
+use tokio::net::lookup_host;
 use tokio::sync::{mpsc::Receiver, Mutex};
+use tokio::time;
 use toolkit::print_banner;
 
 mod schema;
@@ -43,6 +51,7 @@ mod proto;
 mod error;
 mod session_cleanup;
 mod node_registry;
+mod instance_registry;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -101,15 +110,6 @@ async fn main() -> RealmResult<()> {
     info!("Cleaning up session storage...");
     start_session_cleanup(db.clone(), core_api.clone());
 
-    // Start graphql api
-    let schema = Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)
-        .data(db.clone())
-        .data(core_api.clone())
-        .finish();
-
-    let app = Route::new()
-        .at("/", post(GraphQL::new(schema.clone())));
-
     // Connect to core service
     let (core_client, core_notifications) = CoreClient::connect(&args.core_zmq_addr).await
         .expect("core service connect failed");
@@ -121,9 +121,21 @@ async fn main() -> RealmResult<()> {
         .expect("failed to start realm server"));
 
     let node_registry = NodeRegistry::new(args.realm_id, server.clone(), core_client.clone());
+    let instance_registry = InstanceRegistry::new(server.clone(), node_registry.clone());
+    let peer_endpoints = Arc::new(Mutex::new(HashMap::new()));
+
+    // Start graphql api
+    let schema = Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)
+        .data(db.clone())
+        .data(core_api.clone())
+        .data(node_registry.clone())
+        .finish();
+
+    let app = Route::new()
+        .at("/", post(GraphQL::new(schema.clone())));
 
     // Forward cluster notification to realm sub-services
-    async fn handle_notifications(server: Arc<RealmServer>, db: Database, mut notifications: Receiver<CoreNotification>) {
+    fn handle_notifications(server: Arc<RealmServer>, db: Database, mut notifications: Receiver<CoreNotification>) {
         tokio::spawn(async move {
             while let Some(notification) = notifications.recv().await {
                 if let CoreNotification::SessionTerminated(id) = &notification {
@@ -136,23 +148,91 @@ async fn main() -> RealmResult<()> {
         });
     }
 
-    async fn handle_requests(server: Arc<RealmServer>, node_registry: NodeRegistry) {
+    fn handle_requests(
+        server: Arc<RealmServer>, 
+        node_registry: NodeRegistry,
+        instance_registry: InstanceRegistry,
+        endpoints: Arc<Mutex<HashMap<PeerIdentity, Endpoint>>>
+    ) {
         tokio::spawn(async move {
             while let Ok((peer, req)) = server.recv().await {
                 match req {
-                    proto::RealmRequest::RegisterNode(node_type, endpoint) => {
-                        node_registry.register_node(peer, node_type, endpoint).await;
+                    proto::RealmRequest::RegisterNode(node_type, address) => {
+                        match address {
+                            NodeAddress::Public(addr) => {
+                                node_registry.register_node(peer, node_type, NodeSocketAddress::Public(addr)).await
+                            },
+                            NodeAddress::Internal(port) => {
+                                let endpoints = endpoints.clone();
+                                let node_registry = node_registry.clone();
+
+                                // Spawn a new task to deal with the fact, that this request might be
+                                // processed before endpoints where updated.
+                                tokio::spawn(async move {
+                                    let mut tries = 0;
+
+                                    while tries < 3 {
+                                        let endpoints = endpoints.lock().await;
+                                        if let Some(endpoint) = endpoints.get(&peer) {
+                                            if let Endpoint::Tcp(host, _) = endpoint {
+                                                let ip: IpAddr = match host {
+                                                    &Host::Ipv4(addr) => addr.into(),
+                                                    &Host::Ipv6(addr) => addr.into(),
+                                                    Host::Domain(domain) => {
+                                                        unimplemented!()
+                                                    }
+                                                };
+
+                                                node_registry.register_node(peer, node_type, NodeSocketAddress::Internal(SocketAddr::new(ip, port))).await
+                                            } else {
+                                                error!("Unsupported node endpoint: {}", endpoint);
+                                            }
+
+                                            break;
+                                        } else {
+                                            tries += 1;
+                                            time::sleep(Duration::from_millis(100)).await;
+                                        }
+                                    }
+                                });
+                            }
+                        };
                     },
-                    proto::RealmRequest::RegisterInstance { zone, instance } => {
-                        info!("Registered instance ({}, {})", zone, instance);
+                    proto::RealmRequest::InstanceOffering { transaction_id, key } => {
+                        instance_registry.process_instance_offer(peer, transaction_id, key).await;
+                    },
+                    proto::RealmRequest::InstanceProvisioned { transaction_id } => {
+                        instance_registry.complete_instance_provisioning(peer, transaction_id).await;
+                    },
+                    proto::RealmRequest::RemoveInstance(key) => {
+                        instance_registry.remove_instance(key.instance()).await;
                     }
                 }
             }
         });
     }
 
-    handle_notifications(server.clone(), db, core_notifications).await;
-    handle_requests(server.clone(), node_registry).await;
+    fn monitor_realm_server(server: Arc<RealmServer>, endpoints: Arc<Mutex<HashMap<PeerIdentity, Endpoint>>>) {
+        tokio::spawn(async move {
+            let mut events = server.events();
+            while let Ok(event) = events.recv().await {
+                match event {
+                    ClusterEvent::Accepted(id, endpoint) => {
+                        let mut endpoints = endpoints.lock().await;
+                        endpoints.insert(id, endpoint);
+                    },
+                    ClusterEvent::Disconnected(id) => {
+                        let mut endpoints = endpoints.lock().await;
+                        endpoints.remove(&id);
+                    },
+                }
+            }
+        });
+    }
+
+    monitor_realm_server(server.clone(), peer_endpoints.clone());
+    handle_notifications(server.clone(), db, core_notifications);
+    handle_requests(server.clone(), node_registry, instance_registry.clone(), peer_endpoints);
 
     let _ = core_client.subscribe("core.session.").await; // subscribe to session notifications
     //let _ = core_client.send(CoreRequest::ConnectRealm(args.realm_id, args.frontend_ip.into())).await;
