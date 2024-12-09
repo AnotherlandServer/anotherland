@@ -89,13 +89,13 @@ pub struct ObjectPlacement {
     #[builder(setter(skip))]
     api_base: Option<RealmApi>,
 
-    id: Uuid,
-    zone_guid: Uuid,
-    class: Class,
-    content_guid: Uuid,
-    editor_name: String,
-    data: GameObjectData,
-    phase_tag: String,
+    pub id: Uuid,
+    pub zone_guid: Uuid,
+    pub class: Class,
+    pub content_guid: Uuid,
+    pub editor_name: String,
+    pub data: GameObjectData,
+    pub phase_tag: String,
 }
 
 impl ObjectPlacement {
