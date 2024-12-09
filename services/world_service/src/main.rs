@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, hash::Hash, net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6}};
+use std::{collections::HashMap, hash::Hash, net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6}, sync::Arc};
 
 use anyhow::Error;
 use bevy::{app::App, MinimalPlugins};
@@ -23,15 +23,18 @@ use core_api::CoreApi;
 use error::{WorldError, WorldResult};
 use futures_util::TryStreamExt;
 use log::info;
+use manager::InstanceManager;
 use once_cell::sync::Lazy;
 use proto::WorldServer;
-use realm_api::{proto::{NodeType, RealmClient, RealmRequest}, RealmApi, ZoneBuilder};
+use realm_api::{proto::{InstanceKey, NodeAddress, NodeType, RealmClient, RealmNotification, RealmRequest}, RealmApi, ZoneBuilder};
 use reqwest::Url;
+use tokio::sync::mpsc;
 use toolkit::{print_banner, types::Uuid};
 use zone::{ZoneInstanceBuilder, ZoneSubApp};
 
 mod error;
 mod proto;
+mod manager;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -73,45 +76,46 @@ async fn main() -> WorldResult<()> {
 
     let (realm_client, notifications) = RealmClient::connect(&ARGS.realm_zmq_addr).await
         .expect("failed to connect to realm zmq server");
+    let realm_client = Arc::new(realm_client);
 
     // subscribe to events
     realm_client.subscribe("core.session.").await?;
+    realm_client.subscribe("realm.instance.").await?;
 
     let mut server = start_world_server().await?;
+    let manager = InstanceManager::new(
+        realm_api.clone(),
+        realm_client.clone(),
+        &ARGS.zone_group
+    ).await?;
 
     // register node
     if let Endpoint::Tcp(_, port) = server.endpoint() {
-        realm_client.send(RealmRequest::RegisterNode(NodeType::WorldNode, SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), *port))).await?;
+        realm_client.send(RealmRequest::RegisterNode(NodeType::World, NodeAddress::Internal(*port))).await?;
     } else {
         unreachable!()
     }
 
-    let mut cursor = realm_api.query_zones()
-        .server(ARGS.zone_group.clone())
-        .query().await?;
+    fn handle_realm_events(manager: InstanceManager, mut notifications: mpsc::Receiver<RealmNotification>) {
+        tokio::spawn(async move {
+            while let Some(event) = notifications.recv().await {
+                match event {
+                    RealmNotification::InstanceRequested { transaction_id, zone, valid_until, .. } => {
+                        manager.offer_instance(transaction_id, zone, valid_until).await;
+                    },
+                    RealmNotification::ClusterNotification(notification) => {
+    
+                    },
+                    _ => unimplemented!(),
+                }
+            }
+        });
+    }
 
-    info!("Creating zone instances");
+    handle_realm_events(manager, notifications);
 
     let mut app = App::new();
-
     app.add_plugins(MinimalPlugins);
-    
-    while let Some(zone) = cursor.try_next().await? {
-        info!("Spawning zone: {}...", zone.zone());
-
-        let zone = ZoneInstanceBuilder::default()
-            .realm_api(realm_api.clone())
-            .zone(zone)
-            .instantiate()
-            .await?;
-
-        realm_client.send(RealmRequest::RegisterInstance { 
-            zone: zone.zone_id(), 
-            instance: zone.instance_id(), 
-        }).await?;
-
-        app.insert_sub_app(zone.label(), zone);
-    }
 
     info!("Starting world server!");
     app.run();
