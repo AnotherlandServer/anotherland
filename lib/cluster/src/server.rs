@@ -42,7 +42,7 @@ impl ClientState {
 
 #[derive(Clone)]
 pub enum ClusterEvent {
-    Accepted(PeerIdentity),
+    Accepted(PeerIdentity, Endpoint),
     Disconnected(PeerIdentity),
 }
 
@@ -96,7 +96,7 @@ impl <T: Request + 'static, TR: Response, N: Notification>ClusterServer<T, TR, N
 
                             let mut clients = clients.write().await;
                             clients.entry(identity.clone()).or_insert_with(ClientState::default);
-                            let _ = events.send(ClusterEvent::Accepted(identity));
+                            let _ = events.send(ClusterEvent::Accepted(identity, endpoint));
                         },
                         Some(SocketEvent::Disconnected(identity)) => {
                             debug!("disconnected cluster client {:?}", identity);

@@ -30,4 +30,4 @@ pub use client::*;
 pub use message::*;
 pub use notification::*;
 
-pub use zeromq::{Endpoint, util::PeerIdentity};
+pub use zeromq::{self, Endpoint, util::PeerIdentity, Host};

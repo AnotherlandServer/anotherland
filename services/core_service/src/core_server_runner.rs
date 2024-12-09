@@ -30,7 +30,7 @@ pub async fn run_core_server(server: Arc<CoreServer>, status_registry: Arc<Realm
             tokio::select! {
                 Ok(event) = events.recv() => {
                     match event {
-                        cluster::ClusterEvent::Accepted(_) => (),
+                        cluster::ClusterEvent::Accepted(_, _) => (),
                         cluster::ClusterEvent::Disconnected(identity) => {
                             if let Some((id, endpoints)) = registered_realm_endpoints.remove(&identity) {
                                 for endpoint in endpoints {
