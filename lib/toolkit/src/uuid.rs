@@ -43,7 +43,7 @@ impl Uuid {
 
 impl Default for Uuid {
     fn default() -> Self {
-        Self::new()
+        UUID_NIL
     }
 }
 
