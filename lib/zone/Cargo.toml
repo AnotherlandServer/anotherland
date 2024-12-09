@@ -5,4 +5,9 @@ edition = "2024"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
-bon = "3.0.1"
+bevy = { version = "0.15.0", default-features = false }
+derive_builder = "0.20.2"
+obj_params = { version = "0.1.0", path = "../obj_params" }
+realm_api = { version = "0.1.0", path = "../realm_api" }
+thiserror = "2.0.4"
+toolkit = { version = "0.1.0", path = "../toolkit" }

@@ -13,12 +13,26 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod error;
-mod instance;
-mod zone_subapp;
-mod zone_label;
+use obj_params::ParamError;
+use realm_api::{RealmApiError, ZoneBuilderError};
+use thiserror::Error;
 
-pub use error::*;
-pub use instance::*;
-pub use zone_subapp::*;
-pub use zone_label::*;
+#[derive(Error, Debug)]
+pub enum ZoneError {
+    #[error(transparent)]
+    UninitializedField(#[from] derive_builder::UninitializedFieldError),
+
+    #[error(transparent)]
+    RealmApi(#[from] RealmApiError),
+
+    #[error(transparent)]
+    Param(#[from] ParamError),
+
+    #[error("unknown zone type `{0}`")]
+    UnknownZoneType(String),
+
+    #[error("unknown instance type `{0}`")]
+    UnknownInstanceType(i32),
+}
+
+pub type ZoneResult<T> = Result<T, ZoneError>;
