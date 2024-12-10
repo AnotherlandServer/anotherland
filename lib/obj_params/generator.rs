@@ -991,7 +991,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use serde::Serializer;
         use serde::Deserialize;
         use serde::Deserializer;
-        use bevy_ecs::prelude::*;
+        use bevy::prelude::*;
         use once_cell::sync::Lazy;
         use phf::phf_map;
 

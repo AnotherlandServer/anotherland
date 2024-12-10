@@ -23,6 +23,65 @@ members = [
     "tools/kismet-plotter",
     "tools/seed-realm"]
 
+[workspace.dependencies]
+bytes = "1.9.0"
+flexbuffers = "2.0.0"
+futures-channel = "0.3.31"
+futures-util = "0.3.31"
+log = { version = "0.4.22", features = ["kv"] }
+serde = { version = "1.0.215", features = ["serde_derive"] }
+thiserror = "2.0.6"
+tokio = { version = "1.42.0", features = ["full"] }
+toolkit = { version = "0.1.0", path = "lib/toolkit" }
+zeromq = { version = "0.4.1", git = "https://github.com/plehmkuhl/zmq.rs.git" }
+once_cell = "1.20.2"
+config_crate = { package = "config", version="0.14.1" }
+glob = "0.3.1"
+base64 = "0.22.1"
+chrono = { version = "0.4.39", features = ["serde"] }
+cluster = { version = "0.1.0", path = "lib/cluster" }
+core_service = { version = "0.1.0", path = "services/core_service" }
+cynic = { version = "3.9.1", features = ["http-reqwest", "http-reqwest-blocking"] }
+reqwest = "0.12.9"
+steamworks = "0.11.0"
+mongodb = "3.1.0"
+bitstream-io = "2.6.0"
+glam = { version = "0.29.2", features = ["serde"] }
+nom = { version = "7.1.3", features = ["alloc"] }
+phf = { version = "0.11.2", features = ["macros"] }
+serde_json = "1.0.133"
+bevy = { version = "0.15.0", default-features = false }
+derive_builder = "0.20.2"
+obj_params = { version = "0.1.0", path = "lib/obj_params" }
+realm_api = { version = "0.1.0", path = "lib/realm_api" }
+bson = { version = "2.13.0", features = ["uuid-1"] }
+aes = "0.8.4"
+portable-atomic = "1.10.0"
+rand = "0.8.5"
+rsa = { version = "0.9.7", features = ["hazmat"] }
+sha1 = "0.10.6"
+uuid = { version = "1.11.0", features = ["v1", "v4"] }
+futures = "0.3.31"
+realm_manager_service = { version = "0.1.0", path = "services/realm_manager_service" }
+async-graphql = { version = "7.0.13", features = ["bson", "chrono", "chrono-tz", "uuid"] }
+async-graphql-poem = "7.0.13"
+config = { version = "0.1.0", path = "lib/config" }
+cynic-codegen = "3.9.1"
+database = { version = "0.1.0", path = "lib/database" }
+anyhow = "1.0.94"
+macros = { version = "0.1.0", path = "lib/macros" }
+clap = { version = "4.5.23", features = ["derive", "env", "cargo"] }
+core_api = { version = "0.1.0", path = "lib/core_api" }
+env_logger = "0.11.5"
+dotenvy = "0.15.7"
+raknet = { version = "0.1.0", path = "lib/raknet" }
+bcrypt = "0.16.0"
+serde_with = "3.11.0"
+poem = "3.1.5"
+protocol = { version = "0.1.0", path = "lib/protocol" }
+zone = { version = "0.1.0", path = "lib/zone" }
+upk = { version = "0.1.0", path = "lib/upk" }
+
 [profile.dev]
 panic = "abort"
 

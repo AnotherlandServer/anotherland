@@ -5,13 +5,13 @@ edition = "2024"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
-bytes = "1.8.0"
-flexbuffers = "2.0.0"
-futures-channel = "0.3.31"
-futures-util = "0.3.31"
-log = "0.4.22"
-serde = { version = "1.0.210", features = ["serde_derive"] }
-thiserror = "1.0.64"
-tokio = { version = "1.41.0", features = ["full"] }
-toolkit = { version = "0.1.0", path = "../toolkit" }
-zeromq = { version = "0.4.1", git = "https://github.com/plehmkuhl/zmq.rs.git" }
+bytes = { workspace = true }
+flexbuffers = { workspace = true }
+futures-channel = { workspace = true }
+futures-util = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+toolkit = { workspace = true }
+zeromq = { workspace = true }

@@ -5,7 +5,7 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 
 [dependencies]
-clap = { version = "4.5.1", features = ["cargo", "derive"] }
-futures = "0.3.30"
-tokio = { version = "1.36.0", features = ["tokio-macros", "rt-multi-thread"] }
-upk = { version = "0.1.0", path = "../../lib/upk" }
+clap = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true }
+upk = { workspace = true }

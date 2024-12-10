@@ -5,17 +5,17 @@ edition = "2024"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
-bitstream-io = "2.6.0"
-clap = { version = "4.5.20", features = ["derive"] }
-core_api = { version = "0.1.0", path = "../../lib/core_api" }
-cynic = { version = "3.8.0", features = ["http-reqwest", "reqwest"] }
-log = "0.4.22"
-obj_params = { version = "0.1.0", path = "../../lib/obj_params" }
-once_cell = "1.20.2"
-protocol = { version = "0.1.0", path = "../../lib/protocol" }
-raknet = { version = "0.1.0", path = "../../lib/raknet" }
-realm_api = { version = "0.1.0", path = "../../lib/realm_api" }
-reqwest = "0.12.8"
-thiserror = "1.0.65"
-tokio = { version = "1.41.0", features = ["full"] }
-toolkit = { version = "0.1.0", path = "../../lib/toolkit" }
+bitstream-io = { workspace = true }
+clap = { workspace = true }
+core_api = { workspace = true }
+cynic = { workspace = true }
+log = { workspace = true }
+obj_params = { workspace = true }
+once_cell = { workspace = true }
+protocol = { workspace = true }
+raknet = { workspace = true }
+realm_api = { workspace = true }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+toolkit = { workspace = true }

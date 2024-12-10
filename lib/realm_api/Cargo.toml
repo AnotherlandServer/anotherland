@@ -5,19 +5,19 @@ edition = "2024"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
-bson = "2.13.0"
-cluster = { version = "0.1.0", path = "../cluster" }
-cynic = { version = "3.8.0", features = ["http-reqwest"] }
-derive_builder = "0.20.2"
-futures = "0.3.31"
-log = "0.4.22"
-obj_params = { version = "0.1.0", path = "../obj_params" }
-realm_manager_service = { version = "0.1.0", path = "../../services/realm_manager_service" }
-reqwest = "0.12.9"
-serde_json = "1.0.132"
-thiserror = "2.0.2"
-toolkit = { version = "0.1.0", path = "../toolkit" }
+bson = { workspace = true }
+cluster = { workspace = true }
+cynic = { workspace = true }
+derive_builder = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+obj_params = { workspace = true }
+realm_manager_service = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+toolkit = { workspace = true }
 
 [build-dependencies]
-cynic-codegen = "3.8.0"
+cynic-codegen = "3.9.1"
 realm_manager_service = { version = "0.1.0", path = "../../services/realm_manager_service" }

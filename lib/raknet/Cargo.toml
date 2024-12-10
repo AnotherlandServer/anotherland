@@ -7,13 +7,13 @@ publish = false
 description = "A RakNet 3.3x2 implementation, specifically for the otherland next mmo. Loosely inspired by https://github.com/b23r0/rust-raknet"
 
 [dependencies]
-aes = "0.8.4"
-bytes = "1.7.2"
-log = { version = "0.4.22", features = ["kv"] }
-portable-atomic = "1.9.0"
-rand = "0.8.5"
-rsa = { version = "0.9.6", features = ["hazmat"] }
-sha1 = "0.10.6"
-thiserror = "1.0.64"
-tokio = { version = "1.40.0", features = ["full"] }
-uuid = { version = "1.10.0", features = ["v1", "v4"] }
+aes = { workspace = true }
+bytes = { workspace = true }
+log = { workspace = true }
+portable-atomic = { workspace = true }
+rand = { workspace = true }
+rsa = { workspace = true }
+sha1 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
