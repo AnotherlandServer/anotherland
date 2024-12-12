@@ -25,20 +25,24 @@ use serde::{Deserialize, Serialize};
 use toolkit::types::Uuid;
 
 #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
-pub struct InstanceKey(Uuid, Uuid);
+pub struct InstanceKey(Uuid, Option<Uuid>);
 
 impl InstanceKey {
-    pub fn new(zone: Uuid, instance: Uuid) -> Self {
+    pub fn new(zone: Uuid, instance: Option<Uuid>) -> Self {
         Self(zone, instance)
     }
 
     pub fn zone(&self) -> Uuid { self.0 }
-    pub fn instance(&self) -> Uuid { self.1 }
+    pub fn instance(&self) -> Option<Uuid> { self.1 }
 }
 
 impl Display for InstanceKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("({}, {})", self.0, self.1))
+        if let Some(key) = self.1 {
+            f.write_fmt(format_args!("({}, {})", self.0, key))
+        } else {
+            f.write_fmt(format_args!("({})", self.0))
+        }
     }
 }
 

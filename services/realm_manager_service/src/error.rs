@@ -33,6 +33,15 @@ pub enum RealmError {
     Cluster(#[from] cluster::Error),
 
     #[error(transparent)]
+    Database(#[from] database::DatabaseError),
+
+    #[error(transparent)]
+    Mongo(#[from] mongodb::error::Error),
+
+    #[error(transparent)]
+    Param(#[from] obj_params::ParamError),
+
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 

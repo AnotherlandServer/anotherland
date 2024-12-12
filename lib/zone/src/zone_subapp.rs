@@ -23,7 +23,7 @@ use crate::{ZoneConfig, ZoneInstance, ZoneLabel};
 pub trait ZoneSubApp {
     fn zone_instance(&self) -> &ZoneInstance;
     fn zone_id(&self) -> Uuid;
-    fn instance_id(&self) -> Uuid;
+    fn instance_id(&self) -> Option<Uuid>;
     fn config(&self) -> Arc<ZoneConfig>;
     fn label(&self) -> ZoneLabel;
 }
@@ -38,7 +38,7 @@ impl ZoneSubApp for SubApp {
         *self.zone_instance().zone.guid()
     }
 
-    fn instance_id(&self) -> Uuid {
+    fn instance_id(&self) -> Option<Uuid> {
         self.zone_instance().instance_id
     }
 

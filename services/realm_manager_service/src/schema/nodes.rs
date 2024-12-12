@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::{Context, Enum, Error, Object, OneofObject, SimpleObject, Union};
+use async_graphql::{Context, Enum, Error, Object, OneofObject, SimpleObject, Union, ID};
 use toolkit::types::Uuid;
 
 use crate::{node_registry::{self, NodeRegistry, NodeSocketAddress}, proto::{self, NodeType}};
@@ -23,13 +23,13 @@ pub struct NodesRoot;
 
 #[Object]
 impl NodesRoot {
-    async fn node(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Node>, Error> {
+    pub async fn node(&self, ctx: &Context<'_>, id: ID) -> Result<Option<Node>, Error> {
         let registry = ctx.data::<NodeRegistry>()?;
-        Ok(registry.node(id).await
+        Ok(registry.node(id.parse()?).await
             .map(|node| node.into()))
     }
 
-    async fn nodes(&self, ctx: &Context<'_>) -> Result<Vec<Node>, Error> {
+    pub async fn nodes(&self, ctx: &Context<'_>) -> Result<Vec<Node>, Error> {
         let registry = ctx.data::<NodeRegistry>()?;
         Ok(
             registry.nodes().await

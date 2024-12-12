@@ -13,10 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::{Context, Error, Object, SimpleObject};
+use async_graphql::{Context, Error, Object, SimpleObject, ID};
 use toolkit::types::Uuid;
 
-use super::nodes::Node;
+use crate::{instance_registry::InstanceRegistry, proto::InstanceKey};
+
+use super::{nodes::{Node, NodesRoot}, QueryRoot};
 
 #[derive(Default)]
 pub struct InstancesRoot;
@@ -26,21 +28,41 @@ pub struct InstancesMutationRoot;
 
 #[Object]
 impl InstancesRoot {
-    pub async fn instance(&self, _ctx: &Context<'_>, id: Uuid) -> Result<Option<Instance>, Error> {
-        todo!()
+    pub async fn instance(&self, ctx: &Context<'_>, zone: Uuid, key: Option<Uuid>) -> Result<Option<Instance>, Error> {
+        let instances = ctx.data::<InstanceRegistry>()?;
+        if let Some(instance) = instances.get_instance(InstanceKey::new(zone, key)).await {
+            
+            Ok(Some(Instance { 
+                zone_id: instance.key.zone(), 
+                key: instance.key.instance(), 
+                node: NodesRoot
+                    .node(ctx, instance.node.into()).await?
+                    .ok_or(Error::new("node not found"))?
+            }))
+        } else {
+            Ok(None)
+        }
     }
 }
 
 #[Object]
 impl InstancesMutationRoot {
-    pub async fn join_instance(&self, _ctx: &Context<'_>, session_id: Uuid, zone_id: Uuid, instance_id: Option<Uuid>) -> Result<Instance, Error> {
-        todo!()
+    pub async fn join_instance(&self, ctx: &Context<'_>, _session_id: Uuid, zone_id: Uuid, instance_id: Option<Uuid>) -> Result<Instance, Error> {
+        let instances = ctx.data::<InstanceRegistry>()?;
+        let instance = instances.request_instance(InstanceKey::new(zone_id, instance_id)).await?;
+        Ok(Instance { 
+            zone_id: instance.key.zone(), 
+            key: instance.key.instance(), 
+            node: NodesRoot
+                .node(ctx, instance.node.into()).await?
+                .ok_or(Error::new("node not found"))?
+        })
     }
 }
 
 #[derive(SimpleObject)]
 pub struct Instance {
     zone_id: Uuid,
-    instance_id: Uuid,
-    node: Node,
+    key: Option<Uuid>,
+    node: Node
 }

@@ -17,16 +17,18 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use chrono::{DateTime, TimeDelta, Utc};
 use cluster::PeerIdentity;
+use database::DatabaseRecord;
 use log::{error, info, warn};
+use mongodb::{bson::doc, Database};
+use obj_params::OaZoneConfig;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
 use toolkit::{anyhow, types::Uuid};
 
-use crate::{error::RealmResult, node_registry::NodeRegistry, proto::{InstanceKey, RealmNotification, RealmResponse, RealmServer}};
+use crate::{db::{ObjectTemplate, Zone}, error::{RealmError, RealmResult}, node_registry::{NodeRegistry, NodeSocketAddress}, proto::{InstanceKey, RealmNotification, RealmResponse, RealmServer}};
 
 struct InstanceRequest {
-    zone: Uuid,
-    key: Option<Uuid>,
+    key: InstanceKey,
     state: InstanceRequestState,
     valid_until: DateTime<Utc>,
     wait_state: broadcast::Sender<Option<Arc<Instance>>>,
@@ -39,18 +41,20 @@ enum InstanceRequestState {
 }
 
 struct InstanceRegistryData {
+    db: Database,
     server: Arc<RealmServer>,
     nodes: NodeRegistry,
     requests: HashMap<Uuid, InstanceRequest>,
-    instances: HashMap<Uuid, Arc<Instance>>,
+    instances: HashMap<InstanceKey, Arc<Instance>>,
 }
 
 #[derive(Clone)]
 pub struct InstanceRegistry(Arc<RwLock<InstanceRegistryData>>);
 
 impl InstanceRegistry {
-    pub fn new(server: Arc<RealmServer>, nodes: NodeRegistry) -> Self {
+    pub fn new(db: Database, server: Arc<RealmServer>, nodes: NodeRegistry) -> Self {
         let data = Arc::new(RwLock::new(InstanceRegistryData {
+            db,
             server,
             nodes,
             requests: HashMap::new(),
@@ -75,7 +79,6 @@ impl InstanceRegistry {
                                     let entry = s.requests
                                         .entry(Uuid::new())
                                         .insert_entry(InstanceRequest {
-                                            zone: req.zone,
                                             key: req.key,
                                             state: InstanceRequestState::Inquiried,
                                             valid_until: Utc::now()
@@ -87,8 +90,8 @@ impl InstanceRegistry {
                         
                                     RealmNotification::InstanceRequested {
                                         transaction_id: *entry.key(),
-                                        zone: entry.get().zone,
-                                        key: entry.get().key,
+                                        zone: entry.get().key.zone(),
+                                        key: entry.get().key.instance(),
                                         valid_until: entry.get().valid_until
                                     }
                                 };
@@ -97,7 +100,7 @@ impl InstanceRegistry {
                                 s.server.notify(request).await
                                     .expect("failed to send notification");
                             } else {
-                                error!("Instance request {} timed out! No node available to handle zone {}...", key, req.zone);
+                                error!("Instance request {} timed out! No node available to handle zone {}...", key, req.key.zone());
                             }
                         }
                     }
@@ -112,30 +115,42 @@ impl InstanceRegistry {
         Self(data)
     }
 
-    pub async fn request_instance(&self, zone: Uuid, key: Option<Uuid>) -> RealmResult<Arc<Instance>> {
+    pub async fn request_instance(&self, mut key: InstanceKey) -> RealmResult<Arc<Instance>> {
         let mut s = self.0.write().await;
         
-        // If we where supplied with a key, check if there is already an instance
-        // or a request for it running.
-        if let Some(key) = key {
-            if let Some(instance) = s.instances.get(&key) {
-                return Ok(instance.clone());
-            } else if let Some(request) = s.requests
-                .values()
-                .find(|req| if let Some(req_key) = req.key {
-                    req_key == key
-                } else {
-                    false
-                }) {
+        // Load zone definition from db
+        let zone = Zone::get_by_guid(&s.db, key.zone()).await?
+            .ok_or(RealmError::Other(anyhow::Error::msg("zone not found")))?;
 
-                let mut receiver = request.wait_state.subscribe();
-                drop(s); // drop state to free lock
+        if key.instance().is_none() && !zone.realu_zone_type.is_empty() {
+            let conf = ObjectTemplate::collection(&s.db)
+                .find_one(doc! { "name": zone.realu_zone_type }).await?;
 
-                if let Ok(Some(instance)) = receiver.recv().await {
-                    return Ok(instance);
-                } else {
-                    return Err(anyhow::Error::msg("failed to join instance").into());
+            if let Some(conf) = conf {
+                if *conf.data.get(OaZoneConfig::UseGuidAsKey)? {
+                    key = InstanceKey::new(key.zone(), Some(key.zone()));
+                } else if *conf.data.get(OaZoneConfig::ForceGenerateGuidKey)? {
+                    key = InstanceKey::new(key.zone(), Some(Uuid::new()))
+                } else if *conf.data.get(OaZoneConfig::IsInstance)? {
+                    key = InstanceKey::new(key.zone(), Some(Uuid::new()))
                 }
+            }
+        }
+
+        // Check if there is already a running instance we could connect to
+        if let Some(instance) = s.instances.get(&key) {
+            return Ok(instance.clone());
+        } else if let Some(request) = s.requests
+            .values()
+            .find(|req| req.key == key) {
+
+            let mut receiver = request.wait_state.subscribe();
+            drop(s); // drop state to free lock
+
+            if let Ok(Some(instance)) = receiver.recv().await {
+                return Ok(instance);
+            } else {
+                return Err(anyhow::Error::msg("failed to join instance").into());
             }
         }
 
@@ -145,7 +160,6 @@ impl InstanceRegistry {
         let entry = s.requests.entry(Uuid::new());
         let request = {
             let entry = entry.insert_entry(InstanceRequest {
-                zone,
                 key,
                 state: InstanceRequestState::Inquiried,
                 valid_until: Utc::now()
@@ -157,8 +171,8 @@ impl InstanceRegistry {
 
             RealmNotification::InstanceRequested {
                 transaction_id: *entry.key(),
-                zone: entry.get().zone,
-                key: entry.get().key,
+                zone: entry.get().key.zone(),
+                key: entry.get().key.instance(),
                 valid_until: entry.get().valid_until
             }
         };
@@ -180,7 +194,7 @@ impl InstanceRegistry {
             let Some(req) = s.requests.get_mut(&transaction_id) &&
             matches!(req.state, InstanceRequestState::Inquiried)
         {
-            req.key = Some(key.instance());
+            req.key = key.clone();
             req.state = InstanceRequestState::Offered { peer: peer.clone() };
             
             // We accept the first offer we receive
@@ -196,20 +210,20 @@ impl InstanceRegistry {
         if let Some(req) = s.requests.remove(&transaction_id) {
             if 
                 let InstanceRequestState::Offered { peer: req_peer } = &req.state &&
-                *req_peer == peer
+                *req_peer == peer &&
+                let Some(node) = s.nodes.node_for_peer(&peer).await
             {
                 let instance = Arc::new(Instance {
-                    id: req.key.unwrap(),
-                    zone: req.zone,
-                    peer: req_peer.clone(),
+                    key: req.key,
+                    node: node.id
                 });
 
-                info!("Instance {} of zone {} got provisioned.", instance.id, instance.zone);
+                info!("Instance {} of zone {} got provisioned.", instance.key, instance.key.zone());
 
-                s.instances.insert(instance.id, instance.clone());
+                s.instances.insert(instance.key.clone(), instance.clone());
                 let _ = req.wait_state.send(Some(instance));
             } else {
-                warn!("Instance transaction {} of zone {} committed by wrong peer!", transaction_id, req.zone);
+                warn!("Instance transaction {} of zone {} committed by wrong peer!", transaction_id, req.key.zone());
 
                 // Insert request back into the pile
                 s.requests.insert(transaction_id, req);
@@ -217,14 +231,18 @@ impl InstanceRegistry {
         }
     }
 
-    pub async fn remove_instance(&self, id: Uuid) {
+    pub async fn remove_instance(&self, key: InstanceKey) {
         let mut s = self.0.write().await;
-        s.instances.remove(&id);
+        s.instances.remove(&key);
+    }
+
+    pub async fn get_instance(&self, key: InstanceKey) -> Option<Arc<Instance>> {
+        let s = self.0.read().await;
+        s.instances.get(&key).cloned()
     }
 }
 
 pub struct Instance {
-    pub id: Uuid,
-    pub zone: Uuid,
-    pub peer: PeerIdentity,
+    pub key: InstanceKey,
+    pub node: Uuid,
 }

@@ -83,14 +83,14 @@ pub struct ZoneConfig {
 pub struct ZoneInstance {
     realm_api: RealmApi,
 
-    #[builder(setter(strip_option), field(ty = "Option<Zone>", build = "Arc::new(self.zone.ok_or(derive_builder::UninitializedFieldError::new(\"zone\"))?)"))]
+    #[builder(setter(strip_option))]
     pub zone: Arc<Zone>,
 
     #[builder(default, setter(skip))]
     pub config: Arc<ZoneConfig>,
 
     #[builder(default)]
-    pub instance_id: Uuid,
+    pub instance_id: Option<Uuid>,
 }
 
 impl ZoneInstanceBuilder {
@@ -121,10 +121,6 @@ impl ZoneInstanceBuilder {
                     .get::<_, String>(OaZoneConfig::ZoneType)?
                     .parse()?, 
             });
-        }
-
-        if instance.config.force_generate_guid_key {
-            instance.instance_id = Uuid::new();
         }
 
         app

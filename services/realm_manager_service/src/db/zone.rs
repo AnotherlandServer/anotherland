@@ -15,7 +15,7 @@
 
 use async_graphql::Enum;
 use database::DatabaseRecord;
-use mongodb::{bson::{self, doc}, options::IndexOptions, IndexModel};
+use mongodb::{bson::{self, doc}, options::IndexOptions, Database, IndexModel};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud};
 
@@ -82,5 +82,13 @@ impl DatabaseRecord for Zone {
             .build()).await?;
 
         Ok(())
+    }
+}
+
+impl Zone {
+    pub async fn get_by_guid(db: &Database, guid: Uuid) -> database::DBResult<Option<Self>> {
+        Ok(Self::collection(db)
+            .find_one(doc!{ "guid": guid })
+            .await?)
     }
 }

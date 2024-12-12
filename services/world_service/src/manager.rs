@@ -15,17 +15,19 @@
 
 use std::{collections::{HashMap, HashSet}, sync::Arc};
 
+use bevy::{app::{App, AppExit, Plugin, SubApp}, MinimalPlugins};
 use chrono::{DateTime, Utc};
 use futures_util::TryStreamExt;
 use realm_api::{proto::{InstanceKey, RealmClient, RealmRequest}, RealmApi, Zone};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use toolkit::types::{Uuid, UUID_NIL};
-use zone::ZoneLabel;
+use zone::{ZoneInstance, ZoneInstanceBuilder, ZoneLabel, ZoneSubApp};
 
 use crate::{error::WorldResult, ARGS};
 
 struct PendingInstance {
     zone: Arc<Zone>,
+    key: Option<Uuid>,
     valid_until: DateTime<Utc>,
 }
 
@@ -35,13 +37,19 @@ struct InstanceManagerData {
     zones: HashMap<Uuid, Arc<Zone>>,
     requests: HashMap<Uuid, PendingInstance>,
     instances: HashMap<Uuid, ZoneLabel>,
+    event_sender: mpsc::Sender<InstanceEvent>,
+}
+
+pub enum InstanceEvent {
+    InstanceAdded(SubApp),
+    InstanceRemoved(ZoneLabel),
 }
 
 #[derive(Clone)]
 pub struct InstanceManager(Arc<Mutex<InstanceManagerData>>);
 
 impl InstanceManager {
-    pub async fn new(realm_api: RealmApi, realm_client: Arc<RealmClient>, server: &str) -> WorldResult<Self> {
+    pub async fn new(realm_api: RealmApi, realm_client: Arc<RealmClient>, server: &str) -> WorldResult<(Self, mpsc::Receiver<InstanceEvent>)> {
         let mut cursor = realm_api.query_zones()
             .server(server.to_string())
             .query().await?;
@@ -50,8 +58,10 @@ impl InstanceManager {
         while let Ok(Some(zone)) = cursor.try_next().await {
             zones.push(zone);
         }
+
+        let (event_sender, event_receiver) = mpsc::channel(10);
         
-        Ok(Self(Arc::new(Mutex::new(InstanceManagerData { 
+        Ok((Self(Arc::new(Mutex::new(InstanceManagerData { 
             realm_api,
             realm_client,
             zones: zones.into_iter()
@@ -59,27 +69,30 @@ impl InstanceManager {
                 .collect(),
             requests: HashMap::new(),
             instances: HashMap::new(),
-        }))))
+            event_sender,
+        }))), event_receiver))
     }
 
     pub async fn offer_instance(
         &self,
         transaction_id: Uuid,
         zone: Uuid,
+        key: Option<Uuid>,
         valid_until: DateTime<Utc>,
     ) {
         let mut s = self.0.lock().await;
         if let Some(zone) = s.zones.get(&zone).cloned() {
             // Insert request to pending requests
             s.requests.insert(transaction_id, PendingInstance { 
-                zone: zone.clone(), 
+                zone: zone.clone(),
+                key,
                 valid_until
             });
 
             // Offer instance to realm
             let _ = s.realm_client.send(RealmRequest::InstanceOffering { 
                 transaction_id,
-                key: InstanceKey::new(*zone.guid(), UUID_NIL),
+                key: InstanceKey::new(*zone.guid(), key),
             }).await;
         }
 
@@ -92,6 +105,21 @@ impl InstanceManager {
 
     pub async fn provision_instance(&self, transaction_id: Uuid) {
         let mut s = self.0.lock().await;
-        
+        if let Some(req) = s.requests.remove(&transaction_id) {
+            if let Ok(instance) = ZoneInstanceBuilder::default()
+                .zone(req.zone.clone())
+                .realm_api(s.realm_api.clone())
+                .instance_id(req.key)
+                .instantiate().await
+            {
+                s.instances.insert(*req.zone.guid(), instance.label());
+                
+                let _ = s.realm_client.send(RealmRequest::InstanceProvisioned { 
+                    transaction_id 
+                }).await;
+
+                let _ = s.event_sender.send(InstanceEvent::InstanceAdded(instance)).await;
+            }
+        }
     }
 }

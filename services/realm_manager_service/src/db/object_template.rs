@@ -50,15 +50,15 @@ impl From<Category> for mongodb::bson::Bson {
 #[derive(Serialize, Deserialize, GraphqlCrud)]
 #[graphql_crud(name = "object_template")]
 pub struct ObjectTemplate {
-    id: Uuid,
+    pub id: Uuid,
     #[graphql_crud(filter)]
-    category: Category,
+    pub category: Category,
     #[graphql_crud(filter)]
-    name: String,
+    pub name: String,
     #[graphql_crud(serialize_as = ClassWrapper, filter)]
-    class: Class,
+    pub class: Class,
     #[graphql_crud(serialize_as = serde_json::Value)]
-    data: GameObjectData,
+    pub data: GameObjectData,
 }
 
 impl DatabaseRecord for ObjectTemplate {

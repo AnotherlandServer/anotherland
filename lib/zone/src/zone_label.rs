@@ -22,11 +22,11 @@ use toolkit::types::Uuid;
 #[derive(Clone, PartialEq, Eq)]
 pub struct ZoneLabel {
     id: Uuid,
-    instance: Uuid,
+    instance: Option<Uuid>,
 }
 
 impl ZoneLabel {
-    pub fn new(id: Uuid, instance: Uuid) -> Self {
+    pub fn new(id: Uuid, instance: Option<Uuid>) -> Self {
         Self {
             id,
             instance
@@ -36,7 +36,11 @@ impl ZoneLabel {
 
 impl Debug for ZoneLabel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("({}, {})", self.id, self.instance))
+        if let Some(instance) = self.instance {
+            f.write_fmt(format_args!("({}, {})", self.id, instance))
+        } else {
+            f.write_fmt(format_args!("({})", self.id))
+        }
     }
 }
 
@@ -56,6 +60,8 @@ impl AppLabel for ZoneLabel {
     #[doc = r" Feeds this value into the given [`Hasher`]."]
     fn dyn_hash(&self, state: &mut dyn Hasher) {
         state.write(&self.id.bytes());
-        state.write(&self.instance.bytes());
+        if let Some(instance) = self.instance {
+            state.write(&instance.bytes());
+        }
     }
 }

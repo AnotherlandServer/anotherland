@@ -13,22 +13,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use bevy::prelude::*;
+
 use std::{collections::HashMap, hash::Hash, net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6}, sync::Arc};
 
 use anyhow::Error;
-use bevy::{app::App, MinimalPlugins};
+use bevy::{app::{App, AppExit}, MinimalPlugins};
 use clap::Parser;
 use cluster::Endpoint;
 use core_api::CoreApi;
 use error::{WorldError, WorldResult};
 use futures_util::TryStreamExt;
 use log::info;
-use manager::InstanceManager;
+use manager::{InstanceEvent, InstanceManager};
 use once_cell::sync::Lazy;
 use proto::WorldServer;
-use realm_api::{proto::{InstanceKey, NodeAddress, NodeType, RealmClient, RealmNotification, RealmRequest}, RealmApi, ZoneBuilder};
+use realm_api::{proto::{InstanceKey, NodeAddress, NodeType, RealmClient, RealmNotification, RealmRequest, RealmResponse}, RealmApi, ZoneBuilder};
 use reqwest::Url;
-use tokio::sync::mpsc;
+use tokio::{runtime::Handle, sync::mpsc::{self, error::TryRecvError}};
 use toolkit::{print_banner, types::Uuid};
 use zone::{ZoneInstanceBuilder, ZoneSubApp};
 
@@ -65,6 +67,29 @@ async fn start_world_server() -> WorldResult<WorldServer> {
     Err(WorldError::Other(Error::msg("can't bin world server")))
 }
 
+fn world_runner(mut app: App) -> AppExit {
+    let mut events = app.world_mut().remove_non_send_resource::<mpsc::Receiver<InstanceEvent>>()
+        .expect("instance events not added to app");
+
+    loop {
+        match events.try_recv() {
+            Ok(event) => match event {
+                InstanceEvent::InstanceAdded(sub_app) => 
+                    { app.insert_sub_app(sub_app.label(), sub_app); },
+                InstanceEvent::InstanceRemoved(zone_label) => 
+                    { app.remove_sub_app(zone_label); },
+            },
+            Err(TryRecvError::Empty) => (),
+            Err(TryRecvError::Disconnected) => break AppExit::Success,
+        }
+        
+        app.update();
+        if let Some(exit) = app.should_exit() {
+            break exit;
+        }
+    }
+}
+
 #[toolkit::service_main]
 async fn main() -> WorldResult<()> {
     Lazy::force(&ARGS);
@@ -82,8 +107,8 @@ async fn main() -> WorldResult<()> {
     realm_client.subscribe("core.session.").await?;
     realm_client.subscribe("realm.instance.").await?;
 
-    let mut server = start_world_server().await?;
-    let manager = InstanceManager::new(
+    let server = start_world_server().await?;
+    let (manager, instance_events) = InstanceManager::new(
         realm_api.clone(),
         realm_client.clone(),
         &ARGS.zone_group
@@ -100,8 +125,8 @@ async fn main() -> WorldResult<()> {
         tokio::spawn(async move {
             while let Some(event) = notifications.recv().await {
                 match event {
-                    RealmNotification::InstanceRequested { transaction_id, zone, valid_until, .. } => {
-                        manager.offer_instance(transaction_id, zone, valid_until).await;
+                    RealmNotification::InstanceRequested { transaction_id, zone, key, valid_until } => {
+                        manager.offer_instance(transaction_id, zone, key, valid_until).await;
                     },
                     RealmNotification::ClusterNotification(notification) => {
     
@@ -112,15 +137,28 @@ async fn main() -> WorldResult<()> {
         });
     }
 
-    handle_realm_events(manager, notifications);
+    fn handle_realm_msgs(realm_client: Arc<RealmClient>, manager: InstanceManager) {
+        tokio::spawn(async move {
+            while let Ok(msg) = realm_client.recv().await {
+                match msg {
+                    RealmResponse::InstanceOfferingAccepted { transaction_id, .. } => 
+                        manager.provision_instance(transaction_id).await,
+                }
+            }
+        });
+    }
 
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins);
+    handle_realm_events(manager.clone(), notifications);
+    handle_realm_msgs(realm_client.clone(), manager);
 
     info!("Starting world server!");
-    app.run();
 
-    info!("Server stopped");
+    App::new()
+        .add_plugins(MinimalPlugins)
+        .insert_non_send_resource(Handle::current())
+        .insert_non_send_resource(instance_events)
+        .set_runner(world_runner)
+        .run();
 
     Ok(())
 }

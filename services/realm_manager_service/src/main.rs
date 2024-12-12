@@ -121,7 +121,7 @@ async fn main() -> RealmResult<()> {
         .expect("failed to start realm server"));
 
     let node_registry = NodeRegistry::new(args.realm_id, server.clone(), core_client.clone());
-    let instance_registry = InstanceRegistry::new(server.clone(), node_registry.clone());
+    let instance_registry = InstanceRegistry::new(db.clone(), server.clone(), node_registry.clone());
     let peer_endpoints = Arc::new(Mutex::new(HashMap::new()));
 
     // Start graphql api
@@ -129,6 +129,7 @@ async fn main() -> RealmResult<()> {
         .data(db.clone())
         .data(core_api.clone())
         .data(node_registry.clone())
+        .data(instance_registry.clone())
         .finish();
 
     let app = Route::new()
@@ -205,7 +206,7 @@ async fn main() -> RealmResult<()> {
                         instance_registry.complete_instance_provisioning(peer, transaction_id).await;
                     },
                     proto::RealmRequest::RemoveInstance(key) => {
-                        instance_registry.remove_instance(key.instance()).await;
+                        instance_registry.remove_instance(key).await;
                     }
                 }
             }
