@@ -42,6 +42,8 @@ pub trait GenericParamSet: Debug + Send + Sync {
 
     fn values<'a>(&'a self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, &'a Value)> + 'a>;
     fn drain<'a>(&'a mut self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)> + 'a>;
+
+    fn dyn_clone(&self) -> Box<dyn GenericParamSet>;
 }
 
 pub trait ParamWriter {
@@ -62,11 +64,11 @@ pub struct ParamSet<T: Attribute> {
     pub(super) values: HashMap<T, Param<T>>,
 }
 
-impl <T: Attribute> Default for ParamSet<T> {
+impl <T: Attribute + 'static> Default for ParamSet<T> {
     fn default() -> Self { Self::new() }
 }
 
-impl <T: Attribute> ParamSet <T> {
+impl <T: Attribute + 'static> ParamSet <T> {
     pub fn new() -> Self { Self { values: HashMap::new() }}
     pub(crate) fn new_from_attributes(mut attributes: Vec<(&'static dyn AttributeInfo, Value)>) -> Self {
         let mut set = Self::new();
@@ -174,7 +176,7 @@ impl <T: Attribute> Debug for ParamSet<T> {
     }
 }
 
-impl <T: Attribute> GenericParamSet for ParamSet<T> {
+impl <T: Attribute + 'static> GenericParamSet for ParamSet<T> {
     fn class(&self) -> Class {
         <T as Attribute>::class()
     }
@@ -260,6 +262,10 @@ impl <T: Attribute> GenericParamSet for ParamSet<T> {
             self.values.drain()
                 .map(|(a, p)| (a.static_info(), p.take()))
         )
+    }
+
+    fn dyn_clone(&self) -> Box<dyn GenericParamSet> {
+        Box::new(self.clone())
     }
 }
 

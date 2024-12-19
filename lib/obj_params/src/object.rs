@@ -15,11 +15,12 @@
 
 use std::fmt::Debug;
 
+use bevy::prelude::Component;
 use serde::{Deserialize, Serialize};
 
 use crate::{Attribute, Class, GenericParamSet, ParamError, ParamFlag, ParamResult, ParamSet, ParamWriter, Value};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Component)]
 #[serde(transparent)]
 pub struct GameObjectData(Box<dyn GenericParamSet>);
 
@@ -92,6 +93,12 @@ impl GameObjectData {
 
     pub fn as_set(&self) -> &dyn GenericParamSet {
         self.0.as_ref()
+    }
+}
+
+impl Clone for GameObjectData {
+    fn clone(&self) -> Self {
+        Self(self.0.dyn_clone())
     }
 }
 
