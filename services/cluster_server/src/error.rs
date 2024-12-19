@@ -13,12 +13,29 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use obj_params::ParamError;
 use thiserror::Error;
+use tokio::task::JoinError;
 
 #[derive(Error, Debug)]
 pub enum ClusterFrontendError {
     #[error(transparent)]
     ClusterError(#[from] cluster::Error),
+
+    #[error(transparent)]
+    CoreApi(#[from] core_api::CoreApiError),
+
+    #[error(transparent)]
+    RealmApi(#[from] realm_api::RealmApiError),
+
+    #[error(transparent)]
+    RakNetError(#[from] raknet::RakNetError),
+
+    #[error(transparent)]
+    JoinError(#[from] JoinError),
+
+    #[error(transparent)]
+    ParamError(#[from] ParamError),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),

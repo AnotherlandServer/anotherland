@@ -13,20 +13,26 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#![feature(let_chains)]
+
 use std::{net::SocketAddr, time::Duration};
 
 use clap::Parser;
+use cluster_context::ClusterContext;
 use core_api::CoreApi;
 use error::ClusterFrontendResult;
 use once_cell::sync::Lazy;
+use protocol::CPkt;
 use raknet::RakNetListener;
 use realm_api::{proto::{NodeAddress, NodeType, RealmClient, RealmRequest}, RealmApi};
 use reqwest::Url;
-use tokio::time::sleep;
-use log::debug;
+use log::{error, info};
+use router::Router;
 use toolkit::print_banner;
 
 mod error;
+mod cluster_context;
+mod router;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -59,15 +65,46 @@ async fn main() -> ClusterFrontendResult<()> {
     let (realm_client, notifications) = RealmClient::connect(&ARGS.realm_zmq_addr).await
         .expect("failed to connect to realm zmq server");
 
-    // Register cluster node
-    realm_client.send(RealmRequest::RegisterNode(NodeType::Cluster, NodeAddress::Public(ARGS.public_addr))).await?;
+    realm_client.subscribe("core.session.terminated").await?;
 
-    let mut listener = RakNetListener::bind(ARGS.raknet_bind_addr).await.unwrap();
-    listener.listen(100).await;
+    let router = Router::new(realm_api.clone());
 
-    loop {
-        let socket = listener.accept().await;
-        debug!("Got new connection!");
-        sleep(Duration::from_millis(10)).await;
-    }
+    // raknet server
+    tokio::spawn(async move {
+        let mut listener = RakNetListener::bind(ARGS.raknet_bind_addr).await?;
+        listener.generate_random_rsa_key();
+        listener.listen(100).await;
+
+        info!("Server started...");
+
+        // notify realm server we're online
+        realm_client.send(RealmRequest::RegisterNode(NodeType::Cluster, NodeAddress::Public(ARGS.public_addr))).await?;
+
+        loop {
+            let socket = listener.accept().await?;
+            let realm_api = realm_api.clone();
+            let core_api = core_api.clone();
+            let router = router.clone();
+
+            tokio::spawn(async move {
+                // Silently drop all connections which do not send oaPktRequestEnterGame as
+                // their first message or whose session is invalid.
+                if 
+                    let Ok(pkt) = socket.recv().await &&
+                    let Ok((_, CPkt::oaPktRequestEnterGame(pkt))) = CPkt::from_bytes(&pkt) &&
+                    let Ok(Some(session)) = core_api.get_session(&pkt.session_id).await
+                {
+                    if let Err(e) = ClusterContext::create_and_start(
+                        core_api, 
+                        realm_api, 
+                        router, 
+                        socket, 
+                        session
+                    ).await {
+                        error!("Failed to start cluster session: {:#?}", e);
+                    }
+                }
+            });
+        }
+    }).await?
 }
