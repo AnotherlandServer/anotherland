@@ -9,13 +9,11 @@ members = [
     "lib/protocol",
     "lib/raknet",
     "lib/toolkit",
-    "lib/upk", 
-    "lib/zone",
+    "lib/upk",
     "lib/obj_params",
     "lib/realm_api",
     "services/core_service",
     "services/cluster_server", 
-    "services/dungeon_service", 
     "services/frontend_server",
     "services/login_server", 
     "services/realm_manager_service", 
@@ -50,7 +48,7 @@ glam = { version = "0.29.2", features = ["serde"] }
 nom = { version = "7.1.3", features = ["alloc"] }
 phf = { version = "0.11.2", features = ["macros"] }
 serde_json = "1.0.133"
-bevy = { version = "0.15.0", default-features = false }
+bevy = { version = "0.15.0", default-features = false, features = ["bevy_state"]}
 derive_builder = "0.20.2"
 obj_params = { version = "0.1.0", path = "lib/obj_params" }
 realm_api = { version = "0.1.0", path = "lib/realm_api" }
@@ -79,8 +77,8 @@ bcrypt = "0.16.0"
 serde_with = "3.11.0"
 poem = "3.1.5"
 protocol = { version = "0.1.0", path = "lib/protocol" }
-zone = { version = "0.1.0", path = "lib/zone" }
 upk = { version = "0.1.0", path = "lib/upk" }
+tracing = { version = "0.1.38", default-features = false, features = ["log"] }
 
 [profile.dev]
 panic = "abort"

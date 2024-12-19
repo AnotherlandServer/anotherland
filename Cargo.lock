@@ -561,6 +561,7 @@ dependencies = [
  "bevy_math",
  "bevy_ptr",
  "bevy_reflect",
+ "bevy_state",
  "bevy_tasks",
  "bevy_time",
  "bevy_transform",
@@ -648,6 +649,32 @@ dependencies = [
  "quote",
  "syn 2.0.90",
  "uuid",
+]
+
+[[package]]
+name = "bevy_state"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "036ec832197eae51b8a842220d2df03591dff75b4566dcf0f81153bbcb2b593b"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_hierarchy",
+ "bevy_reflect",
+ "bevy_state_macros",
+ "bevy_utils",
+]
+
+[[package]]
+name = "bevy_state_macros"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2828eb6762af9eccfebb5e4a0e56dbc4bd07bf3192083fa3e8525cfdb3e95add"
+dependencies = [
+ "bevy_macro_utils",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -981,7 +1008,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cluster_router"
+name = "cluster_server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -990,13 +1017,16 @@ dependencies = [
  "core_api",
  "env_logger",
  "log",
+ "obj_params",
  "once_cell",
+ "protocol",
  "raknet",
  "realm_api",
  "reqwest",
  "thiserror 2.0.6",
  "tokio",
  "toolkit",
+ "world_service",
 ]
 
 [[package]]
@@ -1494,10 +1524,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 
 [[package]]
-name = "dungeon_service"
-version = "0.1.0"
-
-[[package]]
 name = "either"
 version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1657,6 +1683,7 @@ dependencies = [
  "clap",
  "core_api",
  "cynic",
+ "futures-util",
  "log",
  "obj_params",
  "once_cell",
@@ -2459,7 +2486,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -3456,6 +3483,7 @@ dependencies = [
  "mongodb",
  "obj_params",
  "poem",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",
@@ -5213,17 +5241,19 @@ dependencies = [
  "clap",
  "cluster",
  "core_api",
+ "derive_builder",
  "futures-util",
  "log",
+ "obj_params",
  "once_cell",
  "protocol",
+ "rand",
  "realm_api",
  "reqwest",
  "serde",
  "thiserror 2.0.6",
  "tokio",
  "toolkit",
- "zone",
 ]
 
 [[package]]
@@ -5391,16 +5421,4 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.90",
-]
-
-[[package]]
-name = "zone"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "derive_builder",
- "obj_params",
- "realm_api",
- "thiserror 2.0.6",
- "toolkit",
 ]
