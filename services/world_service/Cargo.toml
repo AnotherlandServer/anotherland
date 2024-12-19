@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 
+[lib]
+name = "world_service"
+path = "src/lib.rs"
+
+[[bin]]
+name = "world_service"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 bevy = { workspace = true }
@@ -11,6 +19,7 @@ chrono = { workspace = true }
 clap = { workspace = true }
 cluster = { workspace = true }
 core_api = { workspace = true }
+derive_builder = { workspace = true }
 futures-util = { workspace = true }
 log = { workspace = true }
 once_cell = { workspace = true }
@@ -21,4 +30,5 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 toolkit = { workspace = true }
-zone = { workspace = true }
+obj_params = { workspace = true }
+rand.workspace = true

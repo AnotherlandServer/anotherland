@@ -13,30 +13,37 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::prelude::*;
+#![feature(let_chains)]
 
-use std::{collections::HashMap, hash::Hash, net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6}, sync::Arc};
+use bevy::prelude::*;
+use instance::{InstanceLabel, ZoneSubApp};
+use obj_params::Player;
+use plugins::{ControllerEvent, NetworkExt, NetworkPlugin};
+use protocol::CPkt;
+
+use std::{collections::HashMap, hash::Hash, net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6}, sync::Arc, time::Duration};
 
 use anyhow::Error;
 use bevy::{app::{App, AppExit}, MinimalPlugins};
 use clap::Parser;
-use cluster::Endpoint;
+use cluster::{ClusterEvent, Endpoint, PeerIdentity};
 use core_api::CoreApi;
 use error::{WorldError, WorldResult};
 use futures_util::TryStreamExt;
-use log::info;
+use log::{info, debug};
 use manager::{InstanceEvent, InstanceManager};
 use once_cell::sync::Lazy;
-use proto::WorldServer;
+use proto::{WorldRequest, WorldResponse, WorldServer};
 use realm_api::{proto::{InstanceKey, NodeAddress, NodeType, RealmClient, RealmNotification, RealmRequest, RealmResponse}, RealmApi, ZoneBuilder};
 use reqwest::Url;
-use tokio::{runtime::Handle, sync::mpsc::{self, error::TryRecvError}};
+use tokio::{runtime::Handle, select, sync::{mpsc::{self, error::TryRecvError, unbounded_channel, Sender}, oneshot, Mutex}, time};
 use toolkit::{print_banner, types::Uuid};
-use zone::{ZoneInstanceBuilder, ZoneSubApp};
 
 mod error;
 mod proto;
 mod manager;
+mod instance;
+mod plugins;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -50,44 +57,125 @@ struct Cli {
     #[arg(long, env = "REALM_ZMQ_ADDR", default_value = "tcp://127.0.0.1:15001")]
     realm_zmq_addr: String,
 
-    #[arg(long, env = "ZONE_GROUP")]
-    zone_group: String,
+    #[arg(long, env = "ZMQ_BIND_ADDR", default_value = "tcp://127.0.0.1:15002")]
+    zmq_bind_url: String,
+
+    #[arg(long, env = "INSTANCE_LIMIT", default_value_t = 100)]
+    instance_limit: usize,
+
+    #[arg(long, env = "ZONE_GROUPS")]
+    zone_groups: Option<String>,
 }
 
 static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
 
-async fn start_world_server() -> WorldResult<WorldServer> {
-    for port in 49152u16 .. 65535u16 {
-        match WorldServer::bind(&format!("tcp://{}", SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), port))).await {
-            Ok(server) => return Ok(server),
-            Err(_) => continue,
-        }
-    }
+fn handle_realm_events(manager: InstanceManager, mut notifications: mpsc::Receiver<RealmNotification>) {
+    tokio::spawn(async move {
+        while let Some(event) = notifications.recv().await {
+            match event {
+                RealmNotification::InstanceRequested { transaction_id, zone, key, valid_until } => {
+                    debug!("Instance requested: {:?} {:?} {:?} {:?}", transaction_id, zone, key, valid_until);
+                    let _ = manager.offer_instance(transaction_id, zone, key, valid_until).await;
+                },
+                RealmNotification::ClusterNotification(notification) => {
 
-    Err(WorldError::Other(Error::msg("can't bin world server")))
+                },
+                _ => unimplemented!(),
+            }
+        }
+    });
 }
 
-fn world_runner(mut app: App) -> AppExit {
-    let mut events = app.world_mut().remove_non_send_resource::<mpsc::Receiver<InstanceEvent>>()
-        .expect("instance events not added to app");
+fn handle_realm_msgs(realm_client: Arc<RealmClient>, manager: InstanceManager) {
+    tokio::spawn(async move {
+        while let Ok(msg) = realm_client.recv().await {
+            match msg {
+                RealmResponse::InstanceOfferingAccepted { transaction_id, .. } => 
+                    manager.provision_instance(transaction_id).await,
+            }
+        }
+    });
+}
 
-    loop {
-        match events.try_recv() {
-            Ok(event) => match event {
-                InstanceEvent::InstanceAdded(sub_app) => 
-                    { app.insert_sub_app(sub_app.label(), sub_app); },
-                InstanceEvent::InstanceRemoved(zone_label) => 
-                    { app.remove_sub_app(zone_label); },
-            },
-            Err(TryRecvError::Empty) => (),
-            Err(TryRecvError::Disconnected) => break AppExit::Success,
-        }
+fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender: Sender<InstanceEvent>, manager: InstanceManager) {
+    tokio::spawn(async move {
+        let mut controllers = HashMap::<Uuid, (PeerIdentity, Sender<ControllerEvent>)>::new();
+        let (sender, mut receiver) = unbounded_channel();
+
+        let mut events = server.events();
+
+        loop {
+            select! {
+                Ok((router_id, msg)) = server.recv() => {
+                    match msg {
+                        WorldRequest::ClientMessage { peer, data } => {
+                            if 
+                                let Some((_, sender)) = controllers.get(&peer) &&
+                                let Ok((_, pkt)) = CPkt::from_bytes(&data)
+                            {
+                                let _ = sender.send(ControllerEvent::Packet(pkt)).await;
+                            }
+                        },
+                        WorldRequest::ClientConnected { peer, session } => {
+                            if 
+                                let Ok(Some(state)) = realm_api.get_session_state(session).await &&
+                                let Ok(Some(character)) = realm_api.get_character(state.character()).await &&
+                                let Ok(zone_id) = character.data().get::<_, Uuid>(Player::ZoneGuid)
+                            {
+                                let instance = InstanceLabel::new(
+                                    *zone_id,
+                                    character.data().get::<_, String>(Player::InstanceZoneKey)
+                                        .ok()
+                                        .and_then(|val| val.parse().ok())
+                                );
         
-        app.update();
-        if let Some(exit) = app.should_exit() {
-            break exit;
+                                let (result_send, controller) = oneshot::channel();
+                                if event_sender.send(InstanceEvent::ControllerSpawnRequested {
+                                    peer,
+                                    instance, 
+                                    session, 
+                                    events: sender.clone(), 
+                                    controller: result_send
+                                }).await.is_ok() {
+                                    match controller.await {
+                                        Ok(Ok(controller)) => {
+                                            controllers.insert(peer, (router_id, controller));
+                                        },
+                                        Ok(Err(e)) => {
+                                            error!("Failed to spawn player!: {:#?}", e);
+                                        }
+                                        Err(_) => {
+                                            error!("Controler spawn cancelled!");
+                                        },
+                                    }
+                                }
+                            }
+                        },
+                        WorldRequest::ClientDisconnected { peer } => {
+                            controllers.remove(&peer);
+                        },
+                    }
+                },
+                Ok(event) = events.recv() => {
+                    if let cluster::ClusterEvent::Disconnected(peer_identity) = event {
+                        controllers.retain(|_, (id, _)| *id != peer_identity);
+                    }
+                },
+                Some(event) = receiver.recv() => {
+                    match event {
+                        plugins::WorldEvent::Packet { peer, pkt } => {
+                            if let Some((router_id, _)) = controllers.get(&peer) {
+                                let _ = server.send(router_id, WorldResponse::ServerMessage { 
+                                    peer, 
+                                    data: pkt.to_bytes()
+                                }).await;
+                            }
+                        },
+                    }
+                },
+            }
         }
-    }
+    });
 }
 
 #[toolkit::service_main]
@@ -107,11 +195,20 @@ async fn main() -> WorldResult<()> {
     realm_client.subscribe("core.session.").await?;
     realm_client.subscribe("realm.instance.").await?;
 
-    let server = start_world_server().await?;
-    let (manager, instance_events) = InstanceManager::new(
+    let (instance_event_sender, mut instance_events) = mpsc::channel(10);
+
+    let server = Arc::new(WorldServer::bind(&ARGS.zmq_bind_url).await?);
+    let manager = InstanceManager::new(
         realm_api.clone(),
         realm_client.clone(),
-        &ARGS.zone_group
+        instance_event_sender.clone(),
+        ARGS.instance_limit,
+        &ARGS.zone_groups
+            .as_ref()
+            .map(|groups| groups.split(",").collect::<Vec<_>>())
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<Vec<&str>>()
     ).await?;
 
     // register node
@@ -121,44 +218,50 @@ async fn main() -> WorldResult<()> {
         unreachable!()
     }
 
-    fn handle_realm_events(manager: InstanceManager, mut notifications: mpsc::Receiver<RealmNotification>) {
-        tokio::spawn(async move {
-            while let Some(event) = notifications.recv().await {
-                match event {
-                    RealmNotification::InstanceRequested { transaction_id, zone, key, valid_until } => {
-                        manager.offer_instance(transaction_id, zone, key, valid_until).await;
-                    },
-                    RealmNotification::ClusterNotification(notification) => {
-    
-                    },
-                    _ => unimplemented!(),
-                }
-            }
-        });
-    }
-
-    fn handle_realm_msgs(realm_client: Arc<RealmClient>, manager: InstanceManager) {
-        tokio::spawn(async move {
-            while let Ok(msg) = realm_client.recv().await {
-                match msg {
-                    RealmResponse::InstanceOfferingAccepted { transaction_id, .. } => 
-                        manager.provision_instance(transaction_id).await,
-                }
-            }
-        });
-    }
-
     handle_realm_events(manager.clone(), notifications);
-    handle_realm_msgs(realm_client.clone(), manager);
+    handle_realm_msgs(realm_client.clone(), manager.clone());
+    handle_world_msgs(server, realm_api.clone(), instance_event_sender.clone(), manager.clone());
 
     info!("Starting world server!");
 
-    App::new()
-        .add_plugins(MinimalPlugins)
-        .insert_non_send_resource(Handle::current())
-        .insert_non_send_resource(instance_events)
-        .set_runner(world_runner)
-        .run();
+    // Create bevy app
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+
+    // Aim for 50 cycles/sec
+    let mut update_interval = time::interval(Duration::from_millis(20)); 
+
+    loop {
+        select! {
+            _ = update_interval.tick() => {
+                tokio::task::block_in_place(|| {
+                    app.update();
+                });
+
+                if app.should_exit().is_some() {
+                    break;
+                }
+            },
+            event = instance_events.recv() => {
+                match event {
+                    Some(event) => match event {
+                        InstanceEvent::InstanceAdded(sub_app) => 
+                            { app.insert_sub_app(sub_app.label(), *sub_app); },
+                        InstanceEvent::InstanceRemoved(zone_label) => 
+                            { app.remove_sub_app(zone_label); },
+                        InstanceEvent::ControllerSpawnRequested { peer, instance, session, events, controller } => {
+                            if let Some(subapp) = app.get_sub_app_mut(instance) {
+                                let _ = controller.send(subapp.create_player_controller(peer, session, events).await);
+                            } else {
+                                let _ = controller.send(Err(anyhow::Error::msg("instance not found").into()));
+                            }
+                        },
+                    },
+                    None => break,
+                }
+            }
+        }
+    }
 
     Ok(())
 }

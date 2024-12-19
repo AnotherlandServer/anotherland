@@ -20,16 +20,17 @@ use toolkit::types::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub enum WorldRequest {
-    ClientMessage { src: Uuid, data: Vec<u8> },
-    ClientConnected(Uuid),
-    ClientDisconnected(Uuid),
+    ClientMessage { peer: Uuid, data: Vec<u8> },
+    ClientConnected { peer: Uuid, session: Uuid },
+    ClientDisconnected { peer: Uuid },
 }
 
 impl Request for WorldRequest {}
 
 #[derive(Serialize, Deserialize)]
 pub enum WorldResponse {
-    ServerMessage{ dest: Uuid, data: Vec<u8> },
+    ServerMessage{ peer: Uuid, data: Vec<u8> },
+    Travel { peer: Uuid, data: () }
 }
 
 impl Response for WorldResponse {}

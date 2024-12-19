@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use atlas::{get_item_category, BundleItemClass, BundleItemParams, ClassId, ClassItemClass, EdnaBaseClass, EdnaFunctionClass, EdnaModuleClass, EdnaModuleParams, ItemBaseComponent, ItemBaseParams, ItemEdnaClass, ItemEdnaParams, ItemMyLandThemeClass, ItemSubCategory, MinigameItemClass, ParamBox, ParamClass, PlayerComponent, PlayerParams, PortalItemClass, Slot, SomaforgeItemClass, Uuid, UUID_NIL};
-use bevy::utils::hashbrown::HashMap;
+use bevy::{prelude::BuildChildren, utils::hashbrown::HashMap};
 use bevy_ecs::{component::Component, entity::Entity, event::{Event, EventReader, EventWriter}, query::{With, Without}, system::{Commands, EntityCommands, In, Query}};
 use log::warn;
 
@@ -274,6 +274,8 @@ impl PlayerInventory {
                 .id();
 
             *slot = Some(entity);
+
+            cmds.entity(owner).add_child(entity);
             
             self.items.insert(item_id, (tab, item.guid, entity));
             Ok(entity)

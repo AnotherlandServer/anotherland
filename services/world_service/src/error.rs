@@ -16,7 +16,6 @@
 use core_api::CoreApiError;
 use realm_api::RealmApiError;
 use thiserror::Error;
-use zone::ZoneError;
 
 #[derive(Error, Debug)]
 pub enum WorldError {
@@ -30,7 +29,16 @@ pub enum WorldError {
     ClusterError(#[from] core_api::ClusterError),
 
     #[error(transparent)]
-    ZoneError(#[from] ZoneError),
+    ParamError(#[from] obj_params::ParamError),
+
+    #[error(transparent)]
+    UninitializedField(#[from] derive_builder::UninitializedFieldError),
+
+    #[error("unknown zone type `{0}`")]
+    UnknownZoneType(String),
+
+    #[error("unknown instance type `{0}`")]
+    UnknownInstanceType(i32),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error)
