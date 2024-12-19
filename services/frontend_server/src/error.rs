@@ -17,23 +17,30 @@ use core_api::CoreApiError;
 use realm_api::RealmApiError;
 use thiserror::Error;
 use tokio::task::JoinError;
+use toolkit::anyhow;
 
 #[derive(Error, Debug)]
 pub enum FrontendError {
-    #[error("raknet error")]
+    #[error(transparent)]
     RakNet(#[from] raknet::RakNetError),
 
-    #[error("task paniced")]
+    #[error(transparent)]
     JoinError(#[from] JoinError),
 
-    #[error("core api error")]
+    #[error(transparent)]
     CoreApi(#[from] CoreApiError),
 
-    #[error("realm api error")]
+    #[error(transparent)]
     RealmApi(#[from] RealmApiError),
 
-    #[error("cluster error")]
+    #[error(transparent)]
     ClusterError(#[from] core_api::ClusterError),
+
+    #[error(transparent)]
+    ParamError(#[from] obj_params::ParamError),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 pub type FrontendResult<T> = Result<T, FrontendError>;
