@@ -902,13 +902,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         }
     }).collect();
 
-    /*let attribute_container: Vec<_> = paramlist.classes.iter().map(|v| {
-        let class = v.borrow();
-        let class_name = format_ident!("{}", class.name.to_case(Case::UpperCamel));
-
-        quote!(#class_name(#class_name))
-    }).collect();*/
-
     let param_class_enum: Vec<_> = paramlist.classes.iter().map(|v| {
         let class = v.borrow();
         let class_name = format_ident!("{}", class.name.to_case(Case::UpperCamel));
@@ -974,6 +967,32 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         quote!{ #class_id_literal => Some(Self::#class_name), }
     }).collect();
 
+    let class_tag_components: Vec<_> = paramlist.classes.iter().map(|v| {
+        let class = v.borrow();
+        let class_tag_name: syn::Ident = format_ident!("{}Tag", class.name.to_case(Case::UpperCamel));
+  
+        quote!{
+            #[derive(Component)]
+            pub struct #class_tag_name; 
+        }
+    }).collect();
+
+    let class_tag_bundles: Vec<_> = paramlist.classes.iter().map(|v| {
+        let mut components: Vec<TokenStream> = Vec::new();
+
+        let class = v.borrow();
+        let class_name: syn::Ident = format_ident!("{}", class.name.to_case(Case::UpperCamel));
+        let mut current_class = Some(v.to_owned().to_owned());
+        while let Some(parent_class_ref) = current_class {
+            current_class = parent_class_ref.borrow().extends_ref.clone();
+
+            let component_name = format_ident!("{}Tag", parent_class_ref.borrow().name.to_case(Case::UpperCamel));
+
+            components.push(quote!( tags::#component_name ));
+        }
+
+        quote!{Class::#class_name => { commands.insert((#(#components),*)); }}
+    }).collect();
 
     write_source("generated_params.rs", quote! {
         use glam::Vec3;
@@ -991,10 +1010,9 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use serde::Serializer;
         use serde::Deserialize;
         use serde::Deserializer;
-        use bevy::prelude::*;
         use once_cell::sync::Lazy;
         use phf::phf_map;
-
+        use bevy::prelude::*;
         use toolkit::types::AvatarId;
         use toolkit::types::Uuid;
         use toolkit::types::UUID_NIL;
@@ -1056,6 +1074,18 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     #(#class_parser)*
                     _ => Err(ParamError::UnknownClass),
                 }
+            }
+        }
+
+        pub mod tags {
+            use bevy::prelude::*;
+
+            #(#class_tag_components)*
+        }
+
+        pub fn tag_gameobject_entity(data: &GameObjectData, commands: &mut EntityCommands<'_>) {
+            match data.class() {
+                #(#class_tag_bundles),*
             }
         }
     })
