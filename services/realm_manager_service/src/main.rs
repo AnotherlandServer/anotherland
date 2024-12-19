@@ -28,7 +28,7 @@ use cluster::{ClusterEvent, Endpoint, Host, PeerIdentity};
 use core_api::CoreApi;
 use core_api::proto::{CoreRequest, CoreClient, CoreNotification};
 use database::{DatabaseExt, DatabaseRecord};
-use db::{Character, ObjectPlacement, ObjectTemplate, PremiumCurrency, PremiumCurrencyTransaction, SessionExt, WorldDef, Zone};
+use db::{Character, ObjectPlacement, ObjectTemplate, PremiumCurrency, PremiumCurrencyTransaction, WorldDef, Zone};
 use error::RealmResult;
 use instance_registry::InstanceRegistry;
 use log::{error, info, warn};
@@ -39,7 +39,7 @@ use poem::{listener::TcpListener, post, Route, Server};
 use proto::{NodeAddress, RealmNotification, RealmServer};
 use reqwest::Url;
 use schema::{MutationRoot, QueryRoot};
-use session_cleanup::start_session_cleanup;
+use session_manager::SessionManager;
 use tokio::net::lookup_host;
 use tokio::sync::{mpsc::Receiver, Mutex};
 use tokio::time;
@@ -49,9 +49,9 @@ mod schema;
 mod db;
 mod proto;
 mod error;
-mod session_cleanup;
 mod node_registry;
 mod instance_registry;
+mod session_manager;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -101,14 +101,10 @@ async fn main() -> RealmResult<()> {
     db.init_collection::<Character>().await;
     db.init_collection::<PremiumCurrencyTransaction>().await;
     db.init_collection::<PremiumCurrency>().await;
-    db.init_collection::<SessionExt>().await;
     db.init_collection::<WorldDef>().await;
     db.init_collection::<Zone>().await;
     db.init_collection::<ObjectPlacement>().await;
     db.init_collection::<ObjectTemplate>().await;
-
-    info!("Cleaning up session storage...");
-    start_session_cleanup(db.clone(), core_api.clone());
 
     // Connect to core service
     let (core_client, core_notifications) = CoreClient::connect(&args.core_zmq_addr).await
@@ -122,6 +118,7 @@ async fn main() -> RealmResult<()> {
 
     let node_registry = NodeRegistry::new(args.realm_id, server.clone(), core_client.clone());
     let instance_registry = InstanceRegistry::new(db.clone(), server.clone(), node_registry.clone());
+    let session_manager = SessionManager::new(core_api.clone(), server.clone()).await?;
     let peer_endpoints = Arc::new(Mutex::new(HashMap::new()));
 
     // Start graphql api
@@ -130,17 +127,18 @@ async fn main() -> RealmResult<()> {
         .data(core_api.clone())
         .data(node_registry.clone())
         .data(instance_registry.clone())
+        .data(session_manager.clone())
         .finish();
 
     let app = Route::new()
         .at("/", post(GraphQL::new(schema.clone())));
 
     // Forward cluster notification to realm sub-services
-    fn handle_notifications(server: Arc<RealmServer>, db: Database, mut notifications: Receiver<CoreNotification>) {
+    fn handle_notifications(server: Arc<RealmServer>, session_manager: SessionManager, mut notifications: Receiver<CoreNotification>) {
         tokio::spawn(async move {
             while let Some(notification) = notifications.recv().await {
                 if let CoreNotification::SessionTerminated(id) = &notification {
-                    let _ = SessionExt::collection(&db).delete_one(doc! { "id": id }).await;
+                    session_manager.terminate_session(*id).await;
                 }
 
                 // Propagate notification to realm nodes
@@ -232,7 +230,7 @@ async fn main() -> RealmResult<()> {
     }
 
     monitor_realm_server(server.clone(), peer_endpoints.clone());
-    handle_notifications(server.clone(), db, core_notifications);
+    handle_notifications(server.clone(), session_manager.clone(), core_notifications);
     handle_requests(server.clone(), node_registry, instance_registry.clone(), peer_endpoints);
 
     let _ = core_client.subscribe("core.session.").await; // subscribe to session notifications

@@ -115,28 +115,9 @@ impl InstanceRegistry {
         Self(data)
     }
 
-    pub async fn request_instance(&self, mut key: InstanceKey) -> RealmResult<Arc<Instance>> {
+    pub async fn request_instance(&self, key: InstanceKey) -> RealmResult<Arc<Instance>> {
         let mut s = self.0.write().await;
         
-        // Load zone definition from db
-        let zone = Zone::get_by_guid(&s.db, key.zone()).await?
-            .ok_or(RealmError::Other(anyhow::Error::msg("zone not found")))?;
-
-        if key.instance().is_none() && !zone.realu_zone_type.is_empty() {
-            let conf = ObjectTemplate::collection(&s.db)
-                .find_one(doc! { "name": zone.realu_zone_type }).await?;
-
-            if let Some(conf) = conf {
-                if *conf.data.get(OaZoneConfig::UseGuidAsKey)? {
-                    key = InstanceKey::new(key.zone(), Some(key.zone()));
-                } else if *conf.data.get(OaZoneConfig::ForceGenerateGuidKey)? {
-                    key = InstanceKey::new(key.zone(), Some(Uuid::new()))
-                } else if *conf.data.get(OaZoneConfig::IsInstance)? {
-                    key = InstanceKey::new(key.zone(), Some(Uuid::new()))
-                }
-            }
-        }
-
         // Check if there is already a running instance we could connect to
         if let Some(instance) = s.instances.get(&key) {
             return Ok(instance.clone());

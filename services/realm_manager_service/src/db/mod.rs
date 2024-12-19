@@ -16,7 +16,6 @@
 mod character;
 mod premium_currency;
 mod premium_currency_transaction;
-mod session_ext;
 mod worlddef;
 mod zone;
 mod object_placement;
@@ -25,7 +24,6 @@ mod object_template;
 pub use character::*;
 pub use premium_currency::*;
 pub use premium_currency_transaction::*;
-pub use session_ext::*;
 pub use worlddef::*;
 pub use zone::*;
 pub use object_placement::*;

@@ -14,44 +14,46 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_graphql::{scalar, MergedObject};
-use character::{CharacterMutationRoot, CharacterRoot};
+use character_ext::{CharacterExtMutationRoot, CharacterExtRoot};
 use instances::{InstancesMutationRoot, InstancesRoot};
 use nodes::NodesRoot;
 use premium_currency::{PremiumCurrencyMutationRoot, PremiumCurrencyRoot};
-use session_ext::{SessionExtMutationRoot, SessionExtRoot};
+use session_state::{SessionStateMutationRoot, SessionStateRoot};
 
 use crate::db;
 
-mod character;
+mod character_ext;
 mod premium_currency;
-mod session_ext;
 mod nodes;
 mod types;
 mod instances;
+mod session_state;
 
 pub use types::*;
 
 #[derive(MergedObject, Default)]
 pub struct QueryRoot(
-    pub CharacterRoot,
+    pub CharacterExtRoot,
     pub PremiumCurrencyRoot,
-    pub SessionExtRoot,
     pub NodesRoot,
     pub InstancesRoot,
+    pub SessionStateRoot,
     pub db::WorldDefQueryRoot,
     pub db::ZoneQueryRoot,
     pub db::ObjectPlacementQueryRoot,
     pub db::ObjectTemplateQueryRoot,
+    pub db::CharacterQueryRoot,
 );
 
 #[derive(MergedObject, Default)]
 pub struct MutationRoot(
-    pub CharacterMutationRoot,
+    pub CharacterExtMutationRoot,
     pub PremiumCurrencyMutationRoot,
-    pub SessionExtMutationRoot,
     pub InstancesMutationRoot,
+    pub SessionStateMutationRoot,
     pub db::WorldDefMutationRoot,
     pub db::ZoneMutationRoot,
     pub db::ObjectPlacementMutationRoot,
     pub db::ObjectTemplateMutationRoot,
+    pub db::CharacterMutationRoot,
 );

@@ -19,28 +19,17 @@ use mongodb::{bson::doc, Database};
 use obj_params::{GameObjectData, Player, Value};
 use toolkit::types::Uuid;
 
-use crate::db;
+use crate::db::{self, Character, CharacterOutput};
 
 #[derive(Default)]
-pub struct CharacterRoot;
+pub struct CharacterExtRoot;
 
 #[derive(Default)]
-pub struct CharacterMutationRoot;
+pub struct CharacterExtMutationRoot;
 
 #[Object]
-impl CharacterRoot {
-    async fn character(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Character>, Error> {
-        let db = ctx.data::<Database>()?.clone();
-        let res = db::Character::get(&db, &id).await?;
-
-        if let Some(character) = res {
-            Ok(Some(Character::from_db(character)?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn account_character(&self, ctx: &Context<'_>, account_id: Uuid, index: i32) -> Result<Option<Character>, Error> {
+impl CharacterExtRoot {
+    async fn account_character(&self, ctx: &Context<'_>, account_id: Uuid, index: i32) -> Result<Option<CharacterOutput>, Error> {
         let db = ctx.data::<Database>()?.clone();
         let res = db::Character::collection(&db).find_one(doc! {
             "$and": [
@@ -50,13 +39,13 @@ impl CharacterRoot {
         }).await?;
 
         if let Some(character) = res {
-            Ok(Some(Character::from_db(character)?))
+            Ok(Some(character.try_into()?))
         } else {
             Ok(None)
         }
     }
 
-    async fn characters_for_account(&self, ctx: &Context<'_>, account_id: Uuid) -> Result<Vec<Character>, Error> {
+    async fn characters_for_account(&self, ctx: &Context<'_>, account_id: Uuid) -> Result<Vec<CharacterOutput>, Error> {
         let db = ctx.data::<Database>()?.clone();
         let mut res = db::Character::collection(&db)
             .find(doc! {"account": account_id})
@@ -65,7 +54,7 @@ impl CharacterRoot {
         let mut characters = Vec::new();
 
         while let Some(character) = res.try_next().await? {
-            characters.push(Character::from_db(character)?);
+            characters.push(character.try_into()?);
         }
 
         Ok(characters)
@@ -73,8 +62,8 @@ impl CharacterRoot {
 }
 
 #[Object]
-impl CharacterMutationRoot {
-    async fn create_character(&self, ctx: &Context<'_>, input: CreateCharacterInput) -> Result<Character, Error> {
+impl CharacterExtMutationRoot {
+    async fn create_character_in_account(&self, ctx: &Context<'_>, input: CreateCharacterInput) -> Result<CharacterOutput, Error> {
         let db = ctx.data::<Database>()?.clone();
         let mut cursor = db::Character::collection(&db).aggregate(vec![
             doc! {
@@ -139,19 +128,7 @@ impl CharacterMutationRoot {
             data,
         }).await?;
 
-        Character::from_db(character)
-    }
-
-    async fn delete_character(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Character>, Error> {
-        let db = ctx.data::<Database>()?.clone();
-        let res = db::Character::get(&db, &id).await?;
-
-        if let Some(character) = res {
-            character.delete(&db).await?;
-            Ok(Some(Character::from_db(character)?))
-        } else {
-            Ok(None)
-        }
+        Ok(character.try_into()?)
     }
 }
 
@@ -159,25 +136,4 @@ impl CharacterMutationRoot {
 pub struct CreateCharacterInput {
     account: Uuid,
     name: String,
-}
-
-#[derive(SimpleObject)]
-pub struct Character {
-    id: Uuid,
-    account: Uuid,
-    index: i32,
-    name: String,
-    data: serde_json::Value
-}
-
-impl Character {
-    pub fn from_db(character: db::Character) -> Result<Self, Error> {
-        Ok(Self {
-            id: character.id,
-            account: character.account,
-            index: character.index,
-            name: character.name,
-            data: serde_json::to_value(character.data)?,
-        })
-    }
 }

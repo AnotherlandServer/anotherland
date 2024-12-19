@@ -84,7 +84,7 @@ pub enum RealmResponse {
 
 impl Response for RealmResponse {}
 
-#[derive(Enum, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Enum, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NodeType {
     Frontend,
     Cluster,

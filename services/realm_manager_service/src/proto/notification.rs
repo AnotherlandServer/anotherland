@@ -23,7 +23,7 @@ use crate::node_registry::{Node, NodeSocketAddress};
 
 use super::NodeType;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum RealmNotification {
     ClusterNotification(CoreNotification),
     NodeAdded(Node),

@@ -35,6 +35,7 @@ impl From<ZoneType> for mongodb::bson::Bson {
 #[graphql_crud(name = "zone")]
 pub struct Zone {
     pub id: i64,
+    #[graphql_crud(filter)]
     pub guid: Uuid,
     #[graphql_crud(filter)]
     pub worlddef_guid: Uuid,

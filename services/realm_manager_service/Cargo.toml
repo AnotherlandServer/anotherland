@@ -26,6 +26,7 @@ log = { workspace = true }
 mongodb = { workspace = true }
 obj_params = { workspace = true }
 poem = { workspace = true }
+rand.workspace = true
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

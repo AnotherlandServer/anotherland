@@ -39,7 +39,7 @@ impl Display for NodeSocketAddress {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Node {
     pub id: Uuid,
     pub ty: NodeType,
@@ -105,7 +105,7 @@ impl NodeRegistry {
                     let core = state.core.clone();            
 
                     if let Some(node) = state.nodes.remove(&peer_identity) {
-                        info!("Unregisted {} at {}", node.ty, node.addr);
+                        info!("Unregistered {} at {}", node.ty, node.addr);
                         
                         let _ = realm_server.notify(RealmNotification::NodeRemoved(node.id)).await;
 

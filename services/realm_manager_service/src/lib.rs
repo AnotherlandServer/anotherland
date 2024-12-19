@@ -23,6 +23,7 @@ mod db;
 mod schema;
 mod node_registry;
 mod instance_registry;
+mod session_manager;
 
 pub mod error;
 pub mod proto;

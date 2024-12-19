@@ -17,14 +17,19 @@ use cynic::serde::{Deserialize, Serialize};
 use database::DatabaseRecord;
 use mongodb::{bson::doc, options::IndexOptions, IndexModel};
 use obj_params::GameObjectData;
-use toolkit::types::Uuid;
+use toolkit::{types::Uuid, GraphqlCrud};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, GraphqlCrud)]
+#[graphql_crud(name = "character")]
 pub struct Character {
     pub id: Uuid,
+    #[graphql_crud(filter)]
     pub account: Uuid,
+    #[graphql_crud(filter)]
     pub index: i32,
+    #[graphql_crud(filter)]
     pub name: String,
+    #[graphql_crud(serialize_as = serde_json::Value)]
     pub data: GameObjectData,
 }
 
