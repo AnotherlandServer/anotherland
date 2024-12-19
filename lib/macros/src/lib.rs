@@ -85,6 +85,8 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 
     let struct_name = ast.ident.clone();
 
+    let gql_struct_name = format_ident!("{}Output", struct_name);
+
     let schema_query_root = format_ident!("{}QueryRoot", ast.ident);
     let schema_mutation_root = format_ident!("{}MutationRoot", ast.ident);
     
@@ -373,6 +375,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
         }
 
         pub use schema::*;
+        pub use schema::#struct_name as #gql_struct_name;
     }.into();
 
     output
