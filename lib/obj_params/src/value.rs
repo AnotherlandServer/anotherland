@@ -903,6 +903,83 @@ impl From<Vec<i32>> for Value {
     }
 }
 
+impl <'a> TryFrom<&'a Value> for &'a String {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::String(val) => Ok(val),
+            Value::ContentRef(val) => Ok(val),
+            Value::ContentRefAndInt(val) => Ok(val),
+            Value::ContentRefAndFloat(val) => Ok(val),
+            Value::ContentRefList(val) => Ok(val),
+            Value::ClassRefPowerRangeList(val) => Ok(val),
+            Value::InstanceGroup(val) => Ok(val),
+            _ => Err(ParamError::TypeMismatch),
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a (String, String) {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::StringPair(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a (String, f32) {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::StringFloatPair(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a HashSet<String> {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::StringSet(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a Uuid {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Guid(val) => Ok(val),
+            Value::LocalizedString(val) => Ok(val),
+            _ => Err(ParamError::TypeMismatch),
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a (Uuid, Uuid) {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::GuidPair(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
 impl <'a> TryFrom<&'a Value> for &'a bool {
     type Error = ParamError;
     
@@ -919,7 +996,19 @@ impl <'a> TryFrom<&'a Value> for &'a i32 {
     type Error = ParamError;
     
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
-        if let Value::Int(val) = value {
+        match value {
+            Value::Int(val) => Ok(val),
+            Value::UniqueId(val) => Ok(val),
+            _ => Err(ParamError::TypeMismatch),
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a f32 {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::Float(val) = value {
             Ok(val)
         } else {
             Err(ParamError::TypeMismatch)
@@ -927,12 +1016,240 @@ impl <'a> TryFrom<&'a Value> for &'a i32 {
     }
 }
 
-impl <'a> TryFrom<&'a Value> for &'a String {
+impl <'a> TryFrom<&'a Value> for &'a (f32, f32) {
     type Error = ParamError;
     
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
-        if let Value::String(val) = value {
+        if let Value::FloatRange(val) = value {
             Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a Vec3 {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::Vector3(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a (u32, Vec3) {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::Vector3Uts(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a Vec4 {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::Vector4(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a AvatarId {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::AvatarId(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a JsonValue {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::JsonValue(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a i64 {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::Int64(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a Quat {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::Quarternion(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for (&'a Quat, &'a Vec3) {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::Positionable(rot, pos) = value {
+            Ok((rot, pos))
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a [i32] {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::VectorInt(val) = value {
+            Ok(val.as_slice())
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a [i64] {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::VectorInt64(val) = value {
+            Ok(val.as_slice())
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a [f32] {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::VectorFloat(val) = value {
+            Ok(val.as_slice())
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a [String] {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::VectorString(val) = value {
+            Ok(val.as_slice())
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a HashSet<AvatarId> {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::AvatarIdSet(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a [AvatarId] {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::VectorAvatarId(val) = value {
+            Ok(val.as_slice())
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a HashSet<Uuid> {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::GuidSet(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a [Uuid] {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::VectorGuid(val) => Ok(val),
+            Value::VectorLocalizedString(val) => Ok(val),
+            _ => Err(ParamError::TypeMismatch),
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a HashMap<String, i32> {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::HashmapStringInt(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a HashMap<String, String> {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::HashmapStringString(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a [u8] {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::Any(val) = value {
+            Ok(val.as_slice())
         } else {
             Err(ParamError::TypeMismatch)
         }
