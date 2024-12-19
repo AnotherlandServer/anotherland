@@ -52,6 +52,9 @@ pub struct ZoneQuery {
     api_base: RealmApi,
 
     #[builder(setter(strip_option), default)]
+    zone_guid: Option<Uuid>,
+
+    #[builder(setter(strip_option), default)]
     worlddef_guid: Option<Uuid>,
 
     #[builder(setter(strip_option), default)]
@@ -62,12 +65,17 @@ pub struct ZoneQuery {
 }
 
 impl ZoneQuery {
-    fn get_filter(&self) -> ZoneFilter<'_> {
-        ZoneFilter {
-            worlddef_guid: self.worlddef_guid, 
-            parent_zone_guid: None, 
-            zone_type: self.zone_type, 
-            server: self.server.as_deref(), 
+    fn get_filter(&self) -> Option<ZoneFilter<'_>> {
+        if self.zone_guid.is_none() && self.worlddef_guid.is_none() && self.zone_type.is_none() && self.server.is_none() {
+            None
+        } else {
+            Some(ZoneFilter {
+                guid: self.zone_guid,
+                worlddef_guid: self.worlddef_guid, 
+                parent_zone_guid: None, 
+                zone_type: self.zone_type, 
+                server: self.server.as_deref(), 
+            })
         }
     }
 }
@@ -80,7 +88,7 @@ impl RecordQuery for ZoneQuery {
         let response = self.api_base.0.client
             .post(self.api_base.0.base_url.clone())
             .run_graphql(GetZones::build(GetZonesVariables {
-                filter: Some(self.get_filter()),
+                filter: self.get_filter(),
                 after: after.as_deref(),
                 first: Some(limit as i32)
             })).await?;
@@ -301,6 +309,7 @@ pub(crate) mod zone_graphql {
     #[derive(cynic::InputObject, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct ZoneFilter<'a> {
+        pub guid: Option<Uuid>,
         pub worlddef_guid: Option<Uuid>,
         pub parent_zone_guid: Option<Uuid>,
         pub zone_type: Option<ZoneType>,

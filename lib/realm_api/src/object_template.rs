@@ -41,11 +41,15 @@ pub struct ObjectTemplateQuery {
 }
 
 impl ObjectTemplateQuery {
-    fn get_filter(&self) -> ObjectTemplateFilter<'_> {
-        ObjectTemplateFilter { 
-            category: self.category, 
-            name: self.name.as_deref(), 
-            class: self.class, 
+    fn get_filter(&self) -> Option<ObjectTemplateFilter<'_>> {
+        if self.name.is_none() && self.class.is_none() && self.category.is_none() {
+            None
+        } else {
+            Some(ObjectTemplateFilter { 
+                category: self.category, 
+                name: self.name.as_deref(), 
+                class: self.class, 
+            })
         }
     }
 }
@@ -58,7 +62,7 @@ impl RecordQuery for ObjectTemplateQuery {
         let response = self.api_base.0.client
             .post(self.api_base.0.base_url.clone())
             .run_graphql(GetObjectTemplates::build(GetObjectTemplatesVariables {
-                filter: Some(self.get_filter()),
+                filter: self.get_filter(),
                 after: after.as_deref(),
                 first: Some(limit as i32)
             })).await?;

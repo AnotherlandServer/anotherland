@@ -15,20 +15,27 @@
 
 use cynic::{http::CynicReqwestError, GraphQlError};
 use thiserror::Error;
+use toolkit::anyhow;
 
 #[derive(Error, Debug)]
 pub enum RealmApiError {
-    #[error("request error")]
+    #[error(transparent)]
     Request(#[from] CynicReqwestError),
 
     #[error("graphql error")]
     GraphQl(Vec<GraphQlError>),
 
-    #[error("json error")]
+    #[error(transparent)]
     Json(#[from] serde_json::Error),
 
-    #[error("uuid error")]
+    #[error(transparent)]
     Uuid(#[from] bson::uuid::Error),
+
+    #[error(transparent)]
+    NetAddrParse(#[from] std::net::AddrParseError),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 pub type RealmApiResult<T> = std::result::Result<T, RealmApiError>;

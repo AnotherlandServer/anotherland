@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use character_graphql::{CreateCharacter, CreateCharacterVariables, DeleteCharacter, DeleteCharacterVariables, GetAccountCharacter, GetAccountCharacterVariables, GetCharacter, GetCharacterVariables, GetCharactersForAccount, GetCharactersForAccountVariables};
+use character_graphql::{CreateCharacterInAccount, CreateCharacterInAccountVariables, DeleteCharacter, DeleteCharacterVariables, GetAccountCharacter, GetAccountCharacterVariables, GetCharacter, GetCharacterVariables, GetCharactersForAccount, GetCharactersForAccountVariables};
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use log::debug;
 use obj_params::GameObjectData;
@@ -114,13 +114,13 @@ impl RealmApi {
     pub async fn create_character(&self, account_id: &Uuid, name: String) -> RealmApiResult<Character> {
         let response = self.0.client
             .post(self.0.base_url.clone())
-            .run_graphql(CreateCharacter::build(CreateCharacterVariables {
+            .run_graphql(CreateCharacterInAccount::build(CreateCharacterInAccountVariables {
                 account: *account_id,
                 name: &name,
             })).await?;
 
-        if let Some(CreateCharacter { create_character }) = response.data {
-            Ok(Character::from_graphql(self, create_character)?)
+        if let Some(CreateCharacterInAccount { create_character_in_account }) = response.data {
+            Ok(Character::from_graphql(self, create_character_in_account)?)
         } else if let Some(errors) = response.errors {
             debug!("Errors: {:#?}", errors);
             Err(RealmApiError::GraphQl(errors))
@@ -161,7 +161,7 @@ pub(crate) mod character_graphql {
     }
     
     #[derive(cynic::QueryVariables, Debug)]
-    pub struct CreateCharacterVariables<'a> {
+    pub struct CreateCharacterInAccountVariables<'a> {
         pub account: Uuid,
         pub name: &'a str,
     }
@@ -219,10 +219,10 @@ pub(crate) mod character_graphql {
     }
     
     #[derive(cynic::QueryFragment, Debug)]
-    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "CreateCharacterVariables")]
-    pub struct CreateCharacter {
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "CreateCharacterInAccountVariables")]
+    pub struct CreateCharacterInAccount {
         #[arguments(input: { account: $account, name: $name })]
-        pub create_character: Character,
+        pub create_character_in_account: Character,
     }
     
     #[derive(cynic::QueryFragment, Debug)]

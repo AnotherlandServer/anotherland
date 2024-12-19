@@ -39,11 +39,15 @@ pub struct ObjectPlacementQuery {
 }
 
 impl ObjectPlacementQuery {
-    fn get_filter(&self) -> ObjectPlacementFilter<'_> {
-        ObjectPlacementFilter {
-            class: self.class,
-            zone_guid: self.zone_guid,
-            phase_tag: self.phase_tag.as_deref(),
+    fn get_filter(&self) -> Option<ObjectPlacementFilter<'_>> {
+        if self.zone_guid.is_none() && self.class.is_none() && self.phase_tag.is_none() {
+            None
+        } else {
+            Some(ObjectPlacementFilter {
+                class: self.class,
+                zone_guid: self.zone_guid,
+                phase_tag: self.phase_tag.as_deref(),
+            })
         }
     }
 }
@@ -56,7 +60,7 @@ impl RecordQuery for ObjectPlacementQuery {
         let response = self.api_base.0.client
             .post(self.api_base.0.base_url.clone())
             .run_graphql(GetObjectPlacements::build(GetObjectPlacementsVariables {
-                filter: Some(self.get_filter()),
+                filter: self.get_filter(),
                 after: after.as_deref(),
                 first: Some(limit as i32)
             })).await?;
@@ -166,7 +170,7 @@ impl RealmApi {
         }
     }
 
-    pub async fn query_object_placements(&self) -> ObjectPlacementQueryBuilder {
+    pub fn query_object_placements(&self) -> ObjectPlacementQueryBuilder {
         ObjectPlacementQueryBuilder::create_empty()
             .api_base(self.clone())
     }

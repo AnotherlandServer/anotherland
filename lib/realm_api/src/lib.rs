@@ -21,6 +21,9 @@ mod worlddef;
 mod zone;
 mod object_placement;
 mod object_template;
+mod nodes;
+mod instances;
+mod session_state;
 
 pub use base::*;
 pub use error::*;
@@ -29,6 +32,9 @@ pub use worlddef::*;
 pub use zone::*;
 pub use object_placement::*;
 pub use object_template::*;
+pub use nodes::*;
+pub use instances::*;
+pub use session_state::*;
 
 // reexport
 pub use realm_manager_service::proto;
