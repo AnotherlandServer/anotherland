@@ -17,7 +17,7 @@ use cluster::Notification;
 use serde::{Deserialize, Serialize};
 use toolkit::types::Uuid;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum CoreNotification {
     SessionTerminated(Uuid),
     RealmListUpdated,
