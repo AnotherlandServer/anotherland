@@ -37,28 +37,16 @@ The server is divided into multiple services that can be run across distributed 
   The primary server for clients to connect to. This is the gateway to the *Otherland* cluster and allows clients to select a realm to log into. It exposes the main RakNet connection, the TCP queue, and the TCP verification service. After login, clients are redirected to a `frontend_server` of the selected realm.
 
 ### Per-realm services:
-- **`realm_manager_service`**  
+- **`realm_manager_service`**
   The cornerstone for each realm. It manages the realm's database and acts as a registry for cluster frontends and distributed zones.
   
-- **`world_service`** *(not yet implemented)*  
-  Responsible for running a collection of zones (maps) defined by the database.
-  
-- **`dungeon_service`** *(not yet implemented)*  
-  Responsible for running dungeon instances.
-  
-- **`myland_service`** *(not yet implemented)*  
-  Responsible for running Myland instances.
-  
-- **`emergency_service`** *(not yet implemented)*  
-  Responsible for handling emergencies.
-  
-- **`battleground_service`** *(not yet implemented)*  
-  Responsible for running battlegrounds.
-  
-- **`frontend_server`**  
+- **`world_service`**
+  Responsible for running the games world. 
+
+- **`frontend_server`**
   A staging area for clients immediately after connecting to a realm. It serves clients until they’ve selected a character to play as, at which point they are redirected to one of the `cluster_server` endpoints.
   
-- **`cluster_server`** *(not yet implemented)*  
+- **`cluster_server`**
   Routes connected clients’ requests to the appropriate zone or dungeon server.
 
 ## Running the Server
