@@ -140,7 +140,7 @@ impl AuthSessionContext {
                                 magic_bytes: Some(pkt.fingerprint.clone()),
                                 session_id: Some(*session.id()),
                                 realm_id: Some(realm.id()),
-                                realm_ip: Some(u32::from_be(endpoint.ip().to_bits())),
+                                realm_ip: Some(u32::from_le_bytes(endpoint.ip().octets())),
                                 realm_port: Some(endpoint.port()),
                                 ..Default::default()
                             }.into_pkt().to_bytes(), Reliability::ReliableOrdered).await?;
@@ -207,7 +207,7 @@ impl AuthSessionContext {
                         magic_bytes: Some(vec![0; 16]),
                         session_id: self.session_id,
                         realm_id: Some(realm.id()),
-                        realm_ip: Some(u32::from_be(endpoint.ip().to_bits())),
+                        realm_ip: Some(u32::from_le_bytes(endpoint.ip().octets())),
                         realm_port: Some(endpoint.port()),
                         ..Default::default()
                     }.into_pkt().to_bytes(), Reliability::ReliableOrdered).await?;
