@@ -26,7 +26,6 @@ RUN git clone git@github.com:AnotherlandServer/private-build-files.git
 # build
 ENV OTHERLAND_CLIENT_PATH /usr/src/anotherland/private-build-files/client_files/
 RUN cargo install core_service --path services/core_service
-RUN cargo install dungeon_service --path services/dungeon_service
 RUN cargo install frontend_server --path services/frontend_server
 RUN cargo install login_server --path services/login_server
 RUN cargo install realm_manager_service --path services/realm_manager_service
