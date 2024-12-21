@@ -15,7 +15,7 @@
 
 use core_api::{CoreApi, LoginError, Realm};
 use log::{debug, error};
-use protocol::{oaPktRealmStatusList, CPkt, CPktLoginResult, CpktLoginLoginType, CpktLoginResultUiState, RealmStatus};
+use protocol::{oaPktRealmStatusList, CPkt, CPktLoginResult, CpktLoginLoginType, CpktLoginResultUiState, OtherlandPacket, RealmStatus};
 use raknet::{RakNetSocket, Reliability};
 use steamworks::SteamId;
 use tokio::{select, sync::broadcast};

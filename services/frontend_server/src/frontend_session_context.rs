@@ -19,7 +19,7 @@ use bitstream_io::{ByteWriter, LittleEndian};
 use core_api::{CoreApi, Session};
 use log::{error, info, warn};
 use obj_params::{ParamWriter, Player};
-use protocol::{oaCharacter, oaPktCharacterDeleteSuccess, oaPktCharacterFailure, oaPktCharacterSelectSuccess, oaPktResponseSelectWorld, CPkt, CPktStream_126_1, CPktStream_126_5, OaPktCharacterFailureErrorCode, OaPktResponseSelectWorldErrorCode};
+use protocol::{oaCharacter, oaPktCharacterDeleteSuccess, oaPktCharacterFailure, oaPktCharacterSelectSuccess, oaPktResponseSelectWorld, CPkt, CPktStream_126_1, CPktStream_126_5, OaPktCharacterFailureErrorCode, OaPktResponseSelectWorldErrorCode, OtherlandPacket};
 use raknet::{RakNetSocket, Reliability};
 use realm_api::{ClusterAddress, NodeType, RealmApi};
 use futures_util::TryStreamExt;
