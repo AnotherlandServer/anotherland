@@ -13,12 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-include!(concat!(env!("OUT_DIR"), "/generated_packets.rs"));
+use crate::CPkt;
 
-mod buffer;
-mod vec;
-mod pkt;
-
-pub use buffer::*;
-pub use vec::*;
-pub use pkt::*;
+pub trait OtherlandPacket {
+    fn id() -> (u8, u8);
+    fn into_pkt(self) -> CPkt;
+}

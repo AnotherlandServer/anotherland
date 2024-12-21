@@ -828,18 +828,30 @@ pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>)
     for generated_struct in structs {
         let generated_struct = generated_struct.borrow();
 
-        if let GeneratedStructSource::PacketDefintion(pkg) = &generated_struct.definition {
-            if pkg.borrow().id == 0 { continue; }
-        }
+        let pkg_id = if let GeneratedStructSource::PacketDefintion(pkg) = &generated_struct.definition {
+            let pkg = pkg.borrow();
+            if pkg.id == 0 { continue; }
+
+            let id_literal = pkg.id;
+            let sub_id_literal = pkg.sub_id;
+
+            quote! {(#id_literal, #sub_id_literal)}
+        } else {
+            quote!()
+        };
 
         let struct_ident = format_ident!("{}", generated_struct.name);
         let parser_code = generate_parser_code(&generated_struct);
         let writer_code = generate_writer_code(&generated_struct);
         let pkt_code = match &generated_struct.definition {
             GeneratedStructSource::PacketDefintion(_) => {
-                quote!{ 
-                    pub fn into_pkt(self) -> CPkt {
-                        CPkt::#struct_ident(Box::new(self))
+                quote!{
+                    impl OtherlandPacket for #struct_ident {
+                        fn id() -> (u8, u8) { #pkg_id }
+
+                        fn into_pkt(self) -> CPkt {
+                            CPkt::#struct_ident(Box::new(self))
+                        }
                     }
                 }
             },
@@ -851,8 +863,9 @@ pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>)
             impl #struct_ident {
                 #parser_code
                 #writer_code
-                #pkt_code
             }
+
+            #pkt_code
         });
     }
 

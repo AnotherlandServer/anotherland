@@ -20,3 +20,4 @@ bson = { workspace = true }
 log = { workspace = true }
 nom = { workspace = true }
 toolkit = { workspace = true }
+glam = { workspace = true }
