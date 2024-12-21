@@ -15,6 +15,9 @@
 
 use std::{ops::Mul, path::PathBuf};
 
+use cash_shop_item::import_cash_shop_item;
+use cash_shop_item_bundle::import_cash_shop_item_bundles;
+use cash_shop_vendor::import_cash_shop_vendors;
 use clap::{command, Parser};
 use error::{SeedRealmError, SeedRealmResult};
 use indicatif::MultiProgress;
@@ -34,6 +37,9 @@ mod worlddef;
 mod zone;
 mod object_placement;
 mod object_template;
+mod cash_shop_item_bundle;
+mod cash_shop_item;
+mod cash_shop_vendor;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -73,6 +79,9 @@ async fn main() -> SeedRealmResult<()> {
     import_zone(&ARGS.client_path, &realm_api).await?;
     import_object_placements(&ARGS.client_path, &realm_api).await?;
     import_object_templates(&ARGS.client_path, &realm_api).await?;
+    import_cash_shop_item_bundles(&ARGS.client_path, &realm_api).await?;
+    import_cash_shop_item(&ARGS.client_path, &realm_api).await?;
+    import_cash_shop_vendors(&ARGS.client_path, &realm_api).await?;
 
     info!("Import completed!");
 
