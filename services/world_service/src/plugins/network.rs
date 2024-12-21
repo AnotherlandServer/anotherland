@@ -124,13 +124,15 @@ impl NetworkExt for SubApp {
             }.into_pkt()
         });
 
+        let state = Arc::new(state);
+
         // Create entity
         let ent = self.world_mut().spawn((
             PlayerController {
                 avatar_id: *state.avatar(),
                 peer,
                 session: Arc::new(session),
-                state: Arc::new(state.clone()),
+                state: state.clone(),
                 sender,
                 spawn_action: None, // TODO: Use this to override spawn action as result of travel or portals
             }, 
@@ -193,8 +195,8 @@ pub struct PlayerController {
 impl PlayerController {
     pub fn avatar_id(&self) -> AvatarId { self.avatar_id }
 
-    pub fn session(&self) -> &Session { &self.session }
-    pub fn state(&self) -> &SessionState { &self.state }
+    pub fn session(&self) -> Arc<Session> { self.session.clone() }
+    pub fn state(&self) -> Arc<SessionState> { self.state.clone() }
 
     pub fn take_spawn_action(&mut self) -> Option<ServerAction> {
         self.spawn_action.take()
