@@ -179,7 +179,12 @@ impl RakNetListener {
                                         &addr, 
                                         &socket, 
                                         receiver, 
-                                        MAX_MTU_SIZE as u16, 
+                                            // This is way lower than the actual MTU, but the packets we send, including 
+                                            // overhead must never be highter than the MTU, otherwise the client wont be able to 
+                                            // parse the packet.
+                                            // Since I haven't implemented header size calculation yet,
+                                            // it's safer to just use a smaller limit.
+                                        1024,
                                         &reaper_sender,
                                         rsa_key
                                     ).await {
