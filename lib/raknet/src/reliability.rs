@@ -330,9 +330,9 @@ impl SendQ {
 
                         self.packets.push(frame);
                         self.message_number += 1;
-                        self.ordered_frame_index += 1;
                     }
-
+                    
+                    self.ordered_frame_index += 1;
                     self.compund_id += 1;
                 }
             },
