@@ -52,7 +52,7 @@ impl GameObjectData {
             attr.default().try_into()
         } else {
             self.0.class().get_attribute(attr.name())
-                .unwrap_or_else(|| panic!("Class {:?} doesn't implement attribute {}", self.0.class(), attr.name()))
+                .ok_or(ParamError::UnknownAttributeName)?
                 .default()
                 .try_into()
         }
