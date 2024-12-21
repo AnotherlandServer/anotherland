@@ -69,7 +69,9 @@ impl ClusterContext {
         // Notify world
         let _ = sender.send(WorldRequest::ClientConnected { 
             peer: socket.id().into(), 
-            session: *session.id() 
+            session: *session.id(),
+            zone: instance.zone,
+            instance: instance.key,
         }).await;
 
         character.data_mut()
@@ -104,6 +106,7 @@ impl ClusterContext {
                                 }
                             }
                             None => {
+                                error!("World node closed connection.");
                                 context.socket.close().await;
                                 break;
                             }

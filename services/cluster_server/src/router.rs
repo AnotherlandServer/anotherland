@@ -25,7 +25,7 @@ use crate::error::ClusterFrontendResult;
 
 struct RouterData {
     worlds: HashMap<Uuid, Sender<WorldRequest>>,
-    peers: HashMap<Uuid, Sender<WorldResponse>>,
+    peers: HashMap<Uuid, (Uuid, Sender<WorldResponse>)>,
 }
 
 #[derive(Clone)]
@@ -45,10 +45,10 @@ impl Router {
         }
     }
 
-    async fn get_or_connect_world(&self, node: &ClusterNode) -> ClusterFrontendResult<Sender<WorldRequest>> {
+    async fn get_or_connect_world(&self, node: &ClusterNode) -> ClusterFrontendResult<(Uuid, Sender<WorldRequest>)> {
         let mut s = self.data.lock().await;
         if let Some(sender) = s.worlds.get(&node.id) {
-            Ok(sender.clone())
+            Ok((node.id, sender.clone()))
         } else {
             let node_addr = match node.addr {
                 ClusterAddress::Public(_) => unreachable!(),
@@ -93,14 +93,14 @@ impl Router {
 
                                     if 
                                         let Some(peer_id) = peer_id &&
-                                        let Some(peer) = s.peers.get(&peer_id.into()) &&
+                                        let Some((_, peer)) = s.peers.get(&peer_id.into()) &&
                                         peer.send(res).await.is_err()
                                     {
                                         s.peers.remove(&peer_id.into());
                                     }
                                 },
                                 Err(_) => {
-                                    warn!("World node '{}' closed connection.", world_id);
+                                    warn!("World node '{}' connection closed.", world_id);
                                     break
                                 },
                             }
@@ -110,9 +110,12 @@ impl Router {
 
                 let mut s = data.lock().await;
                 s.worlds.remove(&world_id);
+
+                // Remove all peers connected to this world
+                s.peers.retain(|_, (id, _)| id != &world_id);
             });
 
-            Ok(sender)
+            Ok((node.id, sender))
         }
     }
 
@@ -120,11 +123,11 @@ impl Router {
         -> ClusterFrontendResult<(Instance, Receiver<WorldResponse>, Sender<WorldRequest>)> 
     {
         let instance = self.realm_api.join_instance(session, zone, key).await?;
-        let node = self.get_or_connect_world(&instance.node).await?;
+        let (node_id, node) = self.get_or_connect_world(&instance.node).await?;
         let (sender, receiver) = mpsc::channel(10);
 
         let mut s = self.data.lock().await;
-        s.peers.insert(peer, sender);
+        s.peers.insert(peer, (node_id, sender));
 
         Ok((instance, receiver, node))
     }

@@ -17,6 +17,7 @@ use std::{collections::{HashMap, HashSet}, sync::Arc};
 
 use bevy::{app::{App, AppExit, Plugin, SubApp}, MinimalPlugins};
 use chrono::{DateTime, Utc};
+use core_api::CoreApi;
 use futures_util::TryStreamExt;
 use log::{debug, info};
 use obj_params::OaZoneConfig;
@@ -35,6 +36,7 @@ struct PendingInstance {
 
 struct InstanceManagerData {
     realm_api: RealmApi,
+    core_api: CoreApi,
     realm_client: Arc<RealmClient>,
     zones: HashMap<Uuid, Arc<Zone>>,
     requests: HashMap<Uuid, PendingInstance>,
@@ -59,7 +61,14 @@ pub enum InstanceEvent {
 pub struct InstanceManager(Arc<Mutex<InstanceManagerData>>);
 
 impl InstanceManager {
-    pub async fn new(realm_api: RealmApi, realm_client: Arc<RealmClient>, event_sender: mpsc::Sender<InstanceEvent>, limit: usize, groups: &[&str]) -> WorldResult<Self> {
+    pub async fn new(
+        realm_api: RealmApi, 
+        core_api: CoreApi,
+        realm_client: Arc<RealmClient>, 
+        event_sender: mpsc::Sender<InstanceEvent>, 
+        limit: usize, 
+        groups: &[&str]
+    ) -> WorldResult<Self> {
         let mut zones = vec![];
         
         if groups.is_empty() {
@@ -88,6 +97,7 @@ impl InstanceManager {
         
         Ok(Self(Arc::new(Mutex::new(InstanceManagerData { 
             realm_api,
+            core_api,
             realm_client,
             zones: zones.into_iter()
                 .map(|zone| (*zone.guid(), Arc::new(zone)))
@@ -163,6 +173,7 @@ impl InstanceManager {
             if let Ok(instance) = ZoneInstanceBuilder::default()
                 .zone(req.zone.clone())
                 .realm_api(s.realm_api.clone())
+                .core_api(s.core_api.clone())
                 .handle(Handle::current())
                 .instance_id(req.key)
                 .instantiate().await

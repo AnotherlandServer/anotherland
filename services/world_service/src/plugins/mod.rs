@@ -16,7 +16,21 @@
 mod network;
 mod loader;
 mod util;
+mod player;
+mod avatar;
+mod movement;
+mod social;
+mod server_action;
+mod interests;
+mod cash_shop;
 
 pub use network::*;
 pub use loader::*;
 pub use util::*;
+pub use player::*;
+pub use avatar::*;
+pub use movement::*;
+pub use social::*;
+pub use server_action::*;
+pub use interests::*;
+pub use cash_shop::*;

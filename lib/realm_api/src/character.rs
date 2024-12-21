@@ -38,6 +38,7 @@ impl Character {
     pub fn name(&self) -> &str { &self.name }
     pub fn data(&self) -> &GameObjectData { &self.data }
     pub fn data_mut(&mut self) -> &mut GameObjectData { &mut self.data }
+    pub fn take_data(self) -> GameObjectData { self.data }
 
     pub async fn delete(&self) -> RealmApiResult<()> {
         let response = self.api_base.0.client

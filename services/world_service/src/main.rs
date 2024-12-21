@@ -30,7 +30,7 @@ use cluster::{ClusterEvent, Endpoint, PeerIdentity};
 use core_api::CoreApi;
 use error::{WorldError, WorldResult};
 use futures_util::TryStreamExt;
-use log::{info, debug};
+use log::{info, debug, error};
 use manager::{InstanceEvent, InstanceManager};
 use once_cell::sync::Lazy;
 use proto::{WorldRequest, WorldResponse, WorldServer};
@@ -116,17 +116,14 @@ fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender
                                 let _ = sender.send(ControllerEvent::Packet(pkt)).await;
                             }
                         },
-                        WorldRequest::ClientConnected { peer, session } => {
+                        WorldRequest::ClientConnected { peer, session, zone, instance } => {
                             if 
                                 let Ok(Some(state)) = realm_api.get_session_state(session).await &&
-                                let Ok(Some(character)) = realm_api.get_character(state.character()).await &&
-                                let Ok(zone_id) = character.data().get::<_, Uuid>(Player::ZoneGuid)
+                                let Ok(Some(character)) = realm_api.get_character(state.character()).await
                             {
                                 let instance = InstanceLabel::new(
-                                    *zone_id,
-                                    character.data().get::<_, String>(Player::InstanceZoneKey)
-                                        .ok()
-                                        .and_then(|val| val.parse().ok())
+                                    zone,
+                                    instance
                                 );
         
                                 let (result_send, controller) = oneshot::channel();
@@ -139,6 +136,7 @@ fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender
                                 }).await.is_ok() {
                                     match controller.await {
                                         Ok(Ok(controller)) => {
+                                            debug!("Player controller spawned: {}", peer);
                                             controllers.insert(peer, (router_id, controller));
                                         },
                                         Ok(Err(e)) => {
@@ -200,6 +198,7 @@ async fn main() -> WorldResult<()> {
     let server = Arc::new(WorldServer::bind(&ARGS.zmq_bind_url).await?);
     let manager = InstanceManager::new(
         realm_api.clone(),
+        core_api.clone(),
         realm_client.clone(),
         instance_event_sender.clone(),
         ARGS.instance_limit,

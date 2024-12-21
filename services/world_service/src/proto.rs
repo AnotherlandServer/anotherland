@@ -21,7 +21,7 @@ use toolkit::types::Uuid;
 #[derive(Serialize, Deserialize)]
 pub enum WorldRequest {
     ClientMessage { peer: Uuid, data: Vec<u8> },
-    ClientConnected { peer: Uuid, session: Uuid },
+    ClientConnected { peer: Uuid, session: Uuid, zone: Uuid, instance: Option<Uuid> },
     ClientDisconnected { peer: Uuid },
 }
 

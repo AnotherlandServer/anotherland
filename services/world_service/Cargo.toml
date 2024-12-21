@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 bevy = { workspace = true }
+bitstream-io = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 cluster = { workspace = true }

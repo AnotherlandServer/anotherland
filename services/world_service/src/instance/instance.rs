@@ -16,13 +16,14 @@
 use std::{str::FromStr, sync::Arc};
 
 use bevy::{app::{First, Main, MainSchedulePlugin, ScheduleRunnerPlugin, SubApp}, ecs::{event::{event_update_condition, event_update_system, EventUpdates}, intern::Interned, schedule::ScheduleLabel}, prelude::{AppExtStates, AppTypeRegistry, IntoSystemConfigs, Resource, States}, state::app::StatesPlugin, tasks::futures_lite::StreamExt, MinimalPlugins};
+use core_api::CoreApi;
 use derive_builder::Builder;
 use obj_params::{Class, OaZoneConfig};
 use realm_api::{Category, RealmApi, Zone};
 use tokio::runtime::Handle;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, plugins::{LoaderPlugin, NetworkPlugin}};
+use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, CashShopPlugin, InterestsPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ServerActionPlugin, SocialPlugin}};
 
 #[derive(Default)]
 pub enum ZoneType {
@@ -90,6 +91,7 @@ pub struct ZoneConfig {
 #[builder(pattern = "owned", build_fn(private, error = "WorldError"))]
 pub struct ZoneInstance {
     pub realm_api: RealmApi,
+    pub core_api: CoreApi,
     pub handle: Handle,
 
     #[builder(setter(strip_option))]
@@ -148,9 +150,19 @@ impl ZoneInstanceBuilder {
         // Instance setup
         app.init_state::<InstanceState>();
         app.insert_resource(instance);
+        // Core plugins
+        app.add_plugins(NetworkPlugin);
+
+        // Game logic plugins
         app.add_plugins((
-                NetworkPlugin,
-                LoaderPlugin
+                AvatarPlugin,
+                InterestsPlugin,
+                LoaderPlugin,
+                MovementPlugin,
+                PlayerPlugin,
+                ServerActionPlugin,
+                SocialPlugin,
+                CashShopPlugin,
             ));
 
         Ok(app)

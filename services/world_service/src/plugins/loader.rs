@@ -15,17 +15,17 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use bevy::{app::{First, Plugin, Startup, Update}, prelude::{in_state, Added, Commands, Component, Entity, IntoSystemConfigs, NextState, NonSend, NonSendMut, Query, Res, ResMut}};
+use bevy::{app::{First, Plugin, Startup, Update}, math::Vec3, prelude::{in_state, Added, Commands, Component, Entity, IntoSystemConfigs, NextState, NonSend, NonSendMut, Query, Res, ResMut}};
 use futures_util::TryStreamExt;
 use log::{debug, info};
-use obj_params::{GameObjectData, tag_gameobject_entity};
+use obj_params::{tag_gameobject_entity, Class, GameObjectData, NonClientBase};
 use realm_api::{ObjectPlacement, ObjectTemplate, RealmApi};
 use tokio::sync::mpsc::{Receiver, Sender};
 use toolkit::types::Uuid;
 
 use crate::instance::{InstanceState, ZoneInstance};
 
-use super::Shared;
+use super::{AvatarIdManager, AvatarInfo, EnabledInGame, ForeignResource};
 
 struct Content(Option<(ObjectPlacement, Arc<ObjectTemplate>)>);
 
@@ -41,7 +41,7 @@ impl Plugin for LoaderPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         let (content_sender, content_receiver) = tokio::sync::mpsc::channel::<Content>(100);
 
-        app.insert_resource(Shared(content_receiver));
+        app.insert_resource(ForeignResource(content_receiver));
 
         app.add_systems(First, (
                 ingest_content.run_if(in_state(InstanceState::Initializing)),
@@ -72,8 +72,6 @@ impl Plugin for LoaderPlugin {
                     continue;
                 };
 
-                debug!("Loaded placement: {:?}", placement.id);
-
                 if content_sender.send(Content(Some((placement, template)))).await.is_err() {
                     return;
                 }
@@ -86,21 +84,30 @@ impl Plugin for LoaderPlugin {
 }
 
 fn ingest_content(
-    mut receiver: ResMut<Shared<Receiver<Content>>>,
+    mut receiver: ResMut<ForeignResource<Receiver<Content>>>,
     mut next_state: ResMut<NextState<InstanceState>>,
+    mut avatar_manager: ResMut<AvatarIdManager>,
     mut commands: Commands,
 ) {
     while let Ok(Content(content)) = receiver.try_recv() {
         if let Some((mut placement, template)) = content {
             placement.data.merge(template.data.clone());
 
-            commands.spawn((
+            let entry = avatar_manager.new_avatar_entry();
+
+            let entity = commands.spawn((
+                AvatarInfo {
+                    id: *entry.key(),
+                    name: placement.editor_name,
+                },
                 ContentInfo {
                     placement_id: placement.id,
                     template_id: template.id,
                 },
                 placement.data
-            ));
+            )).id();
+
+            entry.insert(entity);
         } else {
             debug!("Done receiving");
             next_state.set(InstanceState::Running);
@@ -108,11 +115,22 @@ fn ingest_content(
     }
 }
 
-fn tag_gameobjects(
+pub fn tag_gameobjects(
     added: Query<(Entity, &GameObjectData), Added<GameObjectData>>,
     mut commands: Commands,
 ) {
     for (ent, obj) in added.iter() {
         tag_gameobject_entity(obj, &mut commands.entity(ent));
+
+        if 
+            (
+                !*obj.get(NonClientBase::HiddenFromClients).unwrap_or(&false) ||
+                obj.get::<_, Vec3>(NonClientBase::Pos).is_ok()
+            ) &&
+            !matches!(obj.class(), Class::Spawner) &&
+            !matches!(obj.class(), Class::Player)
+        {
+            commands.entity(ent).insert(EnabledInGame);
+        }
     }
 }

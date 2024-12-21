@@ -13,23 +13,26 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::ops::{Deref, DerefMut};
+use bevy::{app::Plugin, prelude::{App, Entity, In, Query}};
+use protocol::{oaPktFriendRequest, CPkt, CPktStream_167_0};
 
-use bevy::prelude::Resource;
+use crate::plugins::NetworkExtPriv;
 
-#[derive(Resource)]
-pub struct ForeignResource<T: Send + Sync>(pub T);
+use super::PlayerController;
 
-impl <T: Send + Sync> Deref for ForeignResource<T> {
-    type Target = T;
+pub struct SocialPlugin;
 
-    fn deref(&self) -> &T {
-        &self.0
+impl Plugin for SocialPlugin {
+    fn build(&self, app: &mut App) {
+        app.register_message_handler::<oaPktFriendRequest, _, _>(handle_oapkt_friend_request);
     }
 }
 
-impl <T: Send + Sync> DerefMut for ForeignResource<T> {
-    fn deref_mut(&mut self) -> &mut T {
-        &mut self.0
+fn handle_oapkt_friend_request(
+    In((ent, _pkt)): In<(Entity, CPkt)>,
+    query: Query<&PlayerController>,
+) {
+    if let Ok(controller) = query.get(ent) {
+        controller.send_packet(CPktStream_167_0::default());
     }
 }
