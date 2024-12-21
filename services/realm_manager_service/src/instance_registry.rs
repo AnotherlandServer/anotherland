@@ -221,6 +221,11 @@ impl InstanceRegistry {
         let s = self.0.read().await;
         s.instances.get(&key).cloned()
     }
+
+    pub async fn purge_node(&self, node: Uuid) {
+        let mut s = self.0.write().await;
+        s.instances.retain(|_, instance| instance.node != node);
+    }
 }
 
 pub struct Instance {

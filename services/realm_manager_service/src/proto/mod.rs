@@ -89,7 +89,6 @@ pub enum NodeType {
     Frontend,
     Cluster,
     World,
-    Dungeon,
 }
 
 impl Display for NodeType {
@@ -98,7 +97,6 @@ impl Display for NodeType {
             NodeType::Frontend => f.write_str("Frontend"),
             NodeType::Cluster => f.write_str("Cluster"),
             NodeType::World => f.write_str("World"),
-            NodeType::Dungeon => f.write_str("Dungeon"),
         }
     }
 }

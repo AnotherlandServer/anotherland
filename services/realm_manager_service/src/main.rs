@@ -28,7 +28,7 @@ use cluster::{ClusterEvent, Endpoint, Host, PeerIdentity};
 use core_api::CoreApi;
 use core_api::proto::{CoreRequest, CoreClient, CoreNotification};
 use database::{DatabaseExt, DatabaseRecord};
-use db::{Character, ObjectPlacement, ObjectTemplate, PremiumCurrency, PremiumCurrencyTransaction, WorldDef, Zone};
+use db::{CashShopItem, CashShopItemBundle, CashShopVendor, Character, ObjectPlacement, ObjectTemplate, PremiumCurrency, PremiumCurrencyTransaction, WorldDef, Zone};
 use error::RealmResult;
 use instance_registry::InstanceRegistry;
 use log::{error, info, warn};
@@ -36,7 +36,7 @@ use mongodb::bson::doc;
 use mongodb::{Client, Database};
 use node_registry::{NodeRegistry, NodeSocketAddress};
 use poem::{listener::TcpListener, post, Route, Server};
-use proto::{NodeAddress, RealmNotification, RealmServer};
+use proto::{NodeAddress, NodeType, RealmNotification, RealmServer};
 use reqwest::Url;
 use schema::{MutationRoot, QueryRoot};
 use session_manager::SessionManager;
@@ -105,6 +105,9 @@ async fn main() -> RealmResult<()> {
     db.init_collection::<Zone>().await;
     db.init_collection::<ObjectPlacement>().await;
     db.init_collection::<ObjectTemplate>().await;
+    db.init_collection::<CashShopItemBundle>().await;
+    db.init_collection::<CashShopItem>().await;
+    db.init_collection::<CashShopVendor>().await;
 
     // Connect to core service
     let (core_client, core_notifications) = CoreClient::connect(&args.core_zmq_addr).await
@@ -116,10 +119,47 @@ async fn main() -> RealmResult<()> {
     let server = Arc::new(RealmServer::bind(&args.zmq_bind_url).await
         .expect("failed to start realm server"));
 
-    let node_registry = NodeRegistry::new(args.realm_id, server.clone(), core_client.clone());
+    let node_registry = NodeRegistry::new(&server);
     let instance_registry = InstanceRegistry::new(db.clone(), server.clone(), node_registry.clone());
     let session_manager = SessionManager::new(core_api.clone(), server.clone()).await?;
     let peer_endpoints = Arc::new(Mutex::new(HashMap::new()));
+
+    {
+        let instance_registry = instance_registry.clone();
+        let core_client = core_client.clone();
+        let mut events = node_registry.subscribe();
+        let realm_id = args.realm_id;
+
+        tokio::spawn(async move {
+            while let Ok(event) = events.recv().await {
+                match event {
+                    node_registry::NodeRegistryEvent::NodeAdded(node) => {
+                        if 
+                            matches!(node.ty, NodeType::Frontend) &&
+                            let NodeSocketAddress::Public(endpoint) = node.addr
+                        {
+                            // Register new frontend node with core server, so clients can connect to it
+                            let _ = core_client.send(CoreRequest::ConnectRealm(realm_id, endpoint)).await;
+                        }
+                    },
+                    node_registry::NodeRegistryEvent::NodeRemoved(node) => {
+                        match node.ty {
+                            proto::NodeType::Frontend => {
+                                if let NodeSocketAddress::Public(endpoint) = node.addr {
+                                    // Unregister frontend node from core server
+                                    let _ = core_client.send(CoreRequest::DisconnectRealm(realm_id, endpoint)).await;
+                                }
+                            },
+                            proto::NodeType::World => {
+                                instance_registry.purge_node(node.id).await;
+                            },
+                            _ => (),
+                        }
+                    }
+                }
+            }
+        });
+    }();
 
     // Start graphql api
     let schema = Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)

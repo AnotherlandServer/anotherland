@@ -20,6 +20,9 @@ mod worlddef;
 mod zone;
 mod object_placement;
 mod object_template;
+mod cash_shop_item_bundle;
+mod cash_shop_item;
+mod cash_shop_vendor;
 
 pub use character::*;
 pub use premium_currency::*;
@@ -28,3 +31,6 @@ pub use worlddef::*;
 pub use zone::*;
 pub use object_placement::*;
 pub use object_template::*;
+pub use cash_shop_item_bundle::*;
+pub use cash_shop_item::*;
+pub use cash_shop_vendor::*;

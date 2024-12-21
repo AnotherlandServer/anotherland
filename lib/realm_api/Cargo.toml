@@ -7,6 +7,7 @@ license = "AGPL-3.0-or-later"
 [dependencies]
 bson = { workspace = true }
 cluster = { workspace = true }
+chrono = { workspace = true }
 cynic = { workspace = true }
 derive_builder = { workspace = true }
 futures = { workspace = true }

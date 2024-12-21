@@ -25,3 +25,4 @@ pub struct Json(pub Value);
 
 impl_scalar!(obj_params::Class, schema::Class);
 impl_scalar!(toolkit::types::Uuid, schema::UUID);
+impl_scalar!(chrono::NaiveDate, schema::NaiveDate);

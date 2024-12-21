@@ -24,6 +24,9 @@ mod object_template;
 mod nodes;
 mod instances;
 mod session_state;
+mod cash_shop_item_bundle;
+mod cash_shop_item;
+mod cash_shop_vendor;
 
 pub use base::*;
 pub use error::*;
@@ -35,6 +38,9 @@ pub use object_template::*;
 pub use nodes::*;
 pub use instances::*;
 pub use session_state::*;
+pub use cash_shop_item_bundle::*;
+pub use cash_shop_item::*;
+pub use cash_shop_vendor::*;
 
 // reexport
 pub use realm_manager_service::proto;

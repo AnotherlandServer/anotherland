@@ -161,6 +161,5 @@ pub(crate) mod node_graphql {
         Frontend,
         Cluster,
         World,
-        Dungeon,
     }
 }
