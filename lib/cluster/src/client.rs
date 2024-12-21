@@ -51,23 +51,31 @@ impl <T: Request + 'static, TR: Response + 'static, N: Notification + 'static>Cl
             tokio::spawn(async move {
                 loop {
                     tokio::select! {
-                        Ok(message) = socket.recv() => {
-                            let identifier = flexbuffers::from_slice::<Identifier>(message.get(0).unwrap()).unwrap();
+                        res = socket.recv() => {
+                            match res {
+                                Ok(message) => {
+                                    let identifier = flexbuffers::from_slice::<Identifier>(message.get(0).unwrap()).unwrap();
                             
-                            match identifier {
-                                Identifier::Response => {
-                                    let response = flexbuffers::from_slice(message.get(1).unwrap()).unwrap();
-                                    let _ = rx_sender.send(response).await;
+                                    match identifier {
+                                        Identifier::Response => {
+                                            let response = flexbuffers::from_slice(message.get(1).unwrap()).unwrap();
+                                            let _ = rx_sender.send(response).await;
+                                        },
+                                        Identifier::Notification => {
+                                            let notification = flexbuffers::from_slice(message.get(2).unwrap()).unwrap();
+                                            let _ = notification_sender.send(notification).await;
+                                        },
+                                        Identifier::Ping => {
+                                            let msg = ZmqMessage::from(flexbuffers::to_vec(Identifier::Pong).unwrap());
+                                            let _ = socket.send(msg).await;
+                                        },
+                                        _ => unreachable!(),
+                                    }
                                 },
-                                Identifier::Notification => {
-                                    let notification = flexbuffers::from_slice(message.get(2).unwrap()).unwrap();
-                                    let _ = notification_sender.send(notification).await;
-                                },
-                                Identifier::Ping => {
-                                    let msg = ZmqMessage::from(flexbuffers::to_vec(Identifier::Pong).unwrap());
-                                    let _ = socket.send(msg).await;
-                                },
-                                _ => unreachable!(),
+                                Err(e) => {
+                                    debug!("Error receiving message: {:?}", e);
+                                    break;
+                                }
                             }
                         },
                         Some(message) = tx_receiver.recv() => {
