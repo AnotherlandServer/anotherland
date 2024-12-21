@@ -19,10 +19,12 @@ mod uuid;
 mod avatarid;
 mod nativeparam;
 mod banner;
+mod quat;
 
 pub use nativeparam::*;
 pub use macros::*;
 pub use banner::*;
+pub use quat::*;
 pub mod types;
 pub mod string_parsers;
 pub mod record_pagination;
