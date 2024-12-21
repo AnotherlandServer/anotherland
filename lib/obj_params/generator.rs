@@ -967,6 +967,14 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         quote!{ #class_id_literal => Some(Self::#class_name), }
     }).collect();
 
+    let class_id: Vec<_> = paramlist.classes.iter().map(|v| {
+        let class = v.borrow();
+        let class_name: syn::Ident = format_ident!("{}", class.name.to_case(Case::UpperCamel));
+        let class_id_literal = class.unique_id;
+
+        quote!{ Self::#class_name =>#class_id_literal, }
+    }).collect();
+
     let class_tag_components: Vec<_> = paramlist.classes.iter().map(|v| {
         let class = v.borrow();
         let class_tag_name: syn::Ident = format_ident!("{}Tag", class.name.to_case(Case::UpperCamel));
@@ -1050,6 +1058,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 match id {
                     #(#class_from_id)*
                     _ => None,
+                }
+            }
+
+            pub fn id(&self) -> u16 {
+                match self {
+                    #(#class_id)*
                 }
             }
 
