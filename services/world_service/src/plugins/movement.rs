@@ -15,7 +15,7 @@
 
 use bevy::{app::{Plugin, PreUpdate}, math::{Quat, Vec3}, prelude::{Added, App, Commands, Component, Entity, In, Query, With, Without}};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase, Player};
-use protocol::{oaPktMoveManagerStateChanged, CPkt, PhysicsState};
+use protocol::{oaPktMoveManagerPosUpdate, oaPktMoveManagerStateChanged, CPkt, PhysicsState};
 use toolkit::OtherlandQuatExt;
 
 use super::NetworkExtPriv;
@@ -27,6 +27,7 @@ impl Plugin for MovementPlugin {
         app.add_systems(PreUpdate, setup_non_client_movement);
 
         app.register_message_handler::<oaPktMoveManagerStateChanged, _, _>(handle_move_manager_state_changed);
+        app.register_message_handler::<oaPktMoveManagerPosUpdate, _, _>(handle_move_manager_pos_update);
     }
 }
 
@@ -39,6 +40,21 @@ pub struct Movement {
     pub mover_type: u8,
     pub mover_replication_policy: u8,
     pub version: u16,
+}
+
+pub fn handle_move_manager_pos_update(
+    In((ent, pkt)): In<(Entity, CPkt)>,
+    mut query: Query<&mut Movement>,
+) {
+    if
+        let Ok(mut movement) = query.get_mut(ent) &&
+        let CPkt::oaPktMoveManagerPosUpdate(pkt) = pkt
+    {
+        movement.mode = pkt.physics.state;
+        movement.position = pkt.pos.into();
+        movement.rotation = pkt.rot.into();
+        movement.velocity = pkt.vel.into();
+    }
 }
 
 pub fn handle_move_manager_state_changed(
