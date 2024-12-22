@@ -23,7 +23,7 @@ use realm_api::{Category, RealmApi, Zone};
 use tokio::runtime::Handle;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, CashShopPlugin, InterestsPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ServerActionPlugin, SocialPlugin}};
+use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, InterestsPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ServerActionPlugin, SocialPlugin}};
 
 #[derive(Default)]
 pub enum ZoneType {
@@ -156,6 +156,7 @@ impl ZoneInstanceBuilder {
         // Game logic plugins
         app.add_plugins((
                 AvatarPlugin,
+                BehaviorPlugin,
                 InterestsPlugin,
                 LoaderPlugin,
                 MovementPlugin,

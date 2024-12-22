@@ -23,6 +23,7 @@ mod social;
 mod server_action;
 mod interests;
 mod cash_shop;
+mod behavior;
 
 pub use network::*;
 pub use loader::*;
@@ -34,3 +35,4 @@ pub use social::*;
 pub use server_action::*;
 pub use interests::*;
 pub use cash_shop::*;
+pub use behavior::*;

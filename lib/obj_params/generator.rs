@@ -1036,7 +1036,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
         #(#param_name_enums)*
 
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
         pub enum Class {
             #(#param_class_enum),*
         }
