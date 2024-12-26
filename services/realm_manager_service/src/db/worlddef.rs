@@ -22,7 +22,9 @@ use toolkit::{types::Uuid, GraphqlCrud};
 #[graphql_crud(name = "worlddef")]
 pub struct WorldDef {
     pub id: u16,
+    #[graphql_crud(filter)]
     pub guid: Uuid,
+    #[graphql_crud(filter)]
     pub name: String,
     pub umap_guid: Uuid,
 }

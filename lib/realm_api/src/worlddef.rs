@@ -13,12 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use worlddef_graphql::{BatchCreateWorlddef, BatchCreateWorlddefVariables, CreateWorlddef, CreateWorlddefVariables, DeleteWorlddef, DeleteWorlddefVariables, GetWorlddef, GetWorlddefVariables, WorldDefInput};
+use derive_builder::Builder;
+use worlddef_graphql::{BatchCreateWorlddef, BatchCreateWorlddefVariables, CreateWorlddef, CreateWorlddefVariables, DeleteWorlddef, DeleteWorlddefVariables, GetWorlddef, GetWorlddefVariables, GetWorlddefs, GetWorlddefsVariables, WorldDefFilter, WorldDefInput};
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
-use futures::io::Cursor;
-use toolkit::types::Uuid;
+use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
 
-use crate::{schema, RealmApi, RealmApiError, RealmApiResult};
+use crate::{RealmApi, RealmApiError, RealmApiResult};
 
 pub struct WorldDef {
     api_base: Option<RealmApi>,
@@ -85,6 +85,67 @@ impl WorldDef {
     }
 }
 
+#[derive(Builder)]
+#[builder(pattern = "owned", build_fn(private))]
+pub struct WorldDefQuery {
+    #[builder(private)]
+    api_base: RealmApi,
+
+    #[builder(setter(strip_option), default)]
+    guid: Option<Uuid>,
+
+    #[builder(setter(strip_option), default)]
+    name: Option<String>,
+}
+
+impl WorldDefQuery {
+    fn get_filter(&self) -> Option<WorldDefFilter<'_>> {
+        if self.guid.is_none() && self.name.is_none() {
+            None
+        } else {
+            Some(WorldDefFilter {
+                guid: self.guid,
+                name: self.name.as_deref()
+            })
+        }
+    }
+}
+
+impl RecordQuery for WorldDefQuery {
+    type Error = RealmApiError;
+    type Record = WorldDef;
+    
+    async fn query_next(&mut self, after: Option<String>, limit: usize) -> Result<RecordPage<Self::Record>, Self::Error> {
+        let response = self.api_base.0.client
+            .post(self.api_base.0.base_url.clone())
+            .run_graphql(GetWorlddefs::build(GetWorlddefsVariables {
+                filter: self.get_filter(),
+                after: after.as_deref(),
+                first: Some(limit as i32)
+            })).await?;
+
+        if let Some(GetWorlddefs { worlddefs }) = response.data {
+            Ok(RecordPage {
+                at_end: !worlddefs.page_info.has_next_page,
+                last_cursor: worlddefs.page_info.end_cursor,
+                records: worlddefs.nodes.into_iter()
+                    .map(|worlddef| WorldDef::from_graphql(&self.api_base, worlddef))
+                    .collect::<Result<Vec<_>, Self::Error>>()?,
+            })
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+impl WorldDefQueryBuilder {
+    pub async fn query(self) -> RealmApiResult<RecordCursor<WorldDefQuery>> {
+        Ok(RecordCursor::new(self.build().unwrap()))
+    }
+}
+
 impl RealmApi {
     pub async fn get_worlddef(&self, id: u16) -> RealmApiResult<Option<WorldDef>> {
         let response = self.0.client
@@ -106,8 +167,9 @@ impl RealmApi {
         }
     }
 
-    pub async fn get_worlddefs(&self) -> RealmApiResult<Cursor<WorldDef>> {
-        todo!()
+    pub fn query_worlddefs(&self) -> WorldDefQueryBuilder {
+        WorldDefQueryBuilder::create_empty()
+            .api_base(self.clone())
     }
 
     pub async fn create_worlddefs(&self, world: WorldDef) -> RealmApiResult<WorldDef> {
@@ -165,6 +227,7 @@ pub(crate) mod worlddef_graphql {
 
     #[derive(cynic::QueryVariables, Debug)]
     pub struct GetWorlddefsVariables<'a> {
+        pub filter: Option<WorldDefFilter<'a>>,
         pub after: Option<&'a str>,
         pub first: Option<i32>,
     }
@@ -185,7 +248,7 @@ pub(crate) mod worlddef_graphql {
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "GetWorlddefsVariables")]
     pub struct GetWorlddefs {
-        #[arguments(after: $after, first: $first)]
+        #[arguments(filter: $filter, after: $after, first: $first)]
         pub worlddefs: WorldDefConnection,
     }
 
@@ -208,6 +271,13 @@ pub(crate) mod worlddef_graphql {
     pub struct PageInfo {
         pub has_next_page: bool,
         pub end_cursor: Option<String>,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct WorldDefFilter<'a> {
+        pub guid: Option<Uuid>,
+        pub name: Option<&'a str>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]
