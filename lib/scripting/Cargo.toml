@@ -1,0 +1,16 @@
+[package]
+name = "scripting"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+bevy = { workspace = true }
+derive_builder = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+toolkit = { workspace = true }
+obj_params = { workspace = true }
+mlua = { workspace = true }
+notify = "7.0.0"
+notify-debouncer-full = "0.4.0"
