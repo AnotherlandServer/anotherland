@@ -17,11 +17,12 @@ use std::vec::IntoIter;
 
 use glam::f32::Vec3;
 use log::error;
+use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt};
 use nom::{IResult, error::{VerboseError, context}, number::complete::{le_u8, le_f32, le_f64, le_i32, le_u64, le_u32, le_i64}, multi::count, bytes::complete::take, combinator::{map, fail}};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
 
-use crate::types::{AvatarId, Uuid};
+use crate::{types::{AvatarId, Uuid}, Vec3Wrapper};
 
 use crate::string_parsers::parse_pkt_cstring;
 
@@ -328,4 +329,46 @@ impl NativeParam {
     }
 }
 
+impl IntoLua for NativeParam {
+    fn into_lua(self, lua: &mlua::Lua) -> mlua::Result<mlua::Value> {
+        match self {
+            NativeParam::Invalid => Ok(lua.null()),
+            NativeParam::Byte(v) => v.into_lua(lua),
+            NativeParam::Float(v) => v.into_lua(lua),
+            NativeParam::Double(v) => v.into_lua(lua),
+            NativeParam::Int(v) => v.into_lua(lua),
+            NativeParam::String(v) => v.into_lua(lua),
+            NativeParam::Struct(vec) => {
+                lua.create_table_from(
+                    vec.into_iter()
+                        .enumerate()   
+                        .map(|(k, v)| {
+                            v.into_lua(lua)
+                                .map(|v| (k, v))
+                        })
+                        .collect::<mlua::Result<Vec<(_, _)>>>()?
+                )?.into_lua(lua)
+            },
+            NativeParam::Guid(uuid) => uuid.to_string().into_lua(lua),
+            NativeParam::AvatarId(v) => v.into_lua(lua),
+            NativeParam::Vector3(vec3) => Vec3Wrapper(vec3).into_lua(lua),
+            NativeParam::Bool(v) => v.into_lua(lua),
+            NativeParam::JsonValue(v) => v.into_lua(lua),
+            NativeParam::IntArray(vec) => vec.into_lua(lua),
+            NativeParam::LongLong(v) => v.into_lua(lua),
+            NativeParam::Buffer(vec) => vec.into_lua(lua),
+            NativeParam::UInt(v) => v.into_lua(lua),
+            NativeParam::GuidArray(vec) => vec.into_iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .into_lua(lua),
+            NativeParam::StringArray(vec) => vec.into_lua(lua),
+        }
+    }
+}
 
+impl FromLua for NativeParam {
+    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
+        todo!()
+    }
+}
