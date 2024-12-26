@@ -5667,6 +5667,7 @@ checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
 [[package]]
 name = "zeromq"
 version = "0.4.1"
+source = "git+https://github.com/plehmkuhl/zmq.rs.git#4f8062f5331512058ecc14e322be0fab6dcec6c0"
 dependencies = [
  "async-trait",
  "asynchronous-codec",
