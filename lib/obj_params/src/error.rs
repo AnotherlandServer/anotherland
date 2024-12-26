@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::Infallible;
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -28,6 +30,9 @@ pub enum ParamError {
 
     #[error("type mismatch")]
     TypeMismatch,
+
+    #[error(transparent)]
+    Infallible(#[from] Infallible)
 }
 
 pub type ParamResult<T> = Result<T, ParamError>;

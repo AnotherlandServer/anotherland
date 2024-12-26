@@ -62,6 +62,28 @@ impl GameObjectData {
         self.0.set_param(attr.name(), val.into())
     }
 
+    pub fn get_named<'a, V>(&'a self, attr: &str) -> ParamResult<&'a V>
+        where 
+            &'a V: TryFrom<&'a Value>,
+            <&'a V as TryFrom<&'a Value>>::Error: Into<ParamError>
+
+    {
+        if let Some(value) = self.0.get_param(attr) {
+            value.try_into()
+                .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
+        } else {
+            self.0.class().get_attribute(attr)
+                .ok_or(ParamError::UnknownAttributeName)?
+                .default()
+                .try_into()
+                .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
+        }
+    }
+
+    pub fn set_named<V: Into<Value>>(&mut self, attr: &str, val: V) -> Option<Value> {
+        self.0.set_param(attr, val.into())
+    }
+
     pub fn apply(&mut self, mut set: impl GenericParamSet) {
         for (attr, value) in set.drain() {
             self.0.set_param(attr.name(), value);

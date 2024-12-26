@@ -1042,13 +1042,13 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         }
 
         impl Class {
-            pub(crate) fn get_attribute(&self, attr: &str) -> Option<&'static dyn AttributeInfo> {
+            pub fn get_attribute(&self, attr: &str) -> Option<&'static dyn AttributeInfo> {
                 match self {
                     #(#class_get_attribute),*
                 }
             }
 
-            pub(crate) fn get_attribute_from_id(&self, attr: u16) -> Option<&'static dyn AttributeInfo> {
+            pub fn get_attribute_from_id(&self, attr: u16) -> Option<&'static dyn AttributeInfo> {
                 match self {
                     #(#class_get_attribute_by_id),*
                 }
