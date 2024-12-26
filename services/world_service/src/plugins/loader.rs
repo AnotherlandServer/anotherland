@@ -17,9 +17,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use bevy::{app::{First, Plugin, Startup, Update}, math::Vec3, prelude::{in_state, Added, Commands, Component, Entity, IntoSystemConfigs, NextState, NonSend, NonSendMut, Query, Res, ResMut}};
 use futures_util::TryStreamExt;
-use log::{debug, info};
+use log::{debug, error, info};
 use obj_params::{tag_gameobject_entity, Class, GameObjectData, NonClientBase};
 use realm_api::{ObjectPlacement, ObjectTemplate, RealmApi};
+use scripting::{LuaRuntime, ScriptCommandsExt, Scripted};
 use tokio::sync::mpsc::{Receiver, Sender};
 use toolkit::types::Uuid;
 
@@ -45,7 +46,7 @@ impl Plugin for LoaderPlugin {
 
         app.add_systems(First, (
                 ingest_content.run_if(in_state(InstanceState::Initializing)),
-                tag_gameobjects
+                init_gameobjects,
             ).chain());
 
         let instance = app.world().get_resource::<ZoneInstance>().unwrap();
@@ -115,7 +116,7 @@ fn ingest_content(
     }
 }
 
-pub fn tag_gameobjects(
+pub fn init_gameobjects(
     added: Query<(Entity, &GameObjectData), Added<GameObjectData>>,
     mut commands: Commands,
 ) {

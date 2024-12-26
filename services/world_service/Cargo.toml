@@ -28,8 +28,10 @@ protocol = { workspace = true }
 realm_api = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
+scripting = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 toolkit = { workspace = true }
 obj_params = { workspace = true }
 rand.workspace = true
+mlua = { workspace = true }

@@ -32,6 +32,9 @@ pub enum WorldError {
     ParamError(#[from] obj_params::ParamError),
 
     #[error(transparent)]
+    ScriptError(#[from] scripting::ScriptError),
+
+    #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
 
     #[error("unknown zone type `{0}`")]
@@ -39,6 +42,9 @@ pub enum WorldError {
 
     #[error("unknown instance type `{0}`")]
     UnknownInstanceType(i32),
+
+    #[error(transparent)]
+    LuaError(#[from] mlua::Error),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error)

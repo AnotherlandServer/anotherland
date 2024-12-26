@@ -18,12 +18,14 @@ use std::{str::FromStr, sync::Arc};
 use bevy::{app::{First, Main, MainSchedulePlugin, ScheduleRunnerPlugin, SubApp}, ecs::{event::{event_update_condition, event_update_system, EventUpdates}, intern::Interned, schedule::ScheduleLabel}, prelude::{AppExtStates, AppTypeRegistry, IntoSystemConfigs, Resource, States}, state::app::StatesPlugin, tasks::futures_lite::StreamExt, MinimalPlugins};
 use core_api::CoreApi;
 use derive_builder::Builder;
+use log::debug;
 use obj_params::{Class, OaZoneConfig};
-use realm_api::{Category, RealmApi, Zone};
+use realm_api::{Category, RealmApi, WorldDef, Zone};
+use scripting::{LuaRuntimeBuilder, ScriptingPlugin};
 use tokio::runtime::Handle;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, InterestsPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ServerActionPlugin, SocialPlugin}};
+use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, InterestsPlugin, LoaderPlugin, ScriptObjectInfoPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ServerActionPlugin, SocialPlugin}, ARGS};
 
 #[derive(Default)]
 pub enum ZoneType {
@@ -95,6 +97,9 @@ pub struct ZoneInstance {
     pub handle: Handle,
 
     #[builder(setter(strip_option))]
+    pub world_def: Arc<WorldDef>,
+
+    #[builder(setter(strip_option))]
     pub zone: Arc<Zone>,
 
     #[builder(default, setter(skip))]
@@ -108,6 +113,8 @@ impl ZoneInstanceBuilder {
     pub async fn instantiate(self) -> WorldResult<SubApp> {
         let mut app = SubApp::new();
         let mut instance = self.build()?;
+
+        let world_def = instance.world_def.clone();
 
         if let Some(config) = instance.realm_api.query_object_templates()
             .category(Category::Misc)
@@ -151,7 +158,21 @@ impl ZoneInstanceBuilder {
         app.init_state::<InstanceState>();
         app.insert_resource(instance);
         // Core plugins
-        app.add_plugins(NetworkPlugin);
+        app.add_plugins((
+            NetworkPlugin,
+            ScriptingPlugin,
+            ScriptObjectInfoPlugin,
+        ));
+
+        app.insert_resource(
+            LuaRuntimeBuilder::default()
+                .hot_reload(ARGS.hot_reload)
+                .add_require_lookup_directory("./content/lua")
+                .add_require_lookup_directory("./content/lua/base")
+                .add_require_lookup_directory("./content/lua/scripts")
+                .add_require_lookup_directory(format!("./content/lua/scripts/{}", world_def.name()))
+                .build()?
+        );
 
         // Game logic plugins
         app.add_plugins((

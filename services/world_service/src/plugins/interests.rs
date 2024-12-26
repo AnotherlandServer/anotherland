@@ -84,6 +84,8 @@ fn update_interest_list(
                 if !interests.interests.contains(&interest_ent) && interest_count < 10 {
                     interests.interests.insert(interest_ent);
 
+                    debug!("Sending {}", interest_info.name);
+
                     let mut data = Vec::new();
                     {
                         let mut writer = ByteWriter::endian(&mut data, LittleEndian);

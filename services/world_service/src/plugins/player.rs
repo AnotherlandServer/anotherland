@@ -19,12 +19,13 @@ use log::debug;
 use obj_params::{GameObjectData, ParamWriter, Player};
 use protocol::{oaPktS2XConnectionState, CPkt, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, OtherlandPacket, Physics, PhysicsState};
 use realm_api::Character;
+use scripting::LuaRuntime;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::OtherlandQuatExt;
 
 use crate::{instance::ZoneInstance, plugins::ForeignResource};
 
-use super::{tag_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, CurrentState, EnabledInGame, Movement, PlayerController, ServerAction};
+use super::{init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, CurrentState, EnabledInGame, Movement, PlayerController, ServerAction};
 
 pub struct PlayerPlugin;
 
@@ -37,7 +38,7 @@ impl Plugin for PlayerPlugin {
 
         app.add_systems(First, (
             request_player_characters, 
-            insert_player_characters.before(tag_gameobjects)
+            insert_player_characters.before(init_gameobjects)
         ));
 
         app.add_systems(Update, spawn_player);
@@ -65,6 +66,7 @@ fn request_player_characters(
 
 fn insert_player_characters(
     mut receiver: ResMut<ForeignResource<Receiver<(Entity, Character)>>>,
+    mut runtime: ResMut<LuaRuntime>,
     controller: Query<&PlayerController>,
     instance: Res<ZoneInstance>,
     mut avatar_id_manager: ResMut<AvatarIdManager>,

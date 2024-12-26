@@ -47,27 +47,30 @@ mod plugins;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
-struct Cli {
+pub struct Cli {
     #[arg(long, env = "SERVICE_CORE_API_URL", default_value = "http://127.0.0.1:8000")]
-    service_core_url: Url,
+    pub service_core_url: Url,
 
     #[arg(long, env = "SERVICE_REALM_API_URL", default_value = "http://127.0.0.1:8001")]
-    service_realm_url: Url,
+    pub service_realm_url: Url,
 
     #[arg(long, env = "REALM_ZMQ_ADDR", default_value = "tcp://127.0.0.1:15001")]
-    realm_zmq_addr: String,
+    pub realm_zmq_addr: String,
 
     #[arg(long, env = "ZMQ_BIND_ADDR", default_value = "tcp://127.0.0.1:15002")]
-    zmq_bind_url: String,
+    pub zmq_bind_url: String,
 
     #[arg(long, env = "INSTANCE_LIMIT", default_value_t = 100)]
-    instance_limit: usize,
+    pub instance_limit: usize,
 
     #[arg(long, env = "ZONE_GROUPS")]
-    zone_groups: Option<String>,
+    pub zone_groups: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub hot_reload: bool,
 }
 
-static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
+pub static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
 
 fn handle_realm_events(manager: InstanceManager, mut notifications: mpsc::Receiver<RealmNotification>) {
     tokio::spawn(async move {

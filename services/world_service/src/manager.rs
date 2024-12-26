@@ -19,16 +19,17 @@ use bevy::{app::{App, AppExit, Plugin, SubApp}, MinimalPlugins};
 use chrono::{DateTime, Utc};
 use core_api::CoreApi;
 use futures_util::TryStreamExt;
-use log::{debug, info};
+use log::{debug, error, info};
 use obj_params::OaZoneConfig;
 use protocol::CPkt;
-use realm_api::{proto::{InstanceKey, RealmClient, RealmRequest}, ObjectTemplate, RealmApi, Zone};
+use realm_api::{proto::{InstanceKey, RealmClient, RealmRequest}, ObjectTemplate, RealmApi, WorldDef, Zone};
 use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, oneshot, Mutex}};
 use toolkit::types::{Uuid, UUID_NIL};
 
 use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, plugins::{ControllerEvent, WorldEvent}, ARGS};
 
 struct PendingInstance {
+    world_def: Arc<WorldDef>,
     zone: Arc<Zone>,
     key: Option<Uuid>,
     valid_until: DateTime<Utc>,
@@ -39,6 +40,7 @@ struct InstanceManagerData {
     core_api: CoreApi,
     realm_client: Arc<RealmClient>,
     zones: HashMap<Uuid, Arc<Zone>>,
+    worlds: HashMap<Uuid, Arc<WorldDef>>,
     requests: HashMap<Uuid, PendingInstance>,
     instances: HashMap<Uuid, InstanceLabel>,
     event_sender: mpsc::Sender<InstanceEvent>,
@@ -69,6 +71,14 @@ impl InstanceManager {
         limit: usize, 
         groups: &[&str]
     ) -> WorldResult<Self> {
+        // Query worlds
+        let mut worlds = HashMap::new();
+        let mut cursor = realm_api.query_worlddefs().query().await?;
+        while let Ok(Some(world)) = cursor.try_next().await {
+            worlds.insert(*world.guid(), Arc::new(world));
+        }
+
+        // Query zones
         let mut zones = vec![];
         
         if groups.is_empty() {
@@ -94,6 +104,8 @@ impl InstanceManager {
 
             info!("Serving zones for groups: {:?}", groups);
         }
+
+
         
         Ok(Self(Arc::new(Mutex::new(InstanceManagerData { 
             realm_api,
@@ -102,6 +114,7 @@ impl InstanceManager {
             zones: zones.into_iter()
                 .map(|zone| (*zone.guid(), Arc::new(zone)))
                 .collect(),
+            worlds,
             requests: HashMap::new(),
             instances: HashMap::new(),
             event_sender,
@@ -140,20 +153,25 @@ impl InstanceManager {
                 }
             }
 
-            // Insert request to pending requests
-            s.requests.insert(transaction_id, PendingInstance { 
-                zone: zone.clone(),
-                key,
-                valid_until
-            });
+            if let Some(world_def) = s.worlds.get(zone.worlddef_guid()).cloned() {
+                // Insert request to pending requests
+                s.requests.insert(transaction_id, PendingInstance {
+                    world_def,
+                    zone: zone.clone(),
+                    key,
+                    valid_until
+                });
 
-            debug!("Offering instance for zone {} with key {:?} until {}", zone.guid(), key, valid_until);
+                debug!("Offering instance for zone {} with key {:?} until {}", zone.guid(), key, valid_until);
 
-            // Offer instance to realm
-            let _ = s.realm_client.send(RealmRequest::InstanceOffering { 
-                transaction_id,
-                key: InstanceKey::new(*zone.guid(), key),
-            }).await;
+                // Offer instance to realm
+                let _ = s.realm_client.send(RealmRequest::InstanceOffering { 
+                    transaction_id,
+                    key: InstanceKey::new(*zone.guid(), key),
+                }).await;
+            } else {
+                error!("Can't offer zone {}, world not found!", zone.guid());
+            }
         } else {
             debug!("Zone {} not served by this server.", zone);
         }
@@ -170,7 +188,8 @@ impl InstanceManager {
     pub async fn provision_instance(&self, transaction_id: Uuid) {
         let mut s = self.0.lock().await;
         if let Some(req) = s.requests.remove(&transaction_id) {
-            if let Ok(instance) = ZoneInstanceBuilder::default()
+            match ZoneInstanceBuilder::default()
+                .world_def(req.world_def.clone())
                 .zone(req.zone.clone())
                 .realm_api(s.realm_api.clone())
                 .core_api(s.core_api.clone())
@@ -178,13 +197,18 @@ impl InstanceManager {
                 .instance_id(req.key)
                 .instantiate().await
             {
-                s.instances.insert(*req.zone.guid(), instance.label());
-                
-                let _ = s.realm_client.send(RealmRequest::InstanceProvisioned { 
-                    transaction_id 
-                }).await;
-
-                let _ = s.event_sender.send(InstanceEvent::InstanceAdded(Box::new(instance))).await;
+                Ok(instance) => {
+                    s.instances.insert(*req.zone.guid(), instance.label());
+                    
+                    let _ = s.realm_client.send(RealmRequest::InstanceProvisioned { 
+                        transaction_id 
+                    }).await;
+    
+                    let _ = s.event_sender.send(InstanceEvent::InstanceAdded(Box::new(instance))).await;
+                },
+                Err(e) => {
+                    error!("Failed to instantiate instance: {:?}", e);
+                }
             }
         }
     }
