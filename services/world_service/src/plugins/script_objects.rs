@@ -41,7 +41,13 @@ pub fn attach_scripts(
             let Ok(script) = obj.get::<_, String>(NonClientBase::LuaScript) &&
             !script.is_empty()
         {
-            match runtime.create_scripted_entity(script) {
+            let api_type = match obj.class() {
+                Class::NpcBase => ApiType::Npc,
+                Class::NpcOtherland => ApiType::Npc,
+                _ => ApiType::Script,
+            };
+
+            match runtime.create_scripted_entity(api_type, script) {
                 Ok(script) => {
                     commands.entity(ent)
                         .insert(script)
@@ -59,6 +65,16 @@ pub fn attach_scripts(
                         .call_named_lua_method(ScriptApi::Attach, ());
                 },
                 Err(e) => { error!("Failed to create scripted player: {}", e); }
+            }
+        } else if obj.class() == Class::NpcOtherland { // Generic NPC script
+            match runtime.create_scripted_entity(ApiType::Npc, ApiType::Npc.base()) {
+                Ok(script) => {
+                    commands.entity(ent)
+                        .insert(script)
+                        .queue(insert_avatar_info)
+                        .call_named_lua_method(ScriptApi::Attach, ());
+                },
+                Err(e) => { error!("Failed to create script '{}': {}", ApiType::Npc.base(), e); }
             }
         }
     }

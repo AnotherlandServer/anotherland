@@ -135,6 +135,7 @@ impl LuaRuntimeBuilder {
 pub enum ApiType {
     Script,
     Player,
+    Npc,
 }
 
 impl ApiType {
@@ -142,6 +143,7 @@ impl ApiType {
         match self {
             ApiType::Script => "SCRIPT",
             ApiType::Player => "PLAYER",
+            ApiType::Npc => "NPC",
         }
     }
 
@@ -149,6 +151,7 @@ impl ApiType {
         match self {
             ApiType::Script => "_script",
             ApiType::Player => "_player",
+            ApiType::Npc => "_npc",
         }
     }
 }
@@ -230,10 +233,6 @@ impl LuaRuntime {
         } else {
             Err(anyhow::Error::msg("file not found").into())
         }
-    }
-
-    pub fn load_script(&mut self, name: &str) -> ScriptResult<Table> {
-        self.load_scripted_class(ApiType::Script, name)
     }
 
     fn hot_reload_script(&mut self, path: &Path) -> ScriptResult<()> {

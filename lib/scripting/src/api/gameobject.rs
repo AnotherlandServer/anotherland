@@ -54,7 +54,7 @@ fn gameobject_set(lua: &Lua, (this, index, value): (Table, String, Value)) -> Re
             let attr = gameobject.class().get_attribute(&index)
                 .ok_or(mlua::Error::runtime("attribute not found"))?;
 
-            let value = ParamValue::from_lua(attr, value)?;
+            let value = ParamValue::from_lua(attr, value, lua)?;
 
             if let Some(prev_val) = gameobject.set_named(&index, value) {
                 ParamValue::new(prev_val).into_lua(lua)

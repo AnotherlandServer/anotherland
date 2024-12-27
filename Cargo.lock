@@ -4066,6 +4066,8 @@ dependencies = [
  "notify",
  "notify-debouncer-full",
  "obj_params",
+ "serde",
+ "serde_json",
  "thiserror 2.0.8",
  "toolkit",
 ]

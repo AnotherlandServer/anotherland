@@ -13,11 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
+use std::{collections::{HashMap, HashSet}, str::FromStr};
 
-use mlua::{IntoLua, Lua, LuaSerdeExt, Value};
+use mlua::{IntoLua, FromLua, Lua, LuaSerdeExt, Value};
 use obj_params::{AttributeInfo, ParamType};
-use toolkit::{QuatWrapper, Vec3Wrapper, Vec4Wrapper};
+use toolkit::{types::{AvatarId, Uuid}, QuatWrapper, Vec3Wrapper, Vec4Wrapper};
 
 pub struct ParamValue(obj_params::Value);
 
@@ -26,9 +26,9 @@ impl ParamValue {
         Self(val)
     }
 
-    pub fn from_lua(attr: &'static dyn AttributeInfo, val: Value) -> Result<Self, mlua::Error> {
+    pub fn from_lua(attr: &'static dyn AttributeInfo, val: Value, lua: &Lua) -> Result<Self, mlua::Error> {
         let param_val = match attr.datatype() {
-            ParamType::String => obj_params::Value::String(val.to_string()?),
+            ParamType::String => obj_params::Value::String(String::from_lua(val, lua)?),
             ParamType::StringPair => {
                 let tbl = val.as_table().ok_or(mlua::Error::runtime("string pair expected"))?;
                 obj_params::Value::StringPair((
@@ -52,42 +52,91 @@ impl ParamValue {
 
                 obj_params::Value::StringSet(set)
             },
-            ParamType::Guid => todo!(),
-            ParamType::GuidPair => todo!(),
-            ParamType::Bool => todo!(),
-            ParamType::Int => todo!(),
-            ParamType::BitField128 => todo!(),
-            ParamType::BitSetFilter => todo!(),
-            ParamType::Float => todo!(),
-            ParamType::FloatRange => todo!(),
-            ParamType::Vector3 => todo!(),
-            ParamType::Vector3Uts => todo!(),
-            ParamType::Vector4 => todo!(),
-            ParamType::LocalizedString => todo!(),
-            ParamType::AvatarId => todo!(),
-            ParamType::UniqueId => todo!(),
-            ParamType::JsonValue => todo!(),
-            ParamType::Int64 => todo!(),
-            ParamType::Quarternion => todo!(),
-            ParamType::Positionable => todo!(),
-            ParamType::ContentRef => todo!(),
-            ParamType::ContentRefAndInt => todo!(),
-            ParamType::ContentRefAndFloat => todo!(),
-            ParamType::ContentRefList => todo!(),
-            ParamType::ClassRefPowerRangeList => todo!(),
-            ParamType::VectorInt => todo!(),
-            ParamType::VectorInt64 => todo!(),
-            ParamType::VectorFloat => todo!(),
-            ParamType::VectorString => todo!(),
-            ParamType::AvatarIdSet => todo!(),
-            ParamType::VectorAvatarId => todo!(),
-            ParamType::GuidSet => todo!(),
-            ParamType::VectorGuid => todo!(),
-            ParamType::HashmapStringInt => todo!(),
-            ParamType::HashmapStringString => todo!(),
-            ParamType::Any => todo!(),
-            ParamType::VectorLocalizedString => todo!(),
-            ParamType::InstanceGroup => todo!(),
+            ParamType::Guid => obj_params::Value::Guid(String::from_lua(val, lua)?.parse().map_err(mlua::Error::external)?),
+            ParamType::GuidPair => {
+                let tbl = val.as_table().ok_or(mlua::Error::runtime("guid pair expected"))?;
+                obj_params::Value::GuidPair((
+                    tbl.get::<String>(1)?.parse().map_err(mlua::Error::external)?,
+                    tbl.get::<String>(2)?.parse().map_err(mlua::Error::external)?,
+                ))
+            },
+            ParamType::Bool => obj_params::Value::Bool(bool::from_lua(val, lua)?),
+            ParamType::Int => obj_params::Value::Int(i32::from_lua(val, lua)?),
+            ParamType::BitField128 => obj_params::Value::BitField128(u128::from_lua(val, lua)?),
+            ParamType::BitSetFilter => obj_params::Value::BitSetFilter(u32::from_lua(val, lua)?),
+            ParamType::Float => obj_params::Value::Float(f32::from_lua(val, lua)?),
+            ParamType::FloatRange => {
+                let tbl = val.as_table().ok_or(mlua::Error::runtime("float pair expected"))?;
+                obj_params::Value::FloatRange((
+                    tbl.get::<f32>(1)?,
+                    tbl.get::<f32>(2)?,
+                ))
+            },
+            ParamType::Vector3 => obj_params::Value::Vector3(Vec3Wrapper::from_lua(val, lua)?.0),
+            ParamType::Vector3Uts => {
+                let tbl = val.as_table().ok_or(mlua::Error::runtime("float pair expected"))?;
+                obj_params::Value::Vector3Uts((
+                    tbl.get::<u32>(1)?,
+                    tbl.get::<Vec3Wrapper>(2)?.0,
+                ))
+            },
+            ParamType::Vector4 => obj_params::Value::Vector4(Vec4Wrapper::from_lua(val, lua)?.0),
+            ParamType::LocalizedString => obj_params::Value::LocalizedString(val.to_string()?.parse().map_err(mlua::Error::external)?),
+            ParamType::AvatarId => obj_params::Value::AvatarId(AvatarId::from_u64(u64::from_lua(val, lua)?)),
+            ParamType::UniqueId => obj_params::Value::UniqueId(i32::from_lua(val, lua)?),
+            ParamType::JsonValue => obj_params::Value::JsonValue(serde_json::to_value(val).map_err(mlua::Error::external)?),
+            ParamType::Int64 => obj_params::Value::Int64(i64::from_lua(val, lua)?),
+            ParamType::Quarternion => obj_params::Value::Quarternion(QuatWrapper::from_lua(val, lua)?.0),
+            ParamType::Positionable => {
+                let tbl = val.as_table().ok_or(mlua::Error::runtime("positionable expected"))?;
+                obj_params::Value::Positionable(
+                    tbl.get::<QuatWrapper>(1)?.0,
+                    tbl.get::<Vec3Wrapper>(2)?.0,
+                )
+            },
+            ParamType::ContentRef => obj_params::Value::ContentRef(String::from_lua(val, lua)?),
+            ParamType::ContentRefAndInt => obj_params::Value::ContentRefAndInt(String::from_lua(val, lua)?),
+            ParamType::ContentRefAndFloat => obj_params::Value::ContentRefAndFloat(String::from_lua(val, lua)?),
+            ParamType::ContentRefList => obj_params::Value::ContentRefList(String::from_lua(val, lua)?),
+            ParamType::ClassRefPowerRangeList => obj_params::Value::ClassRefPowerRangeList(String::from_lua(val, lua)?),
+            ParamType::VectorInt => obj_params::Value::VectorInt(Vec::<i32>::from_lua(val, lua)?),
+            ParamType::VectorInt64 => obj_params::Value::VectorInt64(Vec::<i64>::from_lua(val, lua)?),
+            ParamType::VectorFloat => obj_params::Value::VectorFloat(Vec::<f32>::from_lua(val, lua)?),
+            ParamType::VectorString => obj_params::Value::VectorString(Vec::<String>::from_lua(val, lua)?),
+            ParamType::AvatarIdSet => obj_params::Value::AvatarIdSet(
+                Vec::<u64>::from_lua(val, lua)?
+                    .into_iter()
+                    .map(AvatarId::from_u64)
+                    .collect()
+            ),
+            ParamType::VectorAvatarId => obj_params::Value::VectorAvatarId(
+                Vec::<u64>::from_lua(val, lua)?
+                    .into_iter()
+                    .map(AvatarId::from_u64)
+                    .collect()
+            ),
+            ParamType::GuidSet => obj_params::Value::GuidSet(
+                Vec::<String>::from_lua(val, lua)?
+                    .into_iter()
+                    .map(|s| Uuid::from_str(&s).map_err(mlua::Error::external))
+                    .collect::<mlua::Result<_>>()?
+            ),
+            ParamType::VectorGuid => obj_params::Value::VectorGuid(
+                Vec::<String>::from_lua(val, lua)?
+                    .into_iter()
+                    .map(|s| Uuid::from_str(&s).map_err(mlua::Error::external))
+                    .collect::<mlua::Result<_>>()?
+            ),
+            ParamType::HashmapStringInt => obj_params::Value::HashmapStringInt(HashMap::<String, i32>::from_lua(val, lua)?),
+            ParamType::HashmapStringString => obj_params::Value::HashmapStringString(HashMap::<String, String>::from_lua(val, lua)?),
+            ParamType::Any => obj_params::Value::Any(Vec::<u8>::from_lua(val, lua)?),
+            ParamType::VectorLocalizedString => obj_params::Value::VectorLocalizedString(
+                Vec::<String>::from_lua(val, lua)?
+                    .into_iter()
+                    .map(|s| Uuid::from_str(&s).map_err(mlua::Error::external))
+                    .collect::<mlua::Result<_>>()?
+            ),
+            ParamType::InstanceGroup => obj_params::Value::InstanceGroup(String::from_lua(val, lua)?),
         };
 
         Ok(ParamValue::new(param_val))

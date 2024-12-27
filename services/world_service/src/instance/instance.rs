@@ -25,7 +25,7 @@ use scripting::{LuaRuntimeBuilder, ScriptingPlugin};
 use tokio::runtime::Handle;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, InterestsPlugin, LoaderPlugin, ScriptObjectInfoPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ServerActionPlugin, SocialPlugin}, ARGS};
+use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, ClientSyncPlugin, InterestsPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin}, ARGS};
 
 #[derive(Default)]
 pub enum ZoneType {
@@ -168,7 +168,6 @@ impl ZoneInstanceBuilder {
             LuaRuntimeBuilder::default()
                 .hot_reload(ARGS.hot_reload)
                 .add_require_lookup_directory("./content/lua")
-                .add_require_lookup_directory("./content/lua/base")
                 .add_require_lookup_directory("./content/lua/scripts")
                 .add_require_lookup_directory(format!("./content/lua/scripts/{}", world_def.name()))
                 .build()?
@@ -185,6 +184,7 @@ impl ZoneInstanceBuilder {
                 ServerActionPlugin,
                 SocialPlugin,
                 CashShopPlugin,
+                ClientSyncPlugin,
             ));
 
         Ok(app)

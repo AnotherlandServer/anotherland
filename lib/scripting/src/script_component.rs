@@ -54,10 +54,10 @@ impl LuaRuntime {
         })
     }
 
-    pub fn create_scripted_entity(&mut self, script_name: &str) -> ScriptResult<Scripted> {
+    pub fn create_scripted_entity(&mut self, api_type: ApiType, script_name: &str) -> ScriptResult<Scripted> {
         let object = self.vm().create_table()?;
         object.set_metatable(Some(
-            self.load_script(script_name)?
+            self.load_scripted_class(api_type, script_name)?
         ));
 
         Ok(Scripted {

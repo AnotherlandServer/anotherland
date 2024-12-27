@@ -13,5 +13,7 @@ thiserror = { workspace = true }
 toolkit = { workspace = true }
 obj_params = { workspace = true }
 mlua = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 notify = "7.0.0"
 notify-debouncer-full = "0.4.0"

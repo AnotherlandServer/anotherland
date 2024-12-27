@@ -43,6 +43,10 @@ pub struct Interests {
     interests: HashSet<Entity>,
 }
 
+impl Interests {
+    pub fn contains(&self, ent: &Entity) -> bool { self.interests.contains(ent) }
+}
+
 #[derive(Component)]
 pub struct BuildInterestList;
 

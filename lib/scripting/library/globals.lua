@@ -18,7 +18,7 @@ end
 --- @param param string
 --- @param value any
 --- @return any
-function SCRIPT:Get(param, value)
+function SCRIPT:Set(param, value)
 end
 
 --- Resets a parameter of the attached object.
@@ -28,8 +28,11 @@ end
 function SCRIPT:Reset(param, value)
 end
 
----@class PLAYER
+---@class Player: Script 
 PLAYER = {}
+
+---@class Npc: Script
+NPC = {}
 
 ---@class log
 Log = {}

@@ -25,6 +25,7 @@ mod interests;
 mod cash_shop;
 mod behavior;
 mod script_objects;
+mod client_sync;
 
 pub use network::*;
 pub use loader::*;
@@ -38,3 +39,4 @@ pub use interests::*;
 pub use cash_shop::*;
 pub use behavior::*;
 pub use script_objects::*;
+pub use client_sync::*;
