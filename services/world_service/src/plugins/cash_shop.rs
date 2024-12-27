@@ -32,14 +32,11 @@ impl Plugin for CashShopPlugin {
 }
 
 fn handle_sku_bundle_sync_request(
-    In((ent, pkt)): In<(Entity, CPkt)>,
+    In((ent, pkt)): In<(Entity, oaPktSKUBundleSyncRequest)>,
     controller: Query<&PlayerController>,
     instance: Res<ZoneInstance>,
 ) {
-    if 
-        let Ok(controller) = controller.get(ent) &&
-        let CPkt::oaPktSKUBundleSyncRequest(pkt) = pkt
-    {
+    if let Ok(controller) = controller.get(ent) {
         // We handle sync requests in a separate task,
         // to handle the big query more ergonomically.
 
@@ -130,14 +127,11 @@ fn handle_sku_bundle_sync_request(
 }
 
 fn handle_cash_item_vendor_sync_request(
-    In((ent, pkt)): In<(Entity, CPkt)>,
+    In((ent, pkt)): In<(Entity, oaPktCashItemVendorSyncRequest)>,
     controller: Query<&PlayerController>,
     instance: Res<ZoneInstance>,
 ) {
-    if 
-        let Ok(controller) = controller.get(ent) &&
-        let CPkt::oaPktCashItemVendorSyncRequest(pkt) = pkt
-    {
+    if let Ok(controller) = controller.get(ent) {
         // We handle sync requests in a separate task,
         // to handle the big query more ergonomically.
 

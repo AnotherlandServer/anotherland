@@ -43,13 +43,10 @@ pub struct Movement {
 }
 
 pub fn handle_move_manager_pos_update(
-    In((ent, pkt)): In<(Entity, CPkt)>,
+    In((ent, pkt)): In<(Entity, oaPktMoveManagerPosUpdate)>,
     mut query: Query<&mut Movement>,
 ) {
-    if
-        let Ok(mut movement) = query.get_mut(ent) &&
-        let CPkt::oaPktMoveManagerPosUpdate(pkt) = pkt
-    {
+    if let Ok(mut movement) = query.get_mut(ent) {
         movement.mode = pkt.physics.state;
         movement.position = pkt.pos.into();
         movement.rotation = pkt.rot.into();
@@ -58,13 +55,10 @@ pub fn handle_move_manager_pos_update(
 }
 
 pub fn handle_move_manager_state_changed(
-    In((ent, pkt)): In<(Entity, CPkt)>,
+    In((ent, pkt)): In<(Entity, oaPktMoveManagerStateChanged)>,
     mut query: Query<&mut Movement>,
 ) {
-    if
-        let Ok(mut movement) = query.get_mut(ent) &&
-        let CPkt::oaPktMoveManagerStateChanged(pkt) = pkt
-    {
+    if let Ok(mut movement) = query.get_mut(ent) {
         movement.mover_type = pkt.mover_type;
         movement.mover_replication_policy = pkt.mover_replication_policy;
         movement.version = pkt.new_version;

@@ -94,18 +94,15 @@ impl ServerAction {
 }
 
 pub fn handle_server_action_request(
-    In((ent, pkt)): In<(Entity, CPkt)>,
+    In((ent, mut pkt)): In<(Entity, oaPktServerAction)>,
     query: Query<&PlayerController>,
 ) {
-    if 
-        let Ok(controller) = query.get(ent) &&
-        let CPkt::oaPktServerAction(mut pkt) = pkt
-    {
+    if let Ok(controller) = query.get(ent) {
         // TODO:
         // This should be verified in the future. Until then we just
         // set version to 2, accepting the action that way.
         pkt.version = 2;
 
-        controller.send_packet(*pkt);
+        controller.send_packet(pkt);
     }
 }

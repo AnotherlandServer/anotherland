@@ -853,6 +853,16 @@ pub fn generate_implementation_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>)
                             CPkt::#struct_ident(Box::new(self))
                         }
                     }
+
+                    impl From<CPkt> for #struct_ident {
+                        fn from(value: CPkt) -> Self {
+                            if let CPkt::#struct_ident(pkt) = value {
+                                *pkt
+                            } else {
+                                panic!("tried to convert to wrong packet struct")
+                            }
+                        }
+                    }
                 }
             },
             _ => quote!(),

@@ -17,21 +17,34 @@ use std::sync::Arc;
 
 use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::system::SystemId, prelude::{in_state, Commands, Component, Entity, Event, EventReader, In, IntoSystem, IntoSystemConfigs, Mut, NonSendMut, Query, Res, ResMut, Resource, World}, utils::HashMap};
 use core_api::Session;
-use log::{debug, warn};
-use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktS2XConnectionState, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
+use log::{debug, error, warn};
+use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClusterClientToCommunity, oaPktS2XConnectionState, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
 use realm_api::{RealmApi, SessionState};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
-use toolkit::types::{AvatarId, Uuid};
+use toolkit::{types::{AvatarId, Uuid}, NativeParam};
 
 use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, plugins::EnabledInGame};
 
 use super::{ForeignResource, ServerAction};
 
+type MessageHandler = Box<dyn Fn(&mut Commands, Entity, CPkt) + Send + Sync + 'static>;
+
 #[derive(Resource)]
-pub struct MessageHandlers(HashMap<(u8, u8), SystemId<In<(Entity, CPkt)>, ()>>);
+pub struct MessageHandlers(HashMap<(u8, u8), MessageHandler>);
+
+type CommandMessageHandler = Box<dyn Fn(&mut Commands, Entity, NativeParam) -> WorldResult<()> + Send + Sync + 'static>;
+
+pub trait CommandMessage: Send + Sync + Sized {
+    fn id() -> i32;
+    fn from_native_param(data: NativeParam) -> WorldResult<Self>;
+}
+
+#[derive(Resource)]
+pub struct CommandMessageHandlers(HashMap<i32, CommandMessageHandler>);
 
 pub trait NetworkExtPriv {
-    fn register_message_handler<P: OtherlandPacket, T: IntoSystem<In<(Entity, CPkt)>, (), Marker> + 'static, Marker>(&mut self, system: T);
+    fn register_message_handler<P: OtherlandPacket + Send + Sync + 'static, T: IntoSystem<In<(Entity, P)>, (), Marker> + 'static, Marker>(&mut self, system: T);
+    fn register_command_message_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T);
 }
 
 pub trait NetworkExt {
@@ -46,6 +59,7 @@ impl Plugin for NetworkPlugin {
         let (ctrl_packet_sender, ctrl_packet_receiver) = mpsc::channel::<ControllerPacket>(100);
 
         app.insert_resource(MessageHandlers(HashMap::new()));
+        app.insert_resource(CommandMessageHandlers(HashMap::new()));
         app.insert_resource(ForeignResource(ctrl_removed_sender));
         app.insert_resource(ForeignResource(ctrl_removed_receiver));
         app.insert_resource(ForeignResource(ctrl_packet_sender));
@@ -56,6 +70,7 @@ impl Plugin for NetworkPlugin {
 
         app.register_message_handler::<oaPktC2SConnectionState, _, _>(handle_c2sconnection_state);
         app.register_message_handler::<oaPktClientServerPing, _, _>(handle_client_server_ping);
+        app.register_message_handler::<oaPktClusterClientToCommunity, _, _>(handle_cluster_client_to_community);
     }
 }
 
@@ -75,7 +90,8 @@ fn handle_packets(
 ) {
     while let Ok(ControllerPacket(ent, pkt)) = packets.try_recv() {
         if let Some(handler) = message_handlers.0.get(&pkt.get_id()) {
-            commands.run_system_with_input(*handler, (ent, pkt));
+            handler(&mut commands, ent, pkt)
+            //commands.run_system_with_input(*handler, (ent, pkt));
         } else {
             warn!("Unknown pkt: {:#02x}:{:#02x}", pkt.get_id().0, pkt.get_id().1);
         }
@@ -83,13 +99,30 @@ fn handle_packets(
 }
 
 impl NetworkExtPriv for App {
-    fn register_message_handler<P: OtherlandPacket, T: IntoSystem<In<(Entity, CPkt)>, (), Marker> + 'static, Marker>(&mut self, system: T) {
+    fn register_message_handler<P: OtherlandPacket + Send + Sync + 'static, T: IntoSystem<In<(Entity, P)>, (), Marker> + 'static, Marker>(&mut self, system: T) {
         let system = self.world_mut().register_system(system);
 
         self.world_mut().get_resource_mut::<MessageHandlers>()
             .unwrap()
             .0
-            .insert(P::id(), system);
+            .insert(P::id(), Box::new(move |cmds: &mut Commands, ent: Entity, pkt: CPkt| {
+                let pkt = pkt.into();
+                cmds.run_system_with_input(system, (ent, pkt));
+            }));
+    }
+
+    fn register_command_message_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T) {
+        let system = self.world_mut().register_system(system);
+
+        self.world_mut().get_resource_mut::<CommandMessageHandlers>()
+            .unwrap()
+            .0
+            .insert(C::id(), Box::new(move |cmds: &mut Commands, ent: Entity, data: NativeParam| {
+                let message = C::from_native_param(data)?;
+                cmds.run_system_with_input(system, (ent, message));
+
+                Ok(())
+            }));
     }
 }
 
@@ -263,13 +296,10 @@ impl From<ConnectionState> for OaPktS2xconnectionStateState {
 }
 
 pub fn handle_c2sconnection_state(
-    In((ent, pkt)): In<(Entity, CPkt)>,
-    mut query: Query<(&mut CurrentState, &PlayerController)>,
+    In((ent, pkt)): In<(Entity, oaPktC2SConnectionState)>,
+    mut query: Query<&mut CurrentState>,
 ) {
-    if 
-        let Ok((mut state, controller)) = query.get_mut(ent) &&
-        let CPkt::oaPktC2SConnectionState(pkt) = pkt
-    {
+    if let Ok(mut state) = query.get_mut(ent) {
         let old_state = state.state;
         state.state = pkt.state.into();
 
@@ -278,13 +308,29 @@ pub fn handle_c2sconnection_state(
 }
 
 pub fn handle_client_server_ping(
-    In((ent, pkt)): In<(Entity, CPkt)>,
+    In((ent, pkt)): In<(Entity, oaPktClientServerPing)>,
     query: Query<&PlayerController>,
 ) {
+    if let Ok(controller) = query.get(ent) {
+        controller.send_packet(pkt);
+    }
+}
+
+pub fn handle_cluster_client_to_community(
+    In((ent, pkt)): In<(Entity, oaPktClusterClientToCommunity)>,
+    res: Res<CommandMessageHandlers>,
+    mut commands: Commands,
+) {
     if 
-        let Ok(controller) = query.get(ent) &&
-        let CPkt::oaPktClientServerPing(pkt) = pkt
+        let NativeParam::Struct(params) = &pkt.field_3 &&
+        let Some(NativeParam::Int(id)) = params.first()
     {
-        controller.send_packet(*pkt);
+        if let Some(handler) = res.0.get(id) {
+            if let Err(e) = handler(&mut commands, ent, pkt.field_3) {
+                error!("Failed to parse client to community command: {:?}", e);
+            }
+        } else {
+            error!("Unknown client to community command: {:#02x}", id);
+        }
     }
 }

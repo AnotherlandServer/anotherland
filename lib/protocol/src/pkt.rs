@@ -15,7 +15,7 @@
 
 use crate::CPkt;
 
-pub trait OtherlandPacket {
+pub trait OtherlandPacket: From<CPkt> {
     fn id() -> (u8, u8);
     fn into_pkt(self) -> CPkt;
 }

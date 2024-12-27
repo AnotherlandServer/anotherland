@@ -119,7 +119,7 @@ impl BehaviorExt for App {
 }
 
 fn handle_avatar_tell_behavior(
-    In((ent, pkt)): In<(Entity, CPkt)>,
+    In((ent, pkt)): In<(Entity, oaPktAvatarTellBehavior)>,
     instigator: Query<(Entity, &PlayerController, Option<&Scripted>)>,
     target: Query<(&AvatarInfo, &GameObjectData, Option<&Scripted>)>,
     behaviors: Res<BehaviorMap<StringBehavior>>,
@@ -127,7 +127,6 @@ fn handle_avatar_tell_behavior(
     mut commands: Commands
 ) {
     if 
-        let CPkt::oaPktAvatarTellBehavior(pkt) = pkt &&
         let Ok((instigator_ent, controller, instigator_script)) = instigator.get(ent) &&
         let Some(target_ent) = avatars.entity_from_avatar_id(pkt.target) &&
         let Ok((target_info, target, target_script)) = target.get(target_ent) &&
@@ -165,7 +164,7 @@ fn handle_avatar_tell_behavior(
 }
 
 fn handle_avatar_tell_behavior_binary(
-    In((ent, pkt)): In<(Entity, CPkt)>,
+    In((ent, pkt)): In<(Entity, oaPktAvatarTellBehaviorBinary)>,
     instigator: Query<(Entity, &PlayerController, Option<&Scripted>)>,
     target: Query<(&AvatarInfo, &GameObjectData, Option<&Scripted>)>,
     behaviors: Res<BehaviorMap<BinaryBehavior>>,
@@ -173,7 +172,6 @@ fn handle_avatar_tell_behavior_binary(
     mut commands: Commands
 ) {
     if 
-        let CPkt::oaPktAvatarTellBehaviorBinary(pkt) = pkt &&
         let Ok((instigator_ent, controller, instigator_script)) = instigator.get(ent) &&
         let Some(target_ent) = avatars.entity_from_avatar_id(pkt.target) &&
         let Ok((target_info, target, target_script)) = target.get(target_ent)

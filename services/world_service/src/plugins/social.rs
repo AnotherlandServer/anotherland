@@ -29,7 +29,7 @@ impl Plugin for SocialPlugin {
 }
 
 fn handle_oapkt_friend_request(
-    In((ent, _pkt)): In<(Entity, CPkt)>,
+    In((ent, _pkt)): In<(Entity, oaPktFriendRequest)>,
     query: Query<&PlayerController>,
 ) {
     if let Ok(controller) = query.get(ent) {

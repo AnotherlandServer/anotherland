@@ -206,6 +206,7 @@ pub fn generate_packet_code() -> io::Result<()> {
             use nom::{IResult, error::{VerboseError, context}, combinator::*, sequence::*, number::complete::*, bytes::complete::take};
             use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
             use std::io;
+            use std::convert::From;
             use log::error;
             use toolkit::NativeParam;
             use toolkit::string_parsers::*;
