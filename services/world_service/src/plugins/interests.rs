@@ -16,7 +16,7 @@
 use bevy::{app::{App, Plugin, PreUpdate}, prelude::{Changed, Commands, Component, Entity, IntoSystemConfigs, Query, With, Without}, utils::HashSet};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
-use obj_params::{tags::PlayerTag, GameObjectData, NonClientBase, ParamWriter, Player};
+use obj_params::{tags::PlayerTag, Class, GameObjectData, NonClientBase, ParamWriter, Player};
 use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, OaPktS2xconnectionStateState, Physics};
 use toolkit::types::UUID_NIL;
 
@@ -34,9 +34,6 @@ impl Plugin for InterestsPlugin {
             );
     }
 }
-
-#[derive(Component)]
-pub struct EnabledInGame;
 
 #[derive(Component)]
 pub struct Interests {
@@ -68,7 +65,7 @@ fn enable_player_interest_building(
 
 fn update_interest_list(
     mut players: Query<(Entity, &GameObjectData, &Movement, &mut Interests, &PlayerController, &mut CurrentState), (With<PlayerTag>, With<BuildInterestList>)>,
-    potential_interests: Query<(Entity, &AvatarInfo, &Movement, &GameObjectData), With<EnabledInGame>>,
+    potential_interests: Query<(Entity, &AvatarInfo, &Movement, &GameObjectData)>,
 ) {
     for (player_ent, player, player_pos, mut interests, controller, mut state) in players.iter_mut() {
         let aware_range: f32 = *player.get(Player::AwareRange).unwrap();
@@ -82,8 +79,15 @@ fn update_interest_list(
 
             let distance = interest_pos.position.distance(player_pos.position);
             if 
-                distance < aware_range ||
-                *interest_obj.get::<_, bool>(NonClientBase::AlwaysVisibleToPlayers).unwrap_or(&false)
+                (
+                    distance < aware_range ||
+                    *interest_obj.get::<_, bool>(NonClientBase::AlwaysVisibleToPlayers).unwrap_or(&false)
+                ) &&
+                !interest_obj.get::<_, bool>(NonClientBase::HiddenFromClients).unwrap_or(&false) &&
+                (
+                    *interest_obj.get::<_, bool>(NonClientBase::EnableInGame).unwrap_or(&false) ||
+                    interest_obj.class() == Class::Player
+                )
             {
                 if !interests.interests.contains(&interest_ent) && interest_count < 10 {
                     interests.interests.insert(interest_ent);

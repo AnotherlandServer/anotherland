@@ -33,7 +33,7 @@ use futures_util::TryStreamExt;
 use log::{info, debug, error};
 use manager::{InstanceEvent, InstanceManager};
 use once_cell::sync::Lazy;
-use proto::{WorldRequest, WorldResponse, WorldServer};
+use proto::{ClusterMessage, WorldMessage, WorldRequest, WorldResponse, WorldServer};
 use realm_api::{proto::{InstanceKey, NodeAddress, NodeType, RealmClient, RealmNotification, RealmRequest, RealmResponse}, RealmApi, ZoneBuilder};
 use reqwest::Url;
 use tokio::{runtime::Handle, select, sync::{mpsc::{self, error::TryRecvError, unbounded_channel, Sender}, oneshot, Mutex}, time};
@@ -111,49 +111,65 @@ fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender
             select! {
                 Ok((router_id, msg)) = server.recv() => {
                     match msg {
-                        WorldRequest::ClientMessage { peer, data } => {
-                            if 
-                                let Some((_, sender)) = controllers.get(&peer) &&
-                                let Ok((_, pkt)) = CPkt::from_bytes(&data)
-                            {
-                                let _ = sender.send(ControllerEvent::Packet(pkt)).await;
-                            }
-                        },
-                        WorldRequest::ClientConnected { peer, session, zone, instance } => {
-                            if 
-                                let Ok(Some(state)) = realm_api.get_session_state(session).await &&
-                                let Ok(Some(character)) = realm_api.get_character(state.character()).await
-                            {
-                                let instance = InstanceLabel::new(
-                                    zone,
-                                    instance
-                                );
-        
-                                let (result_send, controller) = oneshot::channel();
-                                if event_sender.send(InstanceEvent::ControllerSpawnRequested {
-                                    peer,
-                                    instance, 
-                                    session, 
-                                    events: sender.clone(), 
-                                    controller: result_send
-                                }).await.is_ok() {
-                                    match controller.await {
-                                        Ok(Ok(controller)) => {
-                                            debug!("Player controller spawned: {}", peer);
-                                            controllers.insert(peer, (router_id, controller));
-                                        },
-                                        Ok(Err(e)) => {
-                                            error!("Failed to spawn player!: {:#?}", e);
-                                        }
-                                        Err(_) => {
-                                            error!("Controler spawn cancelled!");
-                                        },
+                        WorldRequest::RouterChannel { id, msg} => {
+                            match msg {
+                                ClusterMessage::Forward { data } => {
+                                    if 
+                                        let Some((_, sender)) = controllers.get(&id) &&
+                                        let Ok((_, pkt)) = CPkt::from_bytes(&data)
+                                    {
+                                        let _ = sender.send(ControllerEvent::Packet(pkt)).await;
                                     }
-                                }
+                                },
+                                ClusterMessage::ClientArrived { session, zone, instance, mode } => {
+                                    if 
+                                        let Ok(Some(state)) = realm_api.get_session_state(session).await &&
+                                        let Ok(Some(character)) = realm_api.get_character(state.character()).await
+                                    {
+                                        let instance = InstanceLabel::new(
+                                            zone,
+                                            instance
+                                        );
+                
+                                        let (result_send, controller) = oneshot::channel();
+                                        if event_sender.send(InstanceEvent::ControllerSpawnRequested {
+                                            peer: id,
+                                            instance, 
+                                            session, 
+                                            events: sender.clone(), 
+                                            controller: result_send,
+                                            travel_mode: mode,
+                                        }).await.is_ok() {
+                                            match controller.await {
+                                                Ok(Ok(controller)) => {
+                                                    debug!("Player controller spawned: {}", id);
+                                                    controllers.insert(id, (router_id, controller));
+                                                },
+                                                Ok(Err(e)) => {
+                                                    error!("Failed to spawn player!: {:#?}", e);
+                                                }
+                                                Err(_) => {
+                                                    error!("Controler spawn cancelled!");
+                                                },
+                                            }
+                                        }
+                                    }
+                                },
+                                ClusterMessage::ClientLeft => {
+                                    debug!("Client left: {}", id);
+                                    controllers.remove(&id);
+                                },
+                                ClusterMessage::TravelAccepted => {
+                                    if let Some((_, sender)) = controllers.get(&id) {
+                                        let _ = sender.send(ControllerEvent::TravelAccepted).await;
+                                    }
+                                },
+                                ClusterMessage::TravelRejected { reason } => {
+                                    if let Some((_, sender)) = controllers.get(&id) {
+                                        let _ = sender.send(ControllerEvent::TravelRejected(reason)).await;
+                                    }
+                                },
                             }
-                        },
-                        WorldRequest::ClientDisconnected { peer } => {
-                            controllers.remove(&peer);
                         },
                     }
                 },
@@ -164,11 +180,27 @@ fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender
                 },
                 Some(event) = receiver.recv() => {
                     match event {
-                        plugins::WorldEvent::Packet { peer, pkt } => {
-                            if let Some((router_id, _)) = controllers.get(&peer) {
-                                let _ = server.send(router_id, WorldResponse::ServerMessage { 
-                                    peer, 
-                                    data: pkt.to_bytes()
+                        plugins::WorldEvent::Packet { controller, pkt } => {
+                            if let Some((router_id,_)) = controllers.get(&controller) {
+                                let _ = server.send(router_id, WorldResponse::RouterChannel {
+                                    id: controller,
+                                    msg: WorldMessage::ServerMessage{ data: pkt.to_bytes() }
+                                }).await;
+                            }
+                        },
+                        plugins::WorldEvent::TravelRequest { controller, zone, instance, mode } => {
+                            if let Some((router_id,_)) = controllers.get(&controller) {
+                                let _ = server.send(router_id, WorldResponse::RouterChannel {
+                                    id: controller,
+                                    msg: WorldMessage::TravelRequest { zone, instance, mode }
+                                }).await;
+                            }
+                        },
+                        plugins::WorldEvent::TravelCommited { controller } => {
+                            if let Some((router_id,_)) = controllers.get(&controller) {
+                                let _ = server.send(router_id, WorldResponse::RouterChannel {
+                                    id: controller,
+                                    msg: WorldMessage::TravelCommited
                                 }).await;
                             }
                         },
@@ -251,9 +283,9 @@ async fn main() -> WorldResult<()> {
                             { app.insert_sub_app(sub_app.label(), *sub_app); },
                         InstanceEvent::InstanceRemoved(zone_label) => 
                             { app.remove_sub_app(zone_label); },
-                        InstanceEvent::ControllerSpawnRequested { peer, instance, session, events, controller } => {
+                        InstanceEvent::ControllerSpawnRequested { peer, instance, session, events, controller, travel_mode } => {
                             if let Some(subapp) = app.get_sub_app_mut(instance) {
-                                let _ = controller.send(subapp.create_player_controller(peer, session, events).await);
+                                let _ = controller.send(subapp.create_player_controller(peer, session, travel_mode, events).await);
                             } else {
                                 let _ = controller.send(Err(anyhow::Error::msg("instance not found").into()));
                             }

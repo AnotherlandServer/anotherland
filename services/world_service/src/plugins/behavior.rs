@@ -72,8 +72,8 @@ impl Plugin for BehaviorPlugin {
         app.insert_resource(BehaviorMap(ClassBehaviorSystemMap::<StringBehavior>::new()));
         app.insert_resource(BehaviorMap(ClassBehaviorSystemMap::<BinaryBehavior>::new()));
 
-        app.register_message_handler::<oaPktAvatarTellBehavior, _, _>(handle_avatar_tell_behavior);
-        app.register_message_handler::<oaPktAvatarTellBehaviorBinary, _, _>(handle_avatar_tell_behavior_binary);
+        app.register_message_handler(handle_avatar_tell_behavior);
+        app.register_message_handler(handle_avatar_tell_behavior_binary);
     }
 }
 

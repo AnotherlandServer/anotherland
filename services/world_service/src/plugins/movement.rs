@@ -26,8 +26,8 @@ impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, setup_non_client_movement);
 
-        app.register_message_handler::<oaPktMoveManagerStateChanged, _, _>(handle_move_manager_state_changed);
-        app.register_message_handler::<oaPktMoveManagerPosUpdate, _, _>(handle_move_manager_pos_update);
+        app.register_message_handler(handle_move_manager_state_changed);
+        app.register_message_handler(handle_move_manager_pos_update);
     }
 }
 
@@ -44,13 +44,16 @@ pub struct Movement {
 
 pub fn handle_move_manager_pos_update(
     In((ent, pkt)): In<(Entity, oaPktMoveManagerPosUpdate)>,
-    mut query: Query<&mut Movement>,
+    mut query: Query<(&mut GameObjectData, &mut Movement), With<PlayerTag>>,
 ) {
-    if let Ok(mut movement) = query.get_mut(ent) {
+    if let Ok((mut obj, mut movement)) = query.get_mut(ent) {
         movement.mode = pkt.physics.state;
         movement.position = pkt.pos.into();
         movement.rotation = pkt.rot.into();
         movement.velocity = pkt.vel.into();
+
+        obj.set(Player::Pos, (0u32, movement.position));
+        obj.set(Player::Rot, movement.rotation.as_unit_vector());
     }
 }
 

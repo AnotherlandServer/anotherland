@@ -24,7 +24,7 @@ pub struct SocialPlugin;
 
 impl Plugin for SocialPlugin {
     fn build(&self, app: &mut App) {
-        app.register_message_handler::<oaPktFriendRequest, _, _>(handle_oapkt_friend_request);
+        app.register_message_handler(handle_oapkt_friend_request);
     }
 }
 

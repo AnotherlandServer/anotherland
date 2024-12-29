@@ -25,7 +25,7 @@ use scripting::{LuaRuntimeBuilder, ScriptingPlugin};
 use tokio::runtime::Handle;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, ClientSyncPlugin, InterestsPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin}, ARGS};
+use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, ClientSyncPlugin, InterestsPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, TravelPlugin}, ARGS};
 
 #[derive(Default)]
 pub enum ZoneType {
@@ -185,6 +185,7 @@ impl ZoneInstanceBuilder {
                 SocialPlugin,
                 CashShopPlugin,
                 ClientSyncPlugin,
+                TravelPlugin,
             ));
 
         Ok(app)

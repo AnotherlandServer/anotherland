@@ -24,7 +24,7 @@ pub struct ServerActionPlugin;
 
 impl Plugin for ServerActionPlugin {
     fn build(&self, app: &mut App) {
-        app.register_message_handler::<oaPktServerAction, _, _>(handle_server_action_request);
+        app.register_message_handler(handle_server_action_request);
     }
 }
 

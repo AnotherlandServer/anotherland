@@ -16,6 +16,7 @@
 use core_api::CoreApiError;
 use realm_api::RealmApiError;
 use thiserror::Error;
+use toolkit::NativeParamError;
 
 #[derive(Error, Debug)]
 pub enum WorldError {
@@ -45,6 +46,9 @@ pub enum WorldError {
 
     #[error(transparent)]
     LuaError(#[from] mlua::Error),
+
+    #[error("native param error")]
+    NativeParamError(#[from] NativeParamError),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error)

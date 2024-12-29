@@ -13,19 +13,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Plugin, Update}, math::{Quat, Vec3, VectorSpace}, prelude::{Added, Changed, Commands, Entity, IntoSystemConfigs, Query, Res, ResMut}};
+use bevy::{app::{First, Plugin, PostUpdate, Update}, math::{Quat, Vec3, VectorSpace}, prelude::{Added, Changed, Commands, Entity, In, IntoSystemConfigs, Query, Res, ResMut, With}};
 use bitstream_io::{ByteWriter, LittleEndian};
-use log::debug;
-use obj_params::{GameObjectData, ParamWriter, Player};
-use protocol::{oaPktS2XConnectionState, CPkt, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, OtherlandPacket, Physics, PhysicsState};
+use log::{debug, error, warn};
+use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, GameObjectData, GenericParamSet, NonClientBase, Param, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
+use protocol::{oaPktS2XConnectionState, CPkt, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, OtherlandPacket, Physics, PhysicsState};
 use realm_api::Character;
 use scripting::LuaRuntime;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use toolkit::OtherlandQuatExt;
+use toolkit::{types::Uuid, OtherlandQuatExt};
 
-use crate::{instance::ZoneInstance, plugins::ForeignResource};
+use crate::{instance::ZoneInstance, plugins::ForeignResource, proto::TravelMode};
 
-use super::{init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, CurrentState, EnabledInGame, Movement, PlayerController, ServerAction};
+use super::{init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, ContentInfo, CurrentState, Movement, NetworkExtPriv, PlayerController, ServerAction};
 
 pub struct PlayerPlugin;
 
@@ -42,6 +42,9 @@ impl Plugin for PlayerPlugin {
         ));
 
         app.add_systems(Update, spawn_player);
+        app.add_systems(PostUpdate, save_player_data);
+        
+        app.register_message_handler(handle_avatar_update);
     }
 }
 
@@ -68,6 +71,9 @@ fn insert_player_characters(
     mut receiver: ResMut<ForeignResource<Receiver<(Entity, Character)>>>,
     mut runtime: ResMut<LuaRuntime>,
     controller: Query<&PlayerController>,
+    starting_points: Query<&GameObjectData, With<StartingPointTag>>,
+    portals: Query<(&ContentInfo, &GameObjectData), With<PortalTag>>,
+    exit_nodes: Query<(&ContentInfo, &GameObjectData), With<SpawnNodeTag>>,
     instance: Res<ZoneInstance>,
     mut avatar_id_manager: ResMut<AvatarIdManager>,
     mut commands: Commands,
@@ -83,12 +89,77 @@ fn insert_player_characters(
             let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
 
             // Update zone info in character data
-            character.data_mut().set(Player::ZoneGuid, instance.zone.guid().to_string());
-            character.data_mut().set(Player::InstanceZoneKey, instance.instance_id.map(|v| v.to_string()).unwrap_or_default());
+            {
+                let obj: &mut GameObjectData = character.data_mut();
 
-            // TODO: Save character data too!
+                // First time spawn setup
+                if *obj.get(Player::FirstTimeSpawn).unwrap() {
+                    obj.set(Player::HpCur, obj.get::<_, Value>(Player::HpMax).unwrap().clone());
 
-            character.data().write_to_privileged_client(&mut writer).unwrap();
+                    // Lookup the entrypoint
+                    if let Some(starting_point) = starting_points.iter().next() {
+                        obj.set(Player::Pos, (0u32, *starting_point.get::<_, Vec3>(NonClientBase::Pos).unwrap()));
+                        obj.set(Player::Rot, *starting_point.get::<_, Vec3>(NonClientBase::Rot).unwrap());
+                    }
+
+                    obj.set(Player::FirstTimeSpawn, false);
+
+                    obj.set(Player::SpawnMode, 1);
+                } else {
+                    match controller.travel_mode() {
+                        TravelMode::Login => {
+                            obj.set(Player::SpawnMode, 2);
+                        },
+                        TravelMode::Portal { uuid } => {
+                            if 
+                                let Some((_, portal)) = portals.iter()
+                                    .find(|(info, _)| info.placement_id == uuid) &&
+                                let Some(exit_point_id) = portal.get::<_, String>(Portal::ExitPoint).ok()
+                                    .and_then(|s| s.parse::<Uuid>().ok()) &&
+                                let Some((_, exit_point)) = exit_nodes.iter()
+                                    .find(|(info, _)| info.placement_id == exit_point_id)
+                            {
+                                obj.set(Player::Pos, (0u32, *exit_point.get::<_, Vec3>(NonClientBase::Pos).unwrap()));
+                                obj.set(Player::Rot, *exit_point.get::<_, Vec3>(NonClientBase::Rot).unwrap());
+                            } else {
+                                warn!("No exit node found for portal {}", uuid);
+
+                                // Lookup the entrypoint
+                                if let Some(starting_point) = starting_points.iter().next() {
+                                    obj.set(Player::Pos, (0u32, *starting_point.get::<_, Vec3>(NonClientBase::Pos).unwrap()));
+                                    obj.set(Player::Rot, *starting_point.get::<_, Vec3>(NonClientBase::Rot).unwrap());
+                                }
+                            }
+
+                            obj.set(Player::SpawnMode, 4);
+                        },
+                        TravelMode::Position { pos, rot } => {
+                            obj.set(Player::Pos, pos);
+                            obj.set(Player::Rot, rot);
+                            obj.set(Player::SpawnMode, 3);
+                        },
+                        TravelMode::EntryPoint => {
+                            // Lookup the entrypoint
+                            if let Some(starting_point) = starting_points.iter().next() {
+                                obj.set(Player::Pos, (0u32, *starting_point.get::<_, Vec3>(NonClientBase::Pos).unwrap()));
+                                obj.set(Player::Rot, *starting_point.get::<_, Vec3>(NonClientBase::Rot).unwrap());
+                            }
+
+                            obj.set(Player::SpawnMode, 3);
+                        },
+                    }
+                }
+
+                // Update zone info in player data
+                obj.set(Player::WorldMapGuid, instance.world_def.guid().to_string());
+                obj.set(Player::ZoneGuid, instance.zone.guid().to_string());
+                obj.set(Player::InstanceZoneKey, instance.instance_id.map(|v| v.to_string()).unwrap_or_default());
+
+                obj.set(Player::ClientReady, false);
+                obj.set(Player::PlayerLoading, true);
+
+                obj.write_to_privileged_client(&mut writer).unwrap();
+            }
 
             let movement = Movement {
                 position: character.data().get::<_, (u32, Vec3)>(Player::Pos).unwrap().1,
@@ -138,8 +209,7 @@ fn insert_player_characters(
 }
 
 fn spawn_player(
-    mut query: Query<(Entity, &AvatarInfo, &Movement, &mut PlayerController, &mut CurrentState), Changed<CurrentState>>, 
-    mut commands: Commands,
+    mut query: Query<(Entity, &AvatarInfo, &Movement, &mut PlayerController, &mut CurrentState), Changed<CurrentState>>
 ) {
     for (ent, info, movement, mut controller, mut state) in query.iter_mut() {
         if matches!(state.state, ConnectionState::InitialInterestsLoaded) {
@@ -153,15 +223,60 @@ fn spawn_player(
                 ..Default::default()
             });
 
-            commands.entity(ent).insert(EnabledInGame);
-
-            let spawn_action = if let Some(action) = controller.take_spawn_action() {
-                action
-            } else {
-                ServerAction::DirectTravel(info.id, Some(movement.clone()))
+            let spawn_action = match controller.travel_mode() {
+                TravelMode::Login => ServerAction::DirectTravel(info.id, Some(movement.clone())),
+                TravelMode::EntryPoint => ServerAction::NonPortalTravel(info.id, Some(movement.clone())),
+                TravelMode::Portal { .. } => ServerAction::Portal(info.id, Some(movement.clone())), 
+                TravelMode::Position { .. } => ServerAction::DirectTravel(info.id, Some(movement.clone())),
             };
 
             controller.send_packet(spawn_action.into_pkt());
         }
     }
 }
+
+fn save_player_data(
+    query: Query<(&PlayerController, &GameObjectData), (Changed<GameObjectData>, With<PlayerTag>)>,
+    instance: Res<ZoneInstance>,
+) {
+    for (controller, obj) in query.iter() {
+        let id = *controller.state().character();
+        let diff = obj.changes()
+            .filter(|(attr, _)| attr.has_flag(&ParamFlag::Persistent))
+            .collect::<Box<dyn GenericParamSet>>();
+        let realm_api = instance.realm_api.clone();
+
+        if !diff.is_empty() {
+            // We probably should move this into it's own task and just 
+            // send a (blocking) message here, se we can have
+            // backpressure in case our updates don't go trough.
+            // Also, errors are not really handled here.
+            instance.handle.spawn(async move {
+                if let Err(e) = realm_api.update_character_data_diff(&id, diff).await {
+                    error!("Character update failed: {:?}", e);
+                }
+            });
+        }  
+    }
+}
+
+pub fn handle_avatar_update(
+    In((ent, pkt)): In<(Entity, CPktAvatarUpdate)>,
+    mut query: Query<(&PlayerController, &mut GameObjectData)>,
+) {
+    if 
+        let Ok((controller, mut obj)) = query.get_mut(ent) &&
+        let Ok((_, params)) = ParamSet::<Player>::from_slice(&pkt.params) &&
+
+        // Ignore updates for any avatars other than the player avatar.
+        pkt.avatar_id.unwrap_or_default() == controller.avatar_id() 
+    {
+        let mut params = params.into_iter()
+            .filter(|(a, _)| !a.has_flag(&ParamFlag::ExcludeFromClient))
+            .filter(|(a, v)| obj.get_named::<Value>(a.name()).unwrap() != v)
+            .collect::<Box<dyn GenericParamSet>>();
+
+        obj.apply(params.as_mut());
+    }
+}
+

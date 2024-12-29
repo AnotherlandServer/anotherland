@@ -15,17 +15,19 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::anyhow;
+use cluster::ClusterResult;
 use log::{debug, warn};
 use realm_api::{ClusterAddress, ClusterNode, Instance, RealmApi};
 use tokio::{select, sync::{mpsc::{self, Receiver, Sender}, Mutex}};
 use toolkit::types::Uuid;
-use world_service::{WorldClient, WorldRequest, WorldResponse};
+use world_service::{ClusterMessage, WorldClient, WorldMessage, WorldRequest, WorldResponse};
 
 use crate::error::ClusterFrontendResult;
 
 struct RouterData {
     worlds: HashMap<Uuid, Sender<WorldRequest>>,
-    peers: HashMap<Uuid, (Uuid, Sender<WorldResponse>)>,
+    channels: HashMap<Uuid, (Uuid, Sender<WorldMessage>)>,
 }
 
 #[derive(Clone)]
@@ -40,7 +42,7 @@ impl Router {
             realm_api,
             data: Arc::new(Mutex::new(RouterData {
                 worlds: HashMap::new(),
-                peers: HashMap::new(),
+                channels: HashMap::new(),
             }))
         }
     }
@@ -85,18 +87,17 @@ impl Router {
                         res = client.recv() => {
                             match res {
                                 Ok(res) => {
-                                    let mut s = data.lock().await;
-                                    let peer_id = match res {
-                                        WorldResponse::ServerMessage { peer, .. } => Some(*peer),
-                                        WorldResponse::Travel { peer, .. } => Some(*peer),
-                                    };
+                                    match res {
+                                        WorldResponse::RouterChannel { id, msg } => {
+                                            let mut s = data.lock().await;
 
-                                    if 
-                                        let Some(peer_id) = peer_id &&
-                                        let Some((_, peer)) = s.peers.get(&peer_id.into()) &&
-                                        peer.send(res).await.is_err()
-                                    {
-                                        s.peers.remove(&peer_id.into());
+                                            if 
+                                                let Some((_, channel)) = s.channels.get(&id) &&
+                                                channel.send(msg).await.is_err()
+                                            {
+                                                s.channels.remove(&id);
+                                            }
+                                        }
                                     }
                                 },
                                 Err(_) => {
@@ -112,28 +113,56 @@ impl Router {
                 s.worlds.remove(&world_id);
 
                 // Remove all peers connected to this world
-                s.peers.retain(|_, (id, _)| id != &world_id);
+                s.channels.retain(|_, (id, _)| id != &world_id);
             });
 
             Ok((node.id, sender))
         }
     }
 
-    pub async fn join_instance(&self, peer: Uuid, session: Uuid, zone: Uuid, key: Option<Uuid>) 
-        -> ClusterFrontendResult<(Instance, Receiver<WorldResponse>, Sender<WorldRequest>)> 
+    pub async fn open_instance_channel(&self, session: Uuid, zone: Uuid, key: Option<Uuid>) 
+        -> ClusterFrontendResult<InstanceChannel> 
     {
+        let id = Uuid::new();
         let instance = self.realm_api.join_instance(session, zone, key).await?;
         let (node_id, node) = self.get_or_connect_world(&instance.node).await?;
         let (sender, receiver) = mpsc::channel(10);
 
         let mut s = self.data.lock().await;
-        s.peers.insert(peer, (node_id, sender));
+        s.channels.insert(id, (node_id, sender));
 
-        Ok((instance, receiver, node))
+        Ok(InstanceChannel {
+            id,
+            instance,
+            receiver,
+            sender: node,
+        })
+    }
+}
+
+pub struct InstanceChannel {
+    id: Uuid,
+    instance: Instance,
+    receiver: Receiver<WorldMessage>,
+    sender: Sender<WorldRequest>,
+}
+
+impl InstanceChannel {
+    pub async fn recv(&mut self) -> Option<WorldMessage> {
+        self.receiver.recv().await
     }
 
-    pub async fn remove_peer(&self, peer: Uuid) {
-        let mut s = self.data.lock().await;
-        s.peers.remove(&peer);
+    pub async fn send(&self, msg: ClusterMessage) -> ClusterFrontendResult<()> {
+        self.sender.send(WorldRequest::RouterChannel { 
+            id: self.id, 
+            msg
+        }).await
+        .map_err(anyhow::Error::new)?;
+
+        Ok(())
     }
+
+    pub fn id(&self) -> Uuid { self.id }
+    pub fn detached_sender(&self) -> Sender<WorldRequest> { self.sender.clone() }
+    pub fn instance(&self) -> &Instance { &self.instance }
 }

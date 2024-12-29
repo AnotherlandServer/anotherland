@@ -15,17 +15,19 @@
 
 use std::sync::Arc;
 
-use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::system::SystemId, prelude::{in_state, Commands, Component, Entity, Event, EventReader, In, IntoSystem, IntoSystemConfigs, Mut, NonSendMut, Query, Res, ResMut, Resource, World}, utils::HashMap};
+use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::system::SystemId, prelude::{in_state, Commands, Component, Entity, Event, EventReader, In, IntoSystem, IntoSystemConfigs, Mut, NonSendMut, Query, Res, ResMut, Resource, With, World}, utils::HashMap};
 use core_api::Session;
 use log::{debug, error, warn};
-use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClusterClientToCommunity, oaPktS2XConnectionState, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
+use obj_params::{GameObjectData, Player};
+use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClientToClusterNode, oaPktClusterClientToCommunication, oaPktClusterClientToCommunity, oaPktClusterNodeToClient, oaPktS2XConnectionState, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
 use realm_api::{RealmApi, SessionState};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use toolkit::{types::{AvatarId, Uuid}, NativeParam};
+use crate::proto::TravelRejectReason;
 
-use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, plugins::EnabledInGame};
+use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, proto::TravelMode};
 
-use super::{ForeignResource, ServerAction};
+use super::{ForeignResource, ServerAction, Travelling};
 
 type MessageHandler = Box<dyn Fn(&mut Commands, Entity, CPkt) + Send + Sync + 'static>;
 
@@ -40,15 +42,19 @@ pub trait CommandMessage: Send + Sync + Sized {
 }
 
 #[derive(Resource)]
-pub struct CommandMessageHandlers(HashMap<i32, CommandMessageHandler>);
+pub struct CommunityCommandMessageHandler(HashMap<i32, CommandMessageHandler>);
+
+#[derive(Resource)]
+pub struct CommunicationCommandMessageHandler(HashMap<i32, CommandMessageHandler>);
 
 pub trait NetworkExtPriv {
     fn register_message_handler<P: OtherlandPacket + Send + Sync + 'static, T: IntoSystem<In<(Entity, P)>, (), Marker> + 'static, Marker>(&mut self, system: T);
-    fn register_command_message_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T);
+    fn register_community_command_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T);
+    fn register_communication_command_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T);
 }
 
 pub trait NetworkExt {
-    async fn create_player_controller(&mut self, peer: Uuid, session: Uuid, sender: mpsc::UnboundedSender<WorldEvent>) -> WorldResult<Sender<ControllerEvent>>;
+    async fn create_player_controller(&mut self, peer: Uuid, session: Uuid, travel_mode: TravelMode, sender: mpsc::UnboundedSender<WorldEvent>) -> WorldResult<Sender<ControllerEvent>>;
 }
 
 pub struct NetworkPlugin;
@@ -56,44 +62,66 @@ pub struct NetworkPlugin;
 impl Plugin for NetworkPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         let (ctrl_removed_sender, ctrl_removed_receiver) = mpsc::channel::<ControllerRemoved>(10);
-        let (ctrl_packet_sender, ctrl_packet_receiver) = mpsc::channel::<ControllerPacket>(100);
+        let (ctrl_event_sender, ctrl_event_receiver) = mpsc::channel::<ControllerEntityEvent>(100);
 
         app.insert_resource(MessageHandlers(HashMap::new()));
-        app.insert_resource(CommandMessageHandlers(HashMap::new()));
+        app.insert_resource(CommunityCommandMessageHandler(HashMap::new()));
+        app.insert_resource(CommunicationCommandMessageHandler(HashMap::new()));
+        app.insert_resource(CommunityCommandMessageHandler(HashMap::new()));
         app.insert_resource(ForeignResource(ctrl_removed_sender));
         app.insert_resource(ForeignResource(ctrl_removed_receiver));
-        app.insert_resource(ForeignResource(ctrl_packet_sender));
-        app.insert_resource(ForeignResource(ctrl_packet_receiver));
+        app.insert_resource(ForeignResource(ctrl_event_sender));
+        app.insert_resource(ForeignResource(ctrl_event_receiver));
 
-        app.add_systems(First, handle_packets.run_if(in_state(InstanceState::Running)));
+        app.add_systems(First, handle_controller_events.run_if(in_state(InstanceState::Running)));
         app.add_systems(Last, cleanup_player_controllers);
 
-        app.register_message_handler::<oaPktC2SConnectionState, _, _>(handle_c2sconnection_state);
-        app.register_message_handler::<oaPktClientServerPing, _, _>(handle_client_server_ping);
-        app.register_message_handler::<oaPktClusterClientToCommunity, _, _>(handle_cluster_client_to_community);
+        app.register_message_handler(handle_c2sconnection_state);
+        app.register_message_handler(handle_client_server_ping);
+        app.register_message_handler(handle_cluster_client_to_community);
+        app.register_message_handler(handle_cluster_client_to_communication);
+        app.register_message_handler(handle_cluster_client_to_cluster_node);
     }
 }
 
 fn cleanup_player_controllers(
     mut removed: ResMut<ForeignResource<Receiver<ControllerRemoved>>>,
+    travelling: Query<(Entity, &PlayerController), With<Travelling>>,
     mut commands: Commands,
 ) {
     while let Ok(ControllerRemoved(ent)) = removed.try_recv() {
+        if let Some(mut ent) = commands.get_entity(ent) {
+            ent.despawn();
+        }
+    }
+
+    for (ent, controller) in travelling.iter() {
+        debug!("Committing travel of peer: {}", controller.id);
+
+        let _ = controller.sender.send(WorldEvent::TravelCommited { controller: controller.id });
         commands.entity(ent).despawn();
     }
 }
 
-fn handle_packets(
-    mut packets: ResMut<ForeignResource<Receiver<ControllerPacket>>>,
+fn handle_controller_events(
+    mut packets: ResMut<ForeignResource<Receiver<ControllerEntityEvent>>>,
     message_handlers: Res<MessageHandlers>,
     mut commands: Commands,
 ) {
-    while let Ok(ControllerPacket(ent, pkt)) = packets.try_recv() {
-        if let Some(handler) = message_handlers.0.get(&pkt.get_id()) {
-            handler(&mut commands, ent, pkt)
-            //commands.run_system_with_input(*handler, (ent, pkt));
-        } else {
-            warn!("Unknown pkt: {:#02x}:{:#02x}", pkt.get_id().0, pkt.get_id().1);
+    while let Ok(ControllerEntityEvent(ent, ev)) = packets.try_recv() {
+        match ev {
+            ControllerEvent::Packet(pkt) => {
+                if let Some(handler) = message_handlers.0.get(&pkt.get_id()) {
+                    handler(&mut commands, ent, pkt)
+                    //commands.run_system_with_input(*handler, (ent, pkt));
+                } else {
+                    warn!("Unknown pkt: {:#02x}:{:#02x}", pkt.get_id().0, pkt.get_id().1);
+                }
+            },
+            ControllerEvent::TravelAccepted => {
+                commands.entity(ent).insert(Travelling);
+            },
+            ControllerEvent::TravelRejected(travel_reject_reason) => todo!(),
         }
     }
 }
@@ -111,10 +139,24 @@ impl NetworkExtPriv for App {
             }));
     }
 
-    fn register_command_message_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T) {
+    fn register_community_command_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T) {
         let system = self.world_mut().register_system(system);
 
-        self.world_mut().get_resource_mut::<CommandMessageHandlers>()
+        self.world_mut().get_resource_mut::<CommunityCommandMessageHandler>()
+            .unwrap()
+            .0
+            .insert(C::id(), Box::new(move |cmds: &mut Commands, ent: Entity, data: NativeParam| {
+                let message = C::from_native_param(data)?;
+                cmds.run_system_with_input(system, (ent, message));
+
+                Ok(())
+            }));
+    }
+
+    fn register_communication_command_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T) {
+        let system = self.world_mut().register_system(system);
+
+        self.world_mut().get_resource_mut::<CommunicationCommandMessageHandler>()
             .unwrap()
             .0
             .insert(C::id(), Box::new(move |cmds: &mut Commands, ent: Entity, data: NativeParam| {
@@ -127,10 +169,10 @@ impl NetworkExtPriv for App {
 }
 
 impl NetworkExt for SubApp {
-    async fn create_player_controller(&mut self, peer: Uuid, session: Uuid, sender: mpsc::UnboundedSender<WorldEvent>) -> WorldResult<Sender<ControllerEvent>> {
+    async fn create_player_controller(&mut self, peer: Uuid, session: Uuid, travel_mode: TravelMode, sender: mpsc::UnboundedSender<WorldEvent>) -> WorldResult<Sender<ControllerEvent>> {
         let instance = self.world().get_resource::<ZoneInstance>().unwrap();
         let ctrl_removed = self.world().get_resource::<ForeignResource<Sender<ControllerRemoved>>>().unwrap().0.clone();
-        let ctrl_packet = self.world().get_resource::<ForeignResource<Sender<ControllerPacket>>>().unwrap().0.clone();
+        let ctrl_event = self.world().get_resource::<ForeignResource<Sender<ControllerEntityEvent>>>().unwrap().0.clone();
 
         let session = instance.core_api.get_session(&session).await?
             .ok_or(anyhow::Error::msg("session not found"))?;
@@ -140,7 +182,7 @@ impl NetworkExt for SubApp {
 
         // Send resource notification to client, so it can begin loading the map.
         let _ = sender.send(WorldEvent::Packet { 
-            peer, 
+            controller: peer, 
             pkt: CPktResourceNotify {
                 field_2: *instance.zone.worlddef_guid(),
                 resource_type: CpktResourceNotifyResourceType::WorldDef,
@@ -150,7 +192,7 @@ impl NetworkExt for SubApp {
 
         // Reset loading state
         let _ = sender.send(WorldEvent::Packet {
-            peer,
+            controller: peer,
             pkt: oaPktS2XConnectionState {
                 state: OaPktS2xconnectionStateState::Offline,
                 ..Default::default()
@@ -163,12 +205,12 @@ impl NetworkExt for SubApp {
         let ent = self.world_mut().spawn((
             PlayerController {
                 avatar_id: *state.avatar(),
-                peer,
+                id: peer,
                 session: Arc::new(session),
                 state: state.clone(),
                 sender,
-                spawn_action: None, // TODO: Use this to override spawn action as result of travel or portals
-            }, 
+                travel_mode,
+            },
             CurrentState::default()
         )).id();
 
@@ -187,12 +229,10 @@ impl NetworkExt for SubApp {
                         // and forward it to the world server to be handled there. 
                         // In the future we might forward those packets directly to a responsible node.
                         if let Some(pkt) = pkt.field_4 {
-                            let _ = ctrl_packet.send(ControllerPacket(ent, pkt)).await;
+                            let _ = ctrl_event.send(ControllerEntityEvent(ent, ControllerEvent::Packet(pkt))).await;
                         }
-                    }
-                    ControllerEvent::Packet(pkt) => {
-                        let _ = ctrl_packet.send(ControllerPacket(ent, pkt)).await;
                     },
+                    _ => { let _ = ctrl_event.send(ControllerEntityEvent(ent, evt)).await; }
                 }
             }
 
@@ -205,24 +245,28 @@ impl NetworkExt for SubApp {
 }
 
 pub struct ControllerRemoved(Entity);
-pub struct ControllerPacket(Entity, CPkt);
+pub struct ControllerEntityEvent(Entity, ControllerEvent);
 
 pub enum ControllerEvent {
-    Packet(CPkt)
+    Packet(CPkt),
+    TravelAccepted,
+    TravelRejected(TravelRejectReason),
 }
 
 pub enum WorldEvent {
-    Packet { peer: Uuid, pkt: CPkt }
+    Packet { controller: Uuid, pkt: CPkt },
+    TravelRequest { controller: Uuid, zone: Uuid, instance: Option<Uuid>, mode: TravelMode },
+    TravelCommited { controller: Uuid },
 }
 
 #[derive(Component, Clone)]
 pub struct PlayerController {
     avatar_id: AvatarId,
-    peer: Uuid,
+    id: Uuid,
     session: Arc<Session>,
     state: Arc<SessionState>,
     sender: UnboundedSender<WorldEvent>,
-    spawn_action: Option<ServerAction>,
+    travel_mode: TravelMode,
 }
 
 impl PlayerController {
@@ -231,14 +275,23 @@ impl PlayerController {
     pub fn session(&self) -> Arc<Session> { self.session.clone() }
     pub fn state(&self) -> Arc<SessionState> { self.state.clone() }
 
-    pub fn take_spawn_action(&mut self) -> Option<ServerAction> {
-        self.spawn_action.take()
+    pub fn travel_mode(&self) -> TravelMode {
+        self.travel_mode
     }
 
     pub fn send_packet(&self, packet: impl OtherlandPacket) {
         let _ = self.sender.send(WorldEvent::Packet {
-            peer: self.peer,
+            controller: self.id,
             pkt: packet.into_pkt(),
+        });
+    }
+
+    pub fn request_travel(&self, zone: Uuid, instance: Option<Uuid>, mode: TravelMode) {
+        let _ = self.sender.send(WorldEvent::TravelRequest { 
+            controller: self.id, 
+            zone, 
+            instance, 
+            mode 
         });
     }
 }
@@ -318,7 +371,7 @@ pub fn handle_client_server_ping(
 
 pub fn handle_cluster_client_to_community(
     In((ent, pkt)): In<(Entity, oaPktClusterClientToCommunity)>,
-    res: Res<CommandMessageHandlers>,
+    res: Res<CommunityCommandMessageHandler>,
     mut commands: Commands,
 ) {
     if 
@@ -331,6 +384,51 @@ pub fn handle_cluster_client_to_community(
             }
         } else {
             error!("Unknown client to community command: {:#02x}", id);
+        }
+    }
+}
+
+pub fn handle_cluster_client_to_communication(
+    In((ent, pkt)): In<(Entity, oaPktClusterClientToCommunication)>,
+    res: Res<CommunityCommandMessageHandler>,
+    mut commands: Commands,
+) {
+    if 
+        let NativeParam::Struct(params) = &pkt.field_3 &&
+        let Some(NativeParam::Int(id)) = params.first()
+    {
+        if let Some(handler) = res.0.get(id) {
+            if let Err(e) = handler(&mut commands, ent, pkt.field_3) {
+                error!("Failed to parse client to communication command: {:?}", e);
+            }
+        } else {
+            error!("Unknown client to communication command: {:#02x}", id);
+        }
+    }
+}
+
+pub fn handle_cluster_client_to_cluster_node(
+    In((ent, pkt)): In<(Entity, oaPktClientToClusterNode)>,
+    mut query: Query<(&PlayerController, &mut GameObjectData)>,
+) {
+    if let Ok((controller, mut data)) = query.get_mut(ent) {
+        match pkt.field_2 {
+            0x5 => { // Check svr request
+                controller.send_packet(oaPktClusterNodeToClient {
+                    field_1: Uuid::new(),
+                    field_3: NativeParam::Struct(vec![
+                        NativeParam::Int(0xa8)
+                    ]),
+                    ..Default::default()
+                });
+            },
+            0x6 => { // GHO_InitClientInfo
+                data.set(Player::ClientReady, true);
+                data.set(Player::PlayerLoading, false);
+            }
+            _ => {
+                warn!("Unknown cluster node packet: {:#?}", pkt);
+            }
         }
     }
 }

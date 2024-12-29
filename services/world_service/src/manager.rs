@@ -26,7 +26,7 @@ use realm_api::{proto::{InstanceKey, RealmClient, RealmRequest}, ObjectTemplate,
 use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, oneshot, Mutex}};
 use toolkit::types::{Uuid, UUID_NIL};
 
-use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, plugins::{ControllerEvent, WorldEvent}, ARGS};
+use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode, ARGS};
 
 struct PendingInstance {
     world_def: Arc<WorldDef>,
@@ -55,7 +55,8 @@ pub enum InstanceEvent {
         instance: InstanceLabel,
         session: Uuid,
         events: UnboundedSender<WorldEvent>,
-        controller: oneshot::Sender<WorldResult<Sender<ControllerEvent>>>
+        controller: oneshot::Sender<WorldResult<Sender<ControllerEvent>>>,
+        travel_mode: TravelMode,
     }
 }
 

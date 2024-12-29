@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use bevy::math::Vec3;
 use cluster::{ClusterClient, ClusterServer, Notification, Request, Response};
 use protocol::CPkt;
 use serde::{Deserialize, Serialize};
@@ -20,17 +21,30 @@ use toolkit::types::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub enum WorldRequest {
-    ClientMessage { peer: Uuid, data: Vec<u8> },
-    ClientConnected { peer: Uuid, session: Uuid, zone: Uuid, instance: Option<Uuid> },
-    ClientDisconnected { peer: Uuid },
+    RouterChannel { id: Uuid, msg: ClusterMessage }
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum ClusterMessage {
+    Forward { data: Vec<u8> },
+    ClientArrived { session: Uuid, zone: Uuid, instance: Option<Uuid>, mode: TravelMode },
+    ClientLeft,
+    TravelAccepted,
+    TravelRejected { reason: TravelRejectReason },
 }
 
 impl Request for WorldRequest {}
 
 #[derive(Serialize, Deserialize)]
 pub enum WorldResponse {
-    ServerMessage{ peer: Uuid, data: Vec<u8> },
-    Travel { peer: Uuid, data: () }
+    RouterChannel { id: Uuid, msg: WorldMessage },
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum WorldMessage {
+    ServerMessage{ data: Vec<u8> },
+    TravelRequest { zone: Uuid, instance: Option<Uuid>, mode: TravelMode },
+    TravelCommited,
 }
 
 impl Response for WorldResponse {}
@@ -48,3 +62,16 @@ impl Notification for WorldNotification {
 
 pub type WorldServer = ClusterServer<WorldRequest, WorldResponse, WorldNotification>;
 pub type WorldClient = ClusterClient<WorldRequest, WorldResponse, WorldNotification>;
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum TravelRejectReason {
+    ZoneOffline,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub enum TravelMode {
+    Login,
+    Portal { uuid: Uuid },
+    Position { pos: Vec3, rot: Vec3 },
+    EntryPoint,
+}

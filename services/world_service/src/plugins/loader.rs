@@ -26,7 +26,7 @@ use toolkit::types::Uuid;
 
 use crate::instance::{InstanceState, ZoneInstance};
 
-use super::{AvatarIdManager, AvatarInfo, EnabledInGame, ForeignResource};
+use super::{AvatarIdManager, AvatarInfo, ForeignResource};
 
 struct Content(Option<(ObjectPlacement, Arc<ObjectTemplate>)>);
 
@@ -93,6 +93,11 @@ fn ingest_content(
     while let Ok(Content(content)) = receiver.try_recv() {
         if let Some((mut placement, template)) = content {
             placement.data.merge(template.data.clone());
+            
+            // Skip disabled objects
+            if !*placement.data.get::<_, bool>(NonClientBase::EnableInGame).unwrap_or(&false) {
+                continue;
+            }
 
             let entry = avatar_manager.new_avatar_entry();
 
@@ -122,16 +127,5 @@ pub fn init_gameobjects(
 ) {
     for (ent, obj) in added.iter() {
         tag_gameobject_entity(obj, &mut commands.entity(ent));
-
-        if 
-            (
-                !*obj.get(NonClientBase::HiddenFromClients).unwrap_or(&false) ||
-                obj.get::<_, Vec3>(NonClientBase::Pos).is_ok()
-            ) &&
-            !matches!(obj.class(), Class::Spawner) &&
-            !matches!(obj.class(), Class::Player)
-        {
-            commands.entity(ent).insert(EnabledInGame);
-        }
     }
 }

@@ -26,8 +26,8 @@ pub struct CashShopPlugin;
 
 impl Plugin for CashShopPlugin {
     fn build(&self, app: &mut App) {
-        app.register_message_handler::<oaPktSKUBundleSyncRequest, _, _>(handle_sku_bundle_sync_request);
-        app.register_message_handler::<oaPktCashItemVendorSyncRequest, _, _>(handle_cash_item_vendor_sync_request);
+        app.register_message_handler(handle_sku_bundle_sync_request);
+        app.register_message_handler(handle_cash_item_vendor_sync_request);
     }
 }
 
