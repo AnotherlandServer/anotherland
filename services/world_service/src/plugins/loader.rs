@@ -17,7 +17,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use bevy::{app::{First, Plugin, Startup, Update}, math::Vec3, prelude::{in_state, Added, Commands, Component, Entity, IntoSystemConfigs, NextState, NonSend, NonSendMut, Query, Res, ResMut}};
 use futures_util::TryStreamExt;
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use obj_params::{tag_gameobject_entity, Class, GameObjectData, NonClientBase};
 use realm_api::{ObjectPlacement, ObjectTemplate, RealmApi};
 use scripting::{LuaRuntime, ScriptCommandsExt, Scripted};
@@ -96,7 +96,10 @@ fn ingest_content(
             
             // Skip disabled objects
             if !*placement.data.get::<_, bool>(NonClientBase::EnableInGame).unwrap_or(&false) {
+                trace!("Skipping {}", placement.id);
                 continue;
+            } else {
+                trace!("Spawning {}", placement.id);
             }
 
             let entry = avatar_manager.new_avatar_entry();

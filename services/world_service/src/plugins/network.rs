@@ -299,7 +299,6 @@ impl PlayerController {
 #[derive(Component, Default)]
 pub struct CurrentState {
     pub state: ConnectionState,
-    pub version: u64,
 }
 
 #[derive(Debug, Default, Clone, Copy)]

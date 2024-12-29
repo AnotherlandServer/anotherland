@@ -22,15 +22,17 @@ use log::debug;
 use obj_params::{Class, OaZoneConfig};
 use realm_api::{Category, RealmApi, WorldDef, Zone};
 use scripting::{LuaRuntimeBuilder, ScriptingPlugin};
+use serde_json::Value;
 use tokio::runtime::Handle;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, ClientSyncPlugin, InterestsPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, TravelPlugin}, ARGS};
+use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, ClientSyncPlugin, FactionsPlugin, InterestsPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, TravelPlugin}, ARGS};
 
 #[derive(Default)]
 pub enum ZoneType {
     #[default]
     Generic,
+    Dungeon,
     Emergency,
     Minigame,
     MypadRoom,
@@ -43,6 +45,7 @@ impl FromStr for ZoneType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "generic" => Ok(Self::Generic),
+            "dungeon" => Ok(Self::Dungeon),
             "emergency" => Ok(Self::Emergency),
             "minigame" => Ok(Self::Minigame),
             "mypadroom" => Ok(Self::MypadRoom),
@@ -87,6 +90,7 @@ pub struct ZoneConfig {
     pub instance_type: InstanceType,
     pub instance_scope: i32,
     pub zone_type: ZoneType,
+    pub json_config: serde_json::Value,
 }
 
 #[derive(Builder, Resource)]
@@ -138,6 +142,9 @@ impl ZoneInstanceBuilder {
                 zone_type: config.data
                     .get::<_, String>(OaZoneConfig::ZoneType)?
                     .parse()?, 
+                json_config: config.data
+                    .get::<_, Value>(OaZoneConfig::JsonConfig)?
+                    .clone()
             });
         }
 
@@ -186,6 +193,7 @@ impl ZoneInstanceBuilder {
                 CashShopPlugin,
                 ClientSyncPlugin,
                 TravelPlugin,
+                FactionsPlugin,
             ));
 
         Ok(app)

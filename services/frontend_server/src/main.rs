@@ -46,6 +46,9 @@ struct Cli {
 
     #[arg(long, env = "PUBLIC_ADDR")]
     public_addr: SocketAddr,
+
+    #[arg(long, default_value_t = false)]
+    insecure: bool,
 }
 
 static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
@@ -68,7 +71,11 @@ async fn main() -> FrontendResult<()> {
     // raknet server
     tokio::spawn(async move {
         let mut listener = RakNetListener::bind(ARGS.raknet_bind_addr).await?;
-        listener.generate_random_rsa_key();
+
+        if !ARGS.insecure {
+            listener.generate_random_rsa_key();
+        }
+        
         listener.listen(100).await;
     
         info!("Server started...");

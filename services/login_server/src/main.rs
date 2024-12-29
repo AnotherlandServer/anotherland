@@ -51,6 +51,9 @@ pub struct LoginServerOptions {
 
     #[arg(long, env = "VERIFICATION_BIND_ADDR", default_value = "0.0.0.0:7998")]
     verification_bind_addr: SocketAddr,
+
+    #[arg(long, default_value_t = false)]
+    insecure: bool,
 }
 
 #[toolkit::service_main(cluster)]
@@ -86,7 +89,11 @@ async fn main() -> AppResult<()> {
     // raknet auth server
     tokio::spawn(async move {
         let mut listener = RakNetListener::bind(opts.raknet_bind_addr).await?;
-        //listener.generate_random_rsa_key();
+
+        if !opts.insecure {
+            listener.generate_random_rsa_key();
+        }
+        
         listener.listen(100).await;
     
         info!("Server started...");

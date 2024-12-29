@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Plugin, PostUpdate, Update}, math::{Quat, Vec3, VectorSpace}, prelude::{Added, Changed, Commands, Entity, In, IntoSystemConfigs, Query, Res, ResMut, With}};
+use bevy::{app::{First, Plugin, PostUpdate, Update}, math::{Quat, Vec3, VectorSpace}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Query, Res, ResMut, With}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::{debug, error, warn};
 use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, GameObjectData, GenericParamSet, NonClientBase, Param, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
@@ -23,7 +23,7 @@ use scripting::LuaRuntime;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::{types::Uuid, OtherlandQuatExt};
 
-use crate::{instance::ZoneInstance, plugins::ForeignResource, proto::TravelMode};
+use crate::{instance::{InstanceState, ZoneInstance}, plugins::ForeignResource, proto::TravelMode};
 
 use super::{init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, ContentInfo, CurrentState, Movement, NetworkExtPriv, PlayerController, ServerAction};
 
@@ -39,7 +39,7 @@ impl Plugin for PlayerPlugin {
         app.add_systems(First, (
             request_player_characters, 
             insert_player_characters.before(init_gameobjects)
-        ));
+        ).run_if(in_state(InstanceState::Running)));
 
         app.add_systems(Update, spawn_player);
         app.add_systems(PostUpdate, save_player_data);
@@ -100,6 +100,8 @@ fn insert_player_characters(
                     if let Some(starting_point) = starting_points.iter().next() {
                         obj.set(Player::Pos, (0u32, *starting_point.get::<_, Vec3>(NonClientBase::Pos).unwrap()));
                         obj.set(Player::Rot, *starting_point.get::<_, Vec3>(NonClientBase::Rot).unwrap());
+                    } else {
+                        error!("Starting point not found!");
                     }
 
                     obj.set(Player::FirstTimeSpawn, false);
@@ -128,6 +130,8 @@ fn insert_player_characters(
                                 if let Some(starting_point) = starting_points.iter().next() {
                                     obj.set(Player::Pos, (0u32, *starting_point.get::<_, Vec3>(NonClientBase::Pos).unwrap()));
                                     obj.set(Player::Rot, *starting_point.get::<_, Vec3>(NonClientBase::Rot).unwrap());
+                                } else {
+                                    error!("Starting point not found!");
                                 }
                             }
 
@@ -143,6 +147,8 @@ fn insert_player_characters(
                             if let Some(starting_point) = starting_points.iter().next() {
                                 obj.set(Player::Pos, (0u32, *starting_point.get::<_, Vec3>(NonClientBase::Pos).unwrap()));
                                 obj.set(Player::Rot, *starting_point.get::<_, Vec3>(NonClientBase::Rot).unwrap());
+                            } else {
+                                error!("Starting point not found!");
                             }
 
                             obj.set(Player::SpawnMode, 3);
@@ -172,27 +178,50 @@ fn insert_player_characters(
             };
 
             // Send character to client, so it begins loading the level
-            controller.send_packet(CPktBlob {
-                avatar_id: controller.avatar_id(),
-                avatar_name: character.name().to_owned(),
-                class_id: character.data().class().id() as u32,
-                params: serialized.into(),
-                movement:  MoveManagerInit {
-                    pos: movement.position.into(),
-                    rot: movement.rotation.into(),
-                    vel: movement.velocity.into(),
-                    physics: Physics {
-                        state: movement.mode,
-                    },
-                    mover_type: movement.mover_type,
-                    mover_replication_policy: movement.mover_replication_policy,
-                    version: movement.version,
+            if matches!(controller.travel_mode(), TravelMode::Login) {
+                controller.send_packet(CPktBlob {
+                    avatar_id: controller.avatar_id(),
+                    avatar_name: character.name().to_owned(),
+                    class_id: character.data().class().id() as u32,
+                    params: serialized.into(),
+                    movement: MoveManagerInit {
+                        pos: movement.position.into(),
+                        rot: movement.rotation.into(),
+                        vel: movement.velocity.into(),
+                        physics: Physics {
+                            state: movement.mode,
+                        },
+                        mover_type: movement.mover_type,
+                        mover_replication_policy: movement.mover_replication_policy,
+                        version: movement.version,
+                        ..Default::default()
+                    }.to_bytes().into(),
+                    has_guid: true,
+                    field_7: Some(*controller.session().id()),
                     ..Default::default()
-                }.to_bytes().into(),
-                has_guid: true,
-                field_7: Some(*controller.session().id()),
-                ..Default::default()
-            });
+                });
+            } else {
+                controller.send_packet(CPktAvatarUpdate {
+                    full_update: true,
+                    avatar_id: Some(controller.avatar_id()),
+                    name: Some(character.name().to_string()),
+                    class_id: Some(character.data().class().id() as u32),
+                    movement: Some(MoveManagerInit {
+                        pos: movement.position.into(),
+                        rot: movement.rotation.into(),
+                        vel: movement.velocity.into(),
+                        physics: Physics {
+                            state: movement.mode,
+                        },
+                        mover_type: movement.mover_type,
+                        mover_replication_policy: movement.mover_replication_policy,
+                        version: movement.version,
+                        ..Default::default()
+                    }.to_bytes().into()),
+                    params: serialized.into(),
+                    ..Default::default()
+                });
+            }
 
             // Insert character into world
             commands.entity(entity)
@@ -209,14 +238,13 @@ fn insert_player_characters(
 }
 
 fn spawn_player(
-    mut query: Query<(Entity, &AvatarInfo, &Movement, &mut PlayerController, &mut CurrentState), Changed<CurrentState>>
+    mut query: Query<(&AvatarInfo, &Movement, &mut PlayerController, &mut CurrentState), Changed<CurrentState>>
 ) {
-    for (ent, info, movement, mut controller, mut state) in query.iter_mut() {
+    for (info, movement, controller, mut state) in query.iter_mut() {
         if matches!(state.state, ConnectionState::InitialInterestsLoaded) {
             debug!("Spawning player: {}", info.name);
 
             state.state = ConnectionState::InGame;
-            state.version += 1;
 
             controller.send_packet(oaPktS2XConnectionState {
                 state: OaPktS2xconnectionStateState::InGame,

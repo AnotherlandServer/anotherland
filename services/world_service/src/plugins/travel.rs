@@ -109,9 +109,18 @@ impl CommandMessage for LeaveDungeon {
 }
 
 fn handle_leave_dungeon(
-    In((ent, cmd)): In<(Entity, LeaveDungeon)>
+    In((ent, cmd)): In<(Entity, LeaveDungeon)>,
+    instance: Res<ZoneInstance>,
+    players: Query<&PlayerController>,
 ) {
-    todo!()
+    if instance.config.json_config["IsTutorial"].as_bool().unwrap_or_default() {
+        if let Ok(controller) = players.get(ent).cloned() {
+            controller.request_travel("4635f288-ec24-4e73-b75c-958f2607a30e".parse().unwrap(), None, TravelMode::EntryPoint);
+        }
+    } else {
+        // Where do we go?
+        todo!()
+    }
 }
 
 struct SocialTravel {

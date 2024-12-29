@@ -27,6 +27,7 @@ mod behavior;
 mod script_objects;
 mod client_sync;
 mod travel;
+mod factions;
 
 pub use network::*;
 pub use loader::*;
@@ -42,3 +43,4 @@ pub use behavior::*;
 pub use script_objects::*;
 pub use client_sync::*;
 pub use travel::*;
+pub use factions::*;
