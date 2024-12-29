@@ -122,10 +122,15 @@ impl LuaRuntimeBuilder {
             })?)?;
         }
 
-        let runtime = self
+        let mut runtime = self
             .lua(lua.clone())
             .scoped_global(scoped_global)
             .build_private()?;
+
+        // Load base scripts
+        let _ = runtime.load_scripted_class(ApiType::Script, ApiType::Script.base())?;
+        let _ = runtime.load_scripted_class(ApiType::Npc, ApiType::Npc.base())?;
+        let _ = runtime.load_scripted_class(ApiType::Player, ApiType::Player.base())?;
 
         Ok(runtime)
     }
@@ -160,7 +165,8 @@ impl LuaRuntime {
     pub fn vm(&self) -> &Lua { &self.lua }
 
     pub fn load_scripted_class(&mut self, api_type: ApiType, name: &str) -> ScriptResult<Table> {
-        if let Ok(script) = self.lua.named_registry_value::<Table>(name) {
+        let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
+        if let Ok(script) = loaded.get::<Table>(name) {
             return Ok(script);
         }
 
@@ -240,8 +246,6 @@ impl LuaRuntime {
         let envs = self.lua.named_registry_value::<Table>("_MODULE_ENVS")?;
         let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
 
-        debug!("{:?}", paths.get::<String>(path.display().to_string()));
-
         if 
             let Ok(module_name) = paths.get::<String>(path.display().to_string()) &&
             let Ok(module) = loaded.get::<Table>(module_name.clone())
@@ -319,8 +323,10 @@ pub(crate) fn prepare_hot_reload(
         }).unwrap();
 
         for path in &runtime.require_lookup_directories {
-            debouncer.watch(path, RecursiveMode::Recursive)
-                .expect("unable to watch path");
+            if path.is_dir() {
+                debouncer.watch(path, RecursiveMode::Recursive)
+                    .expect("unable to watch path");
+            }
         }
 
         world.init_resource::<HotReloadEnabled>();
