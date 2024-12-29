@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{any::type_name, collections::{HashMap, HashSet}, fmt::Debug, io};
+use std::{any::type_name, collections::{HashMap, HashSet}, fmt::Debug, io, iter::empty};
 
 use base64::prelude::*;
-use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
+use bitstream_io::ByteWrite;
 use glam::{Quat, Vec3, Vec4};
 use log::warn;
 use nom::{combinator::fail, error::{context, VerboseError}, multi, number, IResult};
@@ -36,7 +36,7 @@ pub trait GenericParamSet: Debug + Send + Sync {
     fn get_param(&self, name: &str) -> Option<&Value>;
 
     fn clear_changes(&mut self);
-    fn changes(&self) -> Box<dyn GenericParamSet>;
+    fn changes(&self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)>>;
     fn client_params(&self) -> Box<dyn GenericParamSet>;
     fn client_privileged_params(&self) -> Box<dyn GenericParamSet>;
 
@@ -164,6 +164,19 @@ impl <T: Attribute + 'static> ParamSet <T> {
     }
 }
 
+impl <T: Attribute + 'static> IntoIterator for ParamSet<T> {
+    type Item = (&'static dyn AttributeInfo, Value);
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.values
+            .into_values()
+            .map(|v| (v.attribute().static_info(), v.take()))
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+}
+
 impl <T: Attribute> Debug for ParamSet<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug_struct = f.debug_struct("ParamSet");
@@ -217,12 +230,11 @@ impl <T: Attribute + 'static> GenericParamSet for ParamSet<T> {
         }
     }
 
-    fn changes(&self) -> Box<dyn GenericParamSet> {
-        <T as Attribute>::class().create_param_set(
+    fn changes(&self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)>> {
+        Box::new(
             self.changes()
                 .into_iter()
                 .map(|p| (p.attribute().static_info(), p.take()))
-                .collect()
         )
     }
 
@@ -542,7 +554,7 @@ impl <'de> DeserializeSeed<'de> for DynSetDeserializer {
                 let mut attributes = Vec::with_capacity(map.size_hint().unwrap_or_default());
                 
                 while let Some(attribute) = map.next_key_seed(AttributeDeserializer(self.0))? {
-                    let value = map.next_value_seed(ValueDeserializer(attribute.datatype()))?;
+                    let value = map.next_value_seed(ValueDeserializer(attribute))?;
                     attributes.push((attribute, value));
                 }
 
@@ -580,16 +592,16 @@ impl <'de> DeserializeSeed<'de> for DynSetDeserializer {
             }
         }
 
-        struct ValueDeserializer(ParamType);
+        struct ValueDeserializer<'a>(&'a dyn AttributeInfo);
 
-        impl <'de> DeserializeSeed<'de> for ValueDeserializer {
+        impl <'de> DeserializeSeed<'de> for ValueDeserializer<'_> {
             type Value = Value;
         
             fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
             where
                 D: de::Deserializer<'de> {
 
-                match self.0 {
+                match self.0.datatype() {
                     ParamType::String => Ok(
                         Value::String(String::deserialize(deserializer)?)
                     ),
@@ -626,12 +638,14 @@ impl <'de> DeserializeSeed<'de> for DynSetDeserializer {
                     ParamType::FloatRange => Ok(
                         Value::FloatRange(<(f32,f32)>::deserialize(deserializer)?)
                     ),
-                    ParamType::Vector3 => Ok(
-                        Value::Vector3(Vec3::deserialize(deserializer)?)
-                    ),
-                    ParamType::Vector3Uts => Ok(
-                        Value::Vector3Uts(<(u32, Vec3)>::deserialize(deserializer)?)
-                    ),
+                    ParamType::Vector3 => {
+                        if self.0.has_flag(&ParamFlag::Uts) {
+                            Ok(Value::Vector3Uts(<(u32, Vec3)>::deserialize(deserializer)?))
+                        } else {
+                            Ok(Value::Vector3(Vec3::deserialize(deserializer)?))
+                        }
+                    },
+                    ParamType::Vector3Uts => unreachable!(),
                     ParamType::Vector4 => Ok(
                         Value::Vector4(Vec4::deserialize(deserializer)?)
                     ),
@@ -730,5 +744,39 @@ impl <'de> DeserializeSeed<'de> for DynSetDeserializer {
 
         let attributes = deserializer.deserialize_map(AttributeMapVisitor(self.0))?;
         Ok(self.0.create_param_set(attributes))
+    }
+}
+
+#[derive(Debug)]
+pub struct NullParamSet;
+
+impl GenericParamSet for NullParamSet {
+    fn class(&self) -> Class { panic!("null param set doesn't have a class") }
+    fn len(&self) -> usize {0 }
+    fn is_empty(&self) -> bool { true }
+    fn as_hash_map(&self) -> HashMap<&'static str, Value> { HashMap::new() }
+    fn set_param(&mut self, _: &str, _: Value) -> Option<Value> { panic!("can't set param on null param set") }
+    fn get_param(&self, _: &str) -> Option<&Value> { None }
+    fn clear_changes(&mut self) {}
+    fn changes(&self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)>> { Box::new(empty()) }
+    fn client_params(&self) -> Box<dyn GenericParamSet> { Box::new(NullParamSet) }
+    fn client_privileged_params(&self) -> Box<dyn GenericParamSet> { Box::new(NullParamSet) }
+    fn values<'a>(&'a self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, &'a Value)> + 'a> { Box::new(empty()) }
+    fn drain<'a>(&'a mut self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)> + 'a> { Box::new(empty()) }
+    fn dyn_clone(&self) -> Box<dyn GenericParamSet> { Box::new(NullParamSet) }
+}
+
+impl FromIterator<(&'static dyn AttributeInfo, Value)> for Box<dyn GenericParamSet> {
+    fn from_iter<T: IntoIterator<Item = (&'static dyn AttributeInfo, Value)>>(iter: T) -> Self {
+        let attributes = iter.into_iter()
+            .collect::<Vec<_>>();
+
+        if let Some(class) = attributes.first()
+            .map(|(info, _)| info.class()) {
+        
+            class.create_param_set(attributes)
+        } else {
+            Box::new(NullParamSet)
+        }
     }
 }

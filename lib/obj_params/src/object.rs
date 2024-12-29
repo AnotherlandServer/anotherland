@@ -18,7 +18,7 @@ use std::fmt::Debug;
 use bevy::prelude::Component;
 use serde::{Deserialize, Serialize};
 
-use crate::{Attribute, Class, GenericParamSet, ParamError, ParamFlag, ParamResult, ParamSet, ParamWriter, Value};
+use crate::{Attribute, AttributeInfo, Class, GenericParamSet, ParamError, ParamFlag, ParamResult, ParamSet, ParamWriter, Value};
 
 #[derive(Serialize, Deserialize, Component)]
 #[serde(transparent)]
@@ -44,17 +44,22 @@ impl GameObjectData {
     pub fn class(&self) -> Class { self.0.class() }
 
     pub fn get<'a, T: Attribute, V>(&'a self, attr: T) -> ParamResult<&'a V>
-        where &'a V: TryFrom<&'a Value, Error = ParamError>
+        where 
+            &'a V: TryFrom<&'a Value>,
+            <&'a V as TryFrom<&'a Value>>::Error: Into<ParamError>
     {
         if let Some(value) = self.0.get_param(attr.name()) {
             value.try_into()
+                .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
         } else if <T as Attribute>::class() == self.0.class() {
             attr.default().try_into()
+                .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
         } else {
             self.0.class().get_attribute(attr.name())
                 .ok_or(ParamError::UnknownAttributeName)?
                 .default()
                 .try_into()
+                .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
         }
     }
 
@@ -84,7 +89,7 @@ impl GameObjectData {
         self.0.set_param(attr, val.into())
     }
 
-    pub fn apply(&mut self, mut set: impl GenericParamSet) {
+    pub fn apply(&mut self, set: &mut dyn GenericParamSet) {
         for (attr, value) in set.drain() {
             self.0.set_param(attr.name(), value);
         }
@@ -94,7 +99,7 @@ impl GameObjectData {
         self.0.clear_changes();
     }
 
-    pub fn changes(&self) -> Box<dyn GenericParamSet> {
+    pub fn changes(&self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)>> {
         self.0.changes()
     }
 

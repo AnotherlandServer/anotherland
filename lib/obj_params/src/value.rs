@@ -903,6 +903,18 @@ impl From<Vec<i32>> for Value {
     }
 }
 
+impl From<Vec3> for Value {
+    fn from(value: Vec3) -> Self {
+        Value::Vector3(value)
+    }
+}
+
+impl From<(u32, Vec3)> for Value {
+    fn from(value: (u32, Vec3)) -> Self {
+        Value::Vector3Uts(value)
+    }
+}
+
 impl <'a> TryFrom<&'a Value> for &'a String {
     type Error = ParamError;
     
