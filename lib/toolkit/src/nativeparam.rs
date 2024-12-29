@@ -21,14 +21,19 @@ use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt};
 use nom::{IResult, error::{VerboseError, context}, number::complete::{le_u8, le_f32, le_f64, le_i32, le_u64, le_u32, le_i64}, multi::count, bytes::complete::take, combinator::{map, fail}};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
+use thiserror::Error;
 
 use crate::{types::{AvatarId, Uuid}, Vec3Wrapper};
 
 use crate::string_parsers::parse_pkt_cstring;
 
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum NativeParamError {
-    ConversionError
+    #[error("conversion error")]
+    ConversionError,
+
+    #[error("end of struct error")]
+    EndOfStruct
 }
 
 #[derive(Debug, Clone, Default)]
@@ -370,5 +375,17 @@ impl IntoLua for NativeParam {
 impl FromLua for NativeParam {
     fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
         todo!()
+    }
+}
+
+pub trait IterExt: Iterator {
+    fn try_next(&mut self) -> Result<Self::Item, NativeParamError>;
+}
+
+impl<T> IterExt for T
+    where T: Iterator<Item = NativeParam>
+{
+    fn try_next(&mut self) -> Result<Self::Item, NativeParamError> {
+        self.next().ok_or(NativeParamError::EndOfStruct)
     }
 }
