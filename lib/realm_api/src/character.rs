@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use character_graphql::{CreateCharacterInAccount, CreateCharacterInAccountVariables, DeleteCharacter, DeleteCharacterVariables, GetAccountCharacter, GetAccountCharacterVariables, GetCharacter, GetCharacterVariables, GetCharactersForAccount, GetCharactersForAccountVariables};
+use character_graphql::{CreateCharacterInAccount, CreateCharacterInAccountVariables, DeleteCharacter, DeleteCharacterVariables, GetAccountCharacter, GetAccountCharacterVariables, GetCharacter, GetCharacterVariables, GetCharactersForAccount, GetCharactersForAccountVariables, UpdateCharacterDataDiff, UpdateCharacterDataDiffVariables};
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use log::debug;
-use obj_params::GameObjectData;
+use obj_params::{GameObjectData, GenericParamSet};
 use toolkit::types::Uuid;
 
 use crate::{schema, RealmApi, RealmApiError, RealmApiResult};
@@ -149,6 +149,30 @@ impl RealmApi {
             unreachable!()
         }
     }
+
+    pub async fn update_character_data_diff(&self, id: &Uuid, diff: Box<dyn GenericParamSet>) -> RealmApiResult<Option<Character>> {
+        let params = schema::Json(serde_json::to_value(diff.as_ref())?);
+
+        let response = self.0.client
+            .post(self.0.base_url.clone())
+            .run_graphql(UpdateCharacterDataDiff::build(UpdateCharacterDataDiffVariables {
+                id: *id,
+                params,
+            })).await?;
+
+        if let Some(UpdateCharacterDataDiff { update_character_data_diff }) = response.data {
+            if let Some(character) = update_character_data_diff {
+                Ok(Some(Character::from_graphql(self, character)?))
+            } else {
+                Ok(None)
+            }
+        } else if let Some(errors) = response.errors {
+            debug!("Errors: {:#?}", errors);
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
 }
 
 pub(crate) mod character_graphql {
@@ -205,6 +229,19 @@ pub(crate) mod character_graphql {
         pub character: Option<Character>,
     }
     
+    #[derive(cynic::QueryVariables, Debug)]
+    pub struct UpdateCharacterDataDiffVariables {
+        pub id: Uuid,
+        pub params: Json,
+    }
+    
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateCharacterDataDiffVariables")]
+    pub struct UpdateCharacterDataDiff {
+        #[arguments(id: $id, params: $params)]
+        pub update_character_data_diff: Option<Character>,
+    }
+
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct PremiumCurrencyBalance {

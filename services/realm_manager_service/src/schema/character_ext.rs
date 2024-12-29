@@ -16,8 +16,8 @@
 use async_graphql::{futures_util::TryStreamExt, Context, Error, InputObject, Object, SimpleObject};
 use database::DatabaseRecord;
 use mongodb::{bson::doc, Database};
-use obj_params::{GameObjectData, Player, Value};
-use toolkit::types::Uuid;
+use obj_params::{GameObjectData, GenericParamSet, ParamSet, Player, Value};
+use toolkit::{anyhow::anyhow, types::Uuid};
 
 use crate::db::{self, Character, CharacterOutput};
 
@@ -129,6 +129,24 @@ impl CharacterExtMutationRoot {
         }).await?;
 
         Ok(character.try_into()?)
+    }
+
+    pub async fn update_character_data_diff(&self, ctx: &Context<'_>, id: Uuid, params: serde_json::Value) -> Result<Option<CharacterOutput>, Error> {
+        let db = ctx.data::<Database>()?.clone();
+
+        if let Some(mut character) = Character::get(&db, &id).await? {
+            let mut params = serde_json::from_value::<Box<dyn GenericParamSet>>(params)?;
+            if character.data.class() != params.class() {
+                return Err(anyhow!("parameter class mismatch").into());
+            }
+
+            character.data.apply(params.as_mut());
+            character.save(&db).await?;
+
+            Ok(Some(character.try_into()?))
+        } else {
+            Ok(None)
+        }
     }
 }
 
