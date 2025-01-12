@@ -46,6 +46,7 @@ pub struct QueryRoot(
     pub db::CashShopItemBundleQueryRoot,
     pub db::CashShopItemQueryRoot,
     pub db::CashShopVendorQueryRoot,
+    pub db::ItemStorageQueryRoot,
 );
 
 #[derive(MergedObject, Default)]
@@ -62,4 +63,5 @@ pub struct MutationRoot(
     pub db::CashShopItemBundleMutationRoot,
     pub db::CashShopItemMutationRoot,
     pub db::CashShopVendorMutationRoot,
+    pub db::ItemStorageMutationRoot,
 );
