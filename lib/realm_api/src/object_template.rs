@@ -31,6 +31,9 @@ pub struct ObjectTemplateQuery {
     api_base: RealmApi,
 
     #[builder(setter(strip_option), default)]
+    numeric_id: Option<i32>,
+
+    #[builder(setter(strip_option), default)]
     name: Option<String>,
 
     #[builder(setter(strip_option), default)]
@@ -46,6 +49,7 @@ impl ObjectTemplateQuery {
             None
         } else {
             Some(ObjectTemplateFilter { 
+                numeric_id: self.numeric_id,
                 category: self.category, 
                 name: self.name.as_deref(), 
                 class: self.class, 
@@ -96,6 +100,7 @@ pub struct ObjectTemplate {
     api_base: Option<RealmApi>,
 
     pub id: Uuid,
+    pub numeric_id: i32,
     pub category: Category,
     pub name: String,
     pub class: Class,
@@ -127,6 +132,7 @@ impl ObjectTemplate {
         Ok(Self {
             api_base: Some(api.clone()),
             id: other.id,
+            numeric_id: other.numeric_id,
             category: other.category,
             name: other.name,
             class: other.class,
@@ -137,6 +143,7 @@ impl ObjectTemplate {
     fn into_graphql(&self) -> ObjectTemplateInput {
         ObjectTemplateInput {
             id: self.id,
+            numeric_id: self.numeric_id,
             category: self.category,
             class: self.class,
             name: &self.name,
@@ -285,6 +292,7 @@ pub(crate) mod object_template_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct ObjectTemplate {
         pub id: Uuid,
+        pub numeric_id: i32,
         pub category: Category,
         pub name: String,
         pub class: Class,
@@ -302,6 +310,7 @@ pub(crate) mod object_template_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct ObjectTemplateInput<'a> {
         pub id: Uuid,
+        pub numeric_id: i32,
         pub category: Category,
         pub name: &'a str,
         pub class: Class,
@@ -331,6 +340,7 @@ pub(crate) mod object_template_graphql {
     #[derive(cynic::InputObject, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct ObjectTemplateFilter<'a> {
+        pub numeric_id: Option<i32>,
         pub category: Option<Category>,
         pub name: Option<&'a str>,
         pub class: Option<Class>,

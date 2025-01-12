@@ -52,6 +52,8 @@ impl From<Category> for mongodb::bson::Bson {
 pub struct ObjectTemplate {
     pub id: Uuid,
     #[graphql_crud(filter)]
+    pub numeric_id: i32,
+    #[graphql_crud(filter)]
     pub category: Category,
     #[graphql_crud(filter)]
     pub name: String,
@@ -81,6 +83,12 @@ impl DatabaseRecord for ObjectTemplate {
         collection.create_index(
             IndexModel::builder()
             .keys(doc! { "id": 1 })
+            .options(IndexOptions::builder().unique(true).build())
+            .build()).await?;
+
+        collection.create_index(
+            IndexModel::builder()
+            .keys(doc! { "numeric_id": 1 })
             .options(IndexOptions::builder().unique(true).build())
             .build()).await?;
 
