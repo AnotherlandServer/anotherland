@@ -18,7 +18,7 @@
 use darling::{FromDeriveInput, FromField};
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, DeriveInput, ExprPath, ItemFn};
+use syn::{parse_macro_input, DeriveInput, Expr, ExprParen, ExprPath, ItemFn, MetaList};
 
 #[proc_macro_attribute]
 pub fn service_main(attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -60,6 +60,8 @@ pub fn service_main(attr: proc_macro::TokenStream, item: proc_macro::TokenStream
 #[darling(attributes(graphql_crud))]
 struct GraphqlCrudStructOps {
     name: String,
+    #[darling(default)]
+    validator: Option<String>,
 }
 
 #[derive(FromField)]
@@ -68,7 +70,11 @@ struct GraphqlCrudFieldOps {
     #[darling(default)]
     skip: bool,
     #[darling(default)]
+    readonly: bool,
+    #[darling(default)]
     serialize_as: Option<ExprPath>,
+    #[darling(default)]
+    validator: Option<String>,
     #[darling(default)]
     filter: bool,
 }
@@ -109,7 +115,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
         panic!("GraphqlCrud only supports structs");
     };
 
-    let schema_fields: Vec<_> = fields.iter().filter_map(|field| {
+    let output_fields: Vec<_> = fields.iter().filter_map(|field| {
         let field_opts = match GraphqlCrudFieldOps::from_field(field) {
             Ok(opts) => opts,
             Err(e) => {
@@ -127,6 +133,38 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
             Some(quote!{ #vis #ident: #serialize_as })
         } else {
             Some(quote!{ #vis #ident: #ty })
+        }
+    }).collect();
+
+    let input_fields: Vec<_> = fields.iter().filter_map(|field| {
+        let field_opts = match GraphqlCrudFieldOps::from_field(field) {
+            Ok(opts) => opts,
+            Err(e) => {
+                return Some(syn::Error::new_spanned(field, e).to_compile_error())
+            },
+        };
+
+        let ident = &field.ident;
+        let vis = &field.vis;
+        let ty = &field.ty;
+        let attr = if let Some(validator) = field_opts.validator {
+            quote!(#[graphql(validator(custom = #validator))])
+        } else {
+            quote!()
+        };
+
+        if field_opts.skip || field_opts.readonly {
+            None
+        } else if let Some(serialize_as) = &field_opts.serialize_as {
+            Some(quote!{
+                #attr
+                #vis #ident: #serialize_as 
+            })
+        } else {
+            Some(quote!{ 
+                #attr
+                #vis #ident: #ty 
+            })
         }
     }).collect();
 
@@ -163,8 +201,11 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
         if field_opts.filter {
             let ident = &field.ident;
             let field_name = field.ident.as_ref().unwrap().to_string();
+            let ty = &field.ty;
+
             Some(quote!{ 
-                if let Some(val) = &self.#ident {
+                if let Some(val) = self.#ident {
+                    let val = to_bson(&#ty::from(val)).unwrap();
                     expressions.push(doc!{ #field_name: val }); 
                 }
             })
@@ -228,7 +269,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
             },
         };
 
-        if field_opts.skip {
+        if field_opts.skip || field_opts.readonly {
             quote!{ #field_name: <#field_ty as Default>::default() }
         } else if field_opts.serialize_as.is_some() {
             quote!{ #field_name: value.#field_name.try_into()? }
@@ -237,13 +278,19 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
         }
     }).collect();
 
+    let intput_validator = if let Some(validator) = opts.validator {
+        quote!(#[graphql(validator(custom = #validator))])
+    } else {
+        quote!()
+    };
+
     let output: TokenStream = quote! {
         mod schema {
             extern crate toolkit;
 
             use super::*;
             use database::DatabaseRecord;
-            use toolkit::bson::{Document, doc};
+            use toolkit::bson::{Document, doc, to_bson};
             use toolkit::record_pagination::*;
 
             #[derive(Default)]
@@ -254,12 +301,12 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 
             #[derive(async_graphql::SimpleObject)]
             pub struct #struct_name {
-                #(#schema_fields),*
+                #(#output_fields),*
             }
 
             #[derive(async_graphql::InputObject)]
             pub struct #record_input_ident {
-                #(#schema_fields),*
+                #(#input_fields),*
             }
 
             #filter_input
@@ -340,7 +387,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
                 async fn #create_single_ident(
                     &self, 
                     ctx: &async_graphql::Context<'_>, 
-                    input: #record_input_ident
+                    #intput_validator input: #record_input_ident
                 ) -> Result<#struct_name, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
                     let record = <super::#struct_name as DatabaseRecord>
@@ -353,7 +400,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
                 async fn #create_multiple_ident(
                     &self, 
                     ctx: &async_graphql::Context<'_>, 
-                    input: Vec<#record_input_ident>
+                    #intput_validator input: Vec<#record_input_ident>
                 ) -> Result<Vec<#struct_name>, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
                     let records = input
