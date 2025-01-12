@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 use bevy::prelude::Component;
 use serde::{Deserialize, Serialize};
@@ -22,49 +22,64 @@ use crate::{Attribute, AttributeInfo, Class, GenericParamSet, ParamError, ParamF
 
 #[derive(Serialize, Deserialize, Component)]
 #[serde(transparent)]
-pub struct GameObjectData(Box<dyn GenericParamSet>);
+pub struct GameObjectData {
+    #[serde(skip)]
+    parent: Option<Arc<GameObjectData>>,
+    instance: Box<dyn GenericParamSet>,
+}
 
 impl GameObjectData {
     pub fn new<T: Attribute + 'static>() -> Self {
-        Self(Box::new(ParamSet::<T>::new()))
+        Self {
+            parent: None,
+            instance: Box::new(ParamSet::<T>::new())
+        }
     }
 
     pub fn new_for_class(class: Class) -> Self {
-        Self(class.create_param_set(vec![]))
+        Self {
+            parent: None,
+            instance: class.create_param_set(vec![])
+        }
     }
 
     pub fn from_set<T: Attribute + 'static>(set: ParamSet<T>) -> Self {
-        Self(Box::new(set))
+        Self {
+            parent: None,
+            instance: Box::new(set)
+        }
     }
 
     pub fn from_generic_set(set: Box<dyn GenericParamSet>) -> Self {
-        Self(set)
+        Self {
+            parent: None,
+            instance: set
+        }
     }
 
-    pub fn class(&self) -> Class { self.0.class() }
+    pub fn instantiate(parent: &Arc<GameObjectData>) -> Self {
+        Self {
+            parent: Some(parent.clone()),
+            instance: parent.class().create_param_set(vec![]),
+        }
+    }
+
+    pub fn set_parent(&mut self, parent: Option<Arc<GameObjectData>>) {
+        self.parent = parent;
+    }
+
+    pub fn class(&self) -> Class { self.instance.class() }
 
     pub fn get<'a, T: Attribute, V>(&'a self, attr: T) -> ParamResult<&'a V>
         where 
             &'a V: TryFrom<&'a Value>,
             <&'a V as TryFrom<&'a Value>>::Error: Into<ParamError>
     {
-        if let Some(value) = self.0.get_param(attr.name()) {
-            value.try_into()
-                .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
-        } else if <T as Attribute>::class() == self.0.class() {
-            attr.default().try_into()
-                .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
-        } else {
-            self.0.class().get_attribute(attr.name())
-                .ok_or(ParamError::UnknownAttributeName)?
-                .default()
-                .try_into()
-                .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
-        }
+        self.get_named(attr.name())
     }
 
     pub fn set<T: Attribute, V: Into<Value>>(&mut self, attr: T, val: V) -> Option<Value> {
-        self.0.set_param(attr.name(), val.into())
+        self.set_named(attr.name(), val.into())
     }
 
     pub fn get_named<'a, V>(&'a self, attr: &str) -> ParamResult<&'a V>
@@ -73,11 +88,16 @@ impl GameObjectData {
             <&'a V as TryFrom<&'a Value>>::Error: Into<ParamError>
 
     {
-        if let Some(value) = self.0.get_param(attr) {
+        if let Some(value) = self.instance.get_param(attr) {
             value.try_into()
                 .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
+        }  else if 
+            let Some(parent) = self.parent.as_ref() &&
+            let Ok(value) = parent.get_named(attr)
+        {
+            Ok(value)
         } else {
-            self.0.class().get_attribute(attr)
+            self.instance.class().get_attribute(attr)
                 .ok_or(ParamError::UnknownAttributeName)?
                 .default()
                 .try_into()
@@ -86,66 +106,90 @@ impl GameObjectData {
     }
 
     pub fn set_named<V: Into<Value>>(&mut self, attr: &str, val: V) -> Option<Value> {
-        self.0.set_param(attr, val.into())
+        let val  = val.into();
+
+        if 
+            let Some(parent) = self.parent.as_ref() &&
+            parent.get_named::<Value>(attr).unwrap() == &val
+        {
+            self.instance.remove_param(attr)
+        } else {
+            self.instance.set_param(attr, val)
+        }
     }
 
     pub fn apply(&mut self, set: &mut dyn GenericParamSet) {
         for (attr, value) in set.drain() {
-            self.0.set_param(attr.name(), value);
+            self.set_named(attr.name(), value);
         }
     }
 
     pub fn clear_changes(&mut self) {
-        self.0.clear_changes();
+        self.instance.clear_changes();
     }
 
     pub fn changes(&self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)>> {
-        self.0.changes()
+        self.instance.changes()
     }
 
     pub fn merge(&mut self, mut other: GameObjectData) {
-        for (attr, value) in other.0.drain() {
-            self.0.set_param(attr.name(), value);
+        for (attr, value) in other.instance.drain() {
+            self.instance.set_param(attr.name(), value);
         }
     }
 
     pub fn persistent_value_set(&self) -> Box<dyn GenericParamSet> {
-        let values = self.0.values()
+        let values = self.instance.values()
             .filter(|&(a,_)| a.has_flag(&ParamFlag::Persistent))
             .map(|(a, v)| (a, v.clone()))
             .collect();
 
-        self.0.class().create_param_set(values)
+        self.instance.class().create_param_set(values)
     }
 
     pub fn as_set(&self) -> &dyn GenericParamSet {
-        self.0.as_ref()
+        self.instance.as_ref()
     }
 }
 
 impl Clone for GameObjectData {
     fn clone(&self) -> Self {
-        Self(self.0.dyn_clone())
+        Self {
+            parent: self.parent.clone(),
+            instance: self.instance.dyn_clone()
+        }
     }
 }
 
 impl Debug for GameObjectData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        self.instance.fmt(f)
     }
 }
 
 impl ParamWriter for GameObjectData {
     fn write<W: bitstream_io::ByteWrite>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        self.0.write(writer)
+        if let Some(parent) = self.parent.as_ref() {
+            parent.write(writer)?;
+        }
+
+        self.instance.write(writer)
     }
 
     fn write_to_client<W: bitstream_io::ByteWrite>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        self.0.write_to_client(writer)
+        if let Some(parent) = self.parent.as_ref() {
+            parent.write_to_client(writer)?;
+        }
+
+        self.instance.write_to_client(writer)
     }
 
     fn write_to_privileged_client<W: bitstream_io::ByteWrite>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        self.0.write_to_privileged_client(writer)
+        if let Some(parent) = self.parent.as_ref() {
+            parent.write_to_privileged_client(writer)?;
+        }
+
+        self.instance.write_to_privileged_client(writer)
     }
 }
 
@@ -187,9 +231,9 @@ mod test {
 
         println!("{:?}", new_obj);
 
-        assert_eq!(obj.0.len(), new_obj.0.len());
-        for (attr, val) in obj.0.values() {
-            assert_eq!(Some(val), new_obj.0.get_param(attr.name()))
+        assert_eq!(obj.instance.len(), new_obj.instance.len());
+        for (attr, val) in obj.instance.values() {
+            assert_eq!(Some(val), new_obj.instance.get_param(attr.name()))
         }
     }
 }

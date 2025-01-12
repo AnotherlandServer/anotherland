@@ -1136,48 +1136,48 @@ impl <'a> TryFrom<&'a Value> for (&'a Quat, &'a Vec3) {
     }
 }
 
-impl <'a> TryFrom<&'a Value> for &'a [i32] {
+impl <'a> TryFrom<&'a Value> for &'a Vec<i32> {
     type Error = ParamError;
     
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         if let Value::VectorInt(val) = value {
-            Ok(val.as_slice())
+            Ok(val)
         } else {
             Err(ParamError::TypeMismatch)
         }
     }
 }
 
-impl <'a> TryFrom<&'a Value> for &'a [i64] {
+impl <'a> TryFrom<&'a Value> for &'a Vec<i64> {
     type Error = ParamError;
     
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         if let Value::VectorInt64(val) = value {
-            Ok(val.as_slice())
+            Ok(val)
         } else {
             Err(ParamError::TypeMismatch)
         }
     }
 }
 
-impl <'a> TryFrom<&'a Value> for &'a [f32] {
+impl <'a> TryFrom<&'a Value> for &'a Vec<f32> {
     type Error = ParamError;
     
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         if let Value::VectorFloat(val) = value {
-            Ok(val.as_slice())
+            Ok(val)
         } else {
             Err(ParamError::TypeMismatch)
         }
     }
 }
 
-impl <'a> TryFrom<&'a Value> for &'a [String] {
+impl <'a> TryFrom<&'a Value> for &'a Vec<String> {
     type Error = ParamError;
     
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         if let Value::VectorString(val) = value {
-            Ok(val.as_slice())
+            Ok(val)
         } else {
             Err(ParamError::TypeMismatch)
         }
@@ -1196,12 +1196,12 @@ impl <'a> TryFrom<&'a Value> for &'a HashSet<AvatarId> {
     }
 }
 
-impl <'a> TryFrom<&'a Value> for &'a [AvatarId] {
+impl <'a> TryFrom<&'a Value> for &'a Vec<AvatarId> {
     type Error = ParamError;
     
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         if let Value::VectorAvatarId(val) = value {
-            Ok(val.as_slice())
+            Ok(val)
         } else {
             Err(ParamError::TypeMismatch)
         }
@@ -1256,12 +1256,12 @@ impl <'a> TryFrom<&'a Value> for &'a HashMap<String, String> {
     }
 }
 
-impl <'a> TryFrom<&'a Value> for &'a [u8] {
+impl <'a> TryFrom<&'a Value> for &'a Vec<u8> {
     type Error = ParamError;
     
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         if let Value::Any(val) = value {
-            Ok(val.as_slice())
+            Ok(val)
         } else {
             Err(ParamError::TypeMismatch)
         }

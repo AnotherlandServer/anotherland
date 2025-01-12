@@ -17,6 +17,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 toolkit = { workspace = true }
+flexbuffers = { workspace = true }
 
 [build-dependencies]
 convert_case = "0.6.0"

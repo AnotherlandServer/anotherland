@@ -34,6 +34,7 @@ pub trait GenericParamSet: Debug + Send + Sync {
 
     fn set_param(&mut self, name: &str, value: Value) -> Option<Value>;
     fn get_param(&self, name: &str) -> Option<&Value>;
+    fn remove_param(&mut self, name: &str) -> Option<Value>;
 
     fn clear_changes(&mut self);
     fn changes(&self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)>>;
@@ -219,6 +220,15 @@ impl <T: Attribute + 'static> GenericParamSet for ParamSet<T> {
         if let Ok(attr) = name.parse() {
             self.values.get(&attr)
                 .map(|p| p.value())
+        } else {
+            None
+        }
+    }
+
+    fn remove_param(&mut self, name: &str) -> Option<Value> {
+        if let Ok(attr) = name.parse() {
+            self.values.remove(&attr)
+                .map(|p| p.take())
         } else {
             None
         }
@@ -757,6 +767,7 @@ impl GenericParamSet for NullParamSet {
     fn as_hash_map(&self) -> HashMap<&'static str, Value> { HashMap::new() }
     fn set_param(&mut self, _: &str, _: Value) -> Option<Value> { panic!("can't set param on null param set") }
     fn get_param(&self, _: &str) -> Option<&Value> { None }
+    fn remove_param(&mut self, _: &str) -> Option<Value> { None }
     fn clear_changes(&mut self) {}
     fn changes(&self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)>> { Box::new(empty()) }
     fn client_params(&self) -> Box<dyn GenericParamSet> { Box::new(NullParamSet) }

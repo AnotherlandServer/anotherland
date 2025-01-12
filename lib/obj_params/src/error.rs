@@ -16,6 +16,7 @@
 use std::convert::Infallible;
 
 use thiserror::Error;
+use toolkit::anyhow;
 
 #[derive(Error, Debug)]
 pub enum ParamError {
@@ -32,7 +33,13 @@ pub enum ParamError {
     TypeMismatch,
 
     #[error(transparent)]
-    Infallible(#[from] Infallible)
+    JsonError(#[from] serde_json::Error),
+
+    #[error(transparent)]
+    Infallible(#[from] Infallible),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 pub type ParamResult<T> = Result<T, ParamError>;
