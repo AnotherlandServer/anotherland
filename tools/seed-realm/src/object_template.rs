@@ -86,6 +86,7 @@ pub async fn import_object_template_category(game_client_path: &Path, api: &Real
             records.push(
                 ObjectTemplateBuilder::default()
                     .id(row.read::<&str,_>("guid").parse().unwrap())
+                    .numeric_id(row.read::<i64,_>("id") as i32)
                     .category(category)
                     .name(row.read::<&str,_>("name").to_owned())
                     .class(class)
