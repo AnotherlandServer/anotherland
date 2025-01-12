@@ -82,4 +82,4 @@ protocol = { version = "0.1.0", path = "lib/protocol" }
 upk = { version = "0.1.0", path = "lib/upk" }
 scripting = { version = "0.1.0", path = "lib/scripting" }
 mlua = { version = "0.10.2", features = ["lua54", "async", "send", "vendored", "anyhow", "serialize"] }
-
+saphyr = "0.0.3"
