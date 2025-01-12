@@ -13,27 +13,36 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use bevy::{app::{First, Plugin, Startup, Update}, math::Vec3, prelude::{in_state, Added, Commands, Component, Entity, IntoSystemConfigs, NextState, NonSend, NonSendMut, Query, Res, ResMut}};
+use bevy::{app::{First, Plugin, Startup, Update}, math::Vec3, prelude::{in_state, Added, Commands, Component, Entity, IntoSystemConfigs, NextState, NonSend, NonSendMut, Query, Res, ResMut, Resource}, utils::HashMap};
 use futures_util::TryStreamExt;
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use obj_params::{tag_gameobject_entity, Class, GameObjectData, NonClientBase};
 use realm_api::{ObjectPlacement, ObjectTemplate, RealmApi};
 use scripting::{LuaRuntime, ScriptCommandsExt, Scripted};
 use tokio::sync::mpsc::{Receiver, Sender};
 use toolkit::types::Uuid;
 
-use crate::instance::{InstanceState, ZoneInstance};
+use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry};
 
 use super::{AvatarIdManager, AvatarInfo, ForeignResource};
 
-struct Content(Option<(ObjectPlacement, Arc<ObjectTemplate>)>);
+struct Content(Option<(ObjectPlacement, Arc<CacheEntry>)>);
 
 #[derive(Component)]
 pub struct ContentInfo {
     pub placement_id: Uuid,
-    pub template_id: Uuid,
+    pub template: Arc<CacheEntry>,
+}
+
+#[derive(Default, Resource)]
+pub struct InstanceManager(HashMap<Uuid, Entity>);
+
+impl InstanceManager {
+    pub fn find_instance(&self, id: Uuid) -> Option<Entity> {
+        self.0.get(&id).cloned()
+    }
 }
 
 pub struct LoaderPlugin;
@@ -43,19 +52,34 @@ impl Plugin for LoaderPlugin {
         let (content_sender, content_receiver) = tokio::sync::mpsc::channel::<Content>(100);
 
         app.insert_resource(ForeignResource(content_receiver));
+        app.insert_resource(InstanceManager::default());
+        app.world_mut().register_component_hooks::<ContentInfo>()
+            .on_insert(|mut world, entity, _| {
+                let id = world.get_entity(entity).unwrap()
+                    .get::<ContentInfo>().unwrap().placement_id;
+                let mut manager = world.get_resource_mut::<InstanceManager>().unwrap();
+
+                manager.0.insert(id, entity);
+            })
+            .on_remove(|mut world, entity, _| {
+                let id = world.get_entity(entity).unwrap()
+                    .get::<ContentInfo>().unwrap().placement_id;
+                let mut manager = world.get_resource_mut::<InstanceManager>().unwrap();
+
+                manager.0.remove(&id);
+            });
 
         app.add_systems(First, (
-                ingest_content.run_if(in_state(InstanceState::Initializing)),
+                ingest_content.run_if(in_state(InstanceState::Loading)),
                 init_gameobjects,
             ).chain());
 
         let instance = app.world().get_resource::<ZoneInstance>().unwrap();
         let realm_api = instance.realm_api.clone();
         let zone = instance.zone.clone();
+        let object_cache = instance.object_cache.clone();
 
         instance.handle.spawn(async move {
-            let mut template_cache: HashMap<Uuid, Arc<ObjectTemplate>> = HashMap::new();
-            
             // Query
             let mut query = realm_api.query_object_placements()
                 .zone_guid(*zone.guid())
@@ -63,18 +87,12 @@ impl Plugin for LoaderPlugin {
     
             
             while let Some(placement) = query.try_next().await.unwrap() {
-                let template = if let Some(template) = template_cache.get(&placement.content_guid) {
-                    template.clone()
-                } else if let Some(template) = realm_api.get_object_template(placement.content_guid).await.unwrap() {
-                    let template = Arc::new(template);
-                    template_cache.insert(placement.content_guid, template.clone());
-                    template
+                if let Some(template) = object_cache.get_object_by_guid(placement.content_guid).await.unwrap() {
+                    if content_sender.send(Content(Some((placement, template)))).await.is_err() {
+                        return;
+                    }
                 } else {
-                    continue;
-                };
-
-                if content_sender.send(Content(Some((placement, template)))).await.is_err() {
-                    return;
+                    warn!("Template '{}' not found for placement '{}'", placement.content_guid, placement.id);
                 }
             }
     
@@ -92,7 +110,8 @@ fn ingest_content(
 ) {
     while let Ok(Content(content)) = receiver.try_recv() {
         if let Some((mut placement, template)) = content {
-            placement.data.merge(template.data.clone());
+           
+            placement.data.set_parent(Some(template.data.clone()));
             
             // Skip disabled objects
             if !*placement.data.get::<_, bool>(NonClientBase::EnableInGame).unwrap_or(&false) {
@@ -111,15 +130,16 @@ fn ingest_content(
                 },
                 ContentInfo {
                     placement_id: placement.id,
-                    template_id: template.id,
+                    template,
                 },
-                placement.data
+                placement.data,
+                Active,
             )).id();
 
             entry.insert(entity);
         } else {
             debug!("Done receiving");
-            next_state.set(InstanceState::Running);
+            next_state.set(InstanceState::Initializing);
         }
     }
 }
@@ -132,3 +152,6 @@ pub fn init_gameobjects(
         tag_gameobject_entity(obj, &mut commands.entity(ent));
     }
 }
+
+#[derive(Component)]
+pub struct Active;

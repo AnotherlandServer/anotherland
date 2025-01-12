@@ -30,6 +30,22 @@ pub struct AvatarPlugin;
 impl Plugin for AvatarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AvatarIdManager>();
+        app.world_mut().register_component_hooks::<AvatarInfo>()
+            .on_insert(|mut world, entity, _| {
+                let id = world.get_entity(entity).unwrap()
+                    .get::<AvatarInfo>().unwrap().id;
+                let mut manager = world.get_resource_mut::<AvatarIdManager>().unwrap();
+
+
+                manager.avatar_entry(id).or_insert(entity);
+            })
+            .on_remove(|mut world, entity, _| {
+                let id = world.get_entity(entity).unwrap()
+                    .get::<AvatarInfo>().unwrap().id;
+                let mut manager = world.get_resource_mut::<AvatarIdManager>().unwrap();
+
+                manager.entities.remove(&id);
+            });
     }
 }
 

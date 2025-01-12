@@ -36,3 +36,4 @@ toolkit = { workspace = true }
 obj_params = { workspace = true }
 rand.workspace = true
 mlua = { workspace = true }
+saphyr = { workspace = true }

@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![feature(let_chains)]
+#![feature(exclusive_wrapper)]
 
 use bevy::prelude::*;
 use instance::{InstanceLabel, ZoneSubApp};
@@ -44,6 +45,7 @@ mod proto;
 mod manager;
 mod instance;
 mod plugins;
+mod object_cache;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]

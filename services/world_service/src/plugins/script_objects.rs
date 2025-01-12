@@ -92,6 +92,6 @@ fn insert_avatar_info(entity: EntityWorldMut<'_>) {
 
     if let Some(content_info) = content_info {
         script.script().raw_set("placement_guid", content_info.placement_id.to_string()).unwrap();
-        script.script().raw_set("template_guid", content_info.template_id.to_string()).unwrap();
+        script.script().raw_set("template_guid", content_info.template.id.to_string()).unwrap();
     }
 }

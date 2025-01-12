@@ -35,6 +35,7 @@ pub enum ServerAction {
     Portal(AvatarId, Option<Movement>),
     LocalPortal(AvatarId, Movement),
     Teleport(AvatarId, Movement),
+    Event(String),
 }
 
 impl ServerAction {
@@ -70,6 +71,12 @@ impl ServerAction {
                 4,
                 Some(position)
             ),
+            Self::Event(event) => (
+                AvatarId::default(),
+                event,
+                4,
+                None,
+            )
         };
 
         if let Some(teleport_override) = teleport_override {

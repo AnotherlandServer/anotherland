@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{str::FromStr, sync::Arc};
+use std::{path::PathBuf, str::FromStr, sync::Arc};
 
-use bevy::{app::{First, Main, MainSchedulePlugin, ScheduleRunnerPlugin, SubApp}, ecs::{event::{event_update_condition, event_update_system, EventUpdates}, intern::Interned, schedule::ScheduleLabel}, prelude::{AppExtStates, AppTypeRegistry, IntoSystemConfigs, Resource, States}, state::app::StatesPlugin, tasks::futures_lite::StreamExt, MinimalPlugins};
+use bevy::{app::{First, Main, MainSchedulePlugin, PanicHandlerPlugin, ScheduleRunnerPlugin, SubApp}, core::{FrameCountPlugin, TaskPoolPlugin, TypeRegistrationPlugin}, ecs::{event::{event_update_condition, event_update_system, EventRegistry, EventUpdates}, intern::Interned, schedule::ScheduleLabel}, log::LogPlugin, prelude::{AppExtStates, AppTypeRegistry, HierarchyPlugin, IntoSystemConfigs, NextState, OnEnter, ResMut, Resource, States}, state::app::StatesPlugin, tasks::futures_lite::StreamExt, time::TimePlugin, MinimalPlugins};
 use core_api::CoreApi;
 use derive_builder::Builder;
 use log::debug;
@@ -26,7 +26,7 @@ use serde_json::Value;
 use tokio::runtime::Handle;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, ClientSyncPlugin, FactionsPlugin, InterestsPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, TravelPlugin}, ARGS};
+use crate::{error::{WorldError, WorldResult}, object_cache::ObjectCache, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, ClientSyncPlugin, CombatStylesPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
 
 #[derive(Default)]
 pub enum ZoneType {
@@ -77,6 +77,7 @@ impl TryFrom<i32> for InstanceType {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, States)]
 pub enum InstanceState {
     #[default]
+    Loading,
     Initializing,
     Running,
 }
@@ -99,6 +100,7 @@ pub struct ZoneInstance {
     pub realm_api: RealmApi,
     pub core_api: CoreApi,
     pub handle: Handle,
+    pub object_cache: ObjectCache,
 
     #[builder(setter(strip_option))]
     pub world_def: Arc<WorldDef>,
@@ -107,7 +109,7 @@ pub struct ZoneInstance {
     pub zone: Arc<Zone>,
 
     #[builder(default, setter(skip))]
-    pub config: Arc<ZoneConfig>,
+    pub config: Arc<ZoneConfig>, 
 
     #[builder(default)]
     pub instance_id: Option<Uuid>,
@@ -115,10 +117,18 @@ pub struct ZoneInstance {
 
 impl ZoneInstanceBuilder {
     pub async fn instantiate(self) -> WorldResult<SubApp> {
+        let content_path = std::env::var("CONTENT_PATH")
+            .ok()
+            .and_then(|p| p.parse::<PathBuf>().ok())
+            .or(std::env::current_dir().map(|p| p.join("content")).ok())
+            .expect("content path inacessible");
+
         let mut app = SubApp::new();
         let mut instance = self.build()?;
 
+        let realm_api = instance.realm_api.clone();
         let world_def = instance.world_def.clone();
+        let object_cache = instance.object_cache.clone();
 
         if let Some(config) = instance.realm_api.query_object_templates()
             .category(Category::Misc)
@@ -150,10 +160,19 @@ impl ZoneInstanceBuilder {
 
         // Low level setup
         app.init_resource::<AppTypeRegistry>();
+        app.init_resource::<EventRegistry>();
 
         app.update_schedule = Some(Main.intern());
+        app.add_plugins(TaskPoolPlugin::default());
+        app.add_plugins(TypeRegistrationPlugin);
+        app.add_plugins(FrameCountPlugin);
+        app.add_plugins(TimePlugin);
         app.add_plugins(MainSchedulePlugin);
         app.add_plugins(StatesPlugin);
+        app.add_plugins(LogPlugin::default());
+        app.add_plugins(PanicHandlerPlugin);
+        app.add_plugins(HierarchyPlugin);
+
         app.add_systems(
             First,
             event_update_system
@@ -164,6 +183,9 @@ impl ZoneInstanceBuilder {
         // Instance setup
         app.init_state::<InstanceState>();
         app.insert_resource(instance);
+        app.add_systems(OnEnter(InstanceState::Initializing), start_instance);
+
+
         // Core plugins
         app.add_plugins((
             NetworkPlugin,
@@ -174,9 +196,9 @@ impl ZoneInstanceBuilder {
         app.insert_resource(
             LuaRuntimeBuilder::default()
                 .hot_reload(ARGS.hot_reload)
-                .add_require_lookup_directory("./content/lua")
-                .add_require_lookup_directory("./content/lua/scripts")
-                .add_require_lookup_directory(format!("./content/lua/scripts/{}", world_def.name()))
+                .add_require_lookup_directory(content_path.join("lua"))
+                .add_require_lookup_directory(content_path.join("lua/scripts"))
+                .add_require_lookup_directory(content_path.join("lua/scripts").join(world_def.name()))
                 .build()?
         );
 
@@ -194,8 +216,22 @@ impl ZoneInstanceBuilder {
                 ClientSyncPlugin,
                 TravelPlugin,
                 FactionsPlugin,
+                DialoguePlugin,
+                CombatStylesPlugin,
+                InventoryPlugin {
+                    content_path: content_path.clone()
+                }
+            ));
+
+            app.add_plugins((
+                SpecialEventsPlugin::new(object_cache.clone(), realm_api.clone(), world_def.name()).await?,
+                QuestsPlugin,
             ));
 
         Ok(app)
     }
+}
+
+fn start_instance(mut next_state: ResMut<NextState<InstanceState>>) {
+    next_state.set(InstanceState::Running);
 }

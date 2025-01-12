@@ -26,7 +26,7 @@ use realm_api::{proto::{InstanceKey, RealmClient, RealmRequest}, ObjectTemplate,
 use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, oneshot, Mutex}};
 use toolkit::types::{Uuid, UUID_NIL};
 
-use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode, ARGS};
+use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, object_cache::ObjectCache, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode, ARGS};
 
 struct PendingInstance {
     world_def: Arc<WorldDef>,
@@ -45,6 +45,7 @@ struct InstanceManagerData {
     instances: HashMap<Uuid, InstanceLabel>,
     event_sender: mpsc::Sender<InstanceEvent>,
     limit: usize,
+    object_cache: ObjectCache,
 }
 
 pub enum InstanceEvent {
@@ -109,7 +110,7 @@ impl InstanceManager {
 
         
         Ok(Self(Arc::new(Mutex::new(InstanceManagerData { 
-            realm_api,
+            realm_api: realm_api.clone(),
             core_api,
             realm_client,
             zones: zones.into_iter()
@@ -120,6 +121,7 @@ impl InstanceManager {
             instances: HashMap::new(),
             event_sender,
             limit,
+            object_cache: ObjectCache::new(realm_api)
         }))))
     }
 
@@ -195,6 +197,7 @@ impl InstanceManager {
                 .realm_api(s.realm_api.clone())
                 .core_api(s.core_api.clone())
                 .handle(Handle::current())
+                .object_cache(s.object_cache.clone())
                 .instance_id(req.key)
                 .instantiate().await
             {
