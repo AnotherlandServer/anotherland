@@ -16,7 +16,7 @@
 use async_graphql::{Context, Error, Object, SimpleObject, ID};
 use toolkit::types::Uuid;
 
-use crate::{instance_registry::InstanceRegistry, proto::InstanceKey};
+use crate::{instance_registry::InstanceRegistry, proto::InstanceKey, INSTANCE_REGISTRY};
 
 use super::{nodes::{Node, NodesRoot}, QueryRoot};
 
@@ -29,8 +29,7 @@ pub struct InstancesMutationRoot;
 #[Object]
 impl InstancesRoot {
     pub async fn instance(&self, ctx: &Context<'_>, zone: Uuid, key: Option<Uuid>) -> Result<Option<Instance>, Error> {
-        let instances = ctx.data::<InstanceRegistry>()?;
-        if let Some(instance) = instances.get_instance(InstanceKey::new(zone, key)).await {
+        if let Some(instance) = INSTANCE_REGISTRY.get().unwrap().get_instance(InstanceKey::new(zone, key)).await {
             
             Ok(Some(Instance { 
                 zone_id: instance.key.zone(), 
@@ -47,9 +46,9 @@ impl InstancesRoot {
 
 #[Object]
 impl InstancesMutationRoot {
-    pub async fn join_instance(&self, ctx: &Context<'_>, _session_id: Uuid, zone_id: Uuid, instance_id: Option<Uuid>) -> Result<Instance, Error> {
-        let instances = ctx.data::<InstanceRegistry>()?;
-        let instance = instances.request_instance(InstanceKey::new(zone_id, instance_id)).await?;
+    pub async fn join_instance(&self, ctx: &Context<'_>, session_id: Uuid, zone_id: Uuid, instance_id: Option<Uuid>) -> Result<Instance, Error> {
+        let instance = INSTANCE_REGISTRY.get().unwrap()
+            .request_instance(session_id, InstanceKey::new(zone_id, instance_id)).await?;
         Ok(Instance { 
             zone_id: instance.key.zone(), 
             key: instance.key.instance(), 

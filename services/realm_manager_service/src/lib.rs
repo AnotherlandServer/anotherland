@@ -16,7 +16,12 @@
 #![feature(let_chains)]
 #![feature(hash_extract_if)]
 
+use std::sync::OnceLock;
+
 use async_graphql::{EmptySubscription, Schema};
+use chat_router::ChatRouter;
+use instance_registry::InstanceRegistry;
+use node_registry::NodeRegistry;
 use schema::{MutationRoot, QueryRoot};
 
 mod db;
@@ -24,9 +29,19 @@ mod schema;
 mod node_registry;
 mod instance_registry;
 mod session_manager;
+mod chat_router;
 
 pub mod error;
 pub mod proto;
+use session_manager::SessionManager;
+
+// These have to be defined so everyting can be linked.
+// But since the code is never actually called, we don't need
+// to initialize them.
+pub static NODE_REGISTRY: OnceLock<NodeRegistry> = OnceLock::new();
+pub static INSTANCE_REGISTRY: OnceLock<InstanceRegistry> = OnceLock::new();
+pub static SESSION_MANAGER: OnceLock<SessionManager> = OnceLock::new();
+pub static CHAT_ROUTER: OnceLock<ChatRouter> = OnceLock::new();
 
 pub fn get_schema_sdl() -> String {
     Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)

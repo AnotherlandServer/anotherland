@@ -18,13 +18,18 @@ use std::sync::Arc;
 use core_api::{CoreApi, Session};
 use log::{debug, error};
 use obj_params::Player;
+use protocol::CPkt;
 use raknet::RakNetSocket;
-use realm_api::RealmApi;
-use tokio::{select, sync::{mpsc, Notify}};
+use realm_api::{proto::{RealmClient, RealmRequest}, RealmApi};
+use tokio::{select, sync::mpsc::{self, Sender}};
 use toolkit::types::Uuid;
 use world_service::{ClusterMessage, TravelMode, TravelRejectReason, WorldMessage, WorldRequest};
 
 use crate::{error::ClusterFrontendResult, router::Router};
+
+pub enum Message {
+    Sidechannel(CPkt),
+}
 
 pub struct ClusterContext;
 
@@ -35,7 +40,10 @@ impl ClusterContext {
         router: Router,
         socket: RakNetSocket,
         session: Session,
-    ) -> ClusterFrontendResult<Arc<Notify>> {
+        realm_client: Arc<RealmClient>,
+    ) -> ClusterFrontendResult<Sender<Message>> {
+        let (sender, mut receiver) = mpsc::channel(10);
+
         // Get extended session from realm
         let session_state = realm_api.get_session_state(*session.id()).await?
             .ok_or(anyhow::Error::msg("session ext not found"))?;
@@ -56,6 +64,11 @@ impl ClusterContext {
 
         drop(character);
 
+        // Notify realm
+        let _ = realm_client.send(RealmRequest::ClientConnected { 
+            session_id: *session.id()
+        }).await;
+
         // Notify world
         let _ = channel.send(ClusterMessage::ClientArrived { 
             session: *session.id(),
@@ -64,15 +77,22 @@ impl ClusterContext {
             mode: TravelMode::Login
         }).await;
 
-        let semaphore = Arc::new(Notify::new());
-        let ret_semaphore = semaphore.clone();
-
         let (next_instance_send, mut next_instance_recv) = mpsc::channel(1);
 
         tokio::spawn(async move {
             loop {
                 select! {
-                    _ = semaphore.notified() => break,
+                    res = receiver.recv() => {
+                        if let Some(msg) = res {
+                            match msg {
+                                Message::Sidechannel(pkt) => {
+                                    let _ = socket.send(&pkt.to_bytes(), raknet::Reliability::ReliableOrdered).await;
+                                }
+                            }
+                        } else {
+                            break;
+                        }
+                    },
                     res = channel.recv() => {
                         match res {
                             Some(res) => {
@@ -165,9 +185,16 @@ impl ClusterContext {
                         }
                     },
                 }
-            } 
+            }
+
+            // Notify world and realm that client has disconnected
+            let _ = channel.send(ClusterMessage::ClientLeft).await;
+
+            let _ = realm_client.send(RealmRequest::ClientDisconnected { 
+                session_id: *session.id()
+            }).await;
         });
 
-        Ok(ret_semaphore)
+        Ok(sender)
     }
 }

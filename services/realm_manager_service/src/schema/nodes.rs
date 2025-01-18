@@ -16,25 +16,23 @@
 use async_graphql::{Context, Enum, Error, Object, OneofObject, SimpleObject, Union, ID};
 use toolkit::types::Uuid;
 
-use crate::{node_registry::{self, NodeRegistry, NodeSocketAddress}, proto::{self, NodeType}};
+use crate::{node_registry::{self, NodeRegistry, NodeSocketAddress}, proto::{self, NodeType}, NODE_REGISTRY};
 
 #[derive(Default)]
 pub struct NodesRoot;
 
 #[Object]
 impl NodesRoot {
-    pub async fn node(&self, ctx: &Context<'_>, id: ID) -> Result<Option<Node>, Error> {
-        let registry = ctx.data::<NodeRegistry>()?;
-        Ok(registry.node(id.parse()?).await
-            .map(|node| node.into()))
+    pub async fn node(&self, _ctx: &Context<'_>, id: ID) -> Result<Option<Node>, Error> {
+        Ok(NODE_REGISTRY.get().unwrap().node(id.parse()?).await
+            .map(|(_, node)| node.into()))
     }
 
-    pub async fn nodes(&self, ctx: &Context<'_>) -> Result<Vec<Node>, Error> {
-        let registry = ctx.data::<NodeRegistry>()?;
+    pub async fn nodes(&self, _ctx: &Context<'_>) -> Result<Vec<Node>, Error> {
         Ok(
-            registry.nodes().await
+            NODE_REGISTRY.get().unwrap().nodes().await
                 .into_iter()
-                .map(|node| node.into())
+                .map(|(_, node)| node.into())
                 .collect()
         )
     }

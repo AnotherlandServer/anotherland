@@ -22,7 +22,9 @@ pub use notification::*;
 
 use cluster::{ClusterClient, ClusterServer, Request, Response};
 use serde::{Deserialize, Serialize};
-use toolkit::types::Uuid;
+use toolkit::types::{AvatarId, Uuid};
+
+pub use crate::chat_router::Destination;
 
 #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
 pub struct InstanceKey(Uuid, Option<Uuid>);
@@ -61,6 +63,8 @@ impl Display for NodeAddress {
 #[derive(Serialize, Deserialize)]
 pub enum RealmRequest {
     RegisterNode(NodeType, NodeAddress),
+    ClientConnected { session_id: Uuid },
+    ClientDisconnected { session_id: Uuid },
     InstanceOffering {
         transaction_id: Uuid,
         key: InstanceKey,
@@ -69,17 +73,29 @@ pub enum RealmRequest {
         transaction_id: Uuid
     },
     RemoveInstance(InstanceKey),
+    ChatMessage {
+        sender_id: Option<Uuid>,
+        destination: Destination,
+        message: String,
+    }
 }
 
 impl Request for RealmRequest {}
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum RealmResponse {
     InstanceOfferingAccepted { 
         transaction_id: Uuid,
         key: InstanceKey 
     },
+    ChatMessage {
+        recipients: Vec<Uuid>, // Session ids
+        sender_id: Option<AvatarId>,
+        sender_name: String,
+        destination: Destination,
+        message: String,
+    }
 }
 
 impl Response for RealmResponse {}

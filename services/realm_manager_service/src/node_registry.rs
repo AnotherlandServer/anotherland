@@ -83,7 +83,7 @@ impl NodeRegistry {
 
         let entry = state.nodes.entry(peer_identity)
             .or_insert(Node {
-                id: Uuid::new(), 
+                id: Uuid::new(),
                 ty: node_type, 
                 addr: address
             })
@@ -116,17 +116,17 @@ impl NodeRegistry {
             .cloned()
     }
 
-    pub async fn node(&self, id: Uuid) -> Option<Node> {
+    pub async fn node(&self, id: Uuid) -> Option<(PeerIdentity, Node)> {
         let s = self.data.read().await;
-        s.nodes.values()
-            .find(|node| node.id == id)
-            .cloned()
+        s.nodes.iter()
+            .find(|(_, node)| node.id == id)
+            .map(|(k,v)| (k.clone(), v.clone()))
     }
 
-    pub async fn nodes(&self) -> Vec<Node> {
+    pub async fn nodes(&self) -> Vec<(PeerIdentity, Node)> {
         let s = self.data.read().await;
-        s.nodes.values()
-            .cloned()
+        s.nodes.iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
     }
 

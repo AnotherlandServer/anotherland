@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, RwLock};
 use toolkit::{anyhow, types::Uuid};
 
-use crate::{db::{ObjectTemplate, Zone}, error::{RealmError, RealmResult}, node_registry::{NodeRegistry, NodeSocketAddress}, proto::{InstanceKey, RealmNotification, RealmResponse, RealmServer}};
+use crate::{db::{ObjectTemplate, Zone}, error::{RealmError, RealmResult}, node_registry::{NodeRegistry, NodeSocketAddress}, proto::{InstanceKey, RealmNotification, RealmResponse, RealmServer}, NODE_REGISTRY, SESSION_MANAGER};
 
 struct InstanceRequest {
     key: InstanceKey,
@@ -43,7 +43,6 @@ enum InstanceRequestState {
 struct InstanceRegistryData {
     db: Database,
     server: Arc<RealmServer>,
-    nodes: NodeRegistry,
     requests: HashMap<Uuid, InstanceRequest>,
     instances: HashMap<InstanceKey, Arc<Instance>>,
 }
@@ -52,11 +51,10 @@ struct InstanceRegistryData {
 pub struct InstanceRegistry(Arc<RwLock<InstanceRegistryData>>);
 
 impl InstanceRegistry {
-    pub fn new(db: Database, server: Arc<RealmServer>, nodes: NodeRegistry) -> Self {
+    pub fn new(db: Database, server: Arc<RealmServer>) -> Self {
         let data = Arc::new(RwLock::new(InstanceRegistryData {
             db,
             server,
-            nodes,
             requests: HashMap::new(),
             instances: HashMap::new(),
         }));
@@ -115,7 +113,7 @@ impl InstanceRegistry {
         Self(data)
     }
 
-    pub async fn request_instance(&self, key: InstanceKey) -> RealmResult<Arc<Instance>> {
+    pub async fn request_instance(&self, session_id: Uuid, key: InstanceKey) -> RealmResult<Arc<Instance>> {
         let mut s = self.0.write().await;
         
         // Check if there is already a running instance we could connect to
@@ -163,6 +161,9 @@ impl InstanceRegistry {
         drop(s);
 
         if let Ok(Some(instance)) = receiver.recv().await {
+            SESSION_MANAGER.get().unwrap()
+                .update_instance(session_id, instance.key.zone(), instance.key.instance()).await;
+
             Ok(instance)
         } else {
             Err(anyhow::Error::msg("failed to join instance").into())
@@ -192,7 +193,7 @@ impl InstanceRegistry {
             if 
                 let InstanceRequestState::Offered { peer: req_peer } = &req.state &&
                 *req_peer == peer &&
-                let Some(node) = s.nodes.node_for_peer(&peer).await
+                let Some(node) = NODE_REGISTRY.get().unwrap().node_for_peer(&peer).await
             {
                 let instance = Arc::new(Instance {
                     key: req.key,

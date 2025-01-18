@@ -21,7 +21,7 @@ use database::DatabaseRecord;
 use mongodb::{bson::doc, options::ReturnDocument, Database};
 use toolkit::types::Uuid;
 
-use crate::{db, session_manager::{self, SessionManager}};
+use crate::{db, session_manager::{self, SessionManager}, SESSION_MANAGER};
 
 #[derive(Default)]
 pub struct SessionStateRoot;
@@ -31,18 +31,16 @@ pub struct SessionStateMutationRoot;
 
 #[Object]
 impl SessionStateRoot {
-    async fn session_state(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<SessionState>, Error> {
-        let session_manager = ctx.data::<SessionManager>()?.clone();
-        Ok(session_manager.get_state(id).await?
+    async fn session_state(&self, _ctx: &Context<'_>, id: Uuid) -> Result<Option<SessionState>, Error> {
+        Ok(SESSION_MANAGER.get().unwrap().get_state(id).await
             .map(|state| state.into()))
     }
 }
 
 #[Object]
 impl SessionStateMutationRoot {
-    async fn join_game(&self, ctx: &Context<'_>, id: Uuid, character_id: Uuid) -> Result<SessionState, Error> {
-        let session_manager = ctx.data::<SessionManager>()?.clone();
-        Ok(session_manager.join_game(id, character_id).await?.into())
+    async fn join_game(&self, _ctx: &Context<'_>, id: Uuid, character_id: Uuid) -> Result<SessionState, Error> {
+        Ok(SESSION_MANAGER.get().unwrap().join_game(id, character_id).await?.into())
     }
 }
 
@@ -51,6 +49,8 @@ pub struct SessionState {
     id: Uuid,
     avatar: String,
     character: Uuid,
+    zone: Option<Uuid>,
+    instance: Option<Uuid>,
 }
 
 impl From<Arc<session_manager::SessionState>> for SessionState {
@@ -59,6 +59,8 @@ impl From<Arc<session_manager::SessionState>> for SessionState {
             id: value.id,
             avatar: value.avatar_id.to_string(),
             character: value.character_id,
+            zone: value.zone,
+            instance: value.instance,
         }
     }
 }

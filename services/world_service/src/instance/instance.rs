@@ -20,13 +20,13 @@ use core_api::CoreApi;
 use derive_builder::Builder;
 use log::debug;
 use obj_params::{Class, OaZoneConfig};
-use realm_api::{Category, RealmApi, WorldDef, Zone};
+use realm_api::{proto::RealmClient, Category, RealmApi, WorldDef, Zone};
 use scripting::{LuaRuntimeBuilder, ScriptingPlugin};
 use serde_json::Value;
 use tokio::runtime::Handle;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, object_cache::ObjectCache, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, ClientSyncPlugin, CombatStylesPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
+use crate::{error::{WorldError, WorldResult}, object_cache::ObjectCache, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatStylesPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
 
 #[derive(Default)]
 pub enum ZoneType {
@@ -99,6 +99,7 @@ pub struct ZoneConfig {
 pub struct ZoneInstance {
     pub realm_api: RealmApi,
     pub core_api: CoreApi,
+    pub realm_client: Arc<RealmClient>,
     pub handle: Handle,
     pub object_cache: ObjectCache,
 
@@ -226,6 +227,7 @@ impl ZoneInstanceBuilder {
             app.add_plugins((
                 SpecialEventsPlugin::new(object_cache.clone(), realm_api.clone(), world_def.name()).await?,
                 QuestsPlugin,
+                ChatPlugin,
             ));
 
         Ok(app)

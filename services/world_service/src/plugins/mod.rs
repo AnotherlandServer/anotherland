@@ -34,6 +34,7 @@ mod combat_styles;
 mod inventory;
 mod special_events;
 mod quests;
+mod chat;
 
 pub use network::*;
 pub use loader::*;
@@ -56,3 +57,4 @@ pub use combat_styles::*;
 pub use inventory::*;
 pub use special_events::*;
 pub use quests::*;
+pub use chat::*;

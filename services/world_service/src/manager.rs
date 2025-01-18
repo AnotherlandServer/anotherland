@@ -196,6 +196,7 @@ impl InstanceManager {
                 .zone(req.zone.clone())
                 .realm_api(s.realm_api.clone())
                 .core_api(s.core_api.clone())
+                .realm_client(s.realm_client.clone())
                 .handle(Handle::current())
                 .object_cache(s.object_cache.clone())
                 .instance_id(req.key)

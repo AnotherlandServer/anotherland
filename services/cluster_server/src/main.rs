@@ -15,20 +15,21 @@
 
 #![feature(let_chains)]
 
-use std::{net::SocketAddr, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use clap::Parser;
-use cluster_context::ClusterContext;
+use cluster_context::{ClusterContext, Message};
 use core_api::CoreApi;
 use error::ClusterFrontendResult;
 use once_cell::sync::Lazy;
-use protocol::CPkt;
+use protocol::{CPkt, CPktChat, CpktChatChatType, OtherlandPacket};
 use raknet::RakNetListener;
-use realm_api::{proto::{NodeAddress, NodeType, RealmClient, RealmRequest}, RealmApi};
+use realm_api::{proto::{Destination, NodeAddress, NodeType, RealmClient, RealmRequest}, RealmApi};
 use reqwest::Url;
 use log::{error, info};
 use router::Router;
-use toolkit::print_banner;
+use tokio::{select, sync::{mpsc, Mutex}};
+use toolkit::{print_banner, types::Uuid};
 
 mod error;
 mod cluster_context;
@@ -68,12 +69,17 @@ async fn main() -> ClusterFrontendResult<()> {
     let (realm_client, notifications) = RealmClient::connect(&ARGS.realm_zmq_addr).await
         .expect("failed to connect to realm zmq server");
 
+    let realm_client = Arc::new(realm_client);
+
     realm_client.subscribe("core.session.terminated").await?;
 
     let router = Router::new(realm_api.clone());
 
     // raknet server
     tokio::spawn(async move {
+        let connections = Arc::new(Mutex::new(
+            HashMap::<Uuid, mpsc::Sender<Message>>::new()
+        ));
         let mut listener = RakNetListener::bind(ARGS.raknet_bind_addr).await?;
 
         if !ARGS.insecure {
@@ -88,30 +94,100 @@ async fn main() -> ClusterFrontendResult<()> {
         realm_client.send(RealmRequest::RegisterNode(NodeType::Cluster, NodeAddress::Public(ARGS.public_addr))).await?;
 
         loop {
-            let socket = listener.accept().await?;
-            let realm_api = realm_api.clone();
-            let core_api = core_api.clone();
-            let router = router.clone();
+            select! {
+                socket = listener.accept() => {
+                    if let Ok(socket) = socket {
+                        let realm_api = realm_api.clone();
+                        let core_api = core_api.clone();
+                        let router = router.clone();
+                        let realm_client = realm_client.clone();
+                        let connections = connections.clone();
+            
+                        tokio::spawn(async move {
+                            // Silently drop all connections which do not send oaPktRequestEnterGame as
+                            // their first message or whose session is invalid.
+                            if 
+                                let Ok(pkt) = socket.recv().await &&
+                                let Ok((_, CPkt::oaPktRequestEnterGame(pkt))) = CPkt::from_bytes(&pkt) &&
+                                let Ok(Some(session)) = core_api.get_session(&pkt.session_id).await
+                            {
+                                let session_id = *session.id();
+            
+                                match ClusterContext::create_and_start(
+                                    core_api, 
+                                    realm_api, 
+                                    router, 
+                                    socket, 
+                                    session,
+                                    realm_client
+                                ).await {
+                                    Ok(sender) => { 
+                                        let mut connections = connections.lock().await;
+                                        connections.retain(|_, c| !c.is_closed()); // Cleanup connections
+                                        connections.insert(session_id, sender);
+                                    },
+                                    Err(e) => { error!("Failed to start cluster session: {:#?}", e); },
+                                }
+                            }
+                        });
+                    } else {
+                        break;
+                    }
+                },
+                msg = realm_client.recv() => {
+                    if let Ok(realm_api::proto::RealmResponse::ChatMessage { 
+                        recipients, 
+                        sender_id, 
+                        sender_name, 
+                        destination, 
+                        message 
+                    }) = msg {
+                        if matches!(destination, Destination::Broadcast) {
+                            // Send message to all connected clients
+                            let connections = connections.lock().await;
+        
+                            let pkt = CPktChat {
+                                chat_type: CpktChatChatType::Broadcast,
+                                message,
+                                ..Default::default()
+                            }.into_pkt();
+        
+                            for connection in connections.values() {
+                                let _ = connection.send(Message::Sidechannel(pkt.clone())).await;
+                            }
+                        } else {
+                            let connections = connections.lock().await;
 
-            tokio::spawn(async move {
-                // Silently drop all connections which do not send oaPktRequestEnterGame as
-                // their first message or whose session is invalid.
-                if 
-                    let Ok(pkt) = socket.recv().await &&
-                    let Ok((_, CPkt::oaPktRequestEnterGame(pkt))) = CPkt::from_bytes(&pkt) &&
-                    let Ok(Some(session)) = core_api.get_session(&pkt.session_id).await
-                {
-                    if let Err(e) = ClusterContext::create_and_start(
-                        core_api, 
-                        realm_api, 
-                        router, 
-                        socket, 
-                        session
-                    ).await {
-                        error!("Failed to start cluster session: {:#?}", e);
+                            let (chat_type, receiver) = match destination {
+                                Destination::Broadcast => (CpktChatChatType::Broadcast, String::default()),
+                                Destination::Whisper(name) => (CpktChatChatType::Whisper, name),
+                                Destination::Clan(_) => (CpktChatChatType::Clan, String::default()),
+                                Destination::ClanOfficer(_) => (CpktChatChatType::ClanOfficer, String::default()),
+                                Destination::Party(_) => (CpktChatChatType::Party, String::default()),
+                            };
+        
+                            let pkt = CPktChat {
+                                field_2: sender_id.unwrap_or_default(),
+                                chat_type,
+                                message,
+                                sender: sender_name,
+                                receiver,
+                                ..Default::default()
+                            }.into_pkt();
+        
+                            for recipient in recipients {
+                                if let Some(connection) = connections.get(&recipient) {
+                                    let _ = connection.send(Message::Sidechannel(pkt.clone())).await;
+                                }
+                            }
+                        }
+                    } else {
+                        break;
                     }
                 }
-            });
+            }
         }
+
+        Ok(())
     }).await?
 }

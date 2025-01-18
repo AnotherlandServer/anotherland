@@ -97,6 +97,7 @@ fn handle_realm_msgs(realm_client: Arc<RealmClient>, manager: InstanceManager) {
             match msg {
                 RealmResponse::InstanceOfferingAccepted { transaction_id, .. } => 
                     manager.provision_instance(transaction_id).await,
+                _ => (),
             }
         }
     });
@@ -124,36 +125,31 @@ fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender
                                     }
                                 },
                                 ClusterMessage::ClientArrived { session, zone, instance, mode } => {
-                                    if 
-                                        let Ok(Some(state)) = realm_api.get_session_state(session).await &&
-                                        let Ok(Some(character)) = realm_api.get_character(state.character()).await
-                                    {
-                                        let instance = InstanceLabel::new(
-                                            zone,
-                                            instance
-                                        );
-                
-                                        let (result_send, controller) = oneshot::channel();
-                                        if event_sender.send(InstanceEvent::ControllerSpawnRequested {
-                                            peer: id,
-                                            instance, 
-                                            session, 
-                                            events: sender.clone(), 
-                                            controller: result_send,
-                                            travel_mode: mode,
-                                        }).await.is_ok() {
-                                            match controller.await {
-                                                Ok(Ok(controller)) => {
-                                                    debug!("Player controller spawned: {}", id);
-                                                    controllers.insert(id, (router_id, controller));
-                                                },
-                                                Ok(Err(e)) => {
-                                                    error!("Failed to spawn player!: {:#?}", e);
-                                                }
-                                                Err(_) => {
-                                                    error!("Controler spawn cancelled!");
-                                                },
+                                    let instance = InstanceLabel::new(
+                                        zone,
+                                        instance
+                                    );
+            
+                                    let (result_send, controller) = oneshot::channel();
+                                    if event_sender.send(InstanceEvent::ControllerSpawnRequested {
+                                        peer: id,
+                                        instance, 
+                                        session, 
+                                        events: sender.clone(), 
+                                        controller: result_send,
+                                        travel_mode: mode,
+                                    }).await.is_ok() {
+                                        match controller.await {
+                                            Ok(Ok(controller)) => {
+                                                debug!("Player controller spawned: {}", id);
+                                                controllers.insert(id, (router_id, controller));
+                                            },
+                                            Ok(Err(e)) => {
+                                                error!("Failed to spawn player!: {:#?}", e);
                                             }
+                                            Err(_) => {
+                                                error!("Controler spawn cancelled!");
+                                            },
                                         }
                                     }
                                 },
