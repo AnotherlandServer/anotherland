@@ -19,8 +19,8 @@ use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::system::SystemId, prelu
 use core_api::Session;
 use log::{debug, error, warn};
 use obj_params::{GameObjectData, Player};
-use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClientToClusterNode, oaPktClusterClientToCommunication, oaPktClusterClientToCommunity, oaPktClusterNodeToClient, oaPktS2XConnectionState, oaPktServerAction, CPkt, CPktResourceNotify, CpktResourceNotifyResourceType, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
-use realm_api::{RealmApi, SessionState};
+use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClientToClusterNode, oaPktClusterClientToCommunication, oaPktClusterClientToCommunity, oaPktClusterNodeToClient, oaPktS2XConnectionState, oaPktServerAction, CPkt, CPktGameMsg, CPktResourceNotify, CpktGameMsgMsgType, CpktResourceNotifyResourceType, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
+use realm_api::{proto::Destination, RealmApi, SessionState};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use toolkit::{types::{AvatarId, Uuid}, NativeParam};
 use crate::proto::TravelRejectReason;
@@ -259,6 +259,19 @@ pub enum WorldEvent {
     TravelCommited { controller: Uuid },
 }
 
+pub enum MessageType {
+    Normal,
+    Combat,
+    Console,
+    Clan,
+    Party,
+    Xp,
+    Loot,
+    Quest,
+    PopUp,
+    IllegalZone,
+}
+
 #[derive(Component, Clone)]
 pub struct PlayerController {
     avatar_id: AvatarId,
@@ -292,6 +305,28 @@ impl PlayerController {
             zone, 
             instance, 
             mode 
+        });
+    }
+
+    pub fn send_message(&self, ty: MessageType, message: String) {
+        let _ = self.sender.send(WorldEvent::Packet {
+            controller: self.id,
+            pkt: CPktGameMsg {
+                msg_type: match ty {
+                    MessageType::Normal => CpktGameMsgMsgType::Normal,
+                    MessageType::Combat => CpktGameMsgMsgType::Combat,
+                    MessageType::Console => CpktGameMsgMsgType::Console,
+                    MessageType::Clan => CpktGameMsgMsgType::Clan,
+                    MessageType::Party => CpktGameMsgMsgType::Party,
+                    MessageType::Xp => CpktGameMsgMsgType::Xp,
+                    MessageType::Loot => CpktGameMsgMsgType::Loot,
+                    MessageType::Quest => CpktGameMsgMsgType::Quest,
+                    MessageType::PopUp => CpktGameMsgMsgType::PopUp,
+                    MessageType::IllegalZone => CpktGameMsgMsgType::IllegalZone,
+                },
+                message,
+                ..Default::default()
+            }.into_pkt()
         });
     }
 }
