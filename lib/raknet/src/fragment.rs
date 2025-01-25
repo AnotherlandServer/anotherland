@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use crate::{error::Result, frame::{Message, MessageFrame, Order}};
+use crate::frame::{Message, Order};
 
 struct Fragment {
     pub compound_size: u32,
@@ -49,7 +49,7 @@ impl Fragment {
         }
     }
 
-    pub fn merge(mut self) -> Result<Message> {
+    pub fn merge(mut self) -> Message {
         let mut buf = vec![];
 
         let mut keys: Vec<u32> = self.frames.keys().cloned().collect();
@@ -65,7 +65,7 @@ impl Fragment {
         let mut ret = Message::new(message_number, reliability, buf);
         if let Some(order) = self.order { ret.set_order(order); }
 
-        Ok(ret)
+        ret
     }
 }
 
@@ -96,7 +96,7 @@ impl FragmentQ {
         }
     }
 
-    pub fn flush(&mut self) -> Result<Vec<Message>> {
+    pub fn flush(&mut self) -> Vec<Message> {
         let mut ret = vec![];
 
         let keys: Vec<u16> = self.fragments.keys().cloned().collect();
@@ -105,10 +105,10 @@ impl FragmentQ {
             let a = self.fragments.get_mut(&i).unwrap();
             if a.is_full() {
                 let a = self.fragments.remove(&i).unwrap();
-                ret.push(a.merge()?);
+                ret.push(a.merge());
             }
         }
 
-        Ok(ret)
+        ret
     }
 }

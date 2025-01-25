@@ -19,7 +19,7 @@ use log::{debug, error, info};
 use rsa::RsaPrivateKey;
 use tokio::{net::{ToSocketAddrs, UdpSocket}, sync::{mpsc::{channel, Receiver, Sender}, Mutex, Notify, Semaphore}, time::sleep};
 
-use crate::{buffer::RakNetWriter, error::{RakNetError, Result}, packet::read_open_connection_request,PacketID, RakNetSocket, MAX_MTU_SIZE, RECV_BUFFER_SIZE};
+use crate::{buffer::RakNetWriter, error::{RakNetError, Result}, packet::read_open_connection_request,PacketID, RakNetSocket, RECV_BUFFER_SIZE};
 
 type SessionSender = (Duration, Sender<Vec<u8>>);
 
@@ -185,7 +185,7 @@ impl RakNetListener {
                                             // Since I haven't implemented header size calculation yet,
                                             // it's safer to just use a smaller limit.
                                         1024,
-                                        &reaper_sender,
+                                        reaper_sender.clone(),
                                         rsa_key
                                     ).await {
                                         let _ = connection_sender.send(socket).await;

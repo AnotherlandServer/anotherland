@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use core::ops::RangeInclusive;
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use log::debug;
 
@@ -69,7 +69,7 @@ impl MessageFrame {
 
     pub fn into_message_vector(self) -> Vec<Message> { self.messages }
 
-    pub fn from<'a>(buf: &[u8]) -> Result<Self> {
+    pub fn from(buf: &[u8]) -> Result<Self> {
         let local_system_time;
         let acks;
 

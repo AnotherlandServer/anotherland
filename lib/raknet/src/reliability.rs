@@ -14,12 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use core::ops::RangeInclusive;
-use std::{collections::{hash_map::Entry, HashMap}, net::SocketAddr, sync::Arc, time::{Duration, SystemTime}};
+use std::{collections::{hash_map::Entry, HashMap}, net::SocketAddr, time::Duration};
 
-use log::{debug, trace};
-use tokio::sync::Notify;
+use log::debug;
 
-use crate::{error::{RakNetError, Result}, fragment::FragmentQ, frame::{Message, MessageFrame, Order, Split}, util::cur_timestamp};
+use crate::{error::{RakNetError, Result}, fragment::FragmentQ, frame::{Message, Order, Split}};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Reliability {
@@ -119,10 +118,8 @@ impl RecvQ {
         }
     }
 
-    pub fn insert(&mut self, frame: Message) -> Result<()> {
-        if self.packets.contains_key(&frame.message_number()) { return Ok(()); }
-
-        //trace!("Got new message: {:?}", frame);
+    pub fn insert(&mut self, frame: Message) {
+        if self.packets.contains_key(&frame.message_number()) { return; }
 
         self.sequence_number_ackset.insert(frame.message_number());
         
@@ -144,13 +141,13 @@ impl RecvQ {
             },
             Reliability::ReliableOrdered => {
                 if frame.message_number() < self.last_ordered_index {
-                    return Ok(());
+                    return;
                 }
 
                 if frame.split().is_some() {
                     self.fragment_queue.insert(frame);
 
-                    for i in self.fragment_queue.flush()? {
+                    for i in self.fragment_queue.flush() {
                         if let Some(order) = i.order() {
                             self.ordered_packets
                                 .entry(order.index)
@@ -173,8 +170,6 @@ impl RecvQ {
                 }
             }
         }
-        
-        Ok(())
     }
 
     pub fn get_ack(&mut self) -> Vec<RangeInclusive<u32>> {
@@ -215,15 +210,12 @@ pub struct SendQ {
     mtu: u16,
     ack_sequence_number: u32,
     message_number: u32,
-    sequenced_frame_index: u32,
     ordered_frame_index: u32,
     compund_id: u16,
     packets: Vec<Message>,
     rto: Duration,
     srtt: Duration,
     sent_packet: Vec<(Message, bool, Duration, u32, Vec<u32>)>,
-    send_notify: Arc<Notify>,
-    reference_time: SystemTime,
 }
 
 impl SendQ {
@@ -232,18 +224,15 @@ impl SendQ {
     const RTO_UBOUND: u64 = 12000;
     const RTO_LBOUND: u64 = 50;
 
-    pub fn new(mtu: u16, send_notify: Arc<Notify>, reference_time: SystemTime) -> Self {
+    pub fn new(mtu: u16) -> Self {
         Self {
             mtu,
             ack_sequence_number: 0,
             message_number: 0,
             packets: vec![],
             sent_packet: vec![],
-            sequenced_frame_index: 0,
             ordered_frame_index: 0,
             compund_id: 0,
-            send_notify,
-            reference_time,
 
             rto: Duration::from_millis(Self::DEFAULT_TIMEOUT_MILLIS),
             srtt: Duration::from_millis(Self::DEFAULT_TIMEOUT_MILLIS),
@@ -257,7 +246,7 @@ impl SendQ {
                     return Err(RakNetError::PacketSizeExceedsMTU);
                 }
 
-                let mut frame = Message::new(self.message_number, reliability, buf);
+                let frame = Message::new(self.message_number, reliability, buf);
 
                 self.message_number += 1;
                 self.packets.push(frame);
@@ -282,7 +271,7 @@ impl SendQ {
                     return Err(RakNetError::PacketSizeExceedsMTU);
                 }
 
-                let mut frame = Message::new(self.message_number, reliability, buf);
+                let frame = Message::new(self.message_number, reliability, buf);
 
                 self.packets.push(frame);
                 self.message_number += 1;
@@ -352,8 +341,6 @@ impl SendQ {
                 self.ordered_frame_index += 1;
             }
         }
-
-        self.send_notify.notify_one();
 
         Ok(())
     }
@@ -464,5 +451,9 @@ impl SendQ {
         }
 
         ret
+    }
+
+    pub fn acks_pending(&self) -> usize {
+        self.sent_packet.len()
     }
 }

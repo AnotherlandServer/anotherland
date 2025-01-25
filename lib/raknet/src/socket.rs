@@ -13,24 +13,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{net::SocketAddr, sync::{atomic::Ordering, Arc}, time::{Duration, SystemTime}};
+use std::{net::SocketAddr, sync::Arc, time::{Duration, Instant, SystemTime}};
 
 use log::{debug, trace, warn};
-use portable_atomic::{AtomicBool, AtomicU128, AtomicU64};
 use rsa::{hazmat::rsa_decrypt_and_check, rand_core::{OsRng, RngCore}, BigUint, RsaPrivateKey};
 use sha1::{Sha1, Digest};
-use tokio::{net::UdpSocket, sync::{mpsc::{channel, Receiver, Sender}, Mutex, Notify, RwLock, Semaphore}, time::sleep};
+use tokio::{net::UdpSocket, sync::{mpsc::{channel, Receiver, Sender}, oneshot, Mutex, Notify}, time::sleep};
 use uuid::Uuid;
 
 use crate::{buffer::{RakNetReader, RakNetWriter}, encryption::{aes_decrypt, aes_encrypt, EncryptionHanshakeContext}, error::Result, frame::{Message, MessageFrame}, packet::{write_connection_request_accepted, write_secured_connection_response}, reliability::{RecvQ, Reliability, SendQ}, util::cur_timestamp, PacketID, RakNetError};
 
 #[derive(Debug, Clone, Copy)]
 #[allow(dead_code)]
-enum ConnectMode {
-    NoAction,
+enum ConnectionState {
     DisconnectAsap,
     DisconnectAsapSilently,
-    DisconnectOnNoAck,
+    Disconnecting,
+    Disconnected,
     RequestedConntection,
     HandlingConnectionRequest,
     UnverifiedSender,
@@ -44,32 +43,24 @@ pub struct RakNetSocket {
     id: Uuid,
     local_addr: SocketAddr,
     peer_addr: SocketAddr,
-    close_notifier: Arc<Semaphore>,
-    reference_time: SystemTime,
-    last_heartbeat_time: Arc<AtomicU64>,
-    //sender: Sender<(Vec<u8>, SocketAddr, bool, u8)>,
+    close_notifier: Arc<Notify>,
     drop_notifier: Arc<Notify>,
-    incomming_notifier: Arc<Notify>,
-    recvq: Arc<Mutex<RecvQ>>,
-    sendq: Arc<RwLock<SendQ>>,
-    encryption: Arc<AtomicBool>,
-    aes_key: Arc<AtomicU128>,
-    user_data_receiver: Mutex<Receiver<Vec<u8>>>,
+    incoming_notify: Arc<Notify>,
+    incoming_receiver: Mutex<Receiver<Vec<u8>>>,
+    outgoing_sender: Sender<(Vec<u8>, Reliability, oneshot::Sender<Result<()>>)>,
 }
 
 impl RakNetSocket {
     pub(crate) async fn open(
         addr: &SocketAddr,
         s: &Arc<UdpSocket>,
-        receiver: Receiver<Vec<u8>>,
+        mut receiver: Receiver<Vec<u8>>,
         mtu: u16,
-        reaper: &Sender<SocketAddr>,
+        reaper: Sender<SocketAddr>,
         rsa_key: Option<RsaPrivateKey>,
     ) -> Result<Self> {
-        let (user_data_sender, user_data_receiver) = channel::<Vec<u8>>(100);
-        //let (sender_sender, sender_reciever) = channel::<(Vec<u8>, SocketAddr, bool, u8)>(10);
-
-        let send_notify = Arc::new(Notify::new());
+        let (incoming_sender, incoming_receiver) = channel(10);
+        let (outgoing_sender, mut outgoing_receiver) = channel(10);
 
         let mut random_number = [0u8; 20];
         OsRng.fill_bytes(&mut random_number);
@@ -80,76 +71,265 @@ impl RakNetSocket {
         hasher.update(random_number);
 
         let reference_time = SystemTime::now();
+        let drop_notifier = Arc::new(Notify::new());
+        let incoming_notify = Arc::new(Notify::new());
+        let close_notifier = Arc::new(Notify::new());
 
         let socket = Self {
             id: Uuid::new_v4(),
             local_addr: s.local_addr().unwrap(),
             peer_addr: *addr,
-            close_notifier: Arc::new(Semaphore::new(0)),
-
-            // We are never comparing times between connections,
-            // se we get await with a reference_time per connection,
-            // to get the most out of the 32-bit timestamps
-            // raknet uses.
-            reference_time, 
-
-            last_heartbeat_time: Arc::new(AtomicU64::new(0)),
-            //sender: sender_sender,
-            drop_notifier: Arc::new(Notify::new()),
-            incomming_notifier: Arc::new(Notify::new()),
-            recvq: Arc::new(Mutex::new(RecvQ::new())),
-            sendq: Arc::new(RwLock::new(SendQ::new(mtu, send_notify.clone(), reference_time))),
-
-            encryption: Arc::new(AtomicBool::new(false)),
-            aes_key: Arc::new(AtomicU128::new(0)),
-            user_data_receiver: Mutex::new(user_data_receiver),
+            close_notifier: close_notifier.clone(),
+            drop_notifier: drop_notifier.clone(),
+            incoming_notify: incoming_notify.clone(),
+            incoming_receiver: Mutex::new(incoming_receiver),
+            outgoing_sender,
         };
 
-        socket.start_receiver(receiver, user_data_sender, rsa_key, s);
-        socket.start_tick(s, reaper.clone(), send_notify.clone());
-        //socket.start_sender(s, sender_reciever);
-        socket.drop_watcher().await;
+        let peer_addr = *addr;
+        let local_addr = s.local_addr().unwrap();
+        let mut encryption_context = rsa_key
+            .map(|rsa_key| EncryptionHanshakeContext::new(peer_addr, rsa_key));
+        let s = s.clone();
+        
+        let guid = socket.id;
+
+        tokio::spawn(async move {
+            let mut state = ConnectionState::UnverifiedSender;
+            let mut recvq = RecvQ::new();
+            let mut sendq = SendQ::new(mtu);
+
+            let mut aes_key: u128 = 0;
+            let mut encryption_active = false;
+            let mut last_heartbeat_time = Instant::now();
+            let mut remote_time = Duration::default();
+
+            'net_loop: while !matches!(state, ConnectionState::Disconnected) {
+                tokio::select! {
+                    _ = sleep(Duration::from_millis(SendQ::DEFAULT_TIMEOUT_MILLIS)) => (),
+                    _ = drop_notifier.notified() => {
+                        trace!("got notified about socket drop");
+                        close_notifier.notify_one();
+                    },
+                    _ = close_notifier.notified() => {
+                        trace!("beginning disconnect");
+
+                        if matches!(state, ConnectionState::Disconnecting) {
+                            break;
+                        } else {
+                            state = ConnectionState::Disconnecting;
+                            sendq.insert(Reliability::ReliableOrdered, [
+                                PacketID::DisconnectionNotification.to_u8()
+                            ].to_vec()).unwrap();
+                        }
+                    },
+                    Some((buf, r, cb)) = outgoing_receiver.recv(), if !outgoing_receiver.is_closed() => {
+                        let _ = cb.send(
+                            sendq.insert(r, buf)
+                        );
+                    },
+                    buf = receiver.recv() => {
+                        if let Some(mut buf) = buf {
+                            if buf.len() > 2 {
+                                if 
+                                    buf.len() % 16 == 0 && 
+                                    let ConnectionState::SetEncryptionOnMultiple16BytePacket(_) = state
+                                {
+                                    let mut test_buf = buf.clone();
+            
+                                    // Test key before enabling encryption
+                                    if aes_decrypt(aes_key, &mut test_buf).is_ok() {
+                                        trace!("Turning on encryption");
+                                        encryption_active = true;
+                                    }
+                                }
+            
+                                if encryption_active {
+                                    if let Err(e) = aes_decrypt(aes_key, &mut buf) {
+                                        trace!("Decryption failed: {:?}", e);
+                                        continue;
+                                    }
+                                }
+            
+                                if let Ok(frame) = MessageFrame::from(&buf) {
+                                    // Process acks
+                                    if let Some(acks) = frame.acks() {
+                                        for acks in acks {
+                                            for message_number in acks.clone() {
+                                                sendq.ack(message_number, cur_timestamp(reference_time));
+                                            }
+                                        }
+                                    }
+
+                                    last_heartbeat_time = Instant::now();
+            
+                                    if let Some(time) = frame.remote_system_time() {
+                                        remote_time = time;
+                                    }
+            
+                                    // Insert frame
+                                    for message in frame.into_message_vector() {
+                                        recvq.insert(message);
+            
+                                        // acknowledge received frames
+                                        let acks = recvq.get_ack();
+            
+                                        if !acks.is_empty() {
+                                            // send ack frame
+                                            let mut frame = MessageFrame::new();
+                                            frame.set_acks(remote_time, acks);
+            
+                                            let data = frame.serialize()
+                                                    .expect("Failed to serialize message frame!");
+            
+                                            if encryption_active {
+                                                let data = aes_encrypt(aes_key, &data);
+                                                let _ = s.send_to(&data, peer_addr).await;
+                                            } else {
+                                                let _ = s.send_to(&data, peer_addr).await;
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    debug!("Received malformed frame: {}", peer_addr);
+                                }
+
+                                // Flush receive queue
+                                for f in recvq.flush() {
+                                    match Self::handle(
+                                        state,
+                                        guid,
+                                        &f, 
+                                        reference_time,
+                                        &peer_addr, 
+                                        &local_addr, 
+                                        &mut sendq, 
+                                        &incoming_sender,
+                                        encryption_context.as_mut()
+                                    ).await {
+                                        Ok(Some(next_state)) => {
+                                            match next_state {
+                                                ConnectionState::DisconnectAsap => {
+                                                    for _ in 0..10 {
+                                                        let _ = sendq.insert(Reliability::Unreliable, [
+                                                            PacketID::DisconnectionNotification.to_u8()
+                                                        ].to_vec());
+                                                    }
+            
+                                                    close_notifier.notify_one();
+                                                },
+                                                ConnectionState::DisconnectAsapSilently => {
+                                                    break 'net_loop;
+                                                },
+                                                ConnectionState::Disconnecting => {
+                                                    let _ = sendq.insert(Reliability::ReliableOrdered, [
+                                                        PacketID::DisconnectionNotification.to_u8()
+                                                    ].to_vec());
+                                                },
+                                                ConnectionState::Connected => {
+                                                    incoming_notify.notify_one();
+                                                },
+                                                ConnectionState::SetEncryptionOnMultiple16BytePacket(key) => {
+                                                    aes_key = key;
+                                                },
+                                                _ => (),
+                                            }
+
+                                            state = next_state;
+                                        },
+                                        Ok(None) => (),
+                                        Err(e) => {
+                                            debug!("Message handler failed: {:?}", e);
+                                            close_notifier.notify_one();
+                                        },
+                                    }
+                                }
+                            } else {
+                                // React to certain internal packages
+                                if let PacketID::DisconnectionNotification = PacketID::from(buf[0]) {
+                                    if matches!(state, ConnectionState::Disconnecting) {
+                                        state = ConnectionState::Disconnected;
+                                    } else {
+                                        close_notifier.notify_one();
+                                    }
+                                }
+                            }
+                        } else {
+                            // The server socket went down.
+                            // Immediately leave the peer loop.
+                            break;
+                        }
+                    }
+                }
+
+                // flush sendq
+                let frames = sendq.flush(cur_timestamp(reference_time), &peer_addr);
+
+                // send frames
+                for f in frames {
+                    trace!("TX: {:?}", f);
+
+                    let mut frame = MessageFrame::new();
+                    frame.add_message(f);
+
+                    let data = frame.serialize()
+                        .expect("Failed to serialize message frame!");
+                    if encryption_active {
+                        let data = aes_encrypt(aes_key, &data);
+                        let _ = s.send_to(&data, peer_addr).await;
+                    } else {
+                        let _ = s.send_to(&data, peer_addr).await;
+                    }
+                }
+
+                // if we haven't received a message in 60s, immediately close the connection.
+                if (Instant::now() - last_heartbeat_time).as_millis() as u64 > RECEIVE_TIMEOUT {
+                    break;
+                }
+
+                if matches!(state, ConnectionState::DisconnectAsap) ||
+                    (matches!(state, ConnectionState::Disconnecting) && sendq.acks_pending() == 0)
+                {
+                    break;
+                }
+            }
+
+            let _ = reaper.send(peer_addr).await;
+        });
 
         // wait for incomming notify or close
-        let incomming_notifier = socket.incomming_notifier.clone();
+        let incoming_notify = socket.incoming_notify.clone();
         let close_notifier = socket.close_notifier.clone();
     
         tokio::select! {
-            _ = incomming_notifier.notified() => {
+            _ = incoming_notify.notified() => {
                 Ok(socket)
             },
-            _ = close_notifier.acquire() => {
+            _ = close_notifier.notified() => {
                 Err(RakNetError::HandshakeFailed)
             }
         }
     }
 
     pub async fn close(&self) {
-        if !self.close_notifier.is_closed() {
-            self.close_notifier.close();
-        }
+        self.close_notifier.notify_one();
     }
 
     pub async fn send(&self, buf: &[u8], r: Reliability) -> Result<()> {
-        if buf.is_empty() { return Ok(()); }
+        let (res_sender, res_receiver) = oneshot::channel();
 
-        if self.close_notifier.is_closed() {
-            return Err(RakNetError::ConnectionClosed);
-        }
+        self.outgoing_sender.send((buf.to_vec(), r, res_sender)).await
+            .map_err(|_| RakNetError::ConnectionClosed)?;
 
-        self.sendq.write().await
-            .insert(r, buf.to_vec())
+        res_receiver.await
+            .map_err(|_| RakNetError::ConnectionClosed)?
     }
 
     pub async fn recv(&self) -> Result<Vec<u8>> {
-        match self.user_data_receiver.lock().await.recv().await {
+        match self.incoming_receiver.lock().await.recv().await {
             Some(p) => Ok(p),
             None => {
-                if self.close_notifier.is_closed() {
-                    Err(RakNetError::ConnectionClosed)
-                } else {
-                    Err(RakNetError::SocketError)
-                }
+                Err(RakNetError::ConnectionClosed)
             }
         }
     }
@@ -166,442 +346,153 @@ impl RakNetSocket {
         self.id
     }
 
-    fn start_receiver(
-        &self,
-        mut receiver: Receiver<Vec<u8>>,
-        user_data_sender: Sender<Vec<u8>>,
-        rsa_encryption: Option<RsaPrivateKey>,
-        s: &Arc<UdpSocket>
-    ) {
-        let connected = self.close_notifier.clone();
-        let peer_addr = self.peer_addr;
-        let local_addr = self.local_addr;
-        let recvq = self.recvq.clone();
-        let sendq = self.sendq.clone();
-        let close_notifier = self.close_notifier.clone();
-        let incoming_notify = self.incomming_notifier.clone();
-        let last_heartbeat_time = self.last_heartbeat_time.clone();
-        let rsa_encryption = rsa_encryption.clone();
-        let reference_time = self.reference_time.clone();
-        let mut encrytion_context = rsa_encryption
-            .map(|rsa_key| EncryptionHanshakeContext::new(peer_addr, rsa_key));
-        let encryption = self.encryption.clone();
-        let aes_key = self.aes_key.clone();
-        let s = s.clone();
-        let mut remote_time = Duration::default();
-
-        let guid = self.id;
-
-        tokio::spawn(async move {
-            let mut connect_mode = ConnectMode::UnverifiedSender;
-
-            'receive_loop: loop {
-                if connected.is_closed() {
-                    break 'receive_loop;
-                }
-
-                // Flush recv queue
-                {
-                    let mut recvq = recvq.lock().await;
-                    for f in recvq.flush() {
-                        match Self::handle(
-                            connect_mode,
-                            guid,
-                            &f, 
-                            reference_time,
-                            &peer_addr, 
-                            &local_addr, 
-                            &sendq, 
-                            &user_data_sender,
-                            encrytion_context.as_mut()
-                        ).await {
-                            Ok(new_mode) => {
-                                match new_mode {
-                                    ConnectMode::NoAction => (),
-                                    ConnectMode::DisconnectAsap => {
-                                        for _ in 0..10 {
-                                            let mut sendq = sendq.write().await;
-                                            sendq.insert(Reliability::Unreliable, [
-                                                PacketID::DisconnectionNotification.to_u8()
-                                            ].to_vec()).unwrap();
-                                        }
-
-                                        close_notifier.close();
-                                        connect_mode = new_mode;
-                                    },
-                                    ConnectMode::DisconnectAsapSilently => {
-                                        close_notifier.close();
-                                        connect_mode = new_mode;
-                                    },
-                                    ConnectMode::Connected => {
-                                        incoming_notify.notify_one();
-                                        connect_mode = new_mode;
-                                    },
-                                    ConnectMode::SetEncryptionOnMultiple16BytePacket(key) => {
-                                        aes_key.store(key, Ordering::Relaxed);
-                                        connect_mode = new_mode;
-                                    },
-                                    _ => connect_mode = new_mode,
-                                }
-                            },
-                            Err(e) => {
-                                debug!("Message handler failed: {:?}", e);
-                                close_notifier.close();
-                            }
-                        }
-                    }
-                }
-
-                let mut buf = match receiver.recv().await {
-                    Some(buf) => buf,
-                    None => {
-                        debug!("channel receiver finished");
-                        connected.close();
-                        break 'receive_loop;
-                    }
-                };
-
-                if buf.len() > 2 {
-                    if 
-                        buf.len() % 16 == 0 && 
-                        let ConnectMode::SetEncryptionOnMultiple16BytePacket(_) = connect_mode
-                    {
-                        let mut test_buf = buf.clone();
-
-                        // Test key before enabling encryption
-                        if aes_decrypt(aes_key.load(Ordering::Relaxed), &mut test_buf).is_ok() {
-                            trace!("Turning on encryption");
-                            encryption.store(true, Ordering::Relaxed);
-                        }
-                    }
-
-                    if encryption.load(Ordering::Relaxed) {
-                        if let Err(e) = aes_decrypt(aes_key.load(Ordering::Relaxed), &mut buf) {
-                            trace!("Decryption failed: {:?}", e);
-                            continue;
-                        }
-                    }
-
-                    if let Ok(frame) = MessageFrame::from(&buf) {
-                        // Process acks
-                        if let Some(acks) = frame.acks() {
-                            let mut sendq = sendq.write().await;
-
-                            for acks in acks {
-                                for message_number in acks.clone() {
-                                    sendq.ack(message_number, cur_timestamp(reference_time));
-                                }
-                            }
-                        }
-
-                        last_heartbeat_time.store(
-                            cur_timestamp(reference_time)
-                                .as_millis()
-                                .try_into()
-                                .unwrap(), 
-                            Ordering::Relaxed
-                        );
-
-                        if let Some(time) = frame.remote_system_time() {
-                            remote_time = time;
-                        }
-
-                        // Insert frame and send acks
-                        for message in frame.into_message_vector() {
-                            let mut recvq = recvq.lock().await;
-
-                            if let Err(e) = recvq.insert(message) {
-                                debug!("Failed to insert frame into receive queue: {:?}", e);
-                                connected.close();
-                            }
-
-                            // send pending acks
-                            let acks = recvq.get_ack();
-
-                            if !acks.is_empty() {
-                                // send ack frame
-                                let mut frame = MessageFrame::new();
-                                frame.set_acks(remote_time, acks);
-
-                                let data = frame.serialize()
-                                        .expect("Failed to serialize message frame!");
-
-                                if encryption.load(Ordering::Relaxed) {
-                                    let data = aes_encrypt(aes_key.load(Ordering::Relaxed), &data);
-                                    let _ = s.send_to(&data, peer_addr).await;
-                                } else {
-                                    let _ = s.send_to(&data, peer_addr).await;
-                                }
-                            } else if matches!(connect_mode, ConnectMode::DisconnectOnNoAck) {
-                                let mut sendq = sendq.write().await;
-                                for _ in 0..10 {
-                                    sendq.insert(Reliability::Unreliable, [
-                                        PacketID::DisconnectionNotification.to_u8()
-                                    ].to_vec()).unwrap();
-                                }
-
-                                connected.close();
-                            }
-                        }
-                    } else {
-                        debug!("Received malformed frame: {}", peer_addr);
-                        connected.close();
-                    }
-                } else {
-                    // React to certain internal packages
-                    if let PacketID::DisconnectionNotification = PacketID::from(buf[0]) {
-                        debug!("Received close command");
-                        close_notifier.close();
-                    }
-                }
-            }
-
-            debug!("receiver finished: {}", peer_addr);
-        });
-    }
-
-    fn start_tick(&self, s: &Arc<UdpSocket>, reapter: Sender<SocketAddr>, sent_notify: Arc<Notify>) {
-        let connected = self.close_notifier.clone();
-        let s = s.clone();
-        let peer_addr = self.peer_addr;
-        let sendq = self.sendq.clone();
-        let reference_time = self.reference_time;
-        let last_heartbeat_time = self.last_heartbeat_time.clone();
-        let encryption = self.encryption.clone();
-        let aes_key = self.aes_key.clone();
-
-        tokio::spawn(async move {
-            loop {
-                 tokio::select! {
-                    _ = sleep(Duration::from_millis(SendQ::DEFAULT_TIMEOUT_MILLIS)) => (),
-                    _ = sent_notify.notified() => (),
-                };
-
-                // flush sendq
-                let mut sendq = sendq.write().await;
-                let frames = sendq.flush(cur_timestamp(reference_time), &peer_addr);
-            
-                // send frames
-                for f in frames {
-                    trace!("TX: {:?}", f);
-
-                    let mut frame = MessageFrame::new();
-                    frame.add_message(f);
-
-                    let data = frame.serialize()
-                        .expect("Failed to serialize message frame!");
-                    if encryption.load(Ordering::Relaxed) {
-                        let data = aes_encrypt(aes_key.load(Ordering::Relaxed), &data);
-                        let _ = s.send_to(&data, peer_addr).await;
-                    } else {
-                        let _ = s.send_to(&data, peer_addr).await;
-                    }
-                }
-
-                if connected.is_closed() {
-                    break;
-                }
-
-                // if we haven't received a message in 60s, close the connection.
-                if (
-                        cur_timestamp(reference_time) - 
-                        Duration::from_millis(last_heartbeat_time.load(Ordering::Relaxed))
-                    ).as_millis() as u64 > RECEIVE_TIMEOUT
-                {
-                    debug!("recv timeout");
-                    connected.close();
-                }
-
-                // Send close notification
-                if connected.is_closed() {
-                    for _ in 0..10 {
-                        sendq.insert(Reliability::Unreliable, [
-                            PacketID::DisconnectionNotification.to_u8()
-                        ].to_vec()).unwrap();
-                    }
-                }
-            }
-
-            let _ = reapter.send(peer_addr).await;
-            debug!("tick worker closed");
-        });
-    }
-
-    async fn drop_watcher(&self) {
-        let close_notifier = self.close_notifier.clone();
-        let drop_notifier = self.drop_notifier.clone();
-
-        tokio::spawn(async move {
-            debug!("socket drop watcher start");
-            drop_notifier.notify_one();
-
-            drop_notifier.notified().await;
-
-            if close_notifier.is_closed() {
-                debug!("socket close notifier closed");
-                return;
-            }
-
-            close_notifier.close();
-            debug!("socket drop watcher closed");
-        });
-
-        self.drop_notifier.notified().await;
-    }
-
     #[allow(clippy::too_many_arguments)]
     async fn handle(
-        connect_mode: ConnectMode,
+        state: ConnectionState,
         guid: Uuid,
         frame: &Message,
         reference_time: SystemTime,
         peer_addr: &SocketAddr,
         local_addr: &SocketAddr,
-        sendq: &RwLock<SendQ>,
+        sendq: &mut SendQ,
         user_data_sender: &Sender<Vec<u8>>,
         encryption_context: Option<&mut EncryptionHanshakeContext>,
-    ) -> Result<ConnectMode> {
-        trace!("RX: {:?}", frame);
+    ) -> Result<Option<ConnectionState>> {
+        trace!("{:?} - RX: {:?}", state, frame);
 
-        if !frame.data().is_empty() {
-            if matches!(connect_mode, ConnectMode::UnverifiedSender) {
-                if matches!(PacketID::from(frame.data()[0]), PacketID::ConnectionRequest) {
-                    handle_connection_request(
-                        guid,
-                        peer_addr,
-                        local_addr,
-                        encryption_context.as_deref(),
-                        sendq
-                    ).await
-                } else {
-                    Ok(ConnectMode::DisconnectAsapSilently)
-                }
+        if frame.data().is_empty() { return Ok(None); }
+
+        if matches!(state, ConnectionState::UnverifiedSender) {
+            if matches!(PacketID::from(frame.data()[0]), PacketID::ConnectionRequest) {
+                handle_connection_request(
+                    guid,
+                    peer_addr,
+                    local_addr,
+                    encryption_context.as_deref(),
+                    sendq
+                ).await
             } else {
-                match PacketID::from(frame.data()[0]) {
-                    PacketID::ConnectionRequest => {
-                        if matches!(connect_mode, ConnectMode::RequestedConntection) {
-                            handle_connection_request(
-                                guid,
-                                peer_addr,
-                                local_addr,
-                                encryption_context.as_deref(),
-                                sendq
-                            ).await
-                        } else {
-                            let mut writer = RakNetWriter::new();
-                            write_connection_request_accepted(&mut writer, *peer_addr, *local_addr, guid)?;
-                    
-                            sendq.write().await
-                                .insert(Reliability::Reliable, writer.take_buffer())?;
-
-                            Ok(ConnectMode::NoAction)
-                        }
-                    },
-                    PacketID::NewIncomingConnection => {
-                        if 
-                            matches!(connect_mode, ConnectMode::HandlingConnectionRequest) ||
-                            matches!(connect_mode, ConnectMode::RequestedConntection) ||
-                            matches!(connect_mode, ConnectMode::SetEncryptionOnMultiple16BytePacket(_)) 
-                        {
-                            // Immediately send ping
-                            let mut writer = RakNetWriter::new();
-                            writer.write_u8(PacketID::InternalPing.to_u8());
-                            writer.write_u32(cur_timestamp(reference_time).as_millis() as u32);
-
-                            sendq.write().await
-                                .insert(Reliability::Unreliable, writer.take_buffer())?;
-
-                            Ok(ConnectMode::Connected)
-                        } else {
-                            Ok(ConnectMode::NoAction)
-                        }
-                    },
-                    PacketID::ConnectedPong => Ok(ConnectMode::NoAction),
-                    PacketID::DisconnectionNotification => {
-                        Ok(ConnectMode::DisconnectOnNoAck)
-                    },
-                    PacketID::InternalPing => {
-                        let mut buf = RakNetReader::new(frame.data());
-                        let send_ping_time = buf.read_u32()?;
-
-                        let mut buf = RakNetWriter::new();
-                        buf.write_u8(PacketID::ConnectedPong.to_u8());
-                        buf.write_u32(send_ping_time);
-                        buf.write_u32(cur_timestamp(reference_time).as_millis() as u32);
-
-                        sendq.write().await
-                            .insert(Reliability::Unreliable, buf.take_buffer())?;
-
-                        Ok(ConnectMode::NoAction)
-                    },
-                    PacketID::SecuredConnectionConfirmation => {
-                        if let Some(context) = encryption_context {
-                            let mut buf = RakNetReader::new(frame.data());
-                            let _ = buf.read_u8()?;
-                            let mut syn_cookie = [0u8; 20];
-                            buf.read(&mut syn_cookie)?;
-
-                            if syn_cookie == context.syn_cookie() {
-                                let mut aes_key = [0u8; 16];
-                                let mut message = [0u8; 64];
-                                buf.read(&mut message)?;
-
-                                if let Ok(message) = rsa_decrypt_and_check(
-                                    context.rsa_key(), 
-                                    Option::<&mut OsRng>::None, 
-                                    &BigUint::from_bytes_le(&message)) {
-
-                                    let message = message.to_bytes_le();
-
-                                    for i in 0..aes_key.len() {
-                                        aes_key[i] = syn_cookie[i] ^ message[i];
-                                    }
-
-                                    let mut buf = RakNetWriter::new();
-                                    write_connection_request_accepted(
-                                        &mut buf, 
-                                        *peer_addr, 
-                                        *local_addr, 
-                                        guid
-                                    )?;
-
-                                    sendq.write().await
-                                        .insert(Reliability::Reliable, buf.take_buffer())?;
-
-                                    return Ok(ConnectMode::SetEncryptionOnMultiple16BytePacket(u128::from_le_bytes(aes_key)));
-                                } else {
-                                    warn!("RSA handshake failed");
-                                }
-                            } else {
-                                trace!("Syn cookie mismatch. Generating a new one.");
-
-                                // generate a new cookie
-                                context.create_syn_cookie();
-                            }
-                        } else {
-                            trace!("No encryption context to handle SecuredConnectionConfirmation");
-                        }
-
-                        Ok(ConnectMode::NoAction)
-                    },
-                    PacketID::GamePerformanceReport => {
-                        // Packet contains a 32-bit integer, containing the games tick count.
-                        Ok(ConnectMode::NoAction)
-                    },
-                    PacketID::User(_) => {
-                        match user_data_sender.send(frame.data().to_vec()).await {
-                            Ok(_) => Ok(ConnectMode::NoAction),
-                            Err(_) => Ok(ConnectMode::DisconnectAsap)
-                        }
-                    },
-                    _ => {
-                        warn!("Packet id {:?} not implemented!", PacketID::from(frame.data()[0]));
-                        Ok(ConnectMode::DisconnectAsap)
-                    }
-                }
+                Ok(Some(ConnectionState::DisconnectAsapSilently))
             }
         } else {
-            Ok(ConnectMode::NoAction)
+            match PacketID::from(frame.data()[0]) {
+                PacketID::ConnectionRequest => {
+                    if matches!(state, ConnectionState::RequestedConntection) {
+                        handle_connection_request(
+                            guid,
+                            peer_addr,
+                            local_addr,
+                            encryption_context.as_deref(),
+                            sendq
+                        ).await
+                    } else {
+                        let mut writer = RakNetWriter::new();
+                        write_connection_request_accepted(&mut writer, *peer_addr, *local_addr, guid)?;
+                
+                        sendq.insert(Reliability::Reliable, writer.take_buffer())?;
+
+                        Ok(None)
+                    }
+                },
+                PacketID::NewIncomingConnection => {
+                    if 
+                        matches!(state, ConnectionState::HandlingConnectionRequest) ||
+                        matches!(state, ConnectionState::RequestedConntection) ||
+                        matches!(state, ConnectionState::SetEncryptionOnMultiple16BytePacket(_)) 
+                    {
+                        // Immediately send ping
+                        let mut writer = RakNetWriter::new();
+                        writer.write_u8(PacketID::InternalPing.to_u8());
+                        writer.write_u32(cur_timestamp(reference_time).as_millis() as u32);
+
+                        sendq.insert(Reliability::Unreliable, writer.take_buffer())?;
+
+                        Ok(Some(ConnectionState::Connected))
+                    } else {
+                        Ok(None)
+                    }
+                },
+                PacketID::ConnectedPong => Ok(None),
+                PacketID::DisconnectionNotification => {
+                    Ok(Some(ConnectionState::Disconnecting))
+                },
+                PacketID::InternalPing => {
+                    let mut buf = RakNetReader::new(frame.data());
+                    let send_ping_time = buf.read_u32()?;
+
+                    let mut buf = RakNetWriter::new();
+                    buf.write_u8(PacketID::ConnectedPong.to_u8());
+                    buf.write_u32(send_ping_time);
+                    buf.write_u32(cur_timestamp(reference_time).as_millis() as u32);
+
+                    sendq.insert(Reliability::Unreliable, buf.take_buffer())?;
+
+                    Ok(None)
+                },
+                PacketID::SecuredConnectionConfirmation => {
+                    if let Some(context) = encryption_context {
+                        let mut buf = RakNetReader::new(frame.data());
+                        let _ = buf.read_u8()?;
+                        let mut syn_cookie = [0u8; 20];
+                        buf.read(&mut syn_cookie)?;
+
+                        if syn_cookie == context.syn_cookie() {
+                            let mut aes_key = [0u8; 16];
+                            let mut message = [0u8; 64];
+                            buf.read(&mut message)?;
+
+                            if let Ok(message) = rsa_decrypt_and_check(
+                                context.rsa_key(), 
+                                Option::<&mut OsRng>::None, 
+                                &BigUint::from_bytes_le(&message)) {
+
+                                let message = message.to_bytes_le();
+
+                                for i in 0..aes_key.len() {
+                                    aes_key[i] = syn_cookie[i] ^ message[i];
+                                }
+
+                                let mut buf = RakNetWriter::new();
+                                write_connection_request_accepted(
+                                    &mut buf, 
+                                    *peer_addr, 
+                                    *local_addr, 
+                                    guid
+                                )?;
+
+                                sendq.insert(Reliability::Reliable, buf.take_buffer())?;
+
+                                return Ok(Some(ConnectionState::SetEncryptionOnMultiple16BytePacket(u128::from_le_bytes(aes_key))));
+                            } else {
+                                warn!("RSA handshake failed");
+                            }
+                        } else {
+                            trace!("Syn cookie mismatch. Generating a new one.");
+
+                            // generate a new cookie
+                            context.create_syn_cookie();
+                        }
+                    } else {
+                        trace!("No encryption context to handle SecuredConnectionConfirmation");
+                    }
+
+                    Ok(None)
+                },
+                PacketID::GamePerformanceReport => {
+                    // Packet contains a 32-bit integer, containing the games tick count.
+                    Ok(None)
+                },
+                PacketID::User(_) => {
+                    match user_data_sender.send(frame.data().to_vec()).await {
+                        Ok(_) => Ok(None),
+                        Err(_) => Ok(Some(ConnectionState::DisconnectAsap))
+                    }
+                },
+                _ => {
+                    warn!("Packet id {:?} not implemented!", PacketID::from(frame.data()[0]));
+                    Ok(Some(ConnectionState::DisconnectAsap))
+                }
+            }
         }
     }
 }
@@ -617,25 +508,22 @@ async fn handle_connection_request(
     peer_addr: &SocketAddr,
     local_addr: &SocketAddr,
     encryption_context: Option<&EncryptionHanshakeContext>, 
-    sendq: &RwLock<SendQ>
-) -> Result<ConnectMode> {
+    sendq: &mut SendQ
+) -> Result<Option<ConnectionState>> {
     if let Some(context) = encryption_context {
         let mut writer = RakNetWriter::new();
         let public = context.rsa_key().to_public_key();
         
         write_secured_connection_response(&mut writer, context.syn_cookie(), public)?;
 
-        sendq
-            .write().await
-            .insert(Reliability::Unreliable, writer.take_buffer())?;
+        sendq.insert(Reliability::Unreliable, writer.take_buffer())?;
 
     } else {
         let mut writer = RakNetWriter::new();
         write_connection_request_accepted(&mut writer, *peer_addr, *local_addr, guid)?;
 
-        sendq.write().await
-            .insert(Reliability::Reliable, writer.take_buffer())?;
+        sendq.insert(Reliability::Reliable, writer.take_buffer())?;
     }
 
-    Ok(ConnectMode::HandlingConnectionRequest)
+    Ok(Some(ConnectionState::HandlingConnectionRequest))
 }
