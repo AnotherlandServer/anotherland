@@ -35,6 +35,7 @@ mod inventory;
 mod special_events;
 mod quests;
 mod chat;
+mod commands;
 
 pub use network::*;
 pub use loader::*;
@@ -58,3 +59,4 @@ pub use inventory::*;
 pub use special_events::*;
 pub use quests::*;
 pub use chat::*;
+pub use commands::*;
