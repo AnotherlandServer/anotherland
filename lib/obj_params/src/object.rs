@@ -15,7 +15,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use bevy::prelude::Component;
+use bevy::{prelude::Component, utils::hashbrown::HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::{Attribute, AttributeInfo, Class, GenericParamSet, ParamError, ParamFlag, ParamResult, ParamSet, ParamWriter, Value};
@@ -150,6 +150,32 @@ impl GameObjectData {
     pub fn as_set(&self) -> &dyn GenericParamSet {
         self.instance.as_ref()
     }
+
+    fn write<W: bitstream_io::ByteWrite>(&self,  writer: &mut W, filter: fn(&dyn AttributeInfo, &Value) -> bool) -> Result<(), std::io::Error> {
+        let mut params: HashMap<&dyn AttributeInfo, &Value> = HashMap::new();
+
+        if let Some(parent) = self.parent.as_ref() {
+            parent.as_set()
+                .values()
+                .filter(|&(a,v)| filter(a, v))
+                .for_each(|(a,v)| { params.insert(a, v); });
+        }
+
+        self.instance
+            .values()
+            .filter(|&(a,v)| filter(a, v))
+            .for_each(|(a,v)| { params.insert(a, v); });
+
+        writer.write(1u8)?;
+        writer.write(params.len() as u16)?;
+
+        for (attr, value) in params {
+            writer.write(attr.id())?;
+            value.write(writer)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Clone for GameObjectData {
@@ -169,27 +195,23 @@ impl Debug for GameObjectData {
 
 impl ParamWriter for GameObjectData {
     fn write<W: bitstream_io::ByteWrite>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        if let Some(parent) = self.parent.as_ref() {
-            parent.write(writer)?;
-        }
-
-        self.instance.write(writer)
+        self.write(writer, |_, v| !v.should_skip())
     }
 
     fn write_to_client<W: bitstream_io::ByteWrite>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        if let Some(parent) = self.parent.as_ref() {
-            parent.write_to_client(writer)?;
-        }
-
-        self.instance.write_to_client(writer)
+        self.write(writer, |a, v| {
+            !a.has_flag(&ParamFlag::ClientUnknown) &&
+            !a.has_flag(&ParamFlag::ClientPrivileged) &&
+            !v.should_skip()
+        })
     }
 
     fn write_to_privileged_client<W: bitstream_io::ByteWrite>(&self, writer: &mut W) -> Result<(), std::io::Error> {
-        if let Some(parent) = self.parent.as_ref() {
-            parent.write_to_privileged_client(writer)?;
-        }
-
-        self.instance.write_to_privileged_client(writer)
+        self.write(writer, |a, v| {
+            (!a.has_flag(&ParamFlag::ClientUnknown) ||
+            a.has_flag(&ParamFlag::ClientPrivileged)) &&
+            !v.should_skip()
+        })
     }
 }
 

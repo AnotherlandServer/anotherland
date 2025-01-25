@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{hash::Hash, str::FromStr};
+use std::{hash::{Hash, Hasher}, str::FromStr};
 
 use crate::{Class, ParamFlag, ParamType, Value};
 
@@ -33,3 +33,17 @@ pub trait AttributeInfo {
         self.flags().contains(flag)
     }
 }
+
+impl Hash for dyn AttributeInfo {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id().hash(state);
+    }
+}
+
+impl PartialEq for dyn AttributeInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl Eq for dyn AttributeInfo {}

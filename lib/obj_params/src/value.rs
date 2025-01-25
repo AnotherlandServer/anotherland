@@ -915,6 +915,12 @@ impl From<(u32, Vec3)> for Value {
     }
 }
 
+impl From<Vec<u8>> for Value {
+    fn from(value: Vec<u8>) -> Self {
+        Value::Any(value)
+    }
+}
+
 impl <'a> TryFrom<&'a Value> for &'a String {
     type Error = ParamError;
     
