@@ -16,7 +16,6 @@
 #![feature(let_chains)]
 #![feature(exclusive_wrapper)]
 
-use bevy::prelude::*;
 use instance::{InstanceLabel, ZoneSubApp};
 use obj_params::Player;
 use plugins::{ControllerEvent, NetworkExt, NetworkPlugin};
@@ -31,13 +30,13 @@ use cluster::{ClusterEvent, Endpoint, PeerIdentity};
 use core_api::CoreApi;
 use error::{WorldError, WorldResult};
 use futures_util::TryStreamExt;
-use log::{info, debug, error};
+use log::{debug, error, info, warn};
 use manager::{InstanceEvent, InstanceManager};
 use once_cell::sync::Lazy;
 use proto::{ClusterMessage, WorldMessage, WorldRequest, WorldResponse, WorldServer};
 use realm_api::{proto::{InstanceKey, NodeAddress, NodeType, RealmClient, RealmNotification, RealmRequest, RealmResponse}, RealmApi, ZoneBuilder};
 use reqwest::Url;
-use tokio::{runtime::Handle, select, sync::{mpsc::{self, error::TryRecvError, unbounded_channel, Sender}, oneshot, Mutex}, time};
+use tokio::{runtime::Handle, select, signal, sync::{mpsc::{self, error::TryRecvError, unbounded_channel, Sender}, oneshot, Mutex}, task::LocalSet, time};
 use toolkit::{print_banner, types::Uuid};
 
 mod error;
@@ -97,6 +96,8 @@ fn handle_realm_msgs(realm_client: Arc<RealmClient>, manager: InstanceManager) {
             match msg {
                 RealmResponse::InstanceOfferingAccepted { transaction_id, .. } => 
                     manager.provision_instance(transaction_id).await,
+                RealmResponse::InstanceShutdownAck(label) => 
+                    manager.shutdown_instance(label).await,
                 _ => (),
             }
         }
@@ -202,6 +203,14 @@ fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender
                                 }).await;
                             }
                         },
+                        plugins::WorldEvent::Close { controller } => {
+                            if let Some((router_id,_)) = controllers.get(&controller) {
+                                let _ = server.send(router_id, WorldResponse::RouterChannel {
+                                    id: controller,
+                                    msg: WorldMessage::Close
+                                }).await;
+                            }
+                        }
                     }
                 },
             }
@@ -261,7 +270,20 @@ async fn main() -> WorldResult<()> {
     app.add_plugins(MinimalPlugins);
 
     // Aim for 50 cycles/sec
-    let mut update_interval = time::interval(Duration::from_millis(20)); 
+    let mut update_interval = time::interval(Duration::from_millis(20));   
+
+    {
+        let manager = manager.clone();
+        let ctrl_c = signal::ctrl_c();
+        tokio::spawn(async move {
+            if ctrl_c.await.is_err() {
+                warn!("Error while listening for ctrl_c signal!");
+            }
+        
+            warn!("Shutting down world server...");
+            manager.shutdown_world().await;
+        });
+    }
 
     loop {
         select! {
@@ -269,18 +291,28 @@ async fn main() -> WorldResult<()> {
                 tokio::task::block_in_place(|| {
                     app.update();
                 });
-
-                if app.should_exit().is_some() {
-                    break;
-                }
             },
             event = instance_events.recv() => {
                 match event {
                     Some(event) => match event {
                         InstanceEvent::InstanceAdded(sub_app) => 
                             { app.insert_sub_app(sub_app.label(), *sub_app); },
-                        InstanceEvent::InstanceRemoved(zone_label) => 
-                            { app.remove_sub_app(zone_label); },
+                        InstanceEvent::InstanceRemoved(zone_label) => { 
+                            app.remove_sub_app(zone_label);
+                        },
+                        InstanceEvent::InstanceStopping(label) => {
+                            if let Some(subapp) = app.get_sub_app_mut(label.clone()) {
+                                subapp.shutdown();
+                                let tasks = subapp.zone_instance().task_tracker();
+                                let manager = manager.clone();
+
+                                tokio::spawn(async move {
+                                    tasks.close();
+                                    tasks.wait().await;
+                                    manager.unregister_instance(label).await;
+                                });
+                            }
+                        },
                         InstanceEvent::ControllerSpawnRequested { peer, instance, session, events, controller, travel_mode } => {
                             if let Some(subapp) = app.get_sub_app_mut(instance) {
                                 let _ = controller.send(subapp.create_player_controller(peer, session, travel_mode, events).await);
@@ -288,10 +320,14 @@ async fn main() -> WorldResult<()> {
                                 let _ = controller.send(Err(anyhow::Error::msg("instance not found").into()));
                             }
                         },
+                        InstanceEvent::WorldShutdown => {
+                            info!("World server shutdown completed!");
+                            break;
+                        }
                     },
                     None => break,
                 }
-            }
+            },
         }
     }
 

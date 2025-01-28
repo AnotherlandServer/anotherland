@@ -72,7 +72,7 @@ fn handle_chat_msg(
             let party_id = *sender_data.get::<_, Uuid>(Player::PartyGuid).unwrap();
             let clan_id = *sender_data.get::<_, Uuid>(Player::ClanGuid).unwrap();
 
-            instance.handle.spawn(async move {
+            instance.spawn_task(async move {
                 let _ = client.send(RealmRequest::ChatMessage { 
                     sender_id: Some(session), 
                     destination: match pkt.chat_type {

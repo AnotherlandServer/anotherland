@@ -45,6 +45,7 @@ pub enum WorldMessage {
     ServerMessage{ data: Vec<u8> },
     TravelRequest { zone: Uuid, instance: Option<Uuid>, mode: TravelMode },
     TravelCommited,
+    Close,
 }
 
 impl Response for WorldResponse {}

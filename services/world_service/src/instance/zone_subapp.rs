@@ -16,9 +16,12 @@
 use std::sync::Arc;
 
 use bevy::app::SubApp;
+use tokio::task::JoinSet;
 use toolkit::types::Uuid;
 
-use super::{ZoneConfig, ZoneInstance, InstanceLabel};
+use crate::error::WorldError;
+
+use super::{InstanceLabel, InstanceShutdown, ZoneConfig, ZoneInstance};
 
 pub trait ZoneSubApp {
     fn zone_instance(&self) -> &ZoneInstance;
@@ -26,6 +29,7 @@ pub trait ZoneSubApp {
     fn instance_id(&self) -> Option<Uuid>;
     fn config(&self) -> Arc<ZoneConfig>;
     fn label(&self) -> InstanceLabel;
+    fn shutdown(&mut self);
 }
 
 impl ZoneSubApp for SubApp {
@@ -49,5 +53,9 @@ impl ZoneSubApp for SubApp {
     fn label(&self) -> InstanceLabel {
         let instance = self.zone_instance();
         InstanceLabel::new(*instance.zone.guid(), instance.instance_id)
+    }
+
+    fn shutdown(&mut self) {
+        self.world_mut().run_schedule(InstanceShutdown);
     }
 }

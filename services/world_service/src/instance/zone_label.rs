@@ -32,6 +32,9 @@ impl InstanceLabel {
             instance
         }
     }
+
+    pub fn id(&self) -> Uuid { self.id }
+    pub fn instance(&self) -> Option<Uuid> { self.instance }
 }
 
 impl Debug for InstanceLabel {

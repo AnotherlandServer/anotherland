@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
+use std::{net::Shutdown, sync::Arc};
 
-use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::system::SystemId, prelude::{in_state, Commands, Component, Entity, Event, EventReader, In, IntoSystem, IntoSystemConfigs, Mut, NonSendMut, Query, Res, ResMut, Resource, With, World}, utils::HashMap};
+use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::system::SystemId, prelude::{in_state, Commands, Component, Entity, Event, EventReader, In, IntoSystem, IntoSystemConfigs, Mut, NonSendMut, Query, RemovedComponents, Res, ResMut, Resource, With, World}, utils::HashMap};
 use core_api::Session;
 use log::{debug, error, warn};
 use obj_params::{GameObjectData, Player};
@@ -23,7 +23,7 @@ use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClientToClus
 use realm_api::{proto::Destination, RealmApi, SessionState};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use toolkit::{types::{AvatarId, Uuid}, NativeParam};
-use crate::proto::TravelRejectReason;
+use crate::{instance::{InstanceLabel, InstanceShutdown}, proto::TravelRejectReason};
 
 use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, proto::TravelMode};
 
@@ -74,13 +74,25 @@ impl Plugin for NetworkPlugin {
         app.insert_resource(ForeignResource(ctrl_event_receiver));
 
         app.add_systems(First, handle_controller_events.run_if(in_state(InstanceState::Running)));
-        app.add_systems(Last, cleanup_player_controllers);
+        app.add_systems(Last, (
+            cleanup_player_controllers,
+            instance_shutdown
+        ).chain());
+        app.add_systems(InstanceShutdown, close_connections);
 
         app.register_message_handler(handle_c2sconnection_state);
         app.register_message_handler(handle_client_server_ping);
         app.register_message_handler(handle_cluster_client_to_community);
         app.register_message_handler(handle_cluster_client_to_communication);
         app.register_message_handler(handle_cluster_client_to_cluster_node);
+    }
+}
+
+fn close_connections(
+    controller: Query<&PlayerController>,
+) {
+    for controller in controller.iter() {
+        controller.close();
     }
 }
 
@@ -100,6 +112,26 @@ fn cleanup_player_controllers(
 
         let _ = controller.sender.send(WorldEvent::TravelCommited { controller: controller.id });
         commands.entity(ent).despawn();
+    }
+}
+
+fn instance_shutdown(
+    mut removed: RemovedComponents<PlayerController>,
+    players: Query<&PlayerController>,
+    instance: Res<ZoneInstance>,
+) {
+    if !removed.is_empty() {
+        removed.clear();
+
+        if instance.config.force_generate_guid_key && players.is_empty() {
+            debug!("Last player left zone...");
+
+            let manager = instance.manager.clone();
+            let label = InstanceLabel::new(*instance.zone.guid(), instance.instance_id);
+            instance.spawn_task(async move {
+                manager.request_unregister_instance(label).await;
+            });
+        }
     }
 }
 
@@ -257,6 +289,7 @@ pub enum WorldEvent {
     Packet { controller: Uuid, pkt: CPkt },
     TravelRequest { controller: Uuid, zone: Uuid, instance: Option<Uuid>, mode: TravelMode },
     TravelCommited { controller: Uuid },
+    Close { controller: Uuid },
 }
 
 pub enum MessageType {
@@ -328,6 +361,10 @@ impl PlayerController {
                 ..Default::default()
             }.into_pkt()
         });
+    }
+    
+    fn close(&self) {
+        let _ = self.sender.send(WorldEvent::Close { controller: self.id });
     }
 }
 

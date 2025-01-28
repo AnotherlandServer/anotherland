@@ -37,3 +37,5 @@ obj_params = { workspace = true }
 rand.workspace = true
 mlua = { workspace = true }
 saphyr = { workspace = true }
+tokio-util = { workspace = true }
+futures.workspace = true

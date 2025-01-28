@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Last, Plugin, PostUpdate, Update}, math::{Quat, Vec3, VectorSpace}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Query, Res, ResMut, With}};
+use bevy::{app::{First, Last, Plugin, PostUpdate, Update}, math::{Quat, Vec3, VectorSpace}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use log::{debug, error, warn};
 use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, GameObjectData, GenericParamSet, NonClientBase, Param, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
@@ -25,7 +25,7 @@ use toolkit::{types::{Uuid, UUID_NIL}, OtherlandQuatExt};
 
 use crate::{instance::{InstanceState, ZoneInstance}, plugins::{Active, ForeignResource}, proto::TravelMode};
 
-use super::{init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, ContentInfo, CurrentState, Inventory, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction};
+use super::{init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, ContentInfo, CurrentState, InitialInventoryTransfer, Inventory, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction};
 
 pub struct PlayerPlugin;
 
@@ -62,7 +62,7 @@ fn request_player_characters(
     
         let state = controller.state().clone();
     
-        instance.handle.spawn(async move {
+        instance.spawn_task(async move {
             if let Ok(Some(character)) = realm_api.get_character(state.character()).await {
                 let _ = sender.send((entity, character)).await;
             }
@@ -195,7 +195,7 @@ fn insert_player_characters(
 }
 
 fn begin_loading_sequence(
-    query: Query<(&PlayerController, &AvatarInfo, &GameObjectData, &Movement), Added<Inventory>>,
+    query: Query<(&PlayerController, &AvatarInfo, &GameObjectData, &Movement), Added<GameObjectData>>,
 ) {
     for (controller, avatar, obj, movement) in query.iter() {
         debug!("Starting spawning sequence for character: {}", avatar.name);
@@ -250,27 +250,18 @@ fn begin_loading_sequence(
                 ..Default::default()
             });
         }
-
-        controller.send_packet(oaPktItemStorage {
-            storage_id: Uuid::new(),
-            update_type: OaPktItemStorageUpdateType::Unknown004,
-            data: ItemStorageParams {
-                storage_name: "inventory".to_string(),
-                storage_size: 30,
-                bling_amount: 0,
-                has_bling: false,
-            }.to_bytes(),
-            ..Default::default()
-        });
     }
 }
 
 fn spawn_player(
-    mut query: Query<(Entity, &AvatarInfo, &Movement, &mut PlayerController, &mut CurrentState), Changed<CurrentState>>,
+    mut query: Query<(Entity, &AvatarInfo, &Movement, &mut PlayerController, &mut CurrentState, Option<&InitialInventoryTransfer>), Changed<CurrentState>>,
     mut commands: Commands
 ) {
-    for (ent, info, movement, controller, mut state) in query.iter_mut() {
-        if matches!(state.state, ConnectionState::InitialInterestsLoaded) {
+    for (ent, info, movement, controller, mut state, inventory_transfer) in query.iter_mut() {
+        if 
+            matches!(state.state, ConnectionState::InitialInterestsLoaded) &&
+            inventory_transfer.is_none()
+        {
             debug!("Spawning player: {}", info.name);
 
             state.state = ConnectionState::InGame;
@@ -294,7 +285,7 @@ fn spawn_player(
 }
 
 fn save_player_data(
-    query: Query<(&PlayerController, &GameObjectData), (Changed<GameObjectData>, With<PlayerTag>)>,
+    query: Query<(&PlayerController, &GameObjectData), (Or<(Added<GameObjectData>, Changed<GameObjectData>)>, With<PlayerTag>)>,
     instance: Res<ZoneInstance>,
 ) {
     for (controller, obj) in query.iter() {
@@ -309,7 +300,7 @@ fn save_player_data(
             // send a (blocking) message here, se we can have
             // backpressure in case our updates don't go trough.
             // Also, errors are not really handled here.
-            instance.handle.spawn(async move {
+            instance.spawn_task(async move {
                 if let Err(e) = realm_api.update_character_data_diff(&id, diff).await {
                     error!("Character update failed: {:?}", e);
                 }

@@ -13,22 +13,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{fs, iter::repeat_n, path::PathBuf, sync::Arc};
+use std::{fs, iter::repeat_n, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PostUpdate}, prelude::{Added, App, Commands, Component, Entity, In, ParamSet, Query, Res, Resource}, utils::hashbrown::HashMap};
+use bevy::{app::{Plugin, PostUpdate, Update}, prelude::{Added, App, Commands, Component, DetectChangesMut, Entity, In, IntoSystemConfigs, ParamSet, Query, Res, Resource, With}, reflect::List, time::common_conditions::on_timer, utils::hashbrown::HashMap};
 use bitstream_io::{ByteWriter, LittleEndian};
 use derive_builder::Builder;
 use log::debug;
-use obj_params::{tags::PlayerTag, EdnaFunction, GameObjectData, GenericParamSet, ItemBase, ParamReader, ParamWriter, Player};
-use protocol::CPktItemUpdate;
+use obj_params::{tags::{ItemBaseTag, PlayerTag}, EdnaFunction, GameObjectData, GenericParamSet, ItemBase, ParamReader, ParamWriter, Player};
+use protocol::{oaPktItemStorage, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
 use realm_api::ObjectTemplate;
 use saphyr::Yaml;
 use toolkit::{types::Uuid, NativeParam};
 
 use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance};
 
-use super::{CommandExtPriv, PlayerController};
+use super::{CommandExtPriv, ConnectionState, ContentInfo, CurrentState, PlayerController};
 
 pub struct InventoryPlugin {
     pub content_path: PathBuf,
@@ -42,6 +42,10 @@ impl Plugin for InventoryPlugin {
         );
 
         app.add_systems(PostUpdate, load_player_inventory);
+        app.add_systems(Update, (
+            init_client_inventory,
+            send_initial_items.run_if(on_timer(Duration::from_secs(1)))
+        ).chain());
 
         app.register_command("add_item", command_add_item);
     }
@@ -230,7 +234,6 @@ impl ItemManagement {
 #[derive(Clone)]
 pub enum SlotEntry {
     Empty,
-    VisualItem(Arc<ObjectTemplate>),
     Item(Entity),
 }
 
@@ -240,27 +243,36 @@ pub enum Soma {
 
 #[derive(Component)]
 pub struct Inventory {
-    equipment_slots: HashMap<String, Vec<SlotEntry>>,
-    cosmetic_slots: Vec<SlotEntry>,
-    
-    misc_items: Vec<SlotEntry>,
-    quest_items: Vec<SlotEntry>,
-    cash_items: Vec<SlotEntry>,
-    schema_items: Vec<SlotEntry>,
+    id: Uuid,
+    name: String,
+
+    id_lookup: HashMap<Uuid, Entity>,
+
+    equipped_items: Vec<Entity>,
+    misc_items: Vec<Entity>,
+    quest_items: Vec<Entity>,
+    cash_items: Vec<Entity>,
+    schema_items: Vec<Entity>,
+
+    bling: Option<i32>,
+    max_slots: i32,
 }
 
 impl Inventory {
-    fn new(inventory_size: i32) -> Self {
+    fn new(id: Uuid, name: String, bling: Option<i32>, max_slots: i32) -> Self {
         Self {
-            equipment_slots: HashMap::new(),
-            cosmetic_slots: Vec::new(),
+            id,
+            name,
+            id_lookup: HashMap::new(),
 
-            misc_items: repeat_n((), inventory_size as usize)
-                .map(|_| SlotEntry::Empty)
-                .collect(),
+            equipped_items: Vec::new(),
+            misc_items: Vec::new(),
             quest_items: Vec::new(),
             cash_items: Vec::new(),
             schema_items: Vec::new(),
+
+            bling,
+            max_slots,
         }
     }
 }
@@ -274,14 +286,19 @@ fn load_player_inventory(
         commands
             .entity(ent)
             .insert(
-                Inventory::new(*obj.get(Player::InventorySize).unwrap())
+                Inventory::new(
+                    Uuid::new(),
+                    "inventory".to_string(),
+                    obj.get(Player::Bling).ok().cloned(),
+                    *obj.get(Player::InventorySize).unwrap()
+                )
             );
 
         // For now, each player get's a sword
         let controller = controller.clone();
         let object_cache = instance.object_cache.clone();
 
-        instance.handle.spawn(async move {
+        instance.spawn_task(async move {
             let obj = object_cache.get_object_by_name("2H_Sword0003Default0004").await.unwrap().unwrap();
             let mut item = GameObjectData::instantiate(&obj.data);
 
@@ -311,23 +328,21 @@ fn load_player_inventory(
 fn command_add_item(
     In((ent, args)): In<(Entity, Vec<NativeParam>)>,
     instance: Res<ZoneInstance>,
-    controller: Query<&PlayerController>,
+    mut player: Query<(&PlayerController, &mut Inventory)>,
+    items: Query<&GameObjectData, With<ItemBaseTag>>,
 ) {
     let mut args = args.into_iter();
 
     if 
-        let Ok(controller) = controller.get(ent) &&
-        let Some(NativeParam::String(item_name)) = args.next() &&
-        let Some(NativeParam::String(container)) = args.next() &&
-        let Some(NativeParam::String(inv_slot)) = args.next() &&
-        let Some(NativeParam::String(slot)) = args.next()
+        let Ok((controller, mut inventory)) = player.get_mut(ent) &&
+        let Some(NativeParam::String(item_name)) = args.next()
     {
         let controller = controller.clone();
         let object_cache = instance.object_cache.clone();
 
-        debug!("{} {} {} {}", item_name, container, inv_slot, slot);
+        //debug!("{} {} {} {}", item_name, container, inv_slot, slot);
 
-        instance.handle.spawn(async move {
+        /*instance.handle.spawn(async move {
             let obj = object_cache.get_object_by_name(&item_name).await.unwrap().unwrap();
             let mut item = GameObjectData::instantiate(&obj.data);
 
@@ -351,6 +366,70 @@ fn command_add_item(
                 params,
                 ..Default::default()
             });
+        });*/
+    }
+}
+
+#[derive(Component)]
+pub struct InitialInventoryTransfer(Vec<Entity>);
+
+fn init_client_inventory(
+    inventories: Query<(&PlayerController, &Inventory), Added<Inventory>>
+) {
+    for (controller, inventory) in inventories.iter() {
+        controller.send_packet(oaPktItemStorage {
+            storage_id: Uuid::new(),
+            update_type: OaPktItemStorageUpdateType::Unknown004,
+            data: ItemStorageParams {
+                storage_name: "inventory".to_string(),
+                storage_size: inventory.max_slots,
+                bling_amount: inventory.bling
+                    .unwrap_or(-1),
+                has_bling: inventory.bling.is_some(),
+            }.to_bytes(),
+            ..Default::default()
         });
+    }
+}
+
+fn send_initial_items(
+    mut transfer_queues: Query<(Entity, &PlayerController, &mut InitialInventoryTransfer, &mut CurrentState)>,
+    items: Query<(&ContentInfo, &GameObjectData), With<ItemBaseTag>>,
+    mut commands: Commands,
+) {
+    for (entity, controller, mut queue, mut state) in transfer_queues.iter_mut() {
+        for item_ent in queue.0.drain(..10) {
+            if let Ok((content, item)) = items.get(item_ent) {
+                let mut data = Vec::new();
+                {
+                    let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+                    item.write_to_privileged_client(&mut writer).unwrap();
+                }
+
+                controller.send_packet(CPktItemUpdate {
+                    avatar_id: controller.avatar_id(),
+                    id: content.placement_id,
+                    use_template: 1,
+                    template_id: Some(content.template.id),
+                    class_id: item.class().id() as u32,
+                    params: data,
+                    ..Default::default()
+                });
+            }
+        }
+
+        if queue.0.is_empty() {
+            commands.entity(entity)
+                .remove::<InitialInventoryTransfer>();
+
+            // Re-trigger change of initial interests loaded, 
+            // so client can be spawned if interests transfer finished
+            // before item transfer.
+            // TODO: Find a better way to sync these two async operations
+            // (interest transfer and inventory transfer) in bevy
+            if matches!(state.state, ConnectionState::InitialInterestsLoaded) {
+                state.set_changed();
+            }
+        }
     }
 }

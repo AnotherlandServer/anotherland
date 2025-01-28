@@ -13,20 +13,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{path::PathBuf, str::FromStr, sync::Arc};
+use std::{net::Shutdown, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
-use bevy::{app::{First, Main, MainSchedulePlugin, PanicHandlerPlugin, ScheduleRunnerPlugin, SubApp}, core::{FrameCountPlugin, TaskPoolPlugin, TypeRegistrationPlugin}, ecs::{event::{event_update_condition, event_update_system, EventRegistry, EventUpdates}, intern::Interned, schedule::ScheduleLabel}, log::LogPlugin, prelude::{AppExtStates, AppTypeRegistry, HierarchyPlugin, IntoSystemConfigs, NextState, OnEnter, ResMut, Resource, States}, state::app::StatesPlugin, tasks::futures_lite::StreamExt, time::TimePlugin, MinimalPlugins};
+use bevy::{app::{First, Last, Main, MainSchedulePlugin, PanicHandlerPlugin, ScheduleRunnerPlugin, SubApp}, core::{FrameCountPlugin, TaskPoolPlugin, TypeRegistrationPlugin}, ecs::{event::{event_update_condition, event_update_system, EventRegistry, EventUpdates}, intern::Interned, schedule::ScheduleLabel}, log::LogPlugin, prelude::{AppExtStates, AppTypeRegistry, HierarchyPlugin, IntoSystemConfigs, NextState, OnEnter, Query, Res, ResMut, Resource, States}, state::app::StatesPlugin, tasks::futures_lite::StreamExt, time::{common_conditions::on_timer, TimePlugin}, MinimalPlugins};
 use core_api::CoreApi;
 use derive_builder::Builder;
-use log::debug;
+use log::{debug, trace};
 use obj_params::{Class, OaZoneConfig};
 use realm_api::{proto::RealmClient, Category, RealmApi, WorldDef, Zone};
 use scripting::{LuaRuntimeBuilder, ScriptingPlugin};
 use serde_json::Value;
-use tokio::runtime::Handle;
+use tokio::{runtime::Handle, task::JoinSet};
+use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AvatarPlugin, BehaviorPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
+use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AvatarPlugin, BehaviorPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
+
+#[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone, Copy)]
+pub struct InstanceShutdown;
 
 #[derive(Default)]
 pub enum ZoneType {
@@ -100,8 +104,11 @@ pub struct ZoneInstance {
     pub realm_api: RealmApi,
     pub core_api: CoreApi,
     pub realm_client: Arc<RealmClient>,
-    pub handle: Handle,
+    handle: Handle,
+    task_tracker: TaskTracker,
     pub object_cache: ObjectCache,
+
+    pub manager: InstanceManager,
 
     #[builder(setter(strip_option))]
     pub world_def: Arc<WorldDef>,
@@ -114,6 +121,17 @@ pub struct ZoneInstance {
 
     #[builder(default)]
     pub instance_id: Option<Uuid>,
+}
+
+impl ZoneInstance {
+    pub fn spawn_task(&self, task: impl Future<Output: Send + 'static> + Send + 'static)
+    {
+        self.task_tracker.spawn_on(task, &self.handle);
+    }
+
+    pub fn task_tracker(&self) -> TaskTracker {
+        self.task_tracker.clone()
+    }
 }
 
 impl ZoneInstanceBuilder {
@@ -185,7 +203,9 @@ impl ZoneInstanceBuilder {
         app.init_state::<InstanceState>();
         app.insert_resource(instance);
         app.add_systems(OnEnter(InstanceState::Initializing), start_instance);
-
+        app.add_systems(Last, check_inactivity_timeout
+                .run_if(on_timer(Duration::from_secs(60)))
+        );
 
         // Core plugins
         app.add_plugins((
@@ -232,11 +252,27 @@ impl ZoneInstanceBuilder {
                 AbilitiesPlugin,
                 CombatPlugin,
             ));
-
         Ok(app)
     }
 }
 
 fn start_instance(mut next_state: ResMut<NextState<InstanceState>>) {
     next_state.set(InstanceState::Running);
+}
+
+fn check_inactivity_timeout(
+    controllers: Query<&PlayerController>,
+    instance: Res<ZoneInstance>,
+) {
+    if controllers.is_empty() {
+        debug!("No players in zone, shutting down instance...");
+
+        let label = InstanceLabel::new(*instance.zone.guid(), instance.instance_id);
+        let manager = instance.manager.clone();
+        instance.spawn_task(async move {
+            manager.request_unregister_instance(label).await;
+        });
+    } else {
+        trace!("Instance {}-{:?} passed inactivity check...", instance.zone.guid(), instance.instance_id);
+    }
 }

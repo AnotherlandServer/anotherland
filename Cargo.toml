@@ -83,3 +83,4 @@ upk = { version = "0.1.0", path = "lib/upk" }
 scripting = { version = "0.1.0", path = "lib/scripting" }
 mlua = { version = "0.10.2", features = ["lua54", "async", "send", "vendored", "anyhow", "serialize"] }
 saphyr = "0.0.3"
+tokio-util = { version = "0.7.13", features = ["rt"] }

@@ -33,12 +33,12 @@ use database::{DatabaseExt, DatabaseRecord};
 use db::{CashShopItem, CashShopItemBundle, CashShopVendor, Character, ObjectPlacement, ObjectTemplate, PremiumCurrency, PremiumCurrencyTransaction, WorldDef, Zone};
 use error::RealmResult;
 use instance_registry::InstanceRegistry;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use mongodb::bson::doc;
 use mongodb::{Client, Database};
 use node_registry::{NodeRegistry, NodeSocketAddress};
 use poem::{listener::TcpListener, post, Route, Server};
-use proto::{NodeAddress, NodeType, RealmNotification, RealmServer};
+use proto::{NodeAddress, NodeType, RealmNotification, RealmResponse, RealmServer};
 use reqwest::Url;
 use schema::{MutationRoot, QueryRoot};
 use session_manager::SessionManager;
@@ -252,9 +252,12 @@ async fn main() -> RealmResult<()> {
                         INSTANCE_REGISTRY.get().unwrap()
                             .complete_instance_provisioning(peer, transaction_id).await;
                     },
-                    proto::RealmRequest::RemoveInstance(key) => {
+                    proto::RealmRequest::InstanceShutdownNotification(key) => {
+                        debug!("Instance {:?} shutting down...", key);
                         INSTANCE_REGISTRY.get().unwrap()
-                            .remove_instance(key).await;
+                            .remove_instance(key.clone()).await;
+
+                        let _ = server.send(&peer, RealmResponse::InstanceShutdownAck(key)).await;
                     },
                     proto::RealmRequest::ChatMessage { sender_id, destination, message } => {
                         CHAT_ROUTER.get().unwrap()

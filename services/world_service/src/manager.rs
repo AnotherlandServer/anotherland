@@ -15,7 +15,7 @@
 
 use std::{collections::{HashMap, HashSet}, sync::Arc};
 
-use bevy::{app::{App, AppExit, Plugin, SubApp}, MinimalPlugins};
+use bevy::{app::{App, AppExit, Plugin, SubApp}, log::trace, MinimalPlugins};
 use chrono::{DateTime, Utc};
 use core_api::CoreApi;
 use futures_util::TryStreamExt;
@@ -23,7 +23,8 @@ use log::{debug, error, info};
 use obj_params::OaZoneConfig;
 use protocol::CPkt;
 use realm_api::{proto::{InstanceKey, RealmClient, RealmRequest}, ObjectTemplate, RealmApi, WorldDef, Zone};
-use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, oneshot, Mutex}};
+use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, oneshot, Mutex, Semaphore}};
+use tokio_util::task::TaskTracker;
 use toolkit::types::{Uuid, UUID_NIL};
 
 use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, object_cache::ObjectCache, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode, ARGS};
@@ -42,7 +43,7 @@ struct InstanceManagerData {
     zones: HashMap<Uuid, Arc<Zone>>,
     worlds: HashMap<Uuid, Arc<WorldDef>>,
     requests: HashMap<Uuid, PendingInstance>,
-    instances: HashMap<Uuid, InstanceLabel>,
+    instances: Vec<InstanceLabel>,
     event_sender: mpsc::Sender<InstanceEvent>,
     limit: usize,
     object_cache: ObjectCache,
@@ -50,6 +51,7 @@ struct InstanceManagerData {
 
 pub enum InstanceEvent {
     InstanceAdded(Box<SubApp>),
+    InstanceStopping(InstanceLabel),
     InstanceRemoved(InstanceLabel),
     ControllerSpawnRequested {
         peer: Uuid,
@@ -58,7 +60,8 @@ pub enum InstanceEvent {
         events: UnboundedSender<WorldEvent>,
         controller: oneshot::Sender<WorldResult<Sender<ControllerEvent>>>,
         travel_mode: TravelMode,
-    }
+    },
+    WorldShutdown,
 }
 
 #[derive(Clone)]
@@ -106,8 +109,6 @@ impl InstanceManager {
 
             info!("Serving zones for groups: {:?}", groups);
         }
-
-
         
         Ok(Self(Arc::new(Mutex::new(InstanceManagerData { 
             realm_api: realm_api.clone(),
@@ -118,10 +119,10 @@ impl InstanceManager {
                 .collect(),
             worlds,
             requests: HashMap::new(),
-            instances: HashMap::new(),
+            instances: Vec::new(),
             event_sender,
             limit,
-            object_cache: ObjectCache::new(realm_api)
+            object_cache: ObjectCache::new(realm_api),
         }))))
     }
 
@@ -198,12 +199,14 @@ impl InstanceManager {
                 .core_api(s.core_api.clone())
                 .realm_client(s.realm_client.clone())
                 .handle(Handle::current())
+                .task_tracker(TaskTracker::new())
                 .object_cache(s.object_cache.clone())
                 .instance_id(req.key)
+                .manager(self.clone())
                 .instantiate().await
             {
                 Ok(instance) => {
-                    s.instances.insert(*req.zone.guid(), instance.label());
+                    s.instances.push(instance.label());
                     
                     let _ = s.realm_client.send(RealmRequest::InstanceProvisioned { 
                         transaction_id 
@@ -214,6 +217,48 @@ impl InstanceManager {
                 Err(e) => {
                     error!("Failed to instantiate instance: {:?}", e);
                 }
+            }
+        }
+    }
+
+    pub async fn request_unregister_instance(&self, label: InstanceLabel) {
+        let s = self.0.lock().await;
+        let _ = s.realm_client.send(RealmRequest::InstanceShutdownNotification(
+            InstanceKey::new(label.id(), label.instance())
+        )).await;
+    }
+
+    pub async fn unregister_instance(&self, label: InstanceLabel) {
+        let mut s = self.0.lock().await;
+        s.instances.retain(|l| l != &label);
+
+        debug!("Instance stopped {:?}", label);
+
+        let _ = s.event_sender.send(InstanceEvent::InstanceRemoved(label)).await;
+        if s.instances.is_empty() && s.limit == 0 {
+            let _ = s.event_sender.send(InstanceEvent::WorldShutdown).await;
+        }
+    }
+
+    pub async fn shutdown_instance(&self, key: InstanceKey) {
+        let s = self.0.lock().await;
+        let _ = s.event_sender.send(InstanceEvent::InstanceStopping(InstanceLabel::new(key.zone(), key.instance()))).await;
+    }
+
+    pub async fn shutdown_world(&self) {
+        trace!("Begin world shutdown");
+        let mut s = self.0.lock().await;
+        s.limit = 0; // Reduce instance limit to zero, so no new instances will be offered.
+
+        trace!("Check instances");
+        if s.instances.is_empty() {
+            let _ = s.event_sender.send(InstanceEvent::WorldShutdown).await;
+        } else {
+            for label in s.instances.iter() {
+                trace!("Announcing instace shutdown {:?}", label);
+                let _ = s.realm_client.send(RealmRequest::InstanceShutdownNotification(
+                    InstanceKey::new(label.id(), label.instance())
+                )).await;
             }
         }
     }

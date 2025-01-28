@@ -65,7 +65,7 @@ fn handle_join_dungeon(
 ) {
     if let Ok(controller) = players.get(ent).cloned() {
         let realm_api = instance.realm_api.clone();
-        instance.handle.spawn(async move {
+        instance.spawn_task(async move {
             if let Err(e) = async {
                 
                 if 
@@ -151,7 +151,7 @@ fn handle_social_travel(
     if cmd.is_travel {
         if let Ok(controller) = players.get(ent).cloned() {
             let realm_api = instance.realm_api.clone();
-            instance.handle.spawn(async move {
+            instance.spawn_task(async move {
                 if let Err(e) = async {
                     
                     if 

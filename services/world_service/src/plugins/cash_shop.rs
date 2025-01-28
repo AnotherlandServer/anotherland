@@ -43,7 +43,7 @@ fn handle_sku_bundle_sync_request(
         let controller = controller.clone();
         let realm_api = instance.realm_api.clone();
 
-        instance.handle.spawn(async move {
+        instance.spawn_task(async move {
             let mut response = oaPktSKUBundleSyncAcknowledge::default();
 
             for item_request in pkt.sku_items {
@@ -138,7 +138,7 @@ fn handle_cash_item_vendor_sync_request(
         let controller = controller.clone();
         let realm_api = instance.realm_api.clone();
 
-        instance.handle.spawn(async move {
+        instance.spawn_task(async move {
             let mut response = oaPktCashItemVendorSyncAcknowledge::default();
 
             for vendor_request in pkt.items {

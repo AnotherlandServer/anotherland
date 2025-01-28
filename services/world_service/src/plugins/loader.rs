@@ -79,7 +79,7 @@ impl Plugin for LoaderPlugin {
         let zone = instance.zone.clone();
         let object_cache = instance.object_cache.clone();
 
-        instance.handle.spawn(async move {
+        instance.spawn_task(async move {
             // Query
             let mut query = realm_api.query_object_placements()
                 .zone_guid(*zone.guid())

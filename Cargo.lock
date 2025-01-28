@@ -4789,6 +4789,8 @@ dependencies = [
  "futures-core",
  "futures-io",
  "futures-sink",
+ "futures-util",
+ "hashbrown 0.14.5",
  "pin-project-lite",
  "tokio",
 ]
@@ -5576,6 +5578,7 @@ dependencies = [
  "cluster",
  "core_api",
  "derive_builder",
+ "futures",
  "futures-util",
  "log",
  "mlua",
@@ -5591,6 +5594,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.9",
  "tokio",
+ "tokio-util",
  "toolkit",
 ]
 

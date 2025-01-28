@@ -26,7 +26,7 @@ use toolkit::types::{AvatarId, Uuid};
 
 pub use crate::chat_router::Destination;
 
-#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Debug)]
 pub struct InstanceKey(Uuid, Option<Uuid>);
 
 impl InstanceKey {
@@ -72,7 +72,7 @@ pub enum RealmRequest {
     InstanceProvisioned {
         transaction_id: Uuid
     },
-    RemoveInstance(InstanceKey),
+    InstanceShutdownNotification(InstanceKey),
     ChatMessage {
         sender_id: Option<Uuid>,
         destination: Destination,
@@ -89,6 +89,7 @@ pub enum RealmResponse {
         transaction_id: Uuid,
         key: InstanceKey 
     },
+    InstanceShutdownAck(InstanceKey),
     ChatMessage {
         recipients: Vec<Uuid>, // Session ids
         sender_id: Option<AvatarId>,

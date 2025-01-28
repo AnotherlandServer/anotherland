@@ -161,6 +161,11 @@ impl ClusterContext {
                                             }
                                         }
                                     },
+                                    WorldMessage::Close => {
+                                        error!("World node closed connection.");
+                                        socket.close().await;
+                                        break;
+                                    }
                                 }
                             }
                             None => {
