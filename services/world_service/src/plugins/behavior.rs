@@ -158,7 +158,7 @@ fn handle_avatar_tell_behavior(
             commands.entity(target_ent)
                 .call_lua_method(behavior_func, args);
         } else {
-            warn!("No behavior '{}' defined for entity {:?}:{}. But client calls for it!", behavior.name, target.class().name(), target_info.name)
+            warn!("No behavior '{}' defined for entity {:?}:{}. Args: {:?}", behavior.name, target.class().name(), target_info.name, behavior.args)
         }
     }
 }
@@ -213,7 +213,7 @@ fn handle_avatar_tell_behavior_binary(
             commands.entity(target_ent)
                 .call_lua_method(behavior_func, args);
         } else {
-            warn!("No binary behavior '{}' defined for entity {:?}:{}. But client calls for it!", behavior.name, target.class().name(), target_info.name)
+            warn!("No binary behavior '{}' defined for entity {:?}:{}. Args: {:#?}", behavior.name, target.class().name(), target_info.name, behavior.args)
         }
     }
 }

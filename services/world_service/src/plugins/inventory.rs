@@ -16,13 +16,19 @@
 use std::{fs, iter::repeat_n, path::PathBuf, sync::Arc};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PostUpdate}, prelude::{Added, App, Commands, Component, Entity, Query, Resource}, utils::hashbrown::HashMap};
+use bevy::{app::{Plugin, PostUpdate}, prelude::{Added, App, Commands, Component, Entity, In, ParamSet, Query, Res, Resource}, utils::hashbrown::HashMap};
+use bitstream_io::{ByteWriter, LittleEndian};
 use derive_builder::Builder;
-use obj_params::{tags::PlayerTag, GameObjectData, Player};
+use log::debug;
+use obj_params::{tags::PlayerTag, EdnaFunction, GameObjectData, GenericParamSet, ItemBase, ParamReader, ParamWriter, Player};
+use protocol::CPktItemUpdate;
 use realm_api::ObjectTemplate;
 use saphyr::Yaml;
+use toolkit::{types::Uuid, NativeParam};
 
-use crate::error::{WorldError, WorldResult};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance};
+
+use super::{CommandExtPriv, PlayerController};
 
 pub struct InventoryPlugin {
     pub content_path: PathBuf,
@@ -36,6 +42,8 @@ impl Plugin for InventoryPlugin {
         );
 
         app.add_systems(PostUpdate, load_player_inventory);
+
+        app.register_command("add_item", command_add_item);
     }
 }
 
@@ -258,14 +266,91 @@ impl Inventory {
 }
 
 fn load_player_inventory(
-    query: Query<(Entity, &GameObjectData), Added<PlayerTag>>,
+    query: Query<(Entity, &GameObjectData, &PlayerController), Added<PlayerTag>>,
+    instance: Res<ZoneInstance>,
     mut commands: Commands,
 ) {
-    for (ent, obj) in query.iter() {
+    for (ent, obj, controller) in query.iter() {
         commands
             .entity(ent)
             .insert(
                 Inventory::new(*obj.get(Player::InventorySize).unwrap())
             );
+
+        // For now, each player get's a sword
+        let controller = controller.clone();
+        let object_cache = instance.object_cache.clone();
+
+        instance.handle.spawn(async move {
+            let obj = object_cache.get_object_by_name("2H_Sword0003Default0004").await.unwrap().unwrap();
+            let mut item = GameObjectData::instantiate(&obj.data);
+
+            item.set(EdnaFunction::ContainerId, 1i32);
+            item.set(EdnaFunction::InventorySlotIndex, -1i32);
+            item.set(EdnaFunction::SlotId, 0i32);
+
+            let mut writer = ByteWriter::<Vec<u8>, LittleEndian>::new(vec![]);
+            item.write_to_client(&mut writer).unwrap();
+
+            debug!("Sending test item");
+
+            controller.send_packet(CPktItemUpdate {
+                id: Uuid::new(),
+                avatar_id: controller.avatar_id(),
+                class_id: item.class().id() as u32,
+                use_template: 1,
+                template_id: Some(obj.id),
+                params: writer.writer().to_vec(),
+                ..Default::default()
+            });
+        });
+
+    }
+}
+
+fn command_add_item(
+    In((ent, args)): In<(Entity, Vec<NativeParam>)>,
+    instance: Res<ZoneInstance>,
+    controller: Query<&PlayerController>,
+) {
+    let mut args = args.into_iter();
+
+    if 
+        let Ok(controller) = controller.get(ent) &&
+        let Some(NativeParam::String(item_name)) = args.next() &&
+        let Some(NativeParam::String(container)) = args.next() &&
+        let Some(NativeParam::String(inv_slot)) = args.next() &&
+        let Some(NativeParam::String(slot)) = args.next()
+    {
+        let controller = controller.clone();
+        let object_cache = instance.object_cache.clone();
+
+        debug!("{} {} {} {}", item_name, container, inv_slot, slot);
+
+        instance.handle.spawn(async move {
+            let obj = object_cache.get_object_by_name(&item_name).await.unwrap().unwrap();
+            let mut item = GameObjectData::instantiate(&obj.data);
+
+            item.set(ItemBase::ContainerId, container.parse::<i32>().unwrap_or_default());
+            item.set(ItemBase::InventorySlotIndex, inv_slot.parse::<i32>().unwrap_or_default());
+            item.set(ItemBase::SlotId, slot.parse::<i32>().unwrap_or_default());
+
+            let mut params = Vec::new();
+            let mut writer = ByteWriter::endian(&mut params, LittleEndian);
+            item.write_to_client(&mut writer).unwrap();
+            
+            debug!("Sending test item");
+            debug!("{:#?}", Box::<dyn GenericParamSet>::from_slice(item.class(), &params));
+
+            controller.send_packet(CPktItemUpdate {
+                id: Uuid::new(),
+                avatar_id: controller.avatar_id(),
+                class_id: item.class().id() as u32,
+                use_template: 1,
+                template_id: Some(obj.id),
+                params,
+                ..Default::default()
+            });
+        });
     }
 }

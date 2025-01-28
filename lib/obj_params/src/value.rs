@@ -921,6 +921,12 @@ impl From<Vec<u8>> for Value {
     }
 }
 
+impl From<AvatarId> for Value {
+    fn from(value: AvatarId) -> Self {
+        Value::AvatarId(value)
+    }
+}
+
 impl <'a> TryFrom<&'a Value> for &'a String {
     type Error = ParamError;
     

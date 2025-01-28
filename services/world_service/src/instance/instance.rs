@@ -26,7 +26,7 @@ use serde_json::Value;
 use tokio::runtime::Handle;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, object_cache::ObjectCache, plugins::{AvatarPlugin, BehaviorPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
+use crate::{error::{WorldError, WorldResult}, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AvatarPlugin, BehaviorPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
 
 #[derive(Default)]
 pub enum ZoneType {
@@ -229,6 +229,8 @@ impl ZoneInstanceBuilder {
                 SpecialEventsPlugin::new(object_cache.clone(), realm_api.clone(), world_def.name()).await?,
                 QuestsPlugin,
                 ChatPlugin,
+                AbilitiesPlugin,
+                CombatPlugin,
             ));
 
         Ok(app)

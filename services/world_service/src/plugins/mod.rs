@@ -36,6 +36,7 @@ mod special_events;
 mod quests;
 mod chat;
 mod commands;
+mod abilities;
 
 pub use network::*;
 pub use loader::*;
@@ -60,3 +61,4 @@ pub use special_events::*;
 pub use quests::*;
 pub use chat::*;
 pub use commands::*;
+pub use abilities::*;

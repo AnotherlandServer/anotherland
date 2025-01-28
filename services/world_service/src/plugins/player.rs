@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::{app::{First, Last, Plugin, PostUpdate, Update}, math::{Quat, Vec3, VectorSpace}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Query, Res, ResMut, With}};
-use bitstream_io::{ByteWriter, LittleEndian};
+use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use log::{debug, error, warn};
 use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, GameObjectData, GenericParamSet, NonClientBase, Param, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
 use protocol::{oaPktItemStorage, oaPktS2XConnectionState, CPkt, CPktAvatarUpdate, CPktBlob, ItemStorageParams, MoveManagerInit, OaPktItemStorageUpdateType, OaPktS2xconnectionStateState, OtherlandPacket, Physics, PhysicsState};
@@ -150,6 +150,14 @@ fn insert_player_characters(
                     }
                 }
 
+                // Update stance data
+                let mut writer = ByteWriter::<Vec<u8>, LittleEndian>::new(vec![]);
+                let _ = writer.write(3i32);
+                let _ = writer.write(0i32);
+                let _ = writer.write(1i32);
+
+                obj.set(Player::ClassData, writer.writer().to_vec());
+
                 // Update zone info in player data
                 obj.set(Player::WorldMapGuid, instance.world_def.guid().to_string());
                 obj.set(Player::ZoneGuid, instance.zone.guid().to_string());
@@ -167,6 +175,8 @@ fn insert_player_characters(
                 mover_type: 1,
                 mover_replication_policy: 7,
                 version: 0,
+                mover_key: 0,
+                seconds: 0.0,
             };
 
             // Insert character into world
