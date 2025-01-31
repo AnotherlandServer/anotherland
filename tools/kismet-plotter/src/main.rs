@@ -1,4 +1,4 @@
-// Copyright (C) 2024 AnotherlandServer
+// Copyright (C) 2025 AnotherlandServer
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License as
@@ -232,6 +232,17 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                     "SeqAct_RequestServerAction" => {
                         if let Some(ObjectProperty::String(name)) = seq.attrib("SequenceName") {
                             plot.push_str(format!("{} : SequenceName: {}\n", obj_name, name).as_str());
+                        }
+                    },
+                    "OLSeqEvent_Cinematic" => {
+                        if let Some(ObjectProperty::String(name)) = seq.attrib("EventName") {
+                            plot.push_str(format!("{} : EventName: {}\n", obj_name, name).as_str());
+                        }
+                        if let Some(ObjectProperty::String(name)) = seq.attrib("LevelName") {
+                            plot.push_str(format!("{} : LevelName: {}\n", obj_name, name).as_str());
+                        }
+                        if let Some(ObjectProperty::String(name)) = seq.attrib("CinematicName") {
+                            plot.push_str(format!("{} : CinematicName: {}\n", obj_name, name).as_str());
                         }
                     },
                     _ => {},

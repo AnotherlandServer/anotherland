@@ -1,4 +1,4 @@
-// Copyright (C) 2024 AnotherlandServer
+// Copyright (C) 2025 AnotherlandServer
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License as
