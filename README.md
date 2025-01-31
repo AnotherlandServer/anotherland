@@ -9,7 +9,7 @@ Currently, the project is undergoing a major rewrite and is not yet playable. If
 
 ## Prerequisites
 Before you begin, ensure you have the following installed:
-- **Rust 1.85.0-nightly**
+- **Rust 1.86.0-nightly**
 - A legally acquired copy of the game (*Otherland Next*)
 - **MongoDB**
 
