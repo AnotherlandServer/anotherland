@@ -25,7 +25,7 @@ use toolkit::{types::{Uuid, UUID_NIL}, OtherlandQuatExt};
 
 use crate::{instance::{InstanceState, ZoneInstance}, plugins::{Active, ForeignResource}, proto::TravelMode};
 
-use super::{init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, ContentInfo, CurrentState, InitialInventoryTransfer, Inventory, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction};
+use super::{init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, ContentInfo, CurrentState, InitialInventoryTransfer, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction};
 
 pub struct PlayerPlugin;
 

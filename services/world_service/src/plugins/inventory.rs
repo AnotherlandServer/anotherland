@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{fs, iter::repeat_n, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::VecDeque, fs, iter::repeat_n, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PostUpdate, Update}, prelude::{Added, App, Commands, Component, DetectChangesMut, Entity, In, IntoSystemConfigs, ParamSet, Query, Res, Resource, With}, reflect::List, time::common_conditions::on_timer, utils::hashbrown::HashMap};
+use bevy::{app::{Last, Plugin, PostUpdate, Update}, ecs::system::SystemId, prelude::{Added, App, BuildChildren, Changed, Commands, Component, DetectChangesMut, Entity, Event, In, IntoSystemConfigs, Or, ParamSet, Parent, Query, Res, Resource, With}, reflect::List, tasks::{block_on, futures_lite::future, IoTaskPool, Task}, time::common_conditions::on_timer, utils::hashbrown::HashMap};
 use bitstream_io::{ByteWriter, LittleEndian};
 use derive_builder::Builder;
 use log::debug;
@@ -26,7 +26,7 @@ use realm_api::ObjectTemplate;
 use saphyr::Yaml;
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, object_cache::CacheEntry};
 
 use super::{CommandExtPriv, ConnectionState, ContentInfo, CurrentState, PlayerController};
 
@@ -43,12 +43,22 @@ impl Plugin for InventoryPlugin {
 
         app.add_systems(PostUpdate, load_player_inventory);
         app.add_systems(Update, (
-            init_client_inventory,
-            send_initial_items.run_if(on_timer(Duration::from_secs(1)))
-        ).chain());
+            (
+                init_client_inventory,
+                send_initial_items.run_if(on_timer(Duration::from_secs(1)))
+            ).chain(),
+            process_async_item_insert
+        ));
+        app.add_systems(Last, send_item_updates);
 
         app.register_command("add_item", command_add_item);
     }
+}
+
+#[derive(Component)]
+struct AsyncItemInsert {
+    player: Entity,
+    task: Task<Option<Arc<CacheEntry>>>,
 }
 
 #[derive(Resource)]
@@ -328,18 +338,23 @@ fn load_player_inventory(
 fn command_add_item(
     In((ent, args)): In<(Entity, Vec<NativeParam>)>,
     instance: Res<ZoneInstance>,
-    mut player: Query<(&PlayerController, &mut Inventory)>,
-    items: Query<&GameObjectData, With<ItemBaseTag>>,
+    mut commands: Commands,
 ) {
     let mut args = args.into_iter();
 
-    if 
-        let Ok((controller, mut inventory)) = player.get_mut(ent) &&
-        let Some(NativeParam::String(item_name)) = args.next()
-    {
-        let controller = controller.clone();
+    if let Some(NativeParam::String(item_name)) = args.next() {
         let object_cache = instance.object_cache.clone();
 
+
+        commands.spawn(AsyncItemInsert {
+            player: ent,
+            task: IoTaskPool::get()
+                .spawn(async move {
+                    object_cache.get_object_by_name(&item_name).await
+                        .ok()
+                        .flatten()
+                })
+        });
         //debug!("{} {} {} {}", item_name, container, inv_slot, slot);
 
         /*instance.handle.spawn(async move {
@@ -367,6 +382,63 @@ fn command_add_item(
                 ..Default::default()
             });
         });*/
+    }
+}
+
+fn process_async_item_insert(
+    mut tasks: Query<(Entity, &mut AsyncItemInsert)>,
+    mut inventories: Query<&mut Inventory>,
+    items: Query<&GameObjectData, With<ItemBaseTag>>,
+    mut commands: Commands,
+) {
+    for (ent, mut task) in tasks.iter_mut() {
+        if let Some(item) = block_on(future::poll_once(&mut task.task)) {
+            if 
+                let Some(item) = item &&
+                let Ok(mut inventory) = inventories.get_mut(task.player)
+            {
+                let inventory_tab = if *item.data.get::<_, bool>(ItemBase::IsQuestItem).unwrap() {
+                    &mut inventory.quest_items
+                } else if *item.data.get::<_, bool>(ItemBase::IsRecipe).unwrap() {
+                    &mut inventory.schema_items
+                } else {
+                    &mut inventory.misc_items
+                };
+
+                let mut instance = GameObjectData::instantiate(&item.data);
+                instance.set(ItemBase::ContainerId, 0i32);
+                instance.set(ItemBase::SlotId, -1i32);
+
+                let mut last_index = -1;
+
+                // Look for a free slot
+                for ent in inventory_tab {
+                    if let Ok(item) = items.get(*ent) {
+                        let index = item.get::<_, i32>(ItemBase::InventorySlotIndex).copied().unwrap_or_default();
+                        if index > last_index + 1 {
+                            break;
+                        }
+
+                        last_index = index;
+                    }
+                }
+
+                instance.set(ItemBase::InventorySlotIndex, last_index + 1);
+
+                let item = commands.spawn((
+                    instance,
+                    ContentInfo {
+                        placement_id: Uuid::new(),
+                        template: item,
+                    }
+                )).id();
+
+                commands.entity(task.player)
+                    .add_child(item);
+            }
+
+            commands.entity(ent).despawn();
+        }
     }
 }
 
@@ -430,6 +502,29 @@ fn send_initial_items(
             if matches!(state.state, ConnectionState::InitialInterestsLoaded) {
                 state.set_changed();
             }
+        }
+    }
+}
+
+fn send_item_updates(
+    item_updates: Query<(&GameObjectData, &ContentInfo, &Parent), Or<((Changed<GameObjectData>, With<ItemBaseTag>), Added<ItemBaseTag>)>>,
+    players: Query<&PlayerController>,
+) {
+    for (item, content, player) in item_updates.iter() {
+        if let Ok(ctrl) = players.get(player.get()) {
+            let mut params = Vec::new();
+            let mut writer = ByteWriter::endian(&mut params, LittleEndian);
+            item.write_to_client(&mut writer).unwrap();
+            
+            ctrl.send_packet(CPktItemUpdate {
+                avatar_id: ctrl.avatar_id(),
+                id: content.placement_id,
+                use_template: 1,
+                template_id: Some(content.template.id),
+                class_id: item.class().id() as u32,
+                params,
+                ..Default::default()
+            });
         }
     }
 }

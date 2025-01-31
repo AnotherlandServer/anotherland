@@ -15,7 +15,7 @@
 
 use std::{net::Shutdown, sync::Arc};
 
-use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::system::SystemId, prelude::{in_state, Commands, Component, Entity, Event, EventReader, In, IntoSystem, IntoSystemConfigs, Mut, NonSendMut, Query, RemovedComponents, Res, ResMut, Resource, With, World}, utils::HashMap};
+use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::system::SystemId, prelude::{in_state, Commands, Component, DespawnRecursiveExt, Entity, Event, EventReader, In, IntoSystem, IntoSystemConfigs, Mut, NonSendMut, Query, RemovedComponents, Res, ResMut, Resource, With, World}, utils::HashMap};
 use core_api::Session;
 use log::{debug, error, warn};
 use obj_params::{GameObjectData, Player};
@@ -102,8 +102,8 @@ fn cleanup_player_controllers(
     mut commands: Commands,
 ) {
     while let Ok(ControllerRemoved(ent)) = removed.try_recv() {
-        if let Some(mut ent) = commands.get_entity(ent) {
-            ent.despawn();
+        if let Some(ent) = commands.get_entity(ent) {
+            ent.despawn_recursive();
         }
     }
 
@@ -111,7 +111,7 @@ fn cleanup_player_controllers(
         debug!("Committing travel of peer: {}", controller.id);
 
         let _ = controller.sender.send(WorldEvent::TravelCommited { controller: controller.id });
-        commands.entity(ent).despawn();
+        commands.entity(ent).despawn_recursive();
     }
 }
 

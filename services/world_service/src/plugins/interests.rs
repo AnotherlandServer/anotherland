@@ -22,7 +22,7 @@ use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, Non
 use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, OaPktS2xconnectionStateState, Physics};
 use toolkit::types::UUID_NIL;
 
-use super::{Active, AvatarInfo, ConnectionState, CurrentState, InitialInventoryTransfer, Movement, PlayerController, QuestEntity, QuestLog};
+use super::{Active, AvatarInfo, ConnectionState, CurrentState, Movement, PlayerController, QuestEntity, QuestLog};
 
 pub struct InterestsPlugin;
 
