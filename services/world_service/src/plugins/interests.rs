@@ -20,7 +20,7 @@ use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, ParamWriter, Player};
 use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, OaPktS2xconnectionStateState, Physics};
-use toolkit::types::UUID_NIL;
+use toolkit::types::{AvatarId, UUID_NIL};
 
 use super::{Active, AvatarInfo, ConnectionState, CurrentState, Movement, PlayerController, QuestEntity, QuestLog};
 
@@ -52,7 +52,7 @@ pub enum InterestState {
 
 #[derive(Component)]
 pub struct Interests {
-    interests: HashMap<Entity, InterestState>,
+    interests: HashMap<Entity, (AvatarId, InterestState)>,
 }
 
 impl Interests {
@@ -87,7 +87,7 @@ fn transmit_entities_to_players(
 
         for (ent, state) in interests.interests.iter() {
             if 
-                matches!(state, InterestState::Initial) &&
+                matches!(state.1, InterestState::Initial) &&
                 let Ok((_, _, obj)) = objects.get(*ent)
             {
                 let priority = *obj.get(NonClientBase::Priority).unwrap_or(&999.0);
@@ -131,7 +131,7 @@ fn transmit_entities_to_players(
                     ..Default::default()
                 });
 
-                interests.interests.insert(*ent, InterestState::Transmitted);
+                interests.interests.insert(*ent, (avatar.id, InterestState::Transmitted));
             }
         }
 
@@ -149,13 +149,15 @@ fn transmit_entities_to_players(
 
 fn update_interest_list(
     mut players: Query<(Entity, &GameObjectData, &Movement, &mut Interests, &PlayerController, &QuestLog), (With<PlayerTag>, With<BuildInterestList>)>,
-    potential_interests: Query<(Entity, &AvatarInfo, &Movement, &GameObjectData, Option<&QuestEntity>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
+    potential_interests: Query<(Entity, &Movement, &GameObjectData, Option<&QuestEntity>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
+    avatar_info: Query<&AvatarInfo>,
 ) {
     for (player_ent, player, player_pos, mut interests, controller, quest_log) in players.iter_mut() {
         let aware_range: f32 = *player.get(Player::AwareRange).unwrap();
+        let mut found_interests = vec![];
 
         // determine interests
-        for (interest_ent, interest_info, interest_pos, interest_obj, quest_ent) in potential_interests.iter() {
+        for (interest_ent, interest_pos, interest_obj, quest_ent) in potential_interests.iter() {
             // skip over self
             if interest_ent == player_ent { continue; }
 
@@ -168,15 +170,32 @@ fn update_interest_list(
                 !interest_obj.get::<_, bool>(NonClientBase::HiddenFromClients).unwrap_or(&false) &&
                 (quest_ent.is_none() || quest_ent.unwrap().is_visible(quest_log))
             {
-                interests.interests.entry(interest_ent).or_insert(InterestState::Initial);
-            } else if let Some(state) = interests.interests.remove(&interest_ent) {
-                // notify client about a removed interest
-                if matches!(state, InterestState::Transmitted) {
-                    controller.send_packet(CPktAvatarClientNotify {
-                        avatar_id: interest_info.id,
-                        ..Default::default()
-                    });
-                }
+                found_interests.push(interest_ent);
+                
+            }
+        }
+
+        // update interests
+        for ent in &found_interests {
+            if !interests.contains(&ent) {
+                interests.interests.insert(*ent, (
+                    avatar_info.get(*ent).unwrap().id, 
+                    InterestState::Initial
+                ));
+            }
+        }
+
+        // remove interests that are no longer in range
+        for ent in interests.interests.keys().cloned().collect::<Vec<_>>() {
+            if 
+                !found_interests.contains(&ent) &&
+                let Some((avatar, state)) = interests.interests.remove(&ent) &&
+                matches!(state, InterestState::Transmitted)
+            {
+                controller.send_packet(CPktAvatarClientNotify {
+                    avatar_id: avatar,
+                    ..Default::default()
+                });
             }
         }
     }

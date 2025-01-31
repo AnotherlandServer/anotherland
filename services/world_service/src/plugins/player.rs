@@ -15,7 +15,7 @@
 
 use bevy::{app::{First, Last, Plugin, PostUpdate, Update}, math::{Quat, Vec3, VectorSpace}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
-use log::{debug, error, warn};
+use log::{debug, error, trace, warn};
 use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, GameObjectData, GenericParamSet, NonClientBase, Param, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
 use protocol::{oaPktItemStorage, oaPktS2XConnectionState, CPkt, CPktAvatarUpdate, CPktBlob, ItemStorageParams, MoveManagerInit, OaPktItemStorageUpdateType, OaPktS2xconnectionStateState, OtherlandPacket, Physics, PhysicsState};
 use realm_api::Character;
@@ -25,7 +25,7 @@ use toolkit::{types::{Uuid, UUID_NIL}, OtherlandQuatExt};
 
 use crate::{instance::{InstanceState, ZoneInstance}, plugins::{Active, ForeignResource}, proto::TravelMode};
 
-use super::{init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, ContentInfo, CurrentState, InitialInventoryTransfer, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction};
+use super::{clear_obj_changes, init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, ContentInfo, CurrentState, InitialInventoryTransfer, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction};
 
 pub struct PlayerPlugin;
 
@@ -44,7 +44,7 @@ impl Plugin for PlayerPlugin {
         app.add_systems(Update, spawn_player);
         app.add_systems(Last, (
             begin_loading_sequence,
-            save_player_data
+            save_player_data.before(clear_obj_changes)
         ));
         
         app.register_message_handler(handle_avatar_update);
@@ -296,6 +296,8 @@ fn save_player_data(
         let realm_api = instance.realm_api.clone();
 
         if !diff.is_empty() {
+            trace!("Saving character update for: {} - {:#?}", id, diff);
+
             // We probably should move this into it's own task and just 
             // send a (blocking) message here, se we can have
             // backpressure in case our updates don't go trough.

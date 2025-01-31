@@ -82,7 +82,7 @@ fn sync_avatar_data(
     }
 }
 
-fn clear_obj_changes(
+pub fn clear_obj_changes(
     mut changes: Query<&mut GameObjectData, Changed<GameObjectData>>,
 ) {
     for mut obj in changes.iter_mut() {

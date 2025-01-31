@@ -103,6 +103,7 @@ fn cleanup_player_controllers(
 ) {
     while let Ok(ControllerRemoved(ent)) = removed.try_recv() {
         if let Some(ent) = commands.get_entity(ent) {
+            debug!("Despawn player character...");
             ent.despawn_recursive();
         }
     }
@@ -111,7 +112,9 @@ fn cleanup_player_controllers(
         debug!("Committing travel of peer: {}", controller.id);
 
         let _ = controller.sender.send(WorldEvent::TravelCommited { controller: controller.id });
-        commands.entity(ent).despawn_recursive();
+        if let Some(ent) = commands.get_entity(ent) {
+            ent.despawn_recursive();
+        }
     }
 }
 
