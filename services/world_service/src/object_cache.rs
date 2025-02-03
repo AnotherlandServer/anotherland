@@ -65,6 +65,21 @@ impl ObjectCache {
         })))
     }
 
+    fn insert_inner(inner: &mut Inner, template: ObjectTemplate) -> Arc<CacheEntry> {
+        let item = Arc::new(CacheEntry::from(template));
+
+        inner.id_access.insert(item.numeric_id, Arc::downgrade(&item));
+        inner.uuid_access.insert(item.id, Arc::downgrade(&item));
+        inner.name_access.insert(item.name.clone(), Arc::downgrade(&item));
+
+        item
+    }
+
+    pub async fn insert(&self, template: ObjectTemplate) -> Arc<CacheEntry> {
+        let mut v = self.0.lock().await;
+        Self::insert_inner(&mut v, template)
+    }
+
     pub async fn get_object_by_id(&self, id: i32) -> WorldResult<Option<Arc<CacheEntry>>> {
         let mut v = self.0.lock().await;
 
@@ -76,13 +91,8 @@ impl ObjectCache {
                 .numeric_id(id)
                 .query().await?
                 .try_next().await?
-                .map(|item| Arc::<CacheEntry>::new(item.into()))
         {
-            v.id_access.insert(item.numeric_id, Arc::downgrade(&item));
-            v.uuid_access.insert(item.id, Arc::downgrade(&item));
-            v.name_access.insert(item.name.clone(), Arc::downgrade(&item));
-
-            Ok(Some(item))
+            Ok(Some(Self::insert_inner(&mut v, item)))
         } else {
             Ok(None)
         }
@@ -96,12 +106,8 @@ impl ObjectCache {
             Ok(Some(item.clone()))
         } else if 
             let Some(item) = v.realm_api.get_object_template(guid).await?
-                .map(|item| Arc::<CacheEntry>::new(item.into()))
         {
-            v.id_access.insert(item.numeric_id, Arc::downgrade(&item));
-            v.uuid_access.insert(item.id, Arc::downgrade(&item));
-
-            Ok(Some(item))
+            Ok(Some(Self::insert_inner(&mut v, item)))
         } else {
             Ok(None)
         }
@@ -118,12 +124,8 @@ impl ObjectCache {
                 .name(name.to_string())
                 .query().await?
                 .try_next().await?
-                .map(|item| Arc::<CacheEntry>::new(item.into()))
         {
-            v.id_access.insert(item.numeric_id, Arc::downgrade(&item));
-            v.uuid_access.insert(item.id, Arc::downgrade(&item));
-
-            Ok(Some(item))
+            Ok(Some(Self::insert_inner(&mut v, item)))
         } else {
             Ok(None)
         }
