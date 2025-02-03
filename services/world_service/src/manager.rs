@@ -27,7 +27,7 @@ use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, onesh
 use tokio_util::task::TaskTracker;
 use toolkit::types::{Uuid, UUID_NIL};
 
-use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, object_cache::ObjectCache, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode, ARGS};
+use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, object_cache::ObjectCache, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode, ARGS, OBJECT_CACHE};
 
 struct PendingInstance {
     world_def: Arc<WorldDef>,
@@ -44,7 +44,7 @@ struct InstanceManagerData {
     worlds: HashMap<Uuid, Arc<WorldDef>>,
     requests: HashMap<Uuid, PendingInstance>,
     instances: Vec<InstanceLabel>,
-    event_sender: mpsc::Sender<InstanceEvent>,
+    event_sender: mpsc::UnboundedSender<InstanceEvent>,
     limit: usize,
     object_cache: ObjectCache,
 }
@@ -72,7 +72,7 @@ impl InstanceManager {
         realm_api: RealmApi, 
         core_api: CoreApi,
         realm_client: Arc<RealmClient>, 
-        event_sender: mpsc::Sender<InstanceEvent>, 
+        event_sender: mpsc::UnboundedSender<InstanceEvent>, 
         limit: usize, 
         groups: &[&str]
     ) -> WorldResult<Self> {
@@ -122,7 +122,7 @@ impl InstanceManager {
             instances: Vec::new(),
             event_sender,
             limit,
-            object_cache: ObjectCache::new(realm_api),
+            object_cache: OBJECT_CACHE.wait().clone(),
         }))))
     }
 
@@ -212,7 +212,7 @@ impl InstanceManager {
                         transaction_id 
                     }).await;
     
-                    let _ = s.event_sender.send(InstanceEvent::InstanceAdded(Box::new(instance))).await;
+                    let _ = s.event_sender.send(InstanceEvent::InstanceAdded(Box::new(instance)));
                 },
                 Err(e) => {
                     error!("Failed to instantiate instance: {:?}", e);
@@ -234,15 +234,15 @@ impl InstanceManager {
 
         debug!("Instance stopped {:?}", label);
 
-        let _ = s.event_sender.send(InstanceEvent::InstanceRemoved(label)).await;
+        let _ = s.event_sender.send(InstanceEvent::InstanceRemoved(label));
         if s.instances.is_empty() && s.limit == 0 {
-            let _ = s.event_sender.send(InstanceEvent::WorldShutdown).await;
+            let _ = s.event_sender.send(InstanceEvent::WorldShutdown);
         }
     }
 
     pub async fn shutdown_instance(&self, key: InstanceKey) {
         let s = self.0.lock().await;
-        let _ = s.event_sender.send(InstanceEvent::InstanceStopping(InstanceLabel::new(key.zone(), key.instance()))).await;
+        let _ = s.event_sender.send(InstanceEvent::InstanceStopping(InstanceLabel::new(key.zone(), key.instance())));
     }
 
     pub async fn shutdown_world(&self) {
@@ -252,7 +252,7 @@ impl InstanceManager {
 
         trace!("Check instances");
         if s.instances.is_empty() {
-            let _ = s.event_sender.send(InstanceEvent::WorldShutdown).await;
+            let _ = s.event_sender.send(InstanceEvent::WorldShutdown);
         } else {
             for label in s.instances.iter() {
                 trace!("Announcing instace shutdown {:?}", label);

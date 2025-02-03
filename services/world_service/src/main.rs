@@ -18,6 +18,7 @@
 
 use instance::{InstanceLabel, ZoneSubApp};
 use obj_params::Player;
+use object_cache::ObjectCache;
 use plugins::{ControllerEvent, NetworkExt, NetworkPlugin};
 use protocol::CPkt;
 
@@ -32,11 +33,11 @@ use error::{WorldError, WorldResult};
 use futures_util::TryStreamExt;
 use log::{debug, error, info, warn};
 use manager::{InstanceEvent, InstanceManager};
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use proto::{ClusterMessage, WorldMessage, WorldRequest, WorldResponse, WorldServer};
 use realm_api::{proto::{InstanceKey, NodeAddress, NodeType, RealmClient, RealmNotification, RealmRequest, RealmResponse}, RealmApi, ZoneBuilder};
 use reqwest::Url;
-use tokio::{runtime::Handle, select, signal, sync::{mpsc::{self, error::TryRecvError, unbounded_channel, Sender}, oneshot, Mutex}, task::LocalSet, time};
+use tokio::{runtime::Handle, select, signal, sync::{mpsc::{self, error::TryRecvError, unbounded_channel, Sender, UnboundedSender}, oneshot, Mutex}, task::LocalSet, time};
 use toolkit::{print_banner, types::Uuid};
 
 mod error;
@@ -72,6 +73,7 @@ pub struct Cli {
 }
 
 pub static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
+pub static OBJECT_CACHE: OnceCell<ObjectCache> = OnceCell::new();
 
 fn handle_realm_events(manager: InstanceManager, mut notifications: mpsc::Receiver<RealmNotification>) {
     tokio::spawn(async move {
@@ -104,7 +106,7 @@ fn handle_realm_msgs(realm_client: Arc<RealmClient>, manager: InstanceManager) {
     });
 }
 
-fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender: Sender<InstanceEvent>, manager: InstanceManager) {
+fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender: UnboundedSender<InstanceEvent>, manager: InstanceManager) {
     tokio::spawn(async move {
         let mut controllers = HashMap::<Uuid, (PeerIdentity, Sender<ControllerEvent>)>::new();
         let (sender, mut receiver) = unbounded_channel();
@@ -139,7 +141,7 @@ fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender
                                         events: sender.clone(), 
                                         controller: result_send,
                                         travel_mode: mode,
-                                    }).await.is_ok() {
+                                    }).is_ok() {
                                         match controller.await {
                                             Ok(Ok(controller)) => {
                                                 debug!("Player controller spawned: {}", id);
@@ -235,7 +237,10 @@ async fn main() -> WorldResult<()> {
     realm_client.subscribe("core.session.").await?;
     realm_client.subscribe("realm.instance.").await?;
 
-    let (instance_event_sender, mut instance_events) = mpsc::channel(10);
+    // initialize caches
+    let _ = OBJECT_CACHE.set(ObjectCache::new(realm_api.clone()));
+
+    let (instance_event_sender, mut instance_events) = mpsc::unbounded_channel();
 
     let server = Arc::new(WorldServer::bind(&ARGS.zmq_bind_url).await?);
     let manager = InstanceManager::new(
