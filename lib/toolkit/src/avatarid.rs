@@ -92,7 +92,7 @@ impl From<u64> for AvatarId {
 
 impl Display for AvatarId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#{:016x}", self.as_u64())
+        write!(f, "${:016x}", self.as_u64())
     }
 }
 
@@ -100,7 +100,13 @@ impl FromStr for AvatarId {
     type Err = ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(u64::from_str_radix(&s[1..], 16)?.into())
+        if let Some(dec_id) = s.strip_prefix('#') {
+            Ok(u64::from_str(dec_id)?.into())
+        } else if let Some(hex_id) = s.strip_prefix('$') {
+            Ok(u64::from_str_radix(hex_id, 16)?.into())
+        } else {
+            Ok(u64::from_str("invalid")?.into())
+        }
     }
 }
 
