@@ -78,6 +78,15 @@ impl GameObjectData {
         self.get_named(attr.name())
     }
 
+    pub fn get_or_default<'a, 'def, T: Attribute, V>(&'a self, attr: T, default: &'def V) -> ParamResult<&'a V>
+    where 
+        &'a V: TryFrom<&'a Value>,
+        <&'a V as TryFrom<&'a Value>>::Error: Into<ParamError>,
+        'def: 'a
+{
+    self.get_named_or_default(attr.name(), default)
+}
+
     pub fn set<T: Attribute, V: Into<Value>>(&mut self, attr: T, val: V) -> Option<Value> {
         self.set_named(attr.name(), val.into())
     }
@@ -105,14 +114,37 @@ impl GameObjectData {
         }
     }
 
+    pub fn get_named_or_default<'a, 'def, V>(&'a self, attr: &str, default: &'def V) -> ParamResult<&'a V>
+        where 
+            &'a V: TryFrom<&'a Value>,
+            <&'a V as TryFrom<&'a Value>>::Error: Into<ParamError>,
+            'def: 'a
+
+    {
+        if let Some(value) = self.instance.get_param(attr) {
+            value.try_into()
+                .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
+        }  else if 
+            let Some(parent) = self.parent.as_ref() &&
+            let Ok(value) = parent.get_named_or_default(attr, default)
+        {
+            Ok(value)
+        } else if self.instance.class().get_attribute(attr).is_none() {
+            return Err(ParamError::UnknownAttributeName)
+        } else {
+            Ok(default)
+        }
+    }
+
     pub fn set_named<V: Into<Value>>(&mut self, attr: &str, val: V) -> Option<Value> {
         let val  = val.into();
 
-        if 
-            let Some(parent) = self.parent.as_ref() &&
-            parent.get_named::<Value>(attr).unwrap() == &val
-        {
-            self.instance.remove_param(attr)
+        if let Some(cur_val) = self.instance.get_param(attr) {
+            if cur_val != &val {
+                self.instance.set_param(attr, val)
+            } else {
+                None
+            }
         } else {
             self.instance.set_param(attr, val)
         }
