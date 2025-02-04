@@ -91,7 +91,7 @@ fn handle_ability_request(
                     ability_invoke_location: invoke_location.into(),
                     ability_type: OaPktAbilityUseAbilityType::Item,
                     server_event_duration: 1.0,
-                    target: Some(pkt.caster.as_u64()),
+                    target: Some(pkt.caster),
                     ..Default::default()
                 });
             } else if interests.contains(&ent) {
