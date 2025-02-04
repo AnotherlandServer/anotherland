@@ -104,12 +104,147 @@ fn init_rage_heavy_special_skill_data(player: &mut GameObjectData) {
                     entries: vec![
                         HeavyDataEntry {
                             field_0: "Rage_2H_PoleArm_HeavyAbility_HalfSpinThrust".to_string(),
-                            field_1: 3965,
+                            field_1: 1,
                             ..Default::default()
                         },
                         HeavyDataEntry {
                             field_0: "Rage_2H_PoleArm_HeavyAbility_JumpSmash".to_string(),
-                            field_1: 4738,
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_Shotgun_HeavyAbility_BombShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_Shotgun_HeavyAbility_DoubleBarrel".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_ShoulderRifle_HeavyAbility_SniperShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_ShoulderRifle_HeavyAbility_SteelShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_Bow_HeavyAbility_AchillesShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_Bow_HeavyAbility_ShottyShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_ShoulderRifle_HeavyAbility_SniperShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_ShoulderRifle_HeavyAbility_SteelShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_ShoulderRifle_HeavyAbility_SniperShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_ShoulderRifle_HeavyAbility_SteelShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_ShoulderRifle_HeavyAbility_SniperShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Gunner_2H_ShoulderRifle_HeavyAbility_SteelShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Assassin_1H_Sword_HeavyAbility_JoltSlice".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Assassin_1H_Sword_HeavyAbility_PiercingFoot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Assassin_1H_Dagger_HeavyAbility_UpperCutSomerSaultKick".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Assassin_1H_Dagger_HeavyAbility_WhirlingBlades".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Assassin_1H_Pole_HeavyAbility_BackSpinThrust".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Assassin_1H_Pole_HeavyAbility_SpinningThrust".to_string(),
+                            field_1: 1,
                             ..Default::default()
                         },
                     ]
@@ -117,18 +252,51 @@ fn init_rage_heavy_special_skill_data(player: &mut GameObjectData) {
                 HeavyDataCollection::default(),
                 HeavyDataCollection::default(),
                 HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
-                HeavyDataCollection::default(),
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Energizer_2H_Launcher_HeavyAbility_HeadShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Energizer_2H_Launcher_HeavyAbility_HyperShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Energizer_2H_PulseGun_HeavyAbility_LongShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Energizer_2H_PulseGun_HeavyAbility_TrickShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
+                HeavyDataCollection {
+                    entry_count: 2,
+                    entries: vec![
+                        HeavyDataEntry {
+                            field_0: "Energizer_2H_BeamGun_HeavyAbility_DoubleShock".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                        HeavyDataEntry {
+                            field_0: "Energizer_2H_BeamGun_HeavyAbility_BurstShot".to_string(),
+                            field_1: 1,
+                            ..Default::default()
+                        },
+                    ]
+                },
                 HeavyDataCollection::default(),
                 HeavyDataCollection::default(),
                 HeavyDataCollection::default(),
