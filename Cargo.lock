@@ -1381,6 +1381,7 @@ checksum = "e8566979429cf69b49a5c740c60791108e86440e8be149bbea4fe54d2c32d6e2"
 name = "database"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "mongodb",
  "serde",
  "thiserror 2.0.9",
@@ -3684,6 +3685,7 @@ dependencies = [
 name = "realm_manager_service"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-graphql",
  "async-graphql-poem",
  "chrono",
@@ -3692,6 +3694,7 @@ dependencies = [
  "core_api",
  "cynic",
  "database",
+ "derive_builder",
  "futures-util",
  "log",
  "mongodb",
@@ -3699,6 +3702,7 @@ dependencies = [
  "poem",
  "rand",
  "reqwest",
+ "saphyr",
  "serde",
  "serde_json",
  "thiserror 2.0.9",

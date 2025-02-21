@@ -16,6 +16,7 @@
 use async_graphql::{scalar, MergedObject};
 use character_ext::{CharacterExtMutationRoot, CharacterExtRoot};
 use instances::{InstancesMutationRoot, InstancesRoot};
+use item_storage_ext::ItemStorageExtMutationRoot;
 use nodes::NodesRoot;
 use premium_currency::{PremiumCurrencyMutationRoot, PremiumCurrencyRoot};
 use session_state::{SessionStateMutationRoot, SessionStateRoot};
@@ -28,6 +29,7 @@ mod nodes;
 mod types;
 mod instances;
 mod session_state;
+mod item_storage_ext;
 
 pub use types::*;
 
@@ -64,4 +66,5 @@ pub struct MutationRoot(
     pub db::CashShopItemMutationRoot,
     pub db::CashShopVendorMutationRoot,
     pub db::ItemStorageMutationRoot,
+    pub ItemStorageExtMutationRoot,
 );

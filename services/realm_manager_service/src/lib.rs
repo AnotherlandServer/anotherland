@@ -15,6 +15,7 @@
 
 #![feature(let_chains)]
 #![feature(hash_extract_if)]
+#![feature(exclusive_wrapper)]
 
 use std::sync::OnceLock;
 
@@ -30,6 +31,8 @@ mod node_registry;
 mod instance_registry;
 mod session_manager;
 mod chat_router;
+mod item_storage_session;
+mod equipment_slots;
 
 pub mod error;
 pub mod proto;

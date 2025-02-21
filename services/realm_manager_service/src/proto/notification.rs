@@ -34,6 +34,10 @@ pub enum RealmNotification {
         key: Option<Uuid>,
         valid_until: DateTime<Utc>,
     },
+    ItemStorageUpdated { 
+        id: Uuid,
+        tag: Option<String>, 
+    }
 }
 
 impl Notification for RealmNotification {
@@ -43,6 +47,7 @@ impl Notification for RealmNotification {
             RealmNotification::NodeAdded(_) => "cluster.node.added",
             RealmNotification::NodeRemoved(_) => "cluster.node.removed",
             RealmNotification::InstanceRequested { .. } => "realm.instance.request",
+            RealmNotification::ItemStorageUpdated { .. } => "realm.item_storage.updated",
         }
     }
 }

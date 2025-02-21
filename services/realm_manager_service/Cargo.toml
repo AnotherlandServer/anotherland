@@ -13,6 +13,7 @@ name = "realm_manager_service"
 path = "src/main.rs"
 
 [dependencies]
+anyhow.workspace = true
 async-graphql = { workspace = true }
 async-graphql-poem = { workspace = true }
 chrono = { workspace = true }
@@ -21,6 +22,7 @@ cluster = { workspace = true }
 core_api = { workspace = true }
 cynic = { workspace = true }
 database = { workspace = true }
+derive_builder.workspace = true
 futures-util = { workspace = true }
 log = { workspace = true }
 mongodb = { workspace = true }
@@ -28,6 +30,7 @@ obj_params = { workspace = true }
 poem = { workspace = true }
 rand.workspace = true
 reqwest = { workspace = true }
+saphyr.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

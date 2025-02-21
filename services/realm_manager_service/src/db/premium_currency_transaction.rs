@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use database::{DBResult, DatabaseError, DatabaseRecord};
 use mongodb::{bson::{doc, Bson, Document}, options::IndexOptions, ClientSession, Database, IndexModel};
@@ -47,7 +48,7 @@ impl PremiumCurrencyTransaction {
             .inserted_id;
 
         Self::collection(db).find_one(doc!{"_id": id}).session(&mut *session).await?
-            .ok_or(DatabaseError::Custom("transaction not found"))
+            .ok_or(anyhow!("transaction not found").into())
 
     }
 

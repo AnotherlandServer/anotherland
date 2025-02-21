@@ -47,7 +47,7 @@ impl From<Category> for mongodb::bson::Bson {
     }
 }
 
-#[derive(Serialize, Deserialize, GraphqlCrud)]
+#[derive(Serialize, Deserialize, GraphqlCrud, Clone)]
 #[graphql_crud(name = "object_template")]
 pub struct ObjectTemplate {
     pub id: Uuid,

@@ -15,18 +15,25 @@
 
 use std::borrow::Cow;
 
-use async_graphql::{CustomValidator, InputObject, InputType, SimpleObject};
-use database::DatabaseRecord;
-use mongodb::{bson::doc, options::IndexOptions, IndexModel};
+use async_graphql::{CustomValidator, InputObject, InputType, OneofObject, SimpleObject};
+use anyhow::anyhow;
+use database::{DatabaseError, DatabaseRecord};
+use mongodb::{bson::{self, bson, doc, Bson}, options::{IndexOptions, ReturnDocument}, IndexModel};
 use obj_params::GameObjectData;
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 pub enum StorageOwner {
     Account(Uuid),
     Character(Uuid),
     Guild(Uuid),
+}
+
+impl From<StorageOwner> for Bson {
+    fn from(val: StorageOwner) -> Self {
+        bson::to_bson(&val).unwrap()
+    }
 }
 
 #[derive(SimpleObject, InputObject)]
@@ -78,16 +85,16 @@ struct StorageOwnerValidator;
 
 impl CustomValidator<FlatennedStorageOwner> for StorageOwnerValidator {
     fn check(&self, value: &FlatennedStorageOwner) -> Result<(), async_graphql::InputValueError<FlatennedStorageOwner>> {
-        todo!()
+        Ok(()) // todo: implement
     }
 }
 
-#[derive(Serialize, Deserialize, SimpleObject, InputObject)]
+#[derive(Serialize, Deserialize, SimpleObject, InputObject, Clone, Debug)]
 #[graphql(input_name = "ItemInput")]
 pub struct Item {
     pub id: Uuid,
     pub template_id: Uuid,
-    pub data: serde_json::Value,
+    pub instance: async_graphql::Json<GameObjectData>,
 }
 
 #[derive(Serialize, Deserialize, GraphqlCrud)]
@@ -100,8 +107,7 @@ pub struct ItemStorage {
     pub owner: StorageOwner,
     pub capacity: i32,
     pub bling: Option<i32>,
-    #[graphql_crud(filter, readonly)]
-    pub transaction_tag: String,
+    pub game_cash: Option<i32>,
     pub items: Vec<Item>,
 }
 
@@ -138,5 +144,54 @@ impl DatabaseRecord for ItemStorage {
             .build()).await?;
 
         Ok(())
+    }
+}
+
+impl ItemStorage {
+    pub async fn get_or_create_for_owner(db: &mongodb::Database, name: &str, owner: StorageOwner) -> database::DBResult<ItemStorage> {
+        let collection = Self::collection(db);
+
+        let empty_storage = bson::to_bson(&match owner {
+            StorageOwner::Account(_) => ItemStorage {
+                id: Uuid::new(),
+                name: name.to_string(),
+                owner,
+                capacity: 30,
+                bling: Some(0),
+                game_cash: Some(0),
+                items: vec![],
+            },
+            StorageOwner::Character(_) => ItemStorage {
+                id: Uuid::new(),
+                name: name.to_string(),
+                owner,
+                capacity: 30,
+                bling: Some(0),
+                game_cash: Some(0),
+                items: vec![],
+            },
+            StorageOwner::Guild(_) => ItemStorage {
+                id: Uuid::new(),
+                name: name.to_string(),
+                owner,
+                capacity: 30,
+                bling: None,
+                game_cash: Some(0),
+                items: vec![],
+            },
+        }).unwrap();
+
+        let storage = collection.find_one_and_update(doc! {
+                "owner": owner,
+                "name": name,
+            }, doc!{
+                "$setOnInsert": empty_storage
+            })
+            .upsert(true)
+            .return_document(ReturnDocument::After)
+            .await?
+            .ok_or_else(|| anyhow!("upsert failed"))?;
+
+        Ok(storage)
     }
 }

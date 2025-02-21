@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::{futures_util::TryStreamExt, Context, Error, InputObject, Object, SimpleObject};
+use async_graphql::{futures_util::TryStreamExt, Context, Error, InputObject, Json, Object, SimpleObject};
 use database::DatabaseRecord;
 use mongodb::{bson::doc, Database};
 use obj_params::{GameObjectData, GenericParamSet, ParamSet, Player, Value};
@@ -147,6 +147,10 @@ impl CharacterExtMutationRoot {
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn character_apply_class_item(&self, ctx: &Context<'_>, id: Uuid, class_item: String, clear_inventory: bool) -> Result<Option<Json<Box<dyn GenericParamSet>>>, Error> {
+        todo!()
     }
 }
 

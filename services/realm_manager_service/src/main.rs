@@ -15,10 +15,11 @@
 
 #![feature(let_chains)]
 #![feature(hash_extract_if)]
+#![feature(exclusive_wrapper)]
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 use std::{net::SocketAddrV4, sync::Arc};
 
@@ -30,11 +31,13 @@ use cluster::{ClusterEvent, Endpoint, Host, PeerIdentity};
 use core_api::CoreApi;
 use core_api::proto::{CoreRequest, CoreClient, CoreNotification};
 use database::{DatabaseExt, DatabaseRecord};
-use db::{CashShopItem, CashShopItemBundle, CashShopVendor, Character, ObjectPlacement, ObjectTemplate, PremiumCurrency, PremiumCurrencyTransaction, WorldDef, Zone};
+use db::{CashShopItem, CashShopItemBundle, CashShopVendor, Character, ItemStorage, ObjectPlacement, ObjectTemplate, PremiumCurrency, PremiumCurrencyTransaction, WorldDef, Zone};
+use equipment_slots::EQUIPMENT_SLOTS;
 use error::RealmResult;
 use instance_registry::InstanceRegistry;
 use log::{debug, error, info, warn};
 use mongodb::bson::doc;
+use mongodb::options::ClientOptions;
 use mongodb::{Client, Database};
 use node_registry::{NodeRegistry, NodeSocketAddress};
 use poem::{listener::TcpListener, post, Route, Server};
@@ -55,6 +58,8 @@ mod node_registry;
 mod instance_registry;
 mod session_manager;
 mod chat_router;
+mod item_storage_session;
+mod equipment_slots;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -104,6 +109,7 @@ async fn main() -> RealmResult<()> {
     // Init database
     let client = Client::with_uri_str(&args.mongo_uri).await
         .expect("Database connection failed");
+
     let db = client.database(&args.mongo_db);
 
     db.init_collection::<Character>().await;
@@ -116,6 +122,10 @@ async fn main() -> RealmResult<()> {
     db.init_collection::<CashShopItemBundle>().await;
     db.init_collection::<CashShopItem>().await;
     db.init_collection::<CashShopVendor>().await;
+    db.init_collection::<ItemStorage>().await;
+
+    // Read content
+    LazyLock::force(&EQUIPMENT_SLOTS);
 
     // Connect to core service
     let (core_client, core_notifications) = CoreClient::connect(&args.core_zmq_addr).await
@@ -174,6 +184,7 @@ async fn main() -> RealmResult<()> {
     let schema = Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)
         .data(db.clone())
         .data(core_api.clone())
+        .data(server.clone())
         .finish();
 
     let app = Route::new()
