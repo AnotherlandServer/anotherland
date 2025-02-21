@@ -20,8 +20,8 @@ pub enum DatabaseError {
     #[error("mongodb error")]
     Mongodb(#[from] mongodb::error::Error),
 
-    #[error("custom error")]
-    Custom(&'static str),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
 pub type DBResult<T> = std::result::Result<T, DatabaseError>;
