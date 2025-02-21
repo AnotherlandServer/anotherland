@@ -151,7 +151,7 @@ impl RealmApi {
     }
 
     pub async fn update_character_data_diff(&self, id: &Uuid, diff: Box<dyn GenericParamSet>) -> RealmApiResult<Option<Character>> {
-        let params = schema::Json(serde_json::to_value(diff.as_ref())?);
+        let params = schema::Json(serde_json::to_value(&diff)?);
 
         let response = self.0.client
             .post(self.0.base_url.clone())
