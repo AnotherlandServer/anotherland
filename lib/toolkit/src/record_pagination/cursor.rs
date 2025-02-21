@@ -38,6 +38,8 @@ pub struct RecordCursor<T: RecordQuery> {
     pending_query: Option<BoxFuture<'static, Result<RecordPage<T::Record>, T::Error>>>,
 }
 
+unsafe impl <T: RecordQuery> Sync for RecordCursor<T>  {}
+
 impl <T: RecordQuery> RecordCursor<T> {
     pub fn new(query: T) -> Self {
         Self {
@@ -76,7 +78,7 @@ impl <T: RecordQuery> RecordCursor<T>
 
 impl <T: RecordQuery> Stream for RecordCursor<T> 
     where
-        T: 'static + Send,
+        T: 'static + Send + Sync,
         T::Error: Send,
         T::Record: Unpin + Send,
 {
