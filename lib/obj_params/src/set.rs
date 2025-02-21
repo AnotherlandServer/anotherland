@@ -79,6 +79,8 @@ impl <T: Attribute + 'static> ParamSet <T> {
             set.set_param(attr.name(), val);
         }
 
+        set.clear_changes();
+
         set
     }
 
@@ -404,7 +406,7 @@ impl ParamReader for Box<dyn GenericParamSet> {
     }
 }
 
-impl Serialize for dyn GenericParamSet {
+impl Serialize for Box<dyn GenericParamSet + '_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer {
@@ -412,7 +414,7 @@ impl Serialize for dyn GenericParamSet {
         let mut state = serializer.serialize_struct("ParamSet", 2)?;
 
         state.serialize_field("class", &self.class())?;
-        state.serialize_field("attributes", &DynSetSerializer(self))?;
+        state.serialize_field("attributes", &DynSetSerializer(self.as_ref()))?;
         state.end()
     }
 }

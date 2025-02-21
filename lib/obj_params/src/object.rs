@@ -183,6 +183,10 @@ impl GameObjectData {
         self.instance.as_ref()
     }
 
+    pub fn into_set(self) -> Box<dyn GenericParamSet> {
+        self.instance
+    }
+
     fn write<W: bitstream_io::ByteWrite>(&self,  writer: &mut W, filter: fn(&dyn AttributeInfo, &Value) -> bool) -> Result<(), std::io::Error> {
         let mut params: HashMap<&dyn AttributeInfo, &Value> = HashMap::new();
 
