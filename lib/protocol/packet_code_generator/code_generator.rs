@@ -38,7 +38,7 @@ pub fn generate_enum_code(enums: &Vec<Rc<RefCell<GeneratedEnum>>>) -> TokenStrea
                 let val_ident = format_ident!("{}", v);
                 let k = *k as u32;
 
-                quote! { (rh == &#k && self == &#enum_identifier::#val_ident) }
+                quote! { rh == &#k && self == &#enum_identifier::#val_ident }
             }).collect();
 
         code.extend(quote! {
@@ -534,7 +534,7 @@ pub fn generate_primitive_writer_code(primitive: &str, generated_field: &Generat
         "f64" => quote! { writer.write_bytes((#field_getter as f64).to_le_bytes().as_slice())?; },
         "avatar_id" => quote! { writer.write(#field_getter.as_u64())?; },
         "uuid" => quote! { writer.write_bytes(#field_getter.to_uuid_1().to_bytes_le().as_slice())?; }, 
-        "buffer" => quote! { writer.write_bytes(#field_getter.to_bytes().as_slice()); },
+        "buffer" => quote! { writer.write_bytes(#field_getter.to_bytes().as_slice())?; },
         "nativeparam" => quote! { writer.write_bytes(#field_getter.to_struct_bytes().as_slice())?; },
         _ => panic!("Tried to serialize unkown primitive"),
     }

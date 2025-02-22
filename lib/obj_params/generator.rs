@@ -922,7 +922,11 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             components.push(quote!( tags::#component_name ));
         }
 
-        quote!{Class::#class_name => { commands.insert((#(#components),*)); }}
+        if components.len() == 1 {
+            quote!{Class::#class_name => { commands.insert(#(#components),*); }}
+        } else {
+            quote!{Class::#class_name => { commands.insert((#(#components),*)); }}
+        }
     }).collect();
 
     write_source("generated_params.rs", quote! {
@@ -931,16 +935,8 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use std::collections::HashMap;
         use serde_json::Value as JsonValue;
         use std::str::FromStr;
-        use std::io;
-        use std::fmt::Display;
-        use std::fmt::Formatter;
-        use nom::IResult;
-        use nom::error::VerboseError;
-        use bitstream_io::ByteWrite;
         use serde::Serialize;
-        use serde::Serializer;
         use serde::Deserialize;
-        use serde::Deserializer;
         use once_cell::sync::Lazy;
         use phf::phf_map;
         use bevy::prelude::*;
