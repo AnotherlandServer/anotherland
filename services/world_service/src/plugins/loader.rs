@@ -15,18 +15,16 @@
 
 use std::sync::Arc;
 
-use bevy::{app::{First, Plugin, Startup, Update}, math::Vec3, prelude::{in_state, Added, Commands, Component, Entity, IntoSystemConfigs, NextState, NonSend, NonSendMut, Query, Res, ResMut, Resource}, utils::HashMap};
+use bevy::{app::{First, Plugin}, ecs::{component::Component, system::{In, Resource}}, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, utils::HashMap};
 use futures_util::TryStreamExt;
-use log::{debug, error, info, trace, warn};
-use obj_params::{tag_gameobject_entity, Class, GameObjectData, NonClientBase};
-use realm_api::{ObjectPlacement, ObjectTemplate, RealmApi};
-use scripting::{LuaRuntime, ScriptCommandsExt, Scripted};
-use tokio::sync::mpsc::{Receiver, Sender};
+use log::{info, trace, warn};
+use obj_params::{tag_gameobject_entity, GameObjectData, NonClientBase};
+use realm_api::ObjectPlacement;
 use toolkit::types::Uuid;
 
 use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry};
 
-use super::{AvatarIdManager, AvatarInfo, ForeignResource};
+use super::{AvatarIdManager, AvatarInfo, FutureTaskComponent};
 
 struct Content(Option<(ObjectPlacement, Arc<CacheEntry>)>);
 
@@ -49,9 +47,9 @@ pub struct LoaderPlugin;
 
 impl Plugin for LoaderPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        let (content_sender, content_receiver) = tokio::sync::mpsc::channel::<Content>(100);
+        //let (content_sender, content_receiver) = tokio::sync::mpsc::channel::<Content>(100);
 
-        app.insert_resource(ForeignResource(content_receiver));
+        //app.insert_resource(ForeignResource(content_receiver));
         app.insert_resource(InstanceManager::default());
         app.world_mut().register_component_hooks::<ContentInfo>()
             .on_insert(|mut world, entity, _| {
@@ -69,79 +67,76 @@ impl Plugin for LoaderPlugin {
                 manager.0.remove(&id);
             });
 
-        app.add_systems(First, (
-                ingest_content.run_if(in_state(InstanceState::Loading)),
-                init_gameobjects,
-            ).chain());
+        app.add_systems(First, init_gameobjects);
 
         let instance = app.world().get_resource::<ZoneInstance>().unwrap();
         let realm_api = instance.realm_api.clone();
         let zone = instance.zone.clone();
         let object_cache = instance.object_cache.clone();
 
-        instance.spawn_task(async move {
-            // Query
-            let mut query = realm_api.query_object_placements()
-                .zone_guid(*zone.guid())
-                .query().await.unwrap();
-    
-            
-            while let Some(placement) = query.try_next().await.unwrap() {
-                if let Some(template) = object_cache.get_object_by_guid(placement.content_guid).await.unwrap() {
-                    if content_sender.send(Content(Some((placement, template)))).await.is_err() {
-                        return;
+        let init_task = FutureTaskComponent::new(
+            async move {
+                // Query
+                let mut query = realm_api.query_object_placements()
+                    .zone_guid(*zone.guid())
+                    .query().await.unwrap();
+        
+                let mut content = vec![];
+                
+                while let Some(placement) = query.try_next().await.unwrap() {
+                    if let Some(template) = object_cache.get_object_by_guid(placement.content_guid).await.unwrap() {
+                        content.push((placement, template));
+                    } else {
+                        warn!("Template '{}' not found for placement '{}'", placement.content_guid, placement.id);
                     }
-                } else {
-                    warn!("Template '{}' not found for placement '{}'", placement.content_guid, placement.id);
                 }
-            }
-    
-            info!("Instance {} load completed.", zone.guid());
-            let _ = content_sender.send(Content(None)).await;
-        });
+        
+                info!("Instance {} load completed.", zone.guid());
+                content
+            }, 
+            app.world_mut().register_system(ingest_content)
+        );
+
+        app.world_mut().spawn(init_task);
     }
 }
 
 fn ingest_content(
-    mut receiver: ResMut<ForeignResource<Receiver<Content>>>,
+    In(content): In<Vec<(ObjectPlacement, Arc<CacheEntry>)>>,
     mut next_state: ResMut<NextState<InstanceState>>,
     mut avatar_manager: ResMut<AvatarIdManager>,
     mut commands: Commands,
 ) {
-    while let Ok(Content(content)) = receiver.try_recv() {
-        if let Some((mut placement, template)) = content {
-           
-            placement.data.set_parent(Some(template.data.clone()));
+    for (mut placement, template) in content {
+        placement.data.set_parent(Some(template.data.clone()));
             
-            // Skip disabled objects
-            if !*placement.data.get::<_, bool>(NonClientBase::EnableInGame).unwrap_or(&false) {
-                trace!("Skipping {}", placement.id);
-                continue;
-            } else {
-                trace!("Spawning {}", placement.id);
-            }
-
-            let entry = avatar_manager.new_avatar_entry();
-
-            let entity = commands.spawn((
-                AvatarInfo {
-                    id: *entry.key(),
-                    name: placement.editor_name,
-                },
-                ContentInfo {
-                    placement_id: placement.id,
-                    template,
-                },
-                placement.data,
-                Active,
-            )).id();
-
-            entry.insert(entity);
+        // Skip disabled objects
+        if !*placement.data.get::<_, bool>(NonClientBase::EnableInGame).unwrap_or(&false) {
+            trace!("Skipping {}", placement.id);
+            continue;
         } else {
-            debug!("Done receiving");
-            next_state.set(InstanceState::Initializing);
+            trace!("Spawning {}", placement.id);
         }
+
+        let entry = avatar_manager.new_avatar_entry();
+
+        let entity = commands.spawn((
+            AvatarInfo {
+                id: *entry.key(),
+                name: placement.editor_name,
+            },
+            ContentInfo {
+                placement_id: placement.id,
+                template,
+            },
+            placement.data,
+            Active,
+        )).id();
+
+        entry.insert(entity);
     }
+
+    next_state.set(InstanceState::Initializing);
 }
 
 pub fn init_gameobjects(

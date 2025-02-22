@@ -37,6 +37,7 @@ mod quests;
 mod chat;
 mod commands;
 mod abilities;
+mod async_loader;
 
 pub use network::*;
 pub use loader::*;
@@ -62,3 +63,4 @@ pub use quests::*;
 pub use chat::*;
 pub use commands::*;
 pub use abilities::*;
+pub use async_loader::*;

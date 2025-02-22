@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{net::Shutdown, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
-use bevy::{app::{First, Last, Main, MainSchedulePlugin, PanicHandlerPlugin, ScheduleRunnerPlugin, SubApp}, core::{FrameCountPlugin, TaskPoolPlugin, TypeRegistrationPlugin}, ecs::{event::{event_update_condition, event_update_system, EventRegistry, EventUpdates}, intern::Interned, schedule::ScheduleLabel}, log::LogPlugin, prelude::{AppExtStates, AppTypeRegistry, HierarchyPlugin, IntoSystemConfigs, NextState, OnEnter, Query, Res, ResMut, Resource, States}, state::app::StatesPlugin, tasks::futures_lite::StreamExt, time::{common_conditions::on_timer, TimePlugin}, MinimalPlugins};
+use bevy::{app::{First, Last, Main, MainSchedulePlugin, PanicHandlerPlugin, SubApp}, core::{FrameCountPlugin, TaskPoolPlugin, TypeRegistrationPlugin}, ecs::{event::{event_update_condition, event_update_system, EventRegistry, EventUpdates}, schedule::ScheduleLabel, system::Resource}, prelude::{AppExtStates, AppTypeRegistry, HierarchyPlugin, IntoSystemConfigs, NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, state::States}, tasks::futures_lite::StreamExt, time::{common_conditions::on_timer, TimePlugin}};
 use core_api::CoreApi;
 use derive_builder::Builder;
 use log::{debug, trace};
@@ -23,11 +23,11 @@ use obj_params::{Class, OaZoneConfig};
 use realm_api::{proto::RealmClient, Category, RealmApi, WorldDef, Zone};
 use scripting::{LuaRuntimeBuilder, ScriptingPlugin};
 use serde_json::Value;
-use tokio::{runtime::Handle, task::JoinSet};
+use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AvatarPlugin, BehaviorPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
+use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct InstanceShutdown;
@@ -188,7 +188,6 @@ impl ZoneInstanceBuilder {
         app.add_plugins(TimePlugin);
         app.add_plugins(MainSchedulePlugin);
         app.add_plugins(StatesPlugin);
-        app.add_plugins(LogPlugin::default());
         app.add_plugins(PanicHandlerPlugin);
         app.add_plugins(HierarchyPlugin);
 
@@ -209,6 +208,7 @@ impl ZoneInstanceBuilder {
 
         // Core plugins
         app.add_plugins((
+            AsyncLoaderPlugin,
             NetworkPlugin,
             ScriptingPlugin,
             ScriptObjectInfoPlugin,
