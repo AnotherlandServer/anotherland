@@ -87,6 +87,7 @@ impl DatabaseRecord for Zone {
 }
 
 impl Zone {
+    #[allow(dead_code)]
     pub async fn get_by_guid(db: &Database, guid: Uuid) -> database::DBResult<Option<Self>> {
         Ok(Self::collection(db)
             .find_one(doc!{ "guid": guid })

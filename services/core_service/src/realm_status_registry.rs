@@ -14,7 +14,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
-use toolkit::types::Uuid;
 use tokio::sync::RwLock;
 
 use crate::proto::{CoreNotification, CoreServer};
@@ -31,6 +30,7 @@ pub struct RealmStatusRegistry {
 }
 
 impl RealmStatusRegistry {
+    #[allow(dead_code)]
     pub fn new(server: Arc<CoreServer>) -> Self {
         Self {
             registry: RwLock::new(HashMap::new()),
@@ -47,6 +47,7 @@ impl RealmStatusRegistry {
         let _ = self.server.notify(CoreNotification::RealmListUpdated).await;
     }
 
+    #[allow(dead_code)]
     pub async fn unregister_endpoint(&self, id: i32, endpoint: SocketAddr) -> bool {
         let mut registry = self.registry.write().await;
         let online = if let Some(entry) = registry.get_mut(&id) {

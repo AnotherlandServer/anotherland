@@ -13,20 +13,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{borrow::Cow, cell::Cell, fmt::Debug, hash::Hash, sync::{Arc, Exclusive, Mutex}};
+use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, Update}, ecs::entity, prelude::{in_state, App, AppExtStates, Changed, Commands, Component, DetectChanges, Entity, Event, IntoSystemConfigs, Query, Res, ResMut, Resource, States, Trigger, With, World}, tasks::futures_lite::StreamExt, utils::hashbrown::{HashMap, HashSet}};
+use bevy::{app::{Plugin, Update}, ecs::{event::Event, system::Resource}, prelude::{in_state, App, Changed, Commands, Entity, IntoSystemConfigs, Query, Res, ResMut, Trigger}, tasks::futures_lite::StreamExt, utils::hashbrown::{HashMap, HashSet}};
 use chrono::NaiveDate;
-use derive_builder::Builder;
-use obj_params::{tags::NonClientBaseTag, Class, CommonConfig, GameObjectData};
+use obj_params::{Class, CommonConfig};
 use realm_api::RealmApi;
 use serde_json::Value;
 use toolkit::types::Uuid;
 
 use crate::{error::WorldResult, instance::InstanceState, object_cache::ObjectCache};
 
-use super::{Active, ConnectionState, ContentInfo, CurrentState, InstanceManager, PlayerController, ServerAction};
+use super::{Active, ConnectionState, ContentInfo, CurrentState, PlayerController, ServerAction};
 
 #[derive(Resource)]
 struct SpecialEvents(HashMap<String, Arc<SpecialEventConfig>>);
@@ -39,6 +38,7 @@ pub struct ActivateEvent {
     event_name: String
 }
 
+#[allow(dead_code)]
 pub struct SpecialEventConfig {
     id: Uuid,
     name: String,

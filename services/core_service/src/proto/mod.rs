@@ -39,4 +39,5 @@ pub enum CoreResponse {
 impl Response for CoreResponse {}
 
 pub type CoreServer = ClusterServer<CoreRequest, CoreResponse, CoreNotification>;
+#[allow(dead_code)]
 pub type CoreClient = ClusterClient<CoreRequest, CoreResponse, CoreNotification>;

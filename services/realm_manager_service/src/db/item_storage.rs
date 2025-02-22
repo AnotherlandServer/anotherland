@@ -13,12 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::borrow::Cow;
 
-use async_graphql::{CustomValidator, InputObject, InputType, OneofObject, SimpleObject};
+use async_graphql::{CustomValidator, InputObject, SimpleObject};
 use anyhow::anyhow;
-use database::{DatabaseError, DatabaseRecord};
-use mongodb::{bson::{self, bson, doc, Bson}, options::{IndexOptions, ReturnDocument}, IndexModel};
+use database::DatabaseRecord;
+use mongodb::{bson::{self, doc, Bson}, options::{IndexOptions, ReturnDocument}, IndexModel};
 use obj_params::GameObjectData;
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud};
@@ -84,7 +83,7 @@ impl From<FlatennedStorageOwner> for StorageOwner {
 struct StorageOwnerValidator;
 
 impl CustomValidator<FlatennedStorageOwner> for StorageOwnerValidator {
-    fn check(&self, value: &FlatennedStorageOwner) -> Result<(), async_graphql::InputValueError<FlatennedStorageOwner>> {
+    fn check(&self, _value: &FlatennedStorageOwner) -> Result<(), async_graphql::InputValueError<FlatennedStorageOwner>> {
         Ok(()) // todo: implement
     }
 }

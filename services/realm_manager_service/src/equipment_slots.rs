@@ -64,11 +64,11 @@ pub struct EquipmentType {
     pub name: String,
     pub slot_type: Arc<SlotType>,
     pub slots: Vec<usize>,
-    pub te_ratio: f32,
-    pub weight: f32,
-    pub group: Option<String>,
-    pub tick_order: i32,
-    pub is_base_appearance: bool,
+    pub _te_ratio: f32,
+    pub _weight: f32,
+    pub _group: Option<String>,
+    pub _tick_order: i32,
+    pub _is_base_appearance: bool,
 }
 
 impl ItemManagement {
@@ -167,34 +167,34 @@ impl ItemManagement {
                                             }
                                         },
                                         Some("teRatio") => {
-                                            equipment_type_builder.te_ratio(
+                                            equipment_type_builder._te_ratio(
                                                 v.as_f64()
                                                 .ok_or(anyhow!("te ratio must be a float"))?
                                                 as f32
                                             );
                                         },
                                         Some("weight") => {
-                                            equipment_type_builder.weight(
+                                            equipment_type_builder._weight(
                                                 v.as_f64()
                                                 .ok_or(anyhow!("weight must be a float"))?
                                                 as f32
                                             );
                                         },
                                         Some("group") => {
-                                            equipment_type_builder.group(
+                                            equipment_type_builder._group(
                                                 v.as_str()
                                                 .map(|s| s.to_string())
                                             );
                                         },
                                         Some("tickOrder") => {
-                                            equipment_type_builder.tick_order(
+                                            equipment_type_builder._tick_order(
                                                 v.as_i64()
                                                 .ok_or(anyhow!("weight must be an integer"))?
                                                 as i32
                                             );
                                         },
                                         Some("isBaseAppearance") => {
-                                            equipment_type_builder.is_base_appearance(
+                                            equipment_type_builder._is_base_appearance(
                                                 v.as_bool()
                                                 .ok_or(anyhow!("weight must be a boolean"))?
                                             );

@@ -15,27 +15,28 @@
 
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use database::{DBResult, DatabaseError, DatabaseRecord};
-use mongodb::{bson::{doc, Bson, Document}, options::IndexOptions, ClientSession, Database, IndexModel};
+use database::{DBResult, DatabaseRecord};
+use mongodb::{bson::{doc, Bson}, options::IndexOptions, ClientSession, Database, IndexModel};
 use serde::{Deserialize, Serialize};
 use toolkit::types::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub struct PremiumCurrencyTransaction {
-    _id: Option<Bson>,
-    account_id: Uuid,
-    date: DateTime<Utc>,
-    amount: i32,
-    balance: i32,
-    comment: Option<String>,
-    completed: bool,
+    #[serde(rename = "_id")]
+    pub id: Option<Bson>,
+    pub account_id: Uuid,
+    pub date: DateTime<Utc>,
+    pub amount: i32,
+    pub balance: i32,
+    pub comment: Option<String>,
+    pub completed: bool,
 }
 
 impl PremiumCurrencyTransaction {
     pub async fn write(db: &Database, session: &mut ClientSession, account_id: Uuid, amount: i32, balance: i32, comment: Option<String>, completed: bool) -> DBResult<Self> {
         let id = Self::collection(db)
             .insert_one(PremiumCurrencyTransaction {
-                _id: None,
+                id: None,
                 account_id,
                 date: Utc::now(),
                 amount,
@@ -50,18 +51,6 @@ impl PremiumCurrencyTransaction {
         Self::collection(db).find_one(doc!{"_id": id}).session(&mut *session).await?
             .ok_or(anyhow!("transaction not found").into())
 
-    }
-
-    pub fn date(&self) -> DateTime<Utc> { self.date }
-    pub fn balance(&self) -> i32 { self.balance }
-    pub fn amount(&self) -> i32 { self.amount }
-    pub fn comment(&self) -> Option<&str> { self.comment.as_ref().map(String::as_str) }
-    pub fn completed(&self) -> bool { self.completed }
-
-    pub async fn complete(&mut self, db: &Database) -> DBResult<()> {
-        self.completed = true;
-        self.save(db).await?;
-        Ok(())
     }
 }
 

@@ -26,8 +26,6 @@ use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry};
 
 use super::{AvatarIdManager, AvatarInfo, FutureTaskComponent};
 
-struct Content(Option<(ObjectPlacement, Arc<CacheEntry>)>);
-
 #[derive(Component)]
 pub struct ContentInfo {
     pub placement_id: Uuid,
@@ -38,6 +36,7 @@ pub struct ContentInfo {
 pub struct InstanceManager(HashMap<Uuid, Entity>);
 
 impl InstanceManager {
+    #[allow(dead_code)]
     pub fn find_instance(&self, id: Uuid) -> Option<Entity> {
         self.0.get(&id).cloned()
     }

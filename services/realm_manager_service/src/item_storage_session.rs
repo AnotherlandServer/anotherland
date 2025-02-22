@@ -13,19 +13,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{cell::RefCell, collections::HashMap, iter::{repeat, repeat_n}, mem, ops::DerefMut, rc::Rc, sync::{Arc, Exclusive}};
+use std::{collections::HashMap, iter::repeat_n, ops::DerefMut, sync::Arc};
 
-use async_graphql::Data;
 use database::{DatabaseError, DatabaseRecord};
 use futures_util::future::join_all;
 use log::{debug, warn};
 use mongodb::{bson::{self, doc}, options::{ReadConcern, ReadPreference, SelectionCriteria, TransactionOptions, WriteConcern}, ClientSession, Database};
-use obj_params::{GameObjectData, GenericParam, ItemBase, ItemEdna};
+use obj_params::{GameObjectData, ItemBase, ItemEdna};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use toolkit::{anyhow::anyhow, types::Uuid, NativeParam};
 
-use crate::{db::{ItemStorage, ObjectTemplate, StorageOwner}, equipment_slots::{EquipmentType, SlotType, EQUIPMENT_SLOTS}, error::{RealmError, RealmResult}};
+use crate::{db::{ItemStorage, ObjectTemplate, StorageOwner}, equipment_slots::{EquipmentType, SlotType, EQUIPMENT_SLOTS}};
 
 #[derive(Error, Debug)]
 pub enum ItemStorageSessionError {
@@ -56,8 +55,11 @@ trait ItemAccess {
     async fn id(&self) -> Uuid;
 
     async fn is_disguise(&self) -> bool;
+    #[allow(unused)]
     async fn container_id(&self) -> i32;
+    #[allow(unused)]
     async fn inventory_slot_index(&self) -> i32;
+    #[allow(unused)]
     async fn slot_id(&self) -> i32;
     async fn slot_mapping(&self) -> Option<Arc<EquipmentType>>;
     async fn set_container_id(&self, id: i32);
@@ -130,11 +132,6 @@ impl Equipment {
     }
 }
 
-enum ChangeRecord {
-    Added(Uuid),
-    Removed(Uuid)
-}
-
 pub struct ItemStorageSession {
     db: Database,
     session: Arc<Mutex<ClientSession>>,
@@ -164,7 +161,7 @@ pub struct ItemStorageSession {
 impl ItemStorageSession {
     async fn init(db: &Database, session: Arc<Mutex<ClientSession>>, id: Uuid) -> Result<Self, ItemStorageSessionError> {
         let mut session_s = session.lock().await;
-        let col_storage = ItemStorage::collection(&db);
+        let col_storage = ItemStorage::collection(db);
 
         // Read storage
         let storage = col_storage.find_one(doc! { "id": id })
@@ -220,7 +217,7 @@ impl ItemStorageSession {
         join_all(
             storage.items.into_iter()
                 .map(|entry| async move {
-                    if let Some(item) = ObjectTemplate::get(&db, &entry.template_id).await? {
+                    if let Some(item) = ObjectTemplate::get(db, &entry.template_id).await? {
                         let mut instance = entry.instance.0;
                         instance.set_parent(Some(Arc::new(item.data)));
                         instance.clear_changes();
@@ -418,7 +415,7 @@ impl ItemStorageSession {
         }
     }
 
-    pub async fn insert_item(&mut self, base_item: ObjectTemplate, insert_at: Option<i32>) -> Result<Uuid, ItemStorageSessionError> {
+    pub async fn insert_item(&mut self, base_item: ObjectTemplate, _insert_at: Option<i32>) -> Result<Uuid, ItemStorageSessionError> {
         let mut item: Item = Item {
             id: Uuid::new(),
             base_item: (base_item.id, base_item.numeric_id),
@@ -628,7 +625,8 @@ impl ItemStorageSession {
         }
     }
 
-    pub async fn transfer_item(&mut self, item_id: Uuid, new_storage_id: Uuid, new_slot: i32) -> Result<(), ItemStorageSessionError> {
+    #[allow(unused)]
+    pub async fn transfer_item(&mut self, _item_id: Uuid, _new_storage_id: Uuid, _new_slot: i32) -> Result<(), ItemStorageSessionError> {
         todo!()
     }
 
@@ -637,7 +635,7 @@ impl ItemStorageSession {
             id: self.id,
             bling: self.bling,
             game_cash: self.game_cash,
-            capacity: self.capacity,
+            _capacity: self.capacity,
             removed_items: self.removed_items.clone(),
             changed_items: Vec::new(),
         };
@@ -710,5 +708,5 @@ pub struct ItemStorageSessionResult {
     pub changed_items: Vec<crate::db::Item>,
     pub bling: Option<i32>,
     pub game_cash: Option<i32>,
-    pub capacity: i32,
+    pub _capacity: i32,
 }

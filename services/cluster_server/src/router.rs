@@ -15,8 +15,6 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::anyhow;
-use cluster::ClusterResult;
 use log::{debug, warn};
 use realm_api::{ClusterAddress, ClusterNode, Instance, RealmApi};
 use tokio::{select, sync::{mpsc::{self, Receiver, Sender}, Mutex}};
@@ -60,7 +58,7 @@ impl Router {
             let (sender, mut receiver) = mpsc::channel(10);
             let (client, _) = WorldClient::connect(
                 &format!("tcp://{}:{}", 
-                        node_addr.ip().to_string(), 
+                        node_addr.ip(), 
                         node_addr.port()
                     )
                 ).await?;

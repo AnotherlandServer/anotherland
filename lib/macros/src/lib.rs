@@ -18,7 +18,7 @@
 use darling::{FromDeriveInput, FromField};
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, DeriveInput, Expr, ExprParen, ExprPath, ItemFn, MetaList};
+use syn::{parse_macro_input, DeriveInput, ExprPath, ItemFn};
 
 #[proc_macro_attribute]
 pub fn service_main(attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -102,7 +102,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
     let read_multiple_filter_ident = format_ident!("{}Filter", ast.ident);
     let delete_single_ident = format_ident!("delete_{}", opts.name);
     let create_single_ident = format_ident!("create_{}", opts.name);
-    let update_single_ident = format_ident!("update_{}", opts.name);
+    let _update_single_ident = format_ident!("update_{}", opts.name);
     let create_multiple_ident = format_ident!("batch_create_{}s", opts.name);
 
     let fields = if let syn::Data::Struct(data) = &ast.data {

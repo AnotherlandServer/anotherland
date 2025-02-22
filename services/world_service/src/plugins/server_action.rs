@@ -14,8 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::{app::{App, Plugin}, prelude::{Entity, In, Query}};
-use log::debug;
-use protocol::{oaPktServerAction, CPkt};
+use protocol::oaPktServerAction;
 use toolkit::types::AvatarId;
 
 use super::{Movement, NetworkExtPriv, PlayerController};
@@ -29,6 +28,7 @@ impl Plugin for ServerActionPlugin {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub enum ServerAction {
     DirectTravel(AvatarId, Option<Movement>),
     NonPortalTravel(AvatarId, Option<Movement>),

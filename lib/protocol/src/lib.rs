@@ -20,5 +20,4 @@ mod vec;
 mod pkt;
 
 pub use buffer::*;
-pub use vec::*;
 pub use pkt::*;

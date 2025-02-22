@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Component, Entity, In, Query, With, Without}};
+use bevy::{app::{Plugin, PostUpdate, PreUpdate}, ecs::component::Component, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase, Player};
-use protocol::{oaPktMoveManagerPosUpdate, oaPktMoveManagerStateChanged, CPkt, Physics, PhysicsState};
+use protocol::{oaPktMoveManagerPosUpdate, oaPktMoveManagerStateChanged, Physics, PhysicsState};
 use toolkit::OtherlandQuatExt;
 
 use super::{AvatarInfo, Interests, NetworkExtPriv, PlayerController};

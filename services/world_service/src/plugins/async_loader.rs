@@ -16,6 +16,7 @@
 use bevy::{app::{First, Plugin}, ecs::{component::Component, entity::Entity, system::{Commands, In, Query, SystemId}}, prelude::App, tasks::{block_on, futures_lite::future}, utils::synccell::SyncCell};
 
 #[derive(Component)]
+#[allow(clippy::type_complexity)]
 pub struct FutureTaskComponent(SyncCell<Box<dyn FnMut(&mut Commands) -> bool + Send>>);
 
 impl FutureTaskComponent {

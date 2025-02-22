@@ -346,7 +346,7 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
 
                 // add variable links
                 if let Some(ObjectProperty::Array(variable_links)) = seq.attrib("VariableLinks") {
-                    for (var_idx, link) in variable_links.iter().enumerate().filter_map(|(idx, a)| match &a {
+                    for (_, link) in variable_links.iter().enumerate().filter_map(|(idx, a)| match &a {
                         ObjectProperty::Struct(_, link) => Some((idx, link)),
                         _ => None,
                     }) {

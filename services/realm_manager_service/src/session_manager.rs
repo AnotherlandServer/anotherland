@@ -23,8 +23,8 @@ use toolkit::types::{AvatarId, AvatarType, Uuid};
 use crate::{error::RealmResult, proto::RealmServer, CHAT_ROUTER};
 
 struct SessionManagerData {
-    core_api: CoreApi,
-    realm_server: Arc<RealmServer>,
+    _core_api: CoreApi,
+    _realm_server: Arc<RealmServer>,
     states: HashMap<Uuid, Arc<SessionState>>,
     avatars: HashMap<AvatarId, Arc<SessionState>>,
     avatar_ids: HashSet<AvatarId>,
@@ -47,8 +47,8 @@ impl SessionManager {
     pub async fn new(core_api: CoreApi, realm_server: Arc<RealmServer>) -> RealmResult<Self> {
         Ok(Self(Arc::new(Mutex::new(
             SessionManagerData { 
-                core_api, 
-                realm_server, 
+                _core_api: core_api, 
+                _realm_server: realm_server, 
                 states: HashMap::new(),
                 avatars: HashMap::new(),
                 avatar_ids: HashSet::new(),
@@ -73,7 +73,7 @@ impl SessionManager {
             let random_component = random::<u32>();
             let time_component = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u32;
 
-            let avatar_id = AvatarId::new((time_component as u64) << 40 | (random_component as u64) << 8, AvatarType::Player);
+            let avatar_id = AvatarId::new(((time_component as u64) << 40) | ((random_component as u64) << 8), AvatarType::Player);
             if s.avatar_ids.contains(&avatar_id) {
                 continue;
             } else {

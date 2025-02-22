@@ -17,11 +17,11 @@
 #![feature(hash_extract_if)]
 #![feature(exclusive_wrapper)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
-use std::{net::SocketAddrV4, sync::Arc};
+use std::sync::Arc;
 
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_poem::GraphQL;
@@ -30,22 +30,19 @@ use clap::Parser;
 use cluster::{ClusterEvent, Endpoint, Host, PeerIdentity};
 use core_api::CoreApi;
 use core_api::proto::{CoreRequest, CoreClient, CoreNotification};
-use database::{DatabaseExt, DatabaseRecord};
+use database::DatabaseExt;
 use db::{CashShopItem, CashShopItemBundle, CashShopVendor, Character, ItemStorage, ObjectPlacement, ObjectTemplate, PremiumCurrency, PremiumCurrencyTransaction, WorldDef, Zone};
 use equipment_slots::EQUIPMENT_SLOTS;
 use error::RealmResult;
 use instance_registry::InstanceRegistry;
-use log::{debug, error, info, warn};
-use mongodb::bson::doc;
-use mongodb::options::ClientOptions;
-use mongodb::{Client, Database};
+use log::{debug, info, error};
+use mongodb::Client;
 use node_registry::{NodeRegistry, NodeSocketAddress};
 use poem::{listener::TcpListener, post, Route, Server};
 use proto::{NodeAddress, NodeType, RealmNotification, RealmResponse, RealmServer};
 use reqwest::Url;
 use schema::{MutationRoot, QueryRoot};
 use session_manager::SessionManager;
-use tokio::net::lookup_host;
 use tokio::sync::{mpsc::Receiver, Mutex};
 use tokio::time;
 use toolkit::print_banner;
@@ -178,7 +175,7 @@ async fn main() -> RealmResult<()> {
                 }
             }
         });
-    }();
+    }
 
     // Start graphql api
     let schema = Schema::build(QueryRoot::default(), MutationRoot::default(), EmptySubscription)
@@ -234,7 +231,7 @@ async fn main() -> RealmResult<()> {
                                                 let ip: IpAddr = match host {
                                                     &Host::Ipv4(addr) => addr.into(),
                                                     &Host::Ipv6(addr) => addr.into(),
-                                                    Host::Domain(domain) => {
+                                                    Host::Domain(_domain) => {
                                                         unimplemented!()
                                                     }
                                                 };

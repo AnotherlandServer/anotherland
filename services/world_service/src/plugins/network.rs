@@ -50,6 +50,7 @@ pub struct CommunicationCommandMessageHandler(HashMap<i32, CommandMessageHandler
 pub trait NetworkExtPriv {
     fn register_message_handler<P: OtherlandPacket + Send + Sync + 'static, T: IntoSystem<In<(Entity, P)>, (), Marker> + 'static, Marker>(&mut self, system: T);
     fn register_community_command_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T);
+    #[allow(dead_code)]
     fn register_communication_command_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T);
 }
 
@@ -156,7 +157,7 @@ fn handle_controller_events(
             ControllerEvent::TravelAccepted => {
                 commands.entity(ent).insert(Travelling);
             },
-            ControllerEvent::TravelRejected(travel_reject_reason) => todo!(),
+            ControllerEvent::TravelRejected(_travel_reject_reason) => todo!(),
         }
     }
 }
@@ -296,6 +297,7 @@ pub enum WorldEvent {
     Close { controller: Uuid },
 }
 
+#[allow(dead_code)]
 pub enum MessageType {
     Normal,
     Combat,

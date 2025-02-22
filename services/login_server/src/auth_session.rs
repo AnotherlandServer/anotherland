@@ -71,7 +71,7 @@ impl AuthSessionContext {
                                     }
                                 }
                             },
-                            Err(e) => {
+                            Err(_) => {
                                 break;
                             }
                         }

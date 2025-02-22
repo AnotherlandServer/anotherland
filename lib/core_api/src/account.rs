@@ -44,7 +44,7 @@ pub enum AccountQuery {
 }
 
 pub struct Account {
-    api_base: CoreApi,
+    _api_base: CoreApi,
 
     id: Uuid,
     numeric_id: i32,
@@ -59,7 +59,7 @@ pub struct Account {
 impl Account {
     pub(crate) fn from_graphql(api_base: &CoreApi, account: account_graphql::Account) -> Self {
         Self {
-            api_base: api_base.clone(),
+            _api_base: api_base.clone(),
 
             id: account.id.0.parse().unwrap(),
             numeric_id: account.numeric_id,
@@ -87,7 +87,7 @@ impl Account {
     pub fn ban_reason(&self) -> Option<&str> { self.ban_reason.as_deref() }
     pub fn is_gm(&self) -> bool { self.is_gm }
 
-    pub async fn ban(&mut self, reason: String) -> CoreApiResult<()> { todo!() }
+    pub async fn ban(&mut self, _reason: String) -> CoreApiResult<()> { todo!() }
     pub async fn unban(&mut self) -> CoreApiResult<()> { todo!() }
     pub async fn promote(&mut self) -> CoreApiResult<()> { todo!() }
     pub async fn demote(&mut self) -> CoreApiResult<()> { todo!() }
@@ -143,15 +143,11 @@ impl CoreApi {
 // Graphql Queries
 pub(crate) mod account_graphql {
     use crate::schema::*;
-
-    #[derive(cynic::QueryVariables, Debug)]
-    pub struct GetAccountVariables {
-        pub id: Uuid,
-    }
     
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "core_service")]
     pub struct UsernameIdentifier {
+        #[allow(dead_code)]
         pub email: Option<String>,
         pub username: String,
     }
@@ -206,13 +202,6 @@ pub(crate) mod account_graphql {
     pub struct RegisterSteamAccount {
         #[arguments(steamId: $steam_id)]
         pub register_steam_account: Account,
-    }
-    
-    #[derive(cynic::QueryFragment, Debug)]
-    #[cynic(schema = "core_service", graphql_type = "QueryRoot", variables = "GetAccountVariables")]
-    pub struct GetAccount {
-        #[arguments(id: $id)]
-        pub account: Option<Account>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]

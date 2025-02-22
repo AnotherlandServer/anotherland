@@ -15,11 +15,11 @@
 
 use std::time::Duration;
 
-use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, prelude::{Changed, Commands, Component, Entity, IntoSystemConfigs, Or, Query, With, Without}, time::common_conditions::on_timer, utils::{HashMap, HashSet}};
+use bevy::{app::{App, Plugin, Update}, prelude::{Changed, Commands, Component, Entity, IntoSystemConfigs, Or, Query, With, Without}, time::common_conditions::on_timer, utils::HashMap};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
-use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, ParamWriter, Player};
-use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, OaPktS2xconnectionStateState, Physics};
+use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase, ParamWriter, Player};
+use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, Physics};
 use toolkit::types::{AvatarId, UUID_NIL};
 
 use super::{Active, AvatarInfo, ConnectionState, CurrentState, Movement, PlayerController, QuestEntity, QuestLog};
@@ -62,6 +62,7 @@ impl Interests {
 #[derive(Component)]
 pub struct BuildInterestList;
 
+#[allow(clippy::type_complexity)]
 fn enable_player_interest_building(
     players: Query<(Entity, &CurrentState), (Changed<CurrentState>, Without<BuildInterestList>)>,
     mut commands: Commands,
@@ -147,6 +148,7 @@ fn transmit_entities_to_players(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn update_interest_list(
     mut players: Query<(Entity, &GameObjectData, &Movement, &mut Interests, &PlayerController, &QuestLog), (With<PlayerTag>, With<BuildInterestList>)>,
     potential_interests: Query<(Entity, &Movement, &GameObjectData, Option<&QuestEntity>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
@@ -177,7 +179,7 @@ fn update_interest_list(
 
         // update interests
         for ent in &found_interests {
-            if !interests.contains(&ent) {
+            if !interests.contains(ent) {
                 interests.interests.insert(*ent, (
                     avatar_info.get(*ent).unwrap().id, 
                     InterestState::Initial

@@ -13,11 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{io, marker::PhantomData, net::ToSocketAddrs};
+use std::{io, marker::PhantomData};
 
 use log::debug;
 use tokio::sync::{mpsc::{self, Receiver, Sender}, Mutex};
-use zeromq::{util::PeerIdentity, DealerSocket, Socket, SocketRecv, SocketSend, ZmqMessage};
+use zeromq::{DealerSocket, Socket, SocketRecv, SocketSend, ZmqMessage};
 
 use crate::{identifier::Identifier, state::StateMessage, ClusterResult, Error, Notification, Request, Response};
 

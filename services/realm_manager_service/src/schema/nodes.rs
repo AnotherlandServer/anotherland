@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::{Context, Enum, Error, Object, OneofObject, SimpleObject, Union, ID};
+use async_graphql::{Context, Error, Object, SimpleObject, Union, ID};
 use toolkit::types::Uuid;
 
-use crate::{node_registry::{self, NodeRegistry, NodeSocketAddress}, proto::{self, NodeType}, NODE_REGISTRY};
+use crate::{node_registry::{self, NodeSocketAddress}, proto::NodeType, NODE_REGISTRY};
 
 #[derive(Default)]
 pub struct NodesRoot;

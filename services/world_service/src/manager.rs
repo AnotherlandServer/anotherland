@@ -13,21 +13,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::{HashMap, HashSet}, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
-use bevy::{app::{App, AppExit, Plugin, SubApp}, log::trace, MinimalPlugins};
+use bevy::{app::SubApp, log::trace};
 use chrono::{DateTime, Utc};
 use core_api::CoreApi;
 use futures_util::TryStreamExt;
 use log::{debug, error, info};
 use obj_params::OaZoneConfig;
-use protocol::CPkt;
-use realm_api::{proto::{InstanceKey, RealmClient, RealmRequest}, ObjectTemplate, RealmApi, WorldDef, Zone};
-use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, oneshot, Mutex, Semaphore}};
+use realm_api::{proto::{InstanceKey, RealmClient, RealmRequest}, RealmApi, WorldDef, Zone};
+use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, oneshot, Mutex}};
 use tokio_util::task::TaskTracker;
-use toolkit::types::{Uuid, UUID_NIL};
+use toolkit::types::Uuid;
 
-use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, object_cache::ObjectCache, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode, ARGS, OBJECT_CACHE};
+use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, object_cache::ObjectCache, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode, OBJECT_CACHE};
 
 struct PendingInstance {
     world_def: Arc<WorldDef>,

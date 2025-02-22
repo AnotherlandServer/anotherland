@@ -25,6 +25,8 @@ use toolkit::types::{AvatarId, Uuid};
 
 use crate::{param::{GenericParam, Param}, Attribute, AttributeInfo, Class, ParamFlag, ParamType, Value};
 
+pub type AttributeValue = (&'static dyn AttributeInfo, Value);
+
 pub trait GenericParamSet: Debug + Send + Sync {
     fn class(&self) -> Class;
 
@@ -37,12 +39,12 @@ pub trait GenericParamSet: Debug + Send + Sync {
     fn remove_param(&mut self, name: &str) -> Option<Value>;
 
     fn clear_changes(&mut self);
-    fn changes(&self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)>>;
+    fn changes(&self) -> Box<dyn Iterator<Item = AttributeValue>>;
     fn client_params(&self) -> Box<dyn GenericParamSet>;
     fn client_privileged_params(&self) -> Box<dyn GenericParamSet>;
 
     fn values<'a>(&'a self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, &'a Value)> + 'a>;
-    fn drain<'a>(&'a mut self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)> + 'a>;
+    fn drain<'a>(&'a mut self) -> Box<dyn Iterator<Item = AttributeValue> + 'a>;
 
     fn dyn_clone(&self) -> Box<dyn GenericParamSet>;
 }
@@ -71,7 +73,7 @@ impl <T: Attribute + 'static> Default for ParamSet<T> {
 
 impl <T: Attribute + 'static> ParamSet <T> {
     pub fn new() -> Self { Self { values: HashMap::new() }}
-    pub(crate) fn new_from_attributes(mut attributes: Vec<(&'static dyn AttributeInfo, Value)>) -> Self {
+    pub(crate) fn new_from_attributes(mut attributes: Vec<AttributeValue>) -> Self {
         let mut set = Self::new();
         set.values.reserve(attributes.len());
 
@@ -168,7 +170,7 @@ impl <T: Attribute + 'static> ParamSet <T> {
 }
 
 impl <T: Attribute + 'static> IntoIterator for ParamSet<T> {
-    type Item = (&'static dyn AttributeInfo, Value);
+    type Item = AttributeValue;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -242,7 +244,7 @@ impl <T: Attribute + 'static> GenericParamSet for ParamSet<T> {
         }
     }
 
-    fn changes(&self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)>> {
+    fn changes(&self) -> Box<dyn Iterator<Item = AttributeValue>> {
         Box::new(
             self.changes()
                 .into_iter()
@@ -281,7 +283,7 @@ impl <T: Attribute + 'static> GenericParamSet for ParamSet<T> {
         )
     }
 
-    fn drain<'a>(&'a mut self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)> + 'a> {
+    fn drain<'a>(&'a mut self) -> Box<dyn Iterator<Item = AttributeValue> + 'a> {
         Box::new(
             self.values.drain()
                 .map(|(a, p)| (a.static_info(), p.take()))
@@ -351,7 +353,7 @@ impl ParamWriter for dyn GenericParamSet {
     }
 }
 
-fn read_attribute(class: Class, i: &[u8]) -> IResult<&[u8], (&'static dyn AttributeInfo, Value), VerboseError<&[u8]>> {
+fn read_attribute(class: Class, i: &[u8]) -> IResult<&[u8], AttributeValue, VerboseError<&[u8]>> {
     let (i, attribute_id) = context("Attribute Id", number::complete::le_u16)(i)?;
     let attribute = match class.get_attribute_from_id(attribute_id) {
         Some(attribute) => attribute,
@@ -372,11 +374,12 @@ impl ParamReader for Box<dyn GenericParamSet> {
         context("ParamSet", |i| -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
             let (i, _) = context("Version", number::complete::le_u8)(i)?;
             let (i, count) = context("Param Count", number::complete::le_u16)(i)?;
-            let (i, attribs) = context("Attributes", multi::count((|class| {
+            let read_attribute_closure = |class| {
                 move |i: &'a [u8]| {
                     read_attribute(class, i)
                 }
-            })(class), count as usize))(i)?;
+            };
+            let (i, attribs) = context("Attributes", multi::count(read_attribute_closure(class), count as usize))(i)?;
 
             Ok((i, class.create_param_set(attribs)))
         })(i)
@@ -386,11 +389,12 @@ impl ParamReader for Box<dyn GenericParamSet> {
         context("ParamSet", |i| -> IResult<&'a [u8], Self, VerboseError<&'a [u8]>> {
             let (i, _) = context("Version", number::complete::le_u8)(i)?;
             let (i, count) = context("Param Count", number::complete::le_u16)(i)?;
-            let (i, attribs) = context("Attributes", multi::count((|class| {
+            let read_attribute_closure = |class| {
                 move |i: &'a [u8]| {
                     read_attribute(class, i)
                 }
-            })(class), count as usize))(i)?;
+            };
+            let (i, attribs) = context("Attributes", multi::count(read_attribute_closure(class), count as usize))(i)?;
 
             Ok((i, class.create_param_set(
                 attribs.into_iter()
@@ -553,7 +557,7 @@ impl <'de> DeserializeSeed<'de> for DynSetDeserializer {
         struct AttributeMapVisitor(Class);
 
         impl <'de> Visitor<'de> for AttributeMapVisitor {
-            type Value = Vec<(&'static dyn AttributeInfo, Value)>;
+            type Value = Vec<AttributeValue>;
         
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("attribute map")
@@ -771,16 +775,16 @@ impl GenericParamSet for NullParamSet {
     fn get_param(&self, _: &str) -> Option<&Value> { None }
     fn remove_param(&mut self, _: &str) -> Option<Value> { None }
     fn clear_changes(&mut self) {}
-    fn changes(&self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)>> { Box::new(empty()) }
+    fn changes(&self) -> Box<dyn Iterator<Item = AttributeValue>> { Box::new(empty()) }
     fn client_params(&self) -> Box<dyn GenericParamSet> { Box::new(NullParamSet) }
     fn client_privileged_params(&self) -> Box<dyn GenericParamSet> { Box::new(NullParamSet) }
     fn values<'a>(&'a self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, &'a Value)> + 'a> { Box::new(empty()) }
-    fn drain<'a>(&'a mut self) -> Box<dyn Iterator<Item = (&'static dyn AttributeInfo, Value)> + 'a> { Box::new(empty()) }
+    fn drain<'a>(&'a mut self) -> Box<dyn Iterator<Item = AttributeValue> + 'a> { Box::new(empty()) }
     fn dyn_clone(&self) -> Box<dyn GenericParamSet> { Box::new(NullParamSet) }
 }
 
-impl FromIterator<(&'static dyn AttributeInfo, Value)> for Box<dyn GenericParamSet> {
-    fn from_iter<T: IntoIterator<Item = (&'static dyn AttributeInfo, Value)>>(iter: T) -> Self {
+impl FromIterator<AttributeValue> for Box<dyn GenericParamSet> {
+    fn from_iter<T: IntoIterator<Item = AttributeValue>>(iter: T) -> Self {
         let attributes = iter.into_iter()
             .collect::<Vec<_>>();
 

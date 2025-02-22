@@ -15,7 +15,6 @@
 
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
-use futures::io::Cursor;
 use obj_params::{Class, GameObjectData};
 use object_placement_graphql::{BatchCreateObjectPlacements, BatchCreateObjectPlacementsVariables, CreateObjectPlacement, CreateObjectPlacementVariables, DeleteObjectPlacement, DeleteObjectPlacementVariables, GetObjectPlacement, GetObjectPlacementVariables, GetObjectPlacements, GetObjectPlacementsVariables, ObjectPlacementFilter, ObjectPlacementInput};
 use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
@@ -136,12 +135,12 @@ impl ObjectPlacement {
         })
     }
 
-    fn into_graphql<'a>(&'a self) -> ObjectPlacementInput<'a> {
+    fn as_graphql(&self) -> ObjectPlacementInput<'_> {
         ObjectPlacementInput {
-            id: self.id.into(),
-            zone_guid: self.zone_guid.into(),
+            id: self.id,
+            zone_guid: self.zone_guid,
             class: self.class,
-            content_guid: self.content_guid.into(),
+            content_guid: self.content_guid,
             editor_name: &self.editor_name,
             data: schema::Json(serde_json::to_value(&self.data).unwrap()),
             phase_tag: &self.phase_tag,
@@ -179,7 +178,7 @@ impl RealmApi {
         let response = self.0.client
             .post(self.0.base_url.clone())
             .run_graphql(CreateObjectPlacement::build(CreateObjectPlacementVariables {
-                input: placement.into_graphql()
+                input: placement.as_graphql()
             })).await?;
 
         if let Some(CreateObjectPlacement { create_object_placement }) = response.data {
@@ -196,7 +195,7 @@ impl RealmApi {
             .post(self.0.base_url.clone())
             .run_graphql(BatchCreateObjectPlacements::build(BatchCreateObjectPlacementsVariables {
                 input: placements.iter()
-                    .map(|placement| placement.into_graphql())
+                    .map(|placement| placement.as_graphql())
                     .collect()
             })).await?;
 
@@ -275,6 +274,7 @@ pub(crate) mod object_placement_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "DeleteObjectPlacementVariables")]
     pub struct DeleteObjectPlacement {
         #[arguments(id: $id)]
+        #[allow(dead_code)]
         pub delete_object_placement: Option<ObjectPlacement>,
     }
     
@@ -301,6 +301,7 @@ pub(crate) mod object_placement_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "BatchCreateObjectPlacementsVariables")]
     pub struct BatchCreateObjectPlacements {
         #[arguments(input: $input)]
+        #[allow(dead_code)]
         pub batch_create_object_placements: Vec<ObjectPlacement>,
     }
     

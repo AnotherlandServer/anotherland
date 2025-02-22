@@ -36,9 +36,7 @@ impl UserData for Vec3Wrapper {
         });
     }
 
-    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        
-    }
+    fn add_methods<M: mlua::UserDataMethods<Self>>(_methods: &mut M) {}
 }
 
 impl FromLua for Vec3Wrapper {
@@ -73,9 +71,7 @@ impl UserData for Vec4Wrapper {
         });
     }
 
-    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        
-    }
+    fn add_methods<M: mlua::UserDataMethods<Self>>(_methods: &mut M) {}
 }
 
 impl FromLua for Vec4Wrapper {
@@ -110,9 +106,7 @@ impl UserData for QuatWrapper {
         });
     }
 
-    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        
-    }
+    fn add_methods<M: mlua::UserDataMethods<Self>>(_methods: &mut M) {}
 }
 
 impl FromLua for QuatWrapper {

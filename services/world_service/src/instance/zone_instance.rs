@@ -240,9 +240,7 @@ impl ZoneInstanceBuilder {
                 FactionsPlugin,
                 DialoguePlugin,
                 CombatStylesPlugin,
-                InventoryPlugin {
-                    content_path: content_path.clone()
-                }
+                InventoryPlugin,
             ));
 
             app.add_plugins((

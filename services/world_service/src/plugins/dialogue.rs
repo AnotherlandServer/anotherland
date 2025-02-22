@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PreStartup}, prelude::{App, Commands, Entity, In, Query, Res, ResMut, With, World}};
+use bevy::{app::{Plugin, PreStartup}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
 use mlua::{Lua, Table};
 use obj_params::tags::PlayerTag;
 use protocol::{dialogStructure, oaDialogNode, oaPktDialogList, CPktStream_166_2};
@@ -74,11 +74,11 @@ fn lua_show_tutorial_message(
     Ok(())
 }
 
-fn lua_start_dialogue(lua: &Lua, (player, speaker, dialogue): (Table, Table, i32)) -> mlua::Result<()> {
+fn lua_start_dialogue(_lua: &Lua, (_player, _speaker, _dialogue): (Table, Table, i32)) -> mlua::Result<()> {
     todo!()
 }
 
-fn lua_finish_dialogue(lua: &Lua, player: Table) -> mlua::Result<()> {
+fn lua_finish_dialogue(_lua: &Lua, _player: Table) -> mlua::Result<()> {
     todo!()
 }
 
@@ -93,6 +93,6 @@ fn handle_dialogue_request(
         let Ok(player) = query.get(ent)
     {
         commands.entity(target_ent)
-            .call_named_lua_method("RequestDialogue", (player.script().clone()));
+            .call_named_lua_method("RequestDialogue", player.script().clone());
     }
 }

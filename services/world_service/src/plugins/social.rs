@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::{app::Plugin, prelude::{App, Entity, In, Query}};
-use protocol::{oaPktFriendRequest, CPkt, CPktStream_167_0};
+use protocol::{oaPktFriendRequest, CPktStream_167_0};
 
 use crate::plugins::NetworkExtPriv;
 

@@ -15,7 +15,6 @@
 
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use item_storage_graphql::{GetOrCreateStorage, GetOrCreateStorageVariables, GetStorage, GetStorageVariables, StorageDestroyItem, StorageDestroyItemVariables, StorageEquipItem, StorageEquipItemVariables, StorageInsertItem, StorageInsertItemVariables, StorageMoveItem, StorageMoveItemVariables, StorageUneqipItem, StorageUneqipItemVariables};
-use log::debug;
 use obj_params::{GameObjectData, GenericParamSet};
 use toolkit::{types::Uuid, NativeParam};
 
@@ -433,6 +432,7 @@ pub(crate) mod item_storage_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "StorageTransferItemVariables")]
     pub struct StorageTransferItem {
         #[arguments(id: $id, itemId: $item_id, newSlot: $new_slot, newStorage: $new_storage, tag: $tag)]
+        #[allow(dead_code)]
         pub storage_transfer_item: Vec<StorageResult>,
     }
 
@@ -440,6 +440,7 @@ pub(crate) mod item_storage_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "StorageSellItemVariables")]
     pub struct StorageSellItem {
         #[arguments(id: $id, itemId: $item_id, tag: $tag)]
+        #[allow(dead_code)]
         pub storage_sell_item: StorageResult,
     }
 
@@ -447,6 +448,7 @@ pub(crate) mod item_storage_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "StoragePurchaseItemVariables")]
     pub struct StoragePurchaseitem {
         #[arguments(baseItem: $base_item, id: $id, price: $price, tag: $tag)]
+        #[allow(dead_code)]
         pub storage_purchase_item: StorageResult,
     }
 
@@ -482,6 +484,7 @@ pub(crate) mod item_storage_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "StorageDepositBlingVariables")]
     pub struct StorageDepositBling {
         #[arguments(amount: $amount, id: $id, tag: $tag)]
+        #[allow(dead_code)]
         pub storage_deposit_bling: StorageResult,
     }
 

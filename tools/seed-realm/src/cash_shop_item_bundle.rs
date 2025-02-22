@@ -17,8 +17,7 @@ use std::{mem::take, path::Path};
 
 use indicatif::ProgressBar;
 use log::info;
-use obj_params::{Class, GameObjectData, GenericParamSet, ParamReader};
-use realm_api::{CashShopItemBundleBuilder, ObjectPlacementBuilder, RealmApi};
+use realm_api::{CashShopItemBundleBuilder, RealmApi};
 use tokio::runtime::Handle;
 
 use crate::{error::SeedRealmResult, MP};

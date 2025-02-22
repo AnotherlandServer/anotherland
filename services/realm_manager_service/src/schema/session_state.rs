@@ -16,12 +16,9 @@
 use std::sync::Arc;
 
 use async_graphql::{Context, Error, Object, SimpleObject};
-use core_api::CoreApi;
-use database::DatabaseRecord;
-use mongodb::{bson::doc, options::ReturnDocument, Database};
 use toolkit::types::Uuid;
 
-use crate::{db, session_manager::{self, SessionManager}, SESSION_MANAGER};
+use crate::{session_manager::{self}, SESSION_MANAGER};
 
 #[derive(Default)]
 pub struct SessionStateRoot;

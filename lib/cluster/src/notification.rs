@@ -13,11 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use flexbuffers::FlexbufferSerializer;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use zeromq::ZmqMessage;
-
-use crate::{Error, ClusterResult};
+use serde::{de::DeserializeOwned, Serialize};
 
 pub trait Notification: Serialize + DeserializeOwned  + Send{
     fn topic_name(&self) -> &'static str;

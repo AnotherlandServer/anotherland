@@ -18,7 +18,7 @@ use std::{mem::take, path::Path};
 use indicatif::ProgressBar;
 use log::info;
 use obj_params::{Class, GameObjectData, GenericParamSet, ParamReader};
-use realm_api::{Category, ObjectPlacementBuilder, ObjectTemplateBuilder, RealmApi};
+use realm_api::{Category, ObjectTemplateBuilder, RealmApi};
 use tokio::runtime::Handle;
 
 use crate::{error::SeedRealmResult, MP};

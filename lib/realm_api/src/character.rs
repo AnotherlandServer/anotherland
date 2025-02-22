@@ -245,7 +245,9 @@ pub(crate) mod character_graphql {
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct PremiumCurrencyBalance {
+        #[allow(dead_code)]
         pub account_id: Uuid,
+        #[allow(dead_code)]
         pub balance: i32,
     }
     
@@ -253,6 +255,7 @@ pub(crate) mod character_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "DeleteCharacterVariables")]
     pub struct DeleteCharacter {
         #[arguments(id: $id)]
+        #[allow(dead_code)]
         pub delete_character: Option<Character>,
     }
     

@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, Sender};
 use toolkit::types::Uuid;
 
-use crate::{db::Character, proto::{InstanceKey, NodeType, RealmResponse, RealmServer}, INSTANCE_REGISTRY, NODE_REGISTRY, SESSION_MANAGER};
+use crate::{db::Character, proto::{NodeType, RealmResponse, RealmServer}, NODE_REGISTRY, SESSION_MANAGER};
 
 #[derive(Clone)]
 pub struct ChatRouter(Sender<Message>);

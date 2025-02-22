@@ -256,6 +256,7 @@ fn begin_loading_sequence(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn spawn_player(
     mut query: Query<(Entity, &AvatarInfo, &Movement, &mut PlayerController, &mut CurrentState, Option<&InitialInventoryTransfer>), Changed<CurrentState>>,
     mut commands: Commands
@@ -287,6 +288,7 @@ fn spawn_player(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn save_player_data(
     query: Query<(&PlayerController, &GameObjectData), (Or<(Added<GameObjectData>, Changed<GameObjectData>)>, With<PlayerTag>)>,
     instance: Res<ZoneInstance>,
@@ -341,6 +343,7 @@ fn cmd_instant_kill(
     event.send(HealthUpdateEvent::kill(ent));
 }
 
+#[allow(clippy::type_complexity)]
 fn behavior_respawnnow(
     In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
     mut query: Query<(&PlayerController, &mut Movement), (With<PlayerTag>, Without<PortalTag>)>,
@@ -351,7 +354,7 @@ fn behavior_respawnnow(
 
     match mode.map(|s| s.as_str()) {
         Some("NearestPortal") => {
-            if let Ok((controller, mut movement)) = query.get_mut(ent) {
+            if let Ok((controller, _)) = query.get_mut(ent) {
                 event.send(HealthUpdateEvent::revive(ent, None));
 
                 if let Some(pos) = portals.iter().next() {

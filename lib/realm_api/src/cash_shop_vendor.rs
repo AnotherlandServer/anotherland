@@ -146,7 +146,7 @@ impl RealmApi {
             .post(self.0.base_url.clone())
             .run_graphql(BatchCreateCashShopVendors::build(BatchCreateCashShopVendorsVariables {
                 input: items.iter()
-                    .map(|item| <CashShopVendorInput<'_>>::try_from(item))
+                    .map(<CashShopVendorInput<'_>>::try_from)
                     .collect::<RealmApiResult<Vec<_>>>()?
             })).await?;
 
@@ -209,6 +209,7 @@ pub(crate) mod cash_shop_vendor_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "DeleteCashShopVendorVariables")]
     pub struct DeleteCashShopVendor {
         #[arguments(id: $id)]
+        #[allow(dead_code)]
         pub delete_cash_shop_vendor: Option<CashShopVendor>,
     }
 
@@ -223,6 +224,7 @@ pub(crate) mod cash_shop_vendor_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "BatchCreateCashShopVendorsVariables")]
     pub struct BatchCreateCashShopVendors {
         #[arguments(input: $input)]
+        #[allow(dead_code)]
         pub batch_create_cash_shop_vendors: Vec<CashShopVendor>,
     }
 

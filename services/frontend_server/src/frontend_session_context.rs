@@ -17,13 +17,12 @@ use std::net::{SocketAddr, SocketAddrV4};
 
 use bitstream_io::{ByteWriter, LittleEndian};
 use core_api::{CoreApi, Session};
-use log::{error, info, warn};
-use obj_params::{ParamWriter, Player};
+use log::{error, warn};
+use obj_params::ParamWriter;
 use protocol::{oaCharacter, oaPktCharacterDeleteSuccess, oaPktCharacterFailure, oaPktCharacterSelectSuccess, oaPktResponseSelectWorld, CPkt, CPktStream_126_1, CPktStream_126_5, OaPktCharacterFailureErrorCode, OaPktResponseSelectWorldErrorCode, OtherlandPacket};
 use raknet::{RakNetSocket, Reliability};
 use realm_api::{ClusterAddress, NodeType, RealmApi};
-use futures_util::TryStreamExt;
-use toolkit::{anyhow, types::Uuid};
+use toolkit::anyhow;
 
 use crate::error::FrontendError;
 
@@ -78,7 +77,7 @@ impl FrontendSessionContext {
 
     async fn handle(&mut self, pkt: CPkt, session: &Session) -> Result<(), FrontendError> {
         match pkt {
-            CPkt::oaPktRequestCharacterList(pkt) => {
+            CPkt::oaPktRequestCharacterList(_) => {
                 let realm_characters = self.realm_api.get_characters_for_account(
                     session.account().id()
                 ).await?;

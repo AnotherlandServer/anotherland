@@ -13,13 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::net::SocketAddr;
-
 use bson::doc;
 use database::{DBResult, DatabaseRecord};
 use mongodb::{options::IndexOptions, Database, IndexModel};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::serde_as;
 
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]

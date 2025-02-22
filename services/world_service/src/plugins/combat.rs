@@ -16,8 +16,7 @@
 use std::{sync::atomic::AtomicI32, time::Duration};
 
 use bevy::{app::{Plugin, PreUpdate, Update}, ecs::event::{Event, EventReader, EventWriter}, prelude::{Added, App, Changed, Commands, Component, Entity, In, IntoSystemConfigs, Mut, Or, Query, With}, time::common_conditions::on_timer};
-use log::debug;
-use obj_params::{tags::{EdnaContainerTag, EdnaReceptorTag, NonClientBaseTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, SpawnerTag, StructureTag, VehicleBaseTag}, GameObjectData, NonClientBase, Player};
+use obj_params::{tags::{EdnaContainerTag, EdnaReceptorTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, SpawnerTag, StructureTag, VehicleBaseTag}, GameObjectData, Player};
 use protocol::{oaPkt_Combat_HpUpdate, CPktTargetRequest};
 
 use super::{AvatarInfo, Interests, NetworkExtPriv, PlayerController};
@@ -65,6 +64,7 @@ impl HealthUpdateEvent {
         }
     }
 
+    #[allow(dead_code)]
     pub fn damage(entity: Entity, amount: i32) -> Self {
         Self { 
             entity, 
@@ -73,6 +73,7 @@ impl HealthUpdateEvent {
         }
     }
 
+    #[allow(dead_code)]
     pub fn heal(entity: Entity, amount: i32) -> Self {
         Self { 
             entity, 
@@ -97,6 +98,7 @@ impl HealthUpdateEvent {
         }
     }
 
+    #[allow(dead_code)]
     pub fn send(self, writer: &mut EventWriter<Self>) -> i32 {
         let id = self.id;
         writer.send(self);
@@ -122,12 +124,14 @@ pub struct Health {
 }
 
 #[derive(Component)]
+#[allow(dead_code)]
 pub struct Energy {
     pub min: i32,
     pub max: i32,
     pub current: i32,
 }
 
+#[allow(clippy::type_complexity)]
 fn init_health(
     query: Query<(Entity, &GameObjectData), Or<(
         Added<PlayerTag>, 
@@ -153,25 +157,6 @@ fn init_health(
     }
 }
 
-/*fn store_health(
-    query: Query<(Entity, &AvatarInfo, &Health), Changed<Health>>,
-    players: Query<(&PlayerController,&Interests)>,
-) {
-    for (ent, avatar, health) in query.iter() {
-        for (controller, interests) in players.iter() {
-            if avatar.id == controller.avatar_id() { // interests.contains(&ent) ||
-                debug!("Send HP update");
-
-                controller.send_packet(oaPkt_Combat_HpUpdate {
-                    avatar_id: avatar.id,
-                    hp: health.current,
-                    ..Default::default()
-                });
-            }
-        }
-    }
-}*/
-
 fn store_health(
     mut query: Query<(&mut GameObjectData, &Health), Changed<Health>>,
 ) {
@@ -183,12 +168,13 @@ fn store_health(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn process_health_events(
     mut events: EventReader<HealthUpdateEvent>,
     mut target: Query<(&AvatarInfo, &mut Health), Or<(With<PlayerTag>, With<NpcBaseTag>)>>,
     receivers: Query<(&PlayerController, &Interests)>,
 ) {
-    for (event, id) in events.read_with_id() {
+    for event in events.read() {
         if let Ok((avatar, mut health)) = target.get_mut(event.entity) {
             // Apply update
             match event.update {

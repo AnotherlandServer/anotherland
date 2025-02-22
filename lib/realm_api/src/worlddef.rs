@@ -75,7 +75,7 @@ impl WorldDef {
         })
     }
 
-    fn into_graphql<'a>(&'a self) -> WorldDefInput<'a> {
+    fn as_graphql(&self) -> WorldDefInput<'_> {
         WorldDefInput {
             id: self.id as i32,
             guid: self.guid,
@@ -196,7 +196,7 @@ impl RealmApi {
             .post(self.0.base_url.clone())
             .run_graphql(BatchCreateWorlddef::build(BatchCreateWorlddefVariables {
                 input: worlds.iter()
-                    .map(|worlddef| worlddef.into_graphql())
+                    .map(|worlddef| worlddef.as_graphql())
                     .collect()
             })).await?;
 
@@ -291,6 +291,7 @@ pub(crate) mod worlddef_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "BatchCreateWorlddefVariables")]
     pub struct BatchCreateWorlddef {
         #[arguments(input: $input)]
+        #[allow(dead_code)]
         pub batch_create_worlddefs: Vec<WorldDef>,
     }
 
@@ -298,6 +299,7 @@ pub(crate) mod worlddef_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "DeleteWorlddefVariables")]
     pub struct DeleteWorlddef {
         #[arguments(id: $id)]
+        #[allow(dead_code)]
         pub delete_worlddef: Option<WorldDef>,
     }
 

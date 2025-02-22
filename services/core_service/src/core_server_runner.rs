@@ -16,8 +16,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use cluster::PeerIdentity;
-
 use crate::proto::{CoreServer, CoreRequest};
 use crate::realm_status_registry::RealmStatusRegistry;
 

@@ -46,7 +46,7 @@ impl PremiumCurrencyMutationRoot {
 
         Ok(PremiumCurrencyBalance { 
             account_id,
-            balance: transaction.balance(),
+            balance: transaction.balance,
         })
     }
 }

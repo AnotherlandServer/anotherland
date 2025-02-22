@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use database::{DBResult, DatabaseError, DatabaseRecord};
-use mongodb::{bson::{doc, Bson}, error::{TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT}, options::{IndexOptions, ReadConcern, WriteConcern}, ClientSession, Database, IndexModel};
+use mongodb::{bson::doc, error::{TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT}, options::{IndexOptions, ReadConcern, WriteConcern}, ClientSession, Database, IndexModel};
 use serde::{Deserialize, Serialize};
 use toolkit::types::Uuid;
 

@@ -35,6 +35,7 @@ pub struct RecordCursor<T: RecordQuery> {
     records: VecDeque<T::Record>,
     at_end: bool,
     cursor: Option<String>,
+    #[allow(clippy::type_complexity)]
     pending_query: Option<BoxFuture<'static, Result<RecordPage<T::Record>, T::Error>>>,
 }
 

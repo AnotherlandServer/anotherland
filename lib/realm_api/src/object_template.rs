@@ -15,7 +15,6 @@
 
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
-use futures::io::Cursor;
 use obj_params::{Class, GameObjectData};
 use object_template_graphql::{BatchCreateObjectTemplates, BatchCreateObjectTemplatesVariables, CreateObjectTemplate, CreateObjectTemplateVariables, DeleteObjectTemplate, DeleteObjectTemplateVariables, GetObjectTemplate, GetObjectTemplateVariables, GetObjectTemplates, GetObjectTemplatesVariables, ObjectTemplateFilter, ObjectTemplateInput};
 use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
@@ -140,7 +139,7 @@ impl ObjectTemplate {
         })
     }
 
-    fn into_graphql(&self) -> ObjectTemplateInput {
+    fn as_graphql(&self) -> ObjectTemplateInput {
         ObjectTemplateInput {
             id: self.id,
             numeric_id: self.numeric_id,
@@ -182,7 +181,7 @@ impl RealmApi {
         let response = self.0.client
             .post(self.0.base_url.clone())
             .run_graphql(CreateObjectTemplate::build(CreateObjectTemplateVariables {
-                input: template.into_graphql()
+                input: template.as_graphql()
             })).await?;
 
         if let Some(CreateObjectTemplate { create_object_template }) = response.data {
@@ -199,7 +198,7 @@ impl RealmApi {
             .post(self.0.base_url.clone())
             .run_graphql(BatchCreateObjectTemplates::build(BatchCreateObjectTemplatesVariables {
                 input: templates.iter()
-                    .map(|template| template.into_graphql())
+                    .map(|template| template.as_graphql())
                     .collect()
             })).await?;
 
@@ -278,6 +277,7 @@ pub(crate) mod object_template_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "DeleteObjectTemplateVariables")]
     pub struct DeleteObjectTemplate {
         #[arguments(id: $id)]
+        #[allow(dead_code)]
         pub delete_object_template: Option<ObjectTemplate>,
     }
     
@@ -303,6 +303,7 @@ pub(crate) mod object_template_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "BatchCreateObjectTemplatesVariables")]
     pub struct BatchCreateObjectTemplates {
         #[arguments(input: $input)]
+        #[allow(dead_code)]
         pub batch_create_object_templates: Vec<ObjectTemplate>,
     }
     

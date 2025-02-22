@@ -28,6 +28,7 @@ pub enum AppError {
     Io(#[from] io::Error),
 
     #[error("verification failed")]
+    #[allow(dead_code)]
     Verification(&'static str),
 
     #[error("task paniced")]

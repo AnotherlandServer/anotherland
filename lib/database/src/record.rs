@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use mongodb::{bson::{self, doc, Document}, Collection, Cursor, Database};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use crate::DBResult;
 
 #[allow(async_fn_in_trait)]

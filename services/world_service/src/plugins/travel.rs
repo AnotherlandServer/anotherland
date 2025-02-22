@@ -38,6 +38,7 @@ impl Plugin for TravelPlugin {
 // away from this zone.
 pub struct Travelling;
 
+#[allow(dead_code)]
 struct JoinDungeon {
     avatar: AvatarId,
     map_name: String,
@@ -90,6 +91,7 @@ fn handle_join_dungeon(
     }
 }
 
+#[allow(dead_code)]
 struct LeaveDungeon {
     avatar: AvatarId,
     boolean: bool,
@@ -109,7 +111,7 @@ impl CommandMessage for LeaveDungeon {
 }
 
 fn handle_leave_dungeon(
-    In((ent, cmd)): In<(Entity, LeaveDungeon)>,
+    In((ent, _)): In<(Entity, LeaveDungeon)>,
     instance: Res<ZoneInstance>,
     players: Query<&PlayerController>,
 ) {
@@ -123,6 +125,7 @@ fn handle_leave_dungeon(
     }
 }
 
+#[allow(dead_code)]
 struct SocialTravel {
     avatar: AvatarId, 
     map_name: String, 

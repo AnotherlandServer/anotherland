@@ -127,7 +127,7 @@ impl ToValue for AvatarId {
 
 struct AvatarIdVisitor;
 
-impl<'de> Visitor<'de> for AvatarIdVisitor {
+impl Visitor<'_> for AvatarIdVisitor {
     type Value = AvatarId;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

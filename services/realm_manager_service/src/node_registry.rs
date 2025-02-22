@@ -16,13 +16,12 @@
 use std::{collections::HashMap, fmt::Display, net::SocketAddr, sync::Arc};
 
 use cluster::{ClusterEvent, PeerIdentity};
-use core_api::proto::{CoreClient, CoreRequest};
 use log::info;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast::{self, Receiver}, RwLock};
 use toolkit::types::Uuid;
 
-use crate::{instance_registry::InstanceRegistry, proto::{NodeAddress, NodeType, RealmNotification, RealmServer}};
+use crate::proto::{NodeType, RealmServer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum NodeSocketAddress {

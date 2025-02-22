@@ -17,27 +17,24 @@
 #![feature(exclusive_wrapper)]
 
 use instance::{InstanceLabel, ZoneSubApp};
-use obj_params::Player;
 use object_cache::ObjectCache;
-use plugins::{ControllerEvent, NetworkExt, NetworkPlugin};
+use plugins::{ControllerEvent, NetworkExt};
 use protocol::CPkt;
 
-use std::{collections::HashMap, hash::Hash, net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6}, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use anyhow::Error;
-use bevy::{app::{App, AppExit}, MinimalPlugins};
+use bevy::{app::App, MinimalPlugins};
 use clap::Parser;
-use cluster::{ClusterEvent, Endpoint, PeerIdentity};
+use cluster::{Endpoint, PeerIdentity};
 use core_api::CoreApi;
-use error::{WorldError, WorldResult};
-use futures_util::TryStreamExt;
-use log::{debug, error, info, warn};
+use error::WorldResult;
+use log::{debug, info, warn, error};
 use manager::{InstanceEvent, InstanceManager};
 use once_cell::sync::{Lazy, OnceCell};
 use proto::{ClusterMessage, WorldMessage, WorldRequest, WorldResponse, WorldServer};
-use realm_api::{proto::{InstanceKey, NodeAddress, NodeType, RealmClient, RealmNotification, RealmRequest, RealmResponse}, RealmApi, ZoneBuilder};
+use realm_api::{proto::{NodeAddress, NodeType, RealmClient, RealmNotification, RealmRequest, RealmResponse}, RealmApi};
 use reqwest::Url;
-use tokio::{runtime::Handle, select, signal, sync::{mpsc::{self, error::TryRecvError, unbounded_channel, Sender, UnboundedSender}, oneshot, Mutex}, task::LocalSet, time};
+use tokio::{select, signal, sync::{mpsc::{self, unbounded_channel, Sender, UnboundedSender}, oneshot}, time};
 use toolkit::{print_banner, types::Uuid};
 
 mod error;
@@ -83,7 +80,7 @@ fn handle_realm_events(manager: InstanceManager, mut notifications: mpsc::Receiv
                     debug!("Instance requested: {:?} {:?} {:?} {:?}", transaction_id, zone, key, valid_until);
                     let _ = manager.offer_instance(transaction_id, zone, key, valid_until).await;
                 },
-                RealmNotification::ClusterNotification(notification) => {
+                RealmNotification::ClusterNotification(_) => {
 
                 },
                 _ => unimplemented!(),
@@ -106,7 +103,7 @@ fn handle_realm_msgs(realm_client: Arc<RealmClient>, manager: InstanceManager) {
     });
 }
 
-fn handle_world_msgs(server: Arc<WorldServer>, realm_api: RealmApi, event_sender: UnboundedSender<InstanceEvent>, manager: InstanceManager) {
+fn handle_world_msgs(server: Arc<WorldServer>, _realm_api: RealmApi, event_sender: UnboundedSender<InstanceEvent>, _manager: InstanceManager) {
     tokio::spawn(async move {
         let mut controllers = HashMap::<Uuid, (PeerIdentity, Sender<ControllerEvent>)>::new();
         let (sender, mut receiver) = unbounded_channel();

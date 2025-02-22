@@ -15,7 +15,6 @@
 
 use bevy::math::Vec3;
 use cluster::{ClusterClient, ClusterServer, Notification, Request, Response};
-use protocol::CPkt;
 use serde::{Deserialize, Serialize};
 use toolkit::types::Uuid;
 
@@ -62,6 +61,7 @@ impl Notification for WorldNotification {
 }
 
 pub type WorldServer = ClusterServer<WorldRequest, WorldResponse, WorldNotification>;
+#[allow(dead_code)]
 pub type WorldClient = ClusterClient<WorldRequest, WorldResponse, WorldNotification>;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

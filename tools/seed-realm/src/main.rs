@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{ops::Mul, path::PathBuf};
+use std::path::PathBuf;
 
 use cash_shop_item::import_cash_shop_item;
 use cash_shop_item_bundle::import_cash_shop_item_bundles;
 use cash_shop_vendor::import_cash_shop_vendors;
-use clap::{command, Parser};
-use error::{SeedRealmError, SeedRealmResult};
+use clap::Parser;
+use error::SeedRealmResult;
 use indicatif::MultiProgress;
 use indicatif_log_bridge::LogWrapper;
 use log::info;

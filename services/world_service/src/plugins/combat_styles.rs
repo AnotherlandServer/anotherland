@@ -13,8 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, Update}, prelude::{Added, App, Query, With}};
-use log::debug;
+use bevy::{app::{Plugin, Update}, prelude::{Added, App, Query}};
 use obj_params::{tags::PlayerTag, GameObjectData, Player};
 use protocol::{HeavyData, HeavyDataCollection, HeavyDataEntry};
 

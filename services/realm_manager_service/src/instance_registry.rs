@@ -17,15 +17,12 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use chrono::{DateTime, TimeDelta, Utc};
 use cluster::PeerIdentity;
-use database::DatabaseRecord;
 use log::{error, info, warn};
-use mongodb::{bson::doc, Database};
-use obj_params::OaZoneConfig;
-use serde::{Deserialize, Serialize};
+use mongodb::Database;
 use tokio::sync::{broadcast, RwLock};
 use toolkit::{anyhow, types::Uuid};
 
-use crate::{db::{ObjectTemplate, Zone}, error::{RealmError, RealmResult}, node_registry::{NodeRegistry, NodeSocketAddress}, proto::{InstanceKey, RealmNotification, RealmResponse, RealmServer}, NODE_REGISTRY, SESSION_MANAGER};
+use crate::{error::RealmResult, proto::{InstanceKey, RealmNotification, RealmResponse, RealmServer}, NODE_REGISTRY, SESSION_MANAGER};
 
 struct InstanceRequest {
     key: InstanceKey,
@@ -41,7 +38,7 @@ enum InstanceRequestState {
 }
 
 struct InstanceRegistryData {
-    db: Database,
+    _db: Database,
     server: Arc<RealmServer>,
     requests: HashMap<Uuid, InstanceRequest>,
     instances: HashMap<InstanceKey, Arc<Instance>>,
@@ -53,7 +50,7 @@ pub struct InstanceRegistry(Arc<RwLock<InstanceRegistryData>>);
 impl InstanceRegistry {
     pub fn new(db: Database, server: Arc<RealmServer>) -> Self {
         let data = Arc::new(RwLock::new(InstanceRegistryData {
-            db,
+            _db: db,
             server,
             requests: HashMap::new(),
             instances: HashMap::new(),
@@ -64,7 +61,7 @@ impl InstanceRegistry {
                 loop {
                     {
                         let mut s = data.write().await;
-                        let timedout: Vec<(Uuid, InstanceRequest)> = s.requests.extract_if(|key, req| {
+                        let timedout: Vec<(Uuid, InstanceRequest)> = s.requests.extract_if(|_, req| {
                             Utc::now().signed_duration_since(req.valid_until)
                                 .num_milliseconds() >= 0
                         }).collect();

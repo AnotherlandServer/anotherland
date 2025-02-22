@@ -15,18 +15,17 @@
 
 use std::{collections::HashSet, sync::Arc};
 
-use async_graphql::Json;
-use cynic::serde::{Deserialize, Serialize};
 use database::DatabaseRecord;
 use log::debug;
-use mongodb::{bson::{self, bson, doc}, options::IndexOptions, ClientSession, IndexModel};
+use mongodb::{bson::{self, doc}, options::IndexOptions, ClientSession, IndexModel};
 use obj_params::{GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamSet, Player};
-use toolkit::{types::{Uuid, UUID_NIL}, GraphqlCrud};
+use serde::{Deserialize, Serialize};
+use toolkit::{types::Uuid, GraphqlCrud};
 use anyhow::anyhow;
 
 use crate::equipment_slots::EQUIPMENT_SLOTS;
 
-use super::{Item, ItemStorage, ObjectTemplate};
+use super::{ItemStorage, ObjectTemplate};
 
 #[derive(Serialize, Deserialize, GraphqlCrud)]
 #[graphql_crud(name = "character")]

@@ -17,8 +17,7 @@ use std::{mem::take, path::Path};
 
 use indicatif::ProgressBar;
 use log::info;
-use obj_params::{Class, GameObjectData, GenericParamSet, ParamReader};
-use realm_api::{CashShopItemBuilder, CashShopItemBundleBuilder, CashShopVendorBuilder, ObjectPlacementBuilder, RealmApi};
+use realm_api::{CashShopVendorBuilder, RealmApi};
 use tokio::runtime::Handle;
 use toolkit::types::Uuid;
 

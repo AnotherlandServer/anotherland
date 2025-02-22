@@ -27,12 +27,6 @@ use crate::error::WorldError;
 
 use super::{AvatarIdManager, AvatarInfo, NetworkExtPriv, PlayerController};
 
-#[derive(Debug)]
-pub enum Behavior {
-    String(String, Vec<String>),
-    Binary(String, NativeParam),
-}
-
 pub struct StringBehavior {
     pub name: String,
     pub args: Vec<String>,

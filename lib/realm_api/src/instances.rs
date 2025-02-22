@@ -72,7 +72,9 @@ pub(crate) mod instance_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct PublicAddress {
         pub __typename: String,
+        #[allow(dead_code)]
         pub ip: String,
+        #[allow(dead_code)]
         pub port: i32,
     }
 
@@ -87,7 +89,9 @@ pub(crate) mod instance_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct InternalAddress {
         pub __typename: String,
+        #[allow(dead_code)]
         pub ip: String,
+        #[allow(dead_code)]
         pub port: i32,
     }
 

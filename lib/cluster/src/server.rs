@@ -13,11 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::{HashMap, HashSet}, io::{self, Read}, marker::PhantomData, net::ToSocketAddrs, ops::Deref, sync::Arc, time::Duration};
+use std::{collections::{HashMap, HashSet}, io::{self}, marker::PhantomData, sync::Arc, time::Duration};
 
 use bytes::Bytes;
-use futures_util::{SinkExt, StreamExt};
-use log::{debug, info, warn};
+use futures_util::StreamExt;
+use log::{debug, info};
 use tokio::{sync::{broadcast::{self, Receiver}, mpsc, Mutex, RwLock}, time};
 use zeromq::{util::PeerIdentity, Endpoint, RouterSocket, Socket, SocketEvent, SocketRecv, SocketSend, ZmqMessage};
 

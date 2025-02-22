@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::{scalar, MergedObject};
+use async_graphql::MergedObject;
 use character_ext::{CharacterExtMutationRoot, CharacterExtRoot};
 use instances::{InstancesMutationRoot, InstancesRoot};
 use item_storage_ext::ItemStorageExtMutationRoot;

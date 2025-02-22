@@ -17,7 +17,6 @@ mod notification;
 use std::{fmt::{Debug, Display}, net::SocketAddr};
 
 use async_graphql::Enum;
-use chrono::{DateTime, Utc};
 pub use notification::*;
 
 use cluster::{ClusterClient, ClusterServer, Request, Response};
@@ -119,4 +118,5 @@ impl Display for NodeType {
 }
 
 pub type RealmServer = ClusterServer<RealmRequest, RealmResponse, RealmNotification>;
+#[allow(dead_code)]
 pub type RealmClient = ClusterClient<RealmRequest, RealmResponse, RealmNotification>;

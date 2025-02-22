@@ -304,7 +304,7 @@ impl RakNetWriter {
         let bit_size = self.bits_used() + bits_to_add;
 
         if self.bits_capacity() < self.bits_used() + bits_to_add {
-            self.buf.reserve((bit_size + 7) / 8 );
+            self.buf.reserve(bit_size.div_ceil(8));
         }
     }
 

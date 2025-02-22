@@ -191,6 +191,7 @@ pub(crate) mod session_graphql {
     #[cynic(schema = "core_service", graphql_type = "MutationRoot", variables = "DestroySessionVariables")]
     pub struct DestroySession {
         #[arguments(id: $id)]
+        #[allow(dead_code)]
         pub destroy_session: Session,
     }
     
@@ -198,6 +199,7 @@ pub(crate) mod session_graphql {
     #[cynic(schema = "core_service")]
     pub struct Session {
         pub account: Account,
+        #[allow(dead_code)]
         pub created: DateTime,
         pub id: Uuid,
         pub last_seen: DateTime,

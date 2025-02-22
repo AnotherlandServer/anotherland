@@ -62,7 +62,7 @@ async fn main() -> FrontendResult<()> {
     let realm_api = RealmApi::new(ARGS.service_realm_url.clone());
     let core_api = CoreApi::new(ARGS.service_core_url.clone());
 
-    let (realm_client, notifications) = RealmClient::connect(&ARGS.realm_zmq_addr).await
+    let (realm_client, _notifications) = RealmClient::connect(&ARGS.realm_zmq_addr).await
         .expect("failed to connect to realm zmq server");
 
     // subscribe to events

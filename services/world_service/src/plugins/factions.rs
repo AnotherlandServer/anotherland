@@ -13,10 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::Plugin, prelude::{App, Entity, In, Query}, utils::HashMap};
-use log::debug;
+use bevy::{app::Plugin, prelude::{App, Entity, In, Query}};
 use protocol::{oaPktFactionRequest, oaPktFactionResponse};
-use toolkit::{types::Uuid, NativeParam};
+use toolkit::NativeParam;
 
 use super::{NetworkExtPriv, PlayerController};
 
@@ -30,7 +29,7 @@ impl Plugin for FactionsPlugin {
 
 
 fn handle_faction_request(
-    In((ent, pkt)): In<(Entity, oaPktFactionRequest)>,
+    In((ent, _pkt)): In<(Entity, oaPktFactionRequest)>,
     query: Query<&PlayerController>,
 ) {
     if let Ok(controller) = query.get(ent) {

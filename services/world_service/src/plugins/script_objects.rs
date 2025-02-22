@@ -13,13 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Plugin, PreStartup, PreUpdate}, prelude::{Added, App, Commands, Entity, EntityWorldMut, In, IntoSystemConfigs, Query, Res, ResMut}};
-use log::{debug, error};
-use mlua::{Lua, Table, UserDataRef};
+use bevy::{app::{Plugin, PreUpdate}, prelude::{Added, App, Commands, Entity, EntityWorldMut, Query, ResMut}};
+use log::error;
 use obj_params::{Class, GameObjectData, NonClientBase};
-use scripting::{ApiType, LuaExt, LuaRuntime, ScriptApi, ScriptCommandsExt, Scripted};
+use scripting::{ApiType, LuaRuntime, ScriptApi, ScriptCommandsExt, Scripted};
 
-use crate::error::WorldResult;
 
 use super::{AvatarInfo, ContentInfo};
 

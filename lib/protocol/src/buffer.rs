@@ -16,7 +16,7 @@
 use std::ops::{Deref, DerefMut};
 
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
-use nom::{bytes::complete::{self, take}, combinator::{flat_map, map}, error::{context, VerboseError}, multi::length_count, number::{self, complete::le_u32}, IResult};
+use nom::{bytes::complete::take, combinator::flat_map, error::{context, VerboseError}, number::complete::le_u32, IResult};
 
 #[derive(Default, Clone, Debug)]
 pub struct OABuffer(Vec<u8>);

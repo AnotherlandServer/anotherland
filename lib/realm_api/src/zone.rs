@@ -13,14 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::future::Future;
-
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
-use futures::io::Cursor;
-use log::debug;
 use toolkit::{record_pagination::{RecordPage, RecordQuery, RecordCursor}, types::Uuid};
-use zone_graphql::{BatchCreateZones, BatchCreateZonesVariables, CreateZone, CreateZoneVariables, DeleteZone, DeleteZoneVariables, GetZone, GetZoneVariables, GetZones, GetZonesVariables, ZoneConnection, ZoneFilter, ZoneInput};
+use zone_graphql::{BatchCreateZones, BatchCreateZonesVariables, CreateZone, CreateZoneVariables, DeleteZone, DeleteZoneVariables, GetZone, GetZoneVariables, GetZones, GetZonesVariables, ZoneFilter, ZoneInput};
 
 use crate::{RealmApi, RealmApiError, RealmApiResult};
 
@@ -167,7 +163,7 @@ impl Zone {
         })
     }
 
-    fn into_graphql<'a>(&'a self) -> ZoneInput<'a> {
+    fn as_graphql(&self) -> ZoneInput<'_> {
         ZoneInput {
             id: self.id as i32,
             guid: self.guid,
@@ -215,7 +211,7 @@ impl RealmApi {
         let response = self.0.client
             .post(self.0.base_url.clone())
             .run_graphql(CreateZone::build(CreateZoneVariables {
-                input: zone.into_graphql()
+                input: zone.as_graphql()
             })).await?;
 
         if let Some(CreateZone { create_zone }) = response.data {
@@ -232,7 +228,7 @@ impl RealmApi {
             .post(self.0.base_url.clone())
             .run_graphql(BatchCreateZones::build(BatchCreateZonesVariables {
                 input: zones.iter()
-                    .map(|zone| zone.into_graphql())
+                    .map(|zone| zone.as_graphql())
                     .collect()
             })).await?;
 
@@ -320,6 +316,7 @@ pub(crate) mod zone_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "DeleteZoneVariables")]
     pub struct DeleteZone {
         #[arguments(id: $id)]
+        #[allow(dead_code)]
         pub delete_zone: Option<Zone>,
     }
     
@@ -334,6 +331,7 @@ pub(crate) mod zone_graphql {
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "BatchCreateZonesVariables")]
     pub struct BatchCreateZones {
         #[arguments(input: $input)]
+        #[allow(dead_code)]
         pub batch_create_zones: Vec<Zone>,
     }
     

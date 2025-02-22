@@ -17,7 +17,7 @@ use std::vec::IntoIter;
 
 use glam::f32::Vec3;
 use log::error;
-use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt};
+use mlua::{FromLua, IntoLua, LuaSerdeExt};
 use nom::{IResult, error::{VerboseError, context}, number::complete::{le_u8, le_f32, le_f64, le_i32, le_u64, le_u32, le_i64}, multi::count, bytes::complete::take, combinator::{map, fail}};
 
 use bitstream_io::{ByteWriter, LittleEndian, ByteWrite};
@@ -374,7 +374,7 @@ impl IntoLua for NativeParam {
 }
 
 impl FromLua for NativeParam {
-    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
+    fn from_lua(_value: mlua::Value, _lua: &mlua::Lua) -> mlua::Result<Self> {
         todo!()
     }
 }

@@ -19,9 +19,7 @@ use core_api::proto::CoreNotification;
 use serde::{Deserialize, Serialize};
 use toolkit::types::Uuid;
 
-use crate::node_registry::{Node, NodeSocketAddress};
-
-use super::NodeType;
+use crate::node_registry::Node;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RealmNotification {

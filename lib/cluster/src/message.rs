@@ -13,13 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::marker::PhantomData;
-
-use flexbuffers::FlexbufferSerializer;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use zeromq::{util::PeerIdentity, ZmqMessage};
-
-use crate::{Error, ClusterResult};
+use serde::{de::DeserializeOwned, Serialize};
 
 pub trait Request: Serialize + DeserializeOwned + Send {}
 pub trait Response: Serialize + DeserializeOwned + Send {}

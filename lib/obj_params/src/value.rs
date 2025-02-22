@@ -19,7 +19,7 @@ use std::{collections::{HashMap, HashSet}, io};
 use bitstream_io::ByteWrite;
 use glam::{Quat, Vec3, Vec4};
 use nom::{bytes::complete::take, combinator::{fail, map}, error::{context, VerboseError}, multi::{self, count}, number::{self, complete::{le_f32, le_i32, le_i64}}, IResult};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value as JsonValue;
 use toolkit::types::{AvatarId, Uuid};
 
