@@ -13,19 +13,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Last, Plugin, PostUpdate, Update}, math::{Quat, Vec3, VectorSpace}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
+use bevy::{app::{First, Last, Plugin, Update}, ecs::{event::EventWriter, query::Without}, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use log::{debug, error, trace, warn};
-use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, GameObjectData, GenericParamSet, NonClientBase, Param, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
-use protocol::{oaPktItemStorage, oaPktS2XConnectionState, CPkt, CPktAvatarUpdate, CPktBlob, ItemStorageParams, MoveManagerInit, OaPktItemStorageUpdateType, OaPktS2xconnectionStateState, OtherlandPacket, Physics, PhysicsState};
+use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, Class, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
+use protocol::{oaPktS2XConnectionState, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
 use realm_api::Character;
-use scripting::LuaRuntime;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use toolkit::{types::{Uuid, UUID_NIL}, OtherlandQuatExt};
+use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
 
 use crate::{instance::{InstanceState, ZoneInstance}, plugins::{Active, ForeignResource}, proto::TravelMode};
 
-use super::{clear_obj_changes, init_gameobjects, AvatarIdManager, AvatarInfo, ConnectionState, ContentInfo, CurrentState, InitialInventoryTransfer, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction};
+use super::{clear_obj_changes, init_gameobjects, AvatarInfo, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction, StringBehavior};
 
 pub struct PlayerPlugin;
 
@@ -48,6 +47,10 @@ impl Plugin for PlayerPlugin {
         ));
         
         app.register_message_handler(handle_avatar_update);
+
+        app.register_command("instantKill", cmd_instant_kill);
+
+        app.register_string_behavior(Class::Player, "respawnnow", behavior_respawnnow);
     }
 }
 
@@ -331,3 +334,34 @@ pub fn handle_avatar_update(
     }
 }
 
+fn cmd_instant_kill(
+    In((ent, _)): In<(Entity, Vec<NativeParam>)>,
+    mut event: EventWriter<HealthUpdateEvent>
+) {
+    event.send(HealthUpdateEvent::kill(ent));
+}
+
+fn behavior_respawnnow(
+    In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
+    mut query: Query<(&PlayerController, &mut Movement), (With<PlayerTag>, Without<PortalTag>)>,
+    portals: Query<&Movement, (With<PortalTag>, Without<PlayerTag>)>,
+    mut event: EventWriter<HealthUpdateEvent>
+) {
+    let mode = behavior.args.first();
+
+    match mode.map(|s| s.as_str()) {
+        Some("NearestPortal") => {
+            if let Ok((controller, mut movement)) = query.get_mut(ent) {
+                event.send(HealthUpdateEvent::revive(ent, None));
+
+                if let Some(pos) = portals.iter().next() {
+                    controller.send_packet(
+                        ServerAction::LocalPortal(controller.avatar_id(), pos.clone()).into_pkt()
+                    );
+                }
+            }
+        },
+        Some(m) => warn!("Unknown respawn mode: {}", m),
+        None => (),
+    }
+}

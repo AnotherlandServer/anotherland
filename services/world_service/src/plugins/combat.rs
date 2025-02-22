@@ -13,10 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
+use std::{sync::atomic::AtomicI32, time::Duration};
 
-use bevy::{app::{Plugin, PreUpdate, Update}, prelude::{Added, App, Changed, Commands, Component, Entity, In, IntoSystemConfigs, Mut, Or, Query, With}, time::common_conditions::on_timer};
-use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase, Player};
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::event::{Event, EventReader, EventWriter}, prelude::{Added, App, Changed, Commands, Component, Entity, In, IntoSystemConfigs, Mut, Or, Query, With}, time::common_conditions::on_timer};
+use log::debug;
+use obj_params::{tags::{EdnaContainerTag, EdnaReceptorTag, NonClientBaseTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, SpawnerTag, StructureTag, VehicleBaseTag}, GameObjectData, NonClientBase, Player};
 use protocol::{oaPkt_Combat_HpUpdate, CPktTargetRequest};
 
 use super::{AvatarInfo, Interests, NetworkExtPriv, PlayerController};
@@ -28,9 +29,78 @@ impl Plugin for CombatPlugin {
         app.register_message_handler(handle_ability_request);
         app.add_systems(PreUpdate, init_health);
         app.add_systems(Update, (
-            sync_health,
+            process_health_events,
+            store_health.after(process_health_events),
             update_energy.run_if(on_timer(Duration::from_secs(1))),
         ));
+
+        app.add_event::<HealthUpdateEvent>();
+    }
+}
+
+static LAST_HEALTH_UPDATE_ID: AtomicI32 = AtomicI32::new(0);
+
+#[derive(Event)]
+pub struct HealthUpdateEvent {
+    entity: Entity,
+    id: i32,
+    update: HealthUpdateType,
+}
+
+pub enum HealthUpdateType {
+    Damage(i32),
+    Heal(i32),
+    Kill,
+    Revive(Option<i32>),
+}
+
+impl HealthUpdateEvent {
+    fn next_id() -> i32 {
+        loop {
+            // Avoid id 0 if LAST_HEALTH_UPDATE_ID wraps around
+            let id = LAST_HEALTH_UPDATE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if id != 0 {
+                break id;
+            }
+        }
+    }
+
+    pub fn damage(entity: Entity, amount: i32) -> Self {
+        Self { 
+            entity, 
+            id: Self::next_id(), 
+            update: HealthUpdateType::Damage(amount.max(0)),
+        }
+    }
+
+    pub fn heal(entity: Entity, amount: i32) -> Self {
+        Self { 
+            entity, 
+            id: Self::next_id(), 
+            update: HealthUpdateType::Heal(amount.max(0)),
+        }
+    }
+
+    pub fn kill(entity: Entity) -> Self {
+        Self { 
+            entity, 
+            id: Self::next_id(), 
+            update: HealthUpdateType::Kill,
+        }
+    }
+
+    pub fn revive(entity: Entity, hitpoints: Option<i32>) -> Self {
+        Self { 
+            entity, 
+            id: Self::next_id(), 
+            update: HealthUpdateType::Revive(hitpoints),
+        }
+    }
+
+    pub fn send(self, writer: &mut EventWriter<Self>) -> i32 {
+        let id = self.id;
+        writer.send(self);
+        id
     }
 }
 
@@ -45,9 +115,10 @@ fn handle_ability_request(
 
 #[derive(Component)]
 pub struct Health {
-    pub min: i32,
-    pub max: i32,
-    pub current: i32,
+    min: i32,
+    max: i32,
+    current: i32,
+    alive: bool,
 }
 
 #[derive(Component)]
@@ -58,28 +129,39 @@ pub struct Energy {
 }
 
 fn init_health(
-    query: Query<(Entity, &GameObjectData), Or<(Added<PlayerTag>, Added<NonClientBaseTag>)>>,
+    query: Query<(Entity, &GameObjectData), Or<(
+        Added<PlayerTag>, 
+        Added<VehicleBaseTag>,
+        Added<StructureTag>,
+        Added<SpawnerTag>,
+        Added<EdnaContainerTag>,
+        Added<EdnaReceptorTag>,
+        Added<NpcOtherlandTag>,
+    )>>,
     mut commands: Commands,
 ) {
     for (ent, obj) in query.iter() {
         if 
-            let Ok(&current) = obj.get_named::<i32>("hpCur") &&
             let Ok(&min) = obj.get_named::<i32>("hpMin") &&
-            let Ok(&max) = obj.get_named::<i32>("hpMax")
+            let Ok(&max) = obj.get_named::<i32>("hpMax") &&
+            let Ok(&current) = obj.get_named_or_default::<i32>("hpCur", &max) && 
+            let Ok(&alive) = obj.get_named_or_default::<bool>("alive", &true)
         {
             commands.entity(ent)
-                .insert(Health { min, max, current });
+                .insert(Health { min, max, current, alive });
         }
     }
 }
 
-fn sync_health(
+/*fn store_health(
     query: Query<(Entity, &AvatarInfo, &Health), Changed<Health>>,
-    players: Query<(&PlayerController, &Interests)>,
+    players: Query<(&PlayerController,&Interests)>,
 ) {
     for (ent, avatar, health) in query.iter() {
         for (controller, interests) in players.iter() {
-            if interests.contains(&ent) || avatar.id == controller.avatar_id() {
+            if avatar.id == controller.avatar_id() { // interests.contains(&ent) ||
+                debug!("Send HP update");
+
                 controller.send_packet(oaPkt_Combat_HpUpdate {
                     avatar_id: avatar.id,
                     hp: health.current,
@@ -87,6 +169,71 @@ fn sync_health(
                 });
             }
         }
+    }
+}*/
+
+fn store_health(
+    mut query: Query<(&mut GameObjectData, &Health), Changed<Health>>,
+) {
+    for (mut obj, health) in query.iter_mut() {
+        obj.set_named("hpCur", health.current);
+        obj.set_named("hpMax", health.max);
+        obj.set_named("hpMin", health.min);
+        obj.set_named("alive", health.alive);
+    }
+}
+
+fn process_health_events(
+    mut events: EventReader<HealthUpdateEvent>,
+    mut target: Query<(&AvatarInfo, &mut Health), Or<(With<PlayerTag>, With<NpcBaseTag>)>>,
+    receivers: Query<(&PlayerController, &Interests)>,
+) {
+    for (event, id) in events.read_with_id() {
+        if let Ok((avatar, mut health)) = target.get_mut(event.entity) {
+            // Apply update
+            match event.update {
+                HealthUpdateType::Damage(amount) => {
+                    health.current = (health.current - amount)
+                        .clamp(health.min, health.max);
+
+                    if health.current <= health.min {
+                        health.alive = false;
+                    }
+                },
+                HealthUpdateType::Heal(amount) => {
+                    if health.alive {
+                        health.current = (health.current + amount)
+                            .clamp(health.min, health.max);
+                    }
+                },
+                HealthUpdateType::Kill => {
+                    health.current = health.min;
+                    health.alive = false;
+                },
+                HealthUpdateType::Revive(hitpoints) => {
+                    if !health.alive {
+                        health.current = hitpoints.unwrap_or(
+                            (health.max - health.min) / 4 + health.min
+                        ).clamp(health.min + 1, health.max);
+
+                        health.alive = true;
+                    }
+                },
+            }
+
+            let pkt = oaPkt_Combat_HpUpdate {
+                avatar_id: avatar.id,
+                hp: health.current,
+                id: event.id,
+                ..Default::default()
+            };
+
+            for (controller, interests) in receivers.iter() {
+                if interests.contains(&event.entity) || avatar.id == controller.avatar_id() {
+                    controller.send_packet(pkt.clone());
+                }
+            }
+        };
     }
 }
 
@@ -98,7 +245,7 @@ fn update_energy(
         if current < max {
             let mut regen = *obj.get::<_, f32>(Player::AttributeEnergyRegen).unwrap();
             if regen == 0.0 {
-                regen = 0.1;
+                regen = 1.0;
             }
 
             let new = (current + regen).min(max);
