@@ -13,431 +13,722 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::VecDeque, fs, iter::repeat_n, path::PathBuf, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, Update}, ecs::system::SystemId, prelude::{Added, App, BuildChildren, Changed, Commands, Component, DetectChangesMut, Entity, Event, In, IntoSystemConfigs, Or, ParamSet, Parent, Query, Res, Resource, With}, reflect::List, tasks::{block_on, futures_lite::future, IoTaskPool, Task}, time::common_conditions::on_timer, utils::hashbrown::HashMap};
+use bevy::{app::{Last, Plugin, PostUpdate, Update}, ecs::{component::Component, query::Without, system::{Resource, SystemId}}, prelude::{Added, App, BuildChildren, Changed, Commands, DetectChangesMut, Entity, In, IntoSystemConfigs, Or, Parent, Query, Res, With}, time::common_conditions::on_timer, utils::hashbrown::{HashMap, HashSet}};
 use bitstream_io::{ByteWriter, LittleEndian};
-use derive_builder::Builder;
-use log::debug;
-use obj_params::{tags::{ItemBaseTag, PlayerTag}, EdnaFunction, GameObjectData, GenericParamSet, ItemBase, ParamReader, ParamWriter, Player};
-use protocol::{oaPktItemStorage, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
-use realm_api::ObjectTemplate;
-use saphyr::Yaml;
+use futures::future::join_all;
+use log::{debug, error, warn};
+use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, GameObjectData, GenericParamSet, ParamWriter, Player};
+use protocol::{oaPktItemStorage, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
+use realm_api::{Item, ItemRef, StorageOwner};
+use serde::Deserialize;
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, object_cache::CacheEntry};
+use crate::{error::WorldResult, instance::ZoneInstance, object_cache::CacheEntry, OBJECT_CACHE};
 
-use super::{CommandExtPriv, ConnectionState, ContentInfo, CurrentState, PlayerController};
+use super::{BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, PlayerController, StringBehavior};
 
-pub struct InventoryPlugin {
-    pub content_path: PathBuf,
+#[derive(Resource)]
+#[allow(clippy::type_complexity)]
+struct InventorySystems {
+    insert_item_storage: SystemId<In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>)>)>>>,
+    apply_storage_result: SystemId<In<(Entity, StorageResult)>>,
+    apply_equipment_result: SystemId<In<(Entity, EquipmentResult)>>,
 }
+
+#[derive(Default)]
+struct EquipmentResult {
+    error: Option<(String, Option<NativeParam>)>,
+    character_update: Option<Box<dyn GenericParamSet>>,
+    storage_results: Vec<StorageResult>,
+}
+
+impl EquipmentResult {
+    pub async fn from_result(result: realm_api::EquipmentResult) -> WorldResult<Self> {
+        let storage_results = join_all(result.storage_results.into_iter()
+            .map(StorageResult::from_result)
+            .collect::<Vec<_>>()
+        ).await.into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            error: result.error,
+            character_update: result.character_update,
+            storage_results,
+        })
+    }
+}
+
+#[derive(Default)]
+struct StorageResult {
+    storage_id: Uuid,
+    bling: Option<i32>,
+    game_cash: Option<i32>,
+    changed_items: Option<Vec<(Item, Arc<CacheEntry>)>>,
+    removed_items: Option<Vec<Uuid>>,
+    error: Option<(String, Option<NativeParam>)>,
+}
+
+impl StorageResult {
+    pub async fn from_result(result: realm_api::StorageResult) -> WorldResult<Self> {
+        let changed_items = if let Some(changed_items) = result.changed_items {
+            Some(
+                join_all(changed_items.into_iter()
+                    .map(|item| async {
+                        if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
+                            Ok((item, base_item))
+                        } else {
+                            Err(anyhow!("Failed to load item template {}", item.template_id))
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                ).await.into_iter()
+                .collect::<Result<Vec<_>, _>>()?
+            )
+        } else {
+            None
+        };
+
+        Ok(Self {
+            storage_id: result.storage_id,
+            bling: result.bling,
+            game_cash: result.game_cash,
+            changed_items,
+            removed_items: result.removed_items,
+            error: result.error,
+        })
+    }
+}
+
+#[derive(Resource, Default)]
+struct StorageRegistry(HashMap<Uuid, Entity>);
+
+pub struct InventoryPlugin;
 
 impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(
-            ItemManagement::from_file(self.content_path.join("misc/item_management.yaml"))
-                .expect("failed to parse item slot definitions")
-        );
+        let inventory_systems = InventorySystems {
+            insert_item_storage: app.register_system(insert_item_storage),
+            apply_storage_result: app.register_system(apply_storage_result),
+            apply_equipment_result: app.register_system(apply_equipment_result),
+        };        
+
+        app.insert_resource(inventory_systems);
+        app.init_resource::<StorageRegistry>();
 
         app.add_systems(PostUpdate, load_player_inventory);
         app.add_systems(Update, (
             (
                 init_client_inventory,
-                send_initial_items.run_if(on_timer(Duration::from_secs(1)))
+                send_initial_items.run_if(on_timer(Duration::from_secs(1))),
             ).chain(),
-            process_async_item_insert
         ));
         app.add_systems(Last, send_item_updates);
 
         app.register_command("add_item", command_add_item);
-    }
-}
+        app.register_command("apply_item_template", command_apply_class_preset);
 
-#[derive(Component)]
-struct AsyncItemInsert {
-    player: Entity,
-    task: Task<Option<Arc<CacheEntry>>>,
-}
+        app.register_string_behavior(Class::Player, "inventoryitempos", behavior_inventory_item_pos);
+        app.register_string_behavior(Class::Player, "requestdiscarditem", behavior_inventory_discard_item);
+        app.register_string_behavior(Class::Player, "requestequip", behavior_inventory_request_equip);
+        app.register_string_behavior(Class::Player, "requestunequip", behavior_inventory_request_unequip);        
 
-#[derive(Resource)]
-pub struct ItemManagement {
-    slot_types: HashMap<String, Arc<SlotType>>,
-    equipment_types: HashMap<String, Arc<EquipmentType>>,
-}
+        app.world_mut().register_component_hooks::<Inventory>()
+            .on_add(|mut world, entity, _| {  
+                let storage_id = world.get_entity(entity).unwrap().get::<Inventory>().unwrap().id;
+                let mut registry = world.get_resource_mut::<StorageRegistry>().unwrap();
 
-#[derive(Builder)]
-#[builder(private)]
-pub struct SlotType {
-    name: String,
-    total_slots: usize,
-}
-
-#[derive(Builder)]
-#[builder(private)]
-pub struct EquipmentType { 
-    name: String,
-    slot_type: Arc<SlotType>,
-    slots: Vec<usize>,
-    te_ratio: f32,
-    weight: f32,
-    group: Option<String>,
-    tick_order: i32,
-    is_base_appearance: bool,
-}
-
-impl ItemManagement {
-    pub fn from_file(path: impl Into<PathBuf>) -> WorldResult<Self> {
-        let docs = Yaml::load_from_str(
-            &String::from_utf8(
-                    fs::read(path.into())
-                    .map_err(anyhow::Error::new)?
-                )
-                .map_err(anyhow::Error::new)?
-        ).map_err(anyhow::Error::new)?;
-
-        if let Yaml::Hash(doc) = &docs[0] {
-            let mut slot_types = HashMap::new();
-            let mut equipment_types = HashMap::new();
-
-            for (k, v) in doc {
-                match k.as_str() {
-                    Some("slotTypes") => {
-                        if let Some(yaml_slot_types) = v.as_vec() {
-                            for yaml_slot in yaml_slot_types {
-                                let yaml_slot = yaml_slot.as_hash()
-                                    .ok_or(anyhow!("slot types must be a hash map"))?;
-                                let mut slot_type_builder = SlotTypeBuilder::create_empty();
-
-                                for (k, v) in yaml_slot {
-                                    match k.as_str() {
-                                        Some("name") => {
-                                            slot_type_builder.name(
-                                                v.as_str().ok_or(anyhow!("slot type name must be a string"))?
-                                                .to_string()
-                                            );
-                                        },
-                                        Some("totalSlots") => {
-                                            slot_type_builder.total_slots(
-                                                v.as_i64().ok_or(anyhow!("slot type name must be an integer"))?
-                                                as usize
-                                            );
-                                        },
-                                        _ => {},
-                                    }
-                                }
-
-                                let slot_type = slot_type_builder.build()
-                                    .map_err(anyhow::Error::new)?;
-                                slot_types.insert(slot_type.name.clone(), Arc::new(slot_type));
-                            }
-                        }
-                    },
-                    Some("equipmentTypes") => {
-                        if let Some(yaml_equipment_types) = v.as_vec() {
-                            for yaml_eq_type in yaml_equipment_types {
-                                let yaml_eq_type = yaml_eq_type.as_hash()
-                                    .ok_or(anyhow!("equipment types must be a hash map"))?;
-                                let mut equipment_type_builder = EquipmentTypeBuilder::create_empty();
-
-                                for (k, v) in yaml_eq_type {
-                                    match k.as_str() {
-                                        Some("name") => {
-                                            equipment_type_builder.name(
-                                                v.as_str().ok_or(anyhow!("equipment type name must be a string"))?
-                                                .to_string()
-                                            );
-                                        },
-                                        Some("slotType") => {
-                                            let slot_type_name = v.as_str()
-                                                .ok_or(anyhow!("slot type must be a string"))?;
-
-                                            equipment_type_builder.slot_type(
-                                                slot_types.get(slot_type_name)
-                                                    .ok_or(anyhow!("slot type '{}' not found", slot_type_name))?
-                                                    .clone()
-                                            );
-                                        },
-                                        Some("slots") => {
-                                            if v.is_integer() {
-                                                equipment_type_builder.slots(
-                                                    vec![v.as_i64().unwrap() as usize]
-                                                );
-                                            } else if v.is_array() {
-                                                equipment_type_builder.slots(
-                                                    v.as_vec().unwrap()
-                                                        .iter()
-                                                        .filter(|v| v.is_integer())
-                                                        .map(|v| v.as_i64().unwrap() as usize)
-                                                        .collect()
-                                                );
-                                            } else {
-                                                return Err(anyhow!("slots must be an integer or integer array").into());
-                                            }
-                                        },
-                                        Some("teRatio") => {
-                                            equipment_type_builder.te_ratio(
-                                                v.as_f64()
-                                                .ok_or(anyhow!("te ratio must be a float"))?
-                                                as f32
-                                            );
-                                        },
-                                        Some("weight") => {
-                                            equipment_type_builder.weight(
-                                                v.as_f64()
-                                                .ok_or(anyhow!("weight must be a float"))?
-                                                as f32
-                                            );
-                                        },
-                                        Some("group") => {
-                                            equipment_type_builder.group(
-                                                v.as_str()
-                                                .map(|s| s.to_string())
-                                            );
-                                        },
-                                        Some("tickOrder") => {
-                                            equipment_type_builder.tick_order(
-                                                v.as_i64()
-                                                .ok_or(anyhow!("weight must be an integer"))?
-                                                as i32
-                                            );
-                                        },
-                                        Some("isBaseAppearance") => {
-                                            equipment_type_builder.is_base_appearance(
-                                                v.as_bool()
-                                                .ok_or(anyhow!("weight must be a boolean"))?
-                                            );
-                                        },
-                                        _ => {},
-                                    }
-                                }
-
-                                let equipment_type = equipment_type_builder.build()
-                                    .map_err(anyhow::Error::new)?;
-                                equipment_types.insert(equipment_type.name.clone(), Arc::new(equipment_type));
-                            }
-                        }
-                    },
-                    _ => {},
-                }
-            }
-
-            Ok(Self {
-                slot_types,
-                equipment_types,
+                registry.0.insert(storage_id, entity);
             })
-        } else {
-            Err(WorldError::Other(anyhow!("unknown slot definition format")))
-        }
-    }
+            .on_remove(|mut world, entity, _| {
+                let storage_id = world.get_entity(entity).unwrap().get::<Inventory>().unwrap().id;
+                let mut registry = world.get_resource_mut::<StorageRegistry>().unwrap();
 
-    pub fn get_slot_type(&self, name: &str) -> Option<Arc<SlotType>> {
-        self.slot_types.get(name).cloned()
-    }
-
-    pub fn get_equipment_type(&self, name: &str) -> Option<Arc<EquipmentType>> {
-        self.equipment_types.get(name).cloned()
+                registry.0.remove(&storage_id);
+            });
     }
 }
 
-#[derive(Clone)]
-pub enum SlotEntry {
-    Empty,
-    Item(Entity),
-}
-
-pub enum Soma {
-    
-}
+#[allow(dead_code)]
+struct CharacterPreset {
+    combat_style: Option<i32>,
+    level: Option<i32>,
+    level_up_skills: Option<bool>,
+    weapons: Vec<Arc<CacheEntry>>,
+    armors: Vec<Arc<CacheEntry>>,
+    qboost: Vec<Arc<CacheEntry>>,
+} 
 
 #[derive(Component)]
 pub struct Inventory {
     id: Uuid,
     name: String,
 
-    id_lookup: HashMap<Uuid, Entity>,
-
-    equipped_items: Vec<Entity>,
-    misc_items: Vec<Entity>,
-    quest_items: Vec<Entity>,
-    cash_items: Vec<Entity>,
-    schema_items: Vec<Entity>,
+    items: HashMap<Uuid, Entity>,
 
     bling: Option<i32>,
+    game_cash: Option<i32>,
     max_slots: i32,
+
+    observing_players: HashSet<Entity>,
 }
 
 impl Inventory {
-    fn new(id: Uuid, name: String, bling: Option<i32>, max_slots: i32) -> Self {
+    fn new(id: Uuid, name: String, bling: Option<i32>, game_cash: Option<i32>, max_slots: i32) -> Self {
         Self {
             id,
             name,
-            id_lookup: HashMap::new(),
-
-            equipped_items: Vec::new(),
-            misc_items: Vec::new(),
-            quest_items: Vec::new(),
-            cash_items: Vec::new(),
-            schema_items: Vec::new(),
+            items: HashMap::new(),
 
             bling,
+            game_cash,
             max_slots,
+
+            observing_players: HashSet::new(),
         }
     }
 }
 
 fn load_player_inventory(
-    query: Query<(Entity, &GameObjectData, &PlayerController), Added<PlayerTag>>,
+    query: Query<(Entity, &PlayerController), Added<PlayerTag>>,
     instance: Res<ZoneInstance>,
+    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
-    for (ent, obj, controller) in query.iter() {
-        commands
-            .entity(ent)
-            .insert(
-                Inventory::new(
-                    Uuid::new(),
-                    "inventory".to_string(),
-                    obj.get(Player::Bling).ok().cloned(),
-                    *obj.get(Player::InventorySize).unwrap()
-                )
+    for (ent, controller) in query.iter() {
+        let realm_api = instance.realm_api.clone();
+        let character_id = controller.character_id();
+
+        commands.run_system_async(async move {
+            let storage = realm_api.get_or_create_item_storage(StorageOwner::Character(character_id), "inventory").await?;
+            let mut items = vec![];
+
+            // Load cached item templates
+            for item in storage.items {
+                if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
+                    items.push((item, base_item));
+                }
+            }
+
+            let mut inventory = Inventory::new(
+                storage.id, 
+                storage.name, 
+                storage.bling, 
+                storage.game_cash,
+                storage.capacity,
             );
 
-        // For now, each player get's a sword
-        let controller = controller.clone();
-        let object_cache = instance.object_cache.clone();
+            inventory.observing_players.insert(ent);
 
-        instance.spawn_task(async move {
-            let obj = object_cache.get_object_by_name("2H_Sword0003Default0004").await.unwrap().unwrap();
-            let mut item = GameObjectData::instantiate(&obj.data);
+            Ok((ent, inventory, items))
+        }, systems.insert_item_storage);
+    }
+}
 
-            item.set(EdnaFunction::ContainerId, 1i32);
-            item.set(EdnaFunction::InventorySlotIndex, -1i32);
-            item.set(EdnaFunction::SlotId, 0i32);
+#[allow(clippy::type_complexity)]
+fn insert_item_storage(
+    In(result): In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>)>)>>,
+    ents: Query<Entity>,
+    mut player: Query<&mut GameObjectData, With<PlayerTag>>,
+    mut commands: Commands,
+) {
+    match result {
+        Ok((ent, mut storage, items)) => {
+            if let Ok(mut player) = player.get_mut(ent) {
+                player.set(Player::Bling, storage.bling.unwrap_or(0));
+                player.set(Player::GameCash, storage.game_cash.unwrap_or(0));
+            }
 
-            let mut writer = ByteWriter::<Vec<u8>, LittleEndian>::new(vec![]);
-            item.write_to_client(&mut writer).unwrap();
+            if let Ok(ent) = ents.get(ent) {
+                for (item, template) in items {
+                    let mut instance = item.instance;
+                    instance.set_parent(Some(template.data.clone()));
 
-            debug!("Sending test item");
+                    let item_ent = commands.spawn((
+                        ContentInfo {
+                            placement_id: item.id,
+                            template: template.clone(),
+                        },
+                        instance,
+                    ))
+                    .set_parent(ent)
+                    .id();
 
-            controller.send_packet(CPktItemUpdate {
-                id: Uuid::new(),
-                avatar_id: controller.avatar_id(),
-                class_id: item.class().id() as u32,
-                use_template: 1,
-                template_id: Some(obj.id),
-                params: writer.writer().to_vec(),
-                ..Default::default()
-            });
-        });
+                    storage.items.insert(item.id, item_ent);
+                }
 
+                commands.entity(ent)
+                    .insert((
+                        InitialInventoryTransfer(
+                            storage.items.values().copied().collect()
+                        ),
+                        storage,
+                    ));
+            }
+        },
+        Err(e) => {
+            error!("Failed to load player inventory: {}", e);
+        }
     }
 }
 
 fn command_add_item(
     In((ent, args)): In<(Entity, Vec<NativeParam>)>,
+    storage: Query<&Inventory>,
     instance: Res<ZoneInstance>,
+    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
     let mut args = args.into_iter();
 
-    if let Some(NativeParam::String(item_name)) = args.next() {
-        let object_cache = instance.object_cache.clone();
+    if 
+        let Some(NativeParam::String(item_name)) = args.next() &&
+        let Ok(storage) = storage.get(ent)
+    {
+        let realm_api = instance.realm_api.clone();
+        let storage_id = storage.id;
 
+        commands.run_system_async(async move {
+            debug!("Try inserting item {}", item_name);
 
-        commands.spawn(AsyncItemInsert {
-            player: ent,
-            task: IoTaskPool::get()
-                .spawn(async move {
-                    object_cache.get_object_by_name(&item_name).await
-                        .ok()
-                        .flatten()
-                })
-        });
-        //debug!("{} {} {} {}", item_name, container, inv_slot, slot);
+            match realm_api.item_storage_access(&storage_id)
+                .insert_item(ItemRef::Name(&item_name), Some(ent.to_string()))
+                .await
+            {
+                Ok(res) => {
+                    match StorageResult::from_result(res).await {
+                        Ok(result) => (ent, result),
+                        Err(e) => {
+                            error!("Failed to insert item: {}", e);
+                            (ent, StorageResult::default())
+                        }
+                    }
+                },
+                Err(e) => {
+                    warn!("Failed to insert item: {}", e);
+                    (ent, StorageResult::default())
+                }
+            }
 
-        /*instance.handle.spawn(async move {
-            let obj = object_cache.get_object_by_name(&item_name).await.unwrap().unwrap();
-            let mut item = GameObjectData::instantiate(&obj.data);
-
-            item.set(ItemBase::ContainerId, container.parse::<i32>().unwrap_or_default());
-            item.set(ItemBase::InventorySlotIndex, inv_slot.parse::<i32>().unwrap_or_default());
-            item.set(ItemBase::SlotId, slot.parse::<i32>().unwrap_or_default());
-
-            let mut params = Vec::new();
-            let mut writer = ByteWriter::endian(&mut params, LittleEndian);
-            item.write_to_client(&mut writer).unwrap();
-            
-            debug!("Sending test item");
-            debug!("{:#?}", Box::<dyn GenericParamSet>::from_slice(item.class(), &params));
-
-            controller.send_packet(CPktItemUpdate {
-                id: Uuid::new(),
-                avatar_id: controller.avatar_id(),
-                class_id: item.class().id() as u32,
-                use_template: 1,
-                template_id: Some(obj.id),
-                params,
-                ..Default::default()
-            });
-        });*/
+        }, systems.apply_storage_result);
     }
 }
 
-fn process_async_item_insert(
-    mut tasks: Query<(Entity, &mut AsyncItemInsert)>,
-    mut inventories: Query<&mut Inventory>,
-    items: Query<&GameObjectData, With<ItemBaseTag>>,
-    mut commands: Commands,
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct DefaultEquipment {
+    #[serde(rename = "CombatStyle")]
+    combat_style: Option<i32>,
+
+    #[serde(rename = "Level")]
+    level: Option<i32>,
+
+    #[serde(rename = "levelUpSkills")]
+    level_up_skills: Option<bool>,
+
+    #[serde(rename = "Weapons")]
+    weapons: Vec<String>,
+
+    #[serde(rename = "QBoost")]
+    qboost: Option<String>,
+
+    #[serde(rename = "Armors")]
+    armors: Vec<String>,
+
+    #[serde(rename = "Abilities")]
+    abilities: Vec<String>,
+}
+
+#[allow(clippy::type_complexity)]
+fn command_apply_class_preset(
+    In((_ent, _args)): In<(Entity, Vec<NativeParam>)>,
+    mut _players: Query<&mut Inventory>,
+    _instance: Res<ZoneInstance>,
+    _systems: Res<InventorySystems>,
+    mut _commands: Commands,
 ) {
-    for (ent, mut task) in tasks.iter_mut() {
-        if let Some(item) = block_on(future::poll_once(&mut task.task)) {
-            if 
-                let Some(item) = item &&
-                let Ok(mut inventory) = inventories.get_mut(task.player)
-            {
-                let inventory_tab = if *item.data.get::<_, bool>(ItemBase::IsQuestItem).unwrap() {
-                    &mut inventory.quest_items
-                } else if *item.data.get::<_, bool>(ItemBase::IsRecipe).unwrap() {
-                    &mut inventory.schema_items
-                } else {
-                    &mut inventory.misc_items
-                };
+    /*let mut args = args.into_iter();
 
-                let mut instance = GameObjectData::instantiate(&item.data);
-                instance.set(ItemBase::ContainerId, 0i32);
-                instance.set(ItemBase::SlotId, -1i32);
-
-                let mut last_index = -1;
-
-                // Look for a free slot
-                for ent in inventory_tab {
-                    if let Ok(item) = items.get(*ent) {
-                        let index = item.get::<_, i32>(ItemBase::InventorySlotIndex).copied().unwrap_or_default();
-                        if index > last_index + 1 {
-                            break;
-                        }
-
-                        last_index = index;
-                    }
-                }
-
-                instance.set(ItemBase::InventorySlotIndex, last_index + 1);
-
-                let item = commands.spawn((
-                    instance,
-                    ContentInfo {
-                        placement_id: Uuid::new(),
-                        template: item,
-                    }
-                )).id();
-
-                commands.entity(task.player)
-                    .add_child(item);
+    if let Some(NativeParam::String(template_name)) = args.next() {
+        // Delete current equipment
+        if let Ok(mut inventory) = players.get_mut(ent) {
+            for item_ent in inventory.equipped_items.drain(..).collect::<Vec<_>>() {
+                commands.entity(item_ent).despawn();
+                inventory.id_lookup.retain(|_, v| *v != item_ent);
             }
 
-            commands.entity(ent).despawn();
+            for item_ent in inventory.costume_items.drain(..).collect::<Vec<_>>() {
+                commands.entity(item_ent).despawn();
+                inventory.id_lookup.retain(|_, v| *v != item_ent);
+            }
+        }
+
+        let object_cache = instance.object_cache.clone();
+
+        commands.run_system_async(
+            IoTaskPool::get()
+            .spawn(async move {
+                if 
+                    let Some (preset) = object_cache.get_object_by_name(&template_name).await
+                        .ok()
+                        .flatten() &&
+                    let Some(default_equipment) = preset.data.get::<_, Value>(ClassItem::DefaultEquipment).ok()
+                        .and_then(|v| serde_json::from_value::<DefaultEquipment>(v.clone()).ok())
+                {
+                    let weapons = 
+                        join_all(
+                            default_equipment.weapons.iter()
+                            .map(|name| object_cache.get_object_by_name(name))
+                            .collect::<Vec<_>>()
+                        ).await
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .collect::<Vec<_>>();
+
+                    let armors = 
+                        join_all(
+                            default_equipment.armors.iter()
+                            .map(|name| object_cache.get_object_by_name(name))
+                            .collect::<Vec<_>>()
+                        ).await
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .collect::<Vec<_>>();
+
+                    (ent, Some(CharacterPreset {
+                        combat_style: default_equipment.combat_style,
+                        level: default_equipment.level,
+                        level_up_skills: default_equipment.level_up_skills,
+                        weapons,
+                        armors,
+                        qboost: vec![],
+                    }))
+                } else { 
+                    (ent, None)
+                }
+            }), 
+            systems.apply_character_preset
+        );
+    }*/
+}
+
+#[allow(dead_code)]
+fn apply_character_preset(
+    In((_ent, preset)): In<(Entity, Option<CharacterPreset>)>,
+    _instance: Res<ZoneInstance>,
+    mut _commands: Commands,
+) {
+    if let Some(_preset) = preset {
+        /*let default_equipment = preset.data.get::<_, Value>(ClassItem::DefaultEquipment).unwrap();
+        let mut items = vec![];
+
+        if let Some(Value::Array(weapons)) = default_equipment.get("Weapons") {
+            for weapon in weapons {
+                items.push(weapon.as_str().unwrap().to_string());
+            }
+        }
+        
+        if let Some(Value::Array(armors)) = default_equipment.get("Armors") {
+            for armor in armors {
+                items.push(armor.as_str().unwrap().to_string());
+            }
+        }
+
+        for item in items {
+            let object_cache = instance.object_cache.clone();
+
+            debug!("Loading item {}", item);
+
+            commands.spawn(AsyncItemInsert {
+                player: task.player,
+                destination: ItemInsertDestination::Equipment,
+                task: IoTaskPool::get()
+                    .spawn(async move {
+                        object_cache.get_object_by_name(&item).await
+                            .ok()
+                            .flatten()
+                    })
+            });
+        }*/
+    }
+}
+
+fn behavior_inventory_item_pos(
+    In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
+    inventories: Query<&Inventory>,
+    instance: Res<ZoneInstance>,
+    systems: Res<InventorySystems>,
+    mut commands: Commands,
+) {
+    let mut args = behavior.args.into_iter();
+
+    if 
+        let Some(item_id) = args.next().and_then(|arg| arg.parse::<Uuid>().ok()) &&
+        let Some(slot) = args.next().and_then(|arg| arg.parse::<i32>().ok()) &&
+        let Ok(storage) = inventories.get(ent)
+    {
+        let realm_api = instance.realm_api.clone();
+        let storage_id = storage.id;
+
+        commands.run_system_async(async move {
+            if let Ok(res) = realm_api.item_storage_access(&storage_id)
+                .move_item(item_id, slot, Some(ent.to_string()))
+                .await
+            {
+                match StorageResult::from_result(res).await {
+                    Ok(result) => (ent, result),
+                    Err(e) => {
+                        error!("Failed to move item: {}", e);
+                        (ent, StorageResult::default())
+                    }
+                }
+            } else {
+                (ent, StorageResult::default())
+            }
+
+        }, systems.apply_storage_result);
+    }
+}
+
+fn behavior_inventory_discard_item(
+    In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
+    inventories: Query<&Inventory>,
+    instance: Res<ZoneInstance>,
+    systems: Res<InventorySystems>,
+    mut commands: Commands,
+) {
+    let mut args = behavior.args.into_iter();
+
+    if 
+        let Some(item_id) = args.next().and_then(|arg| arg.parse::<Uuid>().ok()) &&
+        let Ok(storage) = inventories.get(ent)
+    {
+        let realm_api = instance.realm_api.clone();
+        let storage_id = storage.id;
+
+        commands.run_system_async(async move {
+            if let Ok(res) = realm_api.item_storage_access(&storage_id)
+                .destroy_item(item_id, Some(ent.to_string()))
+                .await
+            {
+                match StorageResult::from_result(res).await {
+                    Ok(result) => (ent, result),
+                    Err(e) => {
+                        error!("Failed to discard item: {}", e);
+                        (ent, StorageResult::default())
+                    }
+                }
+            } else {
+                (ent, StorageResult::default())
+            }
+
+        }, systems.apply_storage_result);
+    }
+}
+
+fn behavior_inventory_request_equip(
+    In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
+    inventories: Query<&Inventory>,
+    instance: Res<ZoneInstance>,
+    systems: Res<InventorySystems>,
+    mut commands: Commands,
+) {
+    let mut args = behavior.args.into_iter();
+
+    if 
+        let Some(item_id) = args.next().and_then(|arg| arg.parse::<Uuid>().ok()) &&
+        let Some(slot) = args.next().and_then(|arg| arg.parse::<i32>().ok()) &&
+        let Ok(storage) = inventories.get(ent)
+    {
+        let realm_api = instance.realm_api.clone();
+        let storage_id = storage.id;
+
+        commands.run_system_async(async move {
+            if let Ok(res) = realm_api.item_storage_access(&storage_id)
+                .equip_item(item_id, if slot != -1 { Some(slot) } else { None }, Some(ent.to_string()))
+                .await
+            {
+                match EquipmentResult::from_result(res).await {
+                    Ok(result) => (ent, result),
+                    Err(e) => {
+                        error!("Failed to equip item: {}", e);
+                        (ent, EquipmentResult::default())
+                    }
+                }
+            } else {
+                (ent, EquipmentResult::default())
+            }
+
+        }, systems.apply_equipment_result);
+    }
+}
+
+fn behavior_inventory_request_unequip(
+    In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
+    inventories: Query<&Inventory>,
+    instance: Res<ZoneInstance>,
+    systems: Res<InventorySystems>,
+    mut commands: Commands,
+) {
+    let mut args = behavior.args.into_iter();
+
+    if 
+        let Some(item_id) = args.next().and_then(|arg| arg.parse::<Uuid>().ok()) &&
+        let Ok(storage) = inventories.get(ent)
+    {
+        let realm_api = instance.realm_api.clone();
+        let storage_id = storage.id;
+
+        commands.run_system_async(async move {
+            if let Ok(res) = realm_api.item_storage_access(&storage_id)
+                .unequip_item(item_id, Some(ent.to_string()))
+                .await
+            {
+                match EquipmentResult::from_result(res).await {
+                    Ok(result) => (ent, result),
+                    Err(e) => {
+                        error!("Failed to unequip item: {}", e);
+                        (ent, EquipmentResult::default())
+                    }
+                }
+            } else {
+                (ent, EquipmentResult::default())
+            }
+
+        }, systems.apply_equipment_result);
+    }
+}
+
+fn apply_equipment_result(
+    In((instigator, result)): In<(Entity, EquipmentResult)>,
+    mut players: Query<(&mut GameObjectData, &PlayerController), With<PlayerTag>>,
+    systems: Res<InventorySystems>,
+    mut commands: Commands,
+) {
+    if let Ok((mut player, controller)) = players.get_mut(instigator) {
+        if let Some(err) = result.error {
+            controller.send_message(MessageType::PopUp, err.0);
+        }
+
+        if let Some(mut character_update) = result.character_update {
+            player.apply(character_update.as_mut());
+        }
+
+        for storage_result in result.storage_results {
+            commands.run_system_with_input(systems.apply_storage_result, (instigator, storage_result));
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_storage_result(
+    In((instigator, result)): In<(Entity, StorageResult)>,
+    mut storages: Query<&mut Inventory>,
+    controllers: Query<&PlayerController>,
+    mut players: Query<&mut GameObjectData, (With<PlayerTag>, Without<ItemBaseTag>)>,
+    observers: Query<&PlayerController>,
+    mut items: Query<&mut GameObjectData, (With<ItemBaseTag>, Without<PlayerTag>)>,
+    registry: Res<StorageRegistry>,
+    mut commands: Commands,
+) {
+    let (storage_ent, mut storage) = if 
+        let Some(storage_ent) = registry.0.get(&result.storage_id) &&
+        let Ok(storage) = storages.get_mut(*storage_ent)
+    {
+        (*storage_ent, storage)
+    } else {
+        return;
+    };
+
+    if let Some(err) = result.error {
+        if let Ok(controller) = controllers.get(instigator) {
+            controller.send_message(MessageType::PopUp, err.0);
+        }
+    } else {
+        if let Some(bling) = result.bling {
+            storage.bling = Some(bling);
+
+            if let Ok(mut player) = players.get_mut(storage_ent) {
+                player.set(Player::Bling, bling);
+            }
+        }
+
+        if let Some(game_cash) = result.game_cash {
+            storage.game_cash = Some(game_cash);
+
+            if let Ok(mut player) = players.get_mut(storage_ent) {
+                player.set(Player::GameCash, game_cash);
+            }
+        }
+
+        if let Some(changed_items) = result.changed_items {
+            for (item, template) in changed_items {
+                let mut instance = item.instance;
+                instance.set_parent(Some(template.data.clone()));
+
+                let mut data = Vec::new();
+                {
+                    let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+                    instance.write_to_privileged_client(&mut writer).unwrap();
+                }
+
+                for observer in &storage.observing_players {
+                    if let Ok(controller) = observers.get(*observer) 
+                    {
+                        controller.send_packet(CPktItemUpdate {
+                            avatar_id: controller.avatar_id(),
+                            id: item.id,
+                            use_template: 1,
+                            template_id: Some(item.template_id),
+                            class_id: instance.class().id() as u32,
+                            params: data.clone(),
+                            ..Default::default()
+                        });
+                    }
+                }  
+
+                if 
+                    let Some(item_ent) = storage.items.get(&item.id) &&
+                    let Ok(mut item_data) = items.get_mut(*item_ent)
+                {
+                    item_data.bypass_change_detection().apply(instance.into_set().as_mut());
+                } else {
+                    let item_ent = commands.spawn((
+                        ContentInfo {
+                            placement_id: item.id,
+                            template: template.clone(),
+                        },
+                        instance,
+                    ))
+                    .set_parent(storage_ent)
+                    .id();
+
+                    storage.items.insert(item.id, item_ent);
+                }
+            }
+        }
+
+        if let Some(removed_items) = result.removed_items {
+            for item in removed_items {
+                if let Some(item_ent) = storage.items.remove(&item) {
+                    for observer in &storage.observing_players {
+                        if let Ok(controller) = observers.get(*observer) 
+                        {
+                            controller.send_packet(CPktItemNotify {
+                                avatar_id: controller.avatar_id(),
+                                id: item,
+                                ..Default::default()
+                            });
+                        }
+                    }                    
+                    
+                    commands.entity(item_ent).despawn();
+                }
+            }
         }
     }
 }
@@ -453,7 +744,7 @@ fn init_client_inventory(
             storage_id: Uuid::new(),
             update_type: OaPktItemStorageUpdateType::Unknown004,
             data: ItemStorageParams {
-                storage_name: "inventory".to_string(),
+                storage_name: inventory.name.clone(),
                 storage_size: inventory.max_slots,
                 bling_amount: inventory.bling
                     .unwrap_or(-1),
@@ -470,7 +761,8 @@ fn send_initial_items(
     mut commands: Commands,
 ) {
     for (entity, controller, mut queue, mut state) in transfer_queues.iter_mut() {
-        for item_ent in queue.0.drain(..10) {
+        let count = queue.0.len().min(10);
+        for item_ent in queue.0.drain(..count) {
             if let Ok((content, item)) = items.get(item_ent) {
                 let mut data = Vec::new();
                 {
@@ -506,9 +798,10 @@ fn send_initial_items(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn send_item_updates(
     item_updates: Query<(&GameObjectData, &ContentInfo, &Parent), Or<((Changed<GameObjectData>, With<ItemBaseTag>), Added<ItemBaseTag>)>>,
-    players: Query<&PlayerController>,
+    players: Query<&PlayerController, Without<InitialInventoryTransfer>>,
 ) {
     for (item, content, player) in item_updates.iter() {
         if let Ok(ctrl) = players.get(player.get()) {
