@@ -16,13 +16,12 @@
 use std::sync::Arc;
 
 use bevy::app::SubApp;
-use tokio::task::JoinSet;
 use toolkit::types::Uuid;
-
-use crate::error::WorldError;
 
 use super::{InstanceLabel, InstanceShutdown, ZoneConfig, ZoneInstance};
 
+
+#[allow(dead_code)]
 pub trait ZoneSubApp {
     fn zone_instance(&self) -> &ZoneInstance;
     fn zone_id(&self) -> Uuid;

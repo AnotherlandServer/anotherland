@@ -15,7 +15,7 @@
 
 use bevy::{app::{Last, Plugin, PostUpdate}, prelude::{Changed, DetectChangesMut, Entity, Query}};
 use bitstream_io::{ByteWriter, LittleEndian};
-use log::{debug, trace};
+use log::trace;
 use obj_params::{GameObjectData, GenericParamSet, ParamFlag, ParamWriter};
 use protocol::CPktAvatarUpdate;
 

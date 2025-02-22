@@ -15,11 +15,11 @@
 
 use std::{collections::VecDeque, str::FromStr};
 
-use bevy::{app::Plugin, ecs::system::SystemId, prelude::{App, Commands, Component, Entity, In, IntoSystem, Query, Res, Resource, System, World}, utils::hashbrown::HashMap};
-use log::{error, warn};
+use bevy::{app::Plugin, ecs::system::{Resource, SystemId}, prelude::{App, Commands, Entity, In, IntoSystem, Query, Res}, utils::hashbrown::HashMap};
+use log::warn;
 use mlua::{Function, IntoLua, MultiValue, Table};
 use obj_params::{Class, GameObjectData};
-use protocol::{oaPktAvatarTellBehavior, oaPktAvatarTellBehaviorBinary, CPkt};
+use protocol::{oaPktAvatarTellBehavior, oaPktAvatarTellBehaviorBinary};
 use scripting::{ScriptCommandsExt, Scripted};
 use toolkit::NativeParam;
 
@@ -77,6 +77,7 @@ impl Plugin for BehaviorPlugin {
     }
 }
 
+#[allow(dead_code)]
 pub trait BehaviorExt {
     fn register_string_behavior<T: IntoSystem<BehaviorArguments<StringBehavior>, (), Marker> + 'static, Marker>(&mut self, class: Class, name: &str, system: T) -> &mut Self;
     fn register_binary_behavior<T: IntoSystem<BehaviorArguments<BinaryBehavior>, (), Marker> + 'static, Marker>(&mut self, class: Class, name: &str, system: T) -> &mut Self;
