@@ -13,21 +13,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{net::Shutdown, sync::Arc};
+use std::sync::Arc;
 
-use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::system::SystemId, prelude::{in_state, Commands, Component, DespawnRecursiveExt, Entity, Event, EventReader, In, IntoSystem, IntoSystemConfigs, Mut, NonSendMut, Query, RemovedComponents, Res, ResMut, Resource, With, World}, utils::HashMap};
+use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::{component::Component, system::Resource}, prelude::{in_state, Commands, DespawnRecursiveExt, Entity, In, IntoSystem, IntoSystemConfigs, Query, RemovedComponents, Res, ResMut, With}, utils::HashMap};
 use core_api::Session;
 use log::{debug, error, warn};
 use obj_params::{GameObjectData, Player};
-use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClientToClusterNode, oaPktClusterClientToCommunication, oaPktClusterClientToCommunity, oaPktClusterNodeToClient, oaPktS2XConnectionState, oaPktServerAction, CPkt, CPktGameMsg, CPktResourceNotify, CpktGameMsgMsgType, CpktResourceNotifyResourceType, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
-use realm_api::{proto::Destination, RealmApi, SessionState};
+use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClientToClusterNode, oaPktClusterClientToCommunication, oaPktClusterClientToCommunity, oaPktClusterNodeToClient, oaPktS2XConnectionState, CPkt, CPktGameMsg, CPktResourceNotify, CpktGameMsgMsgType, CpktResourceNotifyResourceType, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
+use realm_api::SessionState;
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use toolkit::{types::{AvatarId, Uuid}, NativeParam};
 use crate::{instance::{InstanceLabel, InstanceShutdown}, proto::TravelRejectReason};
 
 use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, proto::TravelMode};
 
-use super::{ForeignResource, ServerAction, Travelling};
+use super::{ForeignResource, Travelling};
 
 type MessageHandler = Box<dyn Fn(&mut Commands, Entity, CPkt) + Send + Sync + 'static>;
 
@@ -241,6 +241,7 @@ impl NetworkExt for SubApp {
             PlayerController {
                 avatar_id: *state.avatar(),
                 id: peer,
+                character_id: *state.character(),
                 session: Arc::new(session),
                 state: state.clone(),
                 sender,
@@ -312,6 +313,7 @@ pub enum MessageType {
 pub struct PlayerController {
     avatar_id: AvatarId,
     id: Uuid,
+    character_id: Uuid,
     session: Arc<Session>,
     state: Arc<SessionState>,
     sender: UnboundedSender<WorldEvent>,
@@ -320,6 +322,7 @@ pub struct PlayerController {
 
 impl PlayerController {
     pub fn avatar_id(&self) -> AvatarId { self.avatar_id }
+    pub fn character_id(&self) -> Uuid { self.character_id }
 
     pub fn session(&self) -> Arc<Session> { self.session.clone() }
     pub fn state(&self) -> Arc<SessionState> { self.state.clone() }
