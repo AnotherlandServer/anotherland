@@ -426,11 +426,7 @@ impl ItemStorageSession {
         let id = item.id;
 
         for (idx, slot) in tab.slots.iter_mut().enumerate() {
-            debug!("Visiting slot {:?}", (idx, &slot));
-
             if slot.is_none() {
-                debug!("Inserting into empty slot {}", idx);
-
                 item.instance.set(ItemBase::ContainerId, 0);
                 item.instance.set(ItemBase::InventorySlotIndex, idx as i32);
                 item.instance.set(ItemBase::SlotId, -1);
@@ -445,8 +441,6 @@ impl ItemStorageSession {
 
         if tab.can_grow {
             let idx = tab.slots.len() as i32;
-
-            debug!("Appending at idx {}", idx);
 
             item.instance.set(ItemBase::ContainerId, 0);
             item.instance.set(ItemBase::InventorySlotIndex, idx);

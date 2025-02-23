@@ -20,10 +20,11 @@ use bevy::{app::{Last, Plugin, PostUpdate, Update}, ecs::{component::Component, 
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::future::join_all;
 use log::{debug, error, warn};
-use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, GameObjectData, GenericParamSet, ParamWriter, Player};
+use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, GameObjectData, GenericParamSet, ItemEdna, ParamWriter, Player};
 use protocol::{oaPktItemStorage, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
 use realm_api::{Item, ItemRef, StorageOwner};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use toolkit::{types::Uuid, NativeParam};
 
 use crate::{error::WorldResult, instance::ZoneInstance, object_cache::CacheEntry, OBJECT_CACHE};
@@ -78,6 +79,16 @@ impl StorageResult {
                 join_all(changed_items.into_iter()
                     .map(|item| async {
                         if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
+                            // Cache abilities for later use
+                            if 
+                                let Ok(abilities) = base_item.data.get::<_, Value>(ItemEdna::Abilities) &&
+                                let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
+                            {
+                                for ability in abilities.0 {
+                                    let _ = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await?;
+                                }
+                            }
+
                             Ok((item, base_item))
                         } else {
                             Err(anyhow!("Failed to load item template {}", item.template_id))
@@ -100,6 +111,20 @@ impl StorageResult {
             error: result.error,
         })
     }
+}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(transparent, default)]
+pub struct ItemEdnaAbilities(Vec<ItemEdnaAbility>);
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemEdnaAbility {
+    ability_name: String,
+    auto_switch_group: i32,
+    ability_info: String,
+    target_ability_info: String,
+    display_name: String,
 }
 
 #[derive(Resource, Default)]
@@ -208,6 +233,16 @@ fn load_player_inventory(
             // Load cached item templates
             for item in storage.items {
                 if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
+                    // Cache abilities for later use
+                    if 
+                        let Ok(abilities) = base_item.data.get::<_, Value>(ItemEdna::Abilities) &&
+                        let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
+                    {
+                        for ability in abilities.0 {
+                            let _ = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await?;
+                        }
+                    }
+
                     items.push((item, base_item));
                 }
             }
