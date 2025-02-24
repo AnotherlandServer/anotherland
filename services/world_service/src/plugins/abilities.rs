@@ -13,18 +13,82 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{App, Plugin}, ecs::{event::EventWriter, query::With, system::Res}, prelude::{Entity, In, Query}};
-use log::debug;
-use obj_params::{tags::ItemBaseTag, GameObjectData};
-use protocol::oaPktAbilityRequest;
+use std::{sync::Arc, time::Instant};
 
-use super::{AvatarIdManager, HealthUpdateEvent, Interests, Inventory, Movement, NetworkExtPriv, PlayerController};
+use bevy::{app::{App, Plugin, Update}, ecs::{component::Component, event::{Event, EventReader, EventWriter}, query::With, system::Res}, math::{Quat, Vec3}, prelude::{Entity, In, Query}, utils::HashMap};
+use chrono::Duration;
+use log::debug;
+use obj_params::{tags::{ItemBaseTag, PlayerTag}, GameObjectData};
+use protocol::oaPktAbilityRequest;
+use toolkit::types::Uuid;
+
+use crate::object_cache::CacheEntry;
+
+use super::{AvatarIdManager, HealthUpdateEvent, Interests, Inventory, ItemAbilities, Movement, NetworkExtPriv, PlayerController};
 
 pub struct AbilitiesPlugin;
 
 impl Plugin for AbilitiesPlugin {
     fn build(&self, app: &mut App) {
         app.register_message_handler(handle_ability_request);
+
+        app.add_systems(Update, perform_abilities);
+
+        app.add_event::<AbilityTriggerEvent>();
+    }
+}
+
+pub enum AbilityToggleMode {
+    Once,
+}
+
+pub enum AbilityKind {
+    Item(Uuid),
+    Skill(Uuid),
+    Buff(Uuid),
+}
+
+#[derive(Event)]
+pub struct AbilityTriggerEvent {
+    pub entity: Entity,
+    pub ability: Arc<CacheEntry>,
+    pub kind: AbilityKind,
+    pub toggle_mode: AbilityToggleMode,
+    pub target: Option<Entity>,
+    pub position: Option<Vec3>,
+    pub rotation: Option<Quat>,
+    pub prediction_id: Option<i32>,
+    pub combo_stage_id: Option<i32>,
+}
+
+#[derive(Component)]
+pub struct Abilities(Vec<Arc<CacheEntry>>);
+
+enum CooldownState {
+    Ready,
+    Cooldown(Instant, Duration),
+}
+
+#[derive(Component)]
+pub struct Cooldowns(HashMap<Uuid, CooldownState>);
+
+impl Cooldowns {
+    pub fn is_ready(&self, group: Uuid) -> bool {
+        self.0.get(&group).map_or_else(|| true, |state| matches!(state, CooldownState::Ready))
+    }
+
+    pub fn consume(&mut self, group: Uuid, duration: Duration) -> bool {
+        if let Some(state) = self.0.get_mut(&group) {
+            if let CooldownState::Ready = state {
+                *state = CooldownState::Cooldown(Instant::now(), duration);
+                true
+            } else {
+                false
+            }
+        } else {
+            self.0.insert(group, CooldownState::Cooldown(Instant::now(), duration));
+            true
+        }
     }
 }
 
@@ -65,10 +129,10 @@ oaPktAbilityRequest {
 */
 
 fn handle_ability_request(
-    In((_ent, pkt)): In<(Entity, oaPktAbilityRequest)>,
+    In((ent, pkt)): In<(Entity, oaPktAbilityRequest)>,
     _avatar_man: Res<AvatarIdManager>,
-    _player: Query<(&PlayerController, &Interests, &Movement, &GameObjectData, &Inventory)>,
-    _items: Query<&GameObjectData, With<ItemBaseTag>>,
+    players: Query<(&PlayerController, &Interests, &Movement, &GameObjectData, &Inventory)>,
+    _items: Query<(&GameObjectData, &ItemAbilities), With<ItemBaseTag>>,
     _targets: Query<(&GameObjectData, &Movement)>,
     mut _health_update: EventWriter<HealthUpdateEvent>,
 ) {
@@ -76,7 +140,9 @@ fn handle_ability_request(
     debug!("Ability request: Avatar {} ToggleMode {:?} Skill {:?} Prediction {} Combo {:?}", pkt.caster, pkt.toggle_mode, pkt.skill_id, pkt.prediction_id, pkt.combo_stage_id);
     debug!("{:#?}", pkt);
 
-
+    if let Ok((controller, interests, movement, player, inventory)) = players.get(ent) {
+        // 
+    }
 
     /*let invoke_location = pos.get(ent)
         .map(|pos| pos.position)
@@ -160,6 +226,16 @@ fn handle_ability_request(
             }
         }
     }*/
+}
+
+fn perform_abilities(
+    mut events: EventReader<AbilityTriggerEvent>,
+    players: Query<(&GameObjectData, &PlayerController, &Inventory), With<PlayerTag>>,
+    controller: Query<&PlayerController>,
+) {
+    for event in events.read() {
+
+    }
 }
 
 /*fn handle_ability_request(

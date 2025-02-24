@@ -67,7 +67,7 @@ struct StorageResult {
     storage_id: Uuid,
     bling: Option<i32>,
     game_cash: Option<i32>,
-    changed_items: Option<Vec<(Item, Arc<CacheEntry>)>>,
+    changed_items: Option<Vec<(Item, Arc<CacheEntry>, Vec<Arc<CacheEntry>>)>>,
     removed_items: Option<Vec<Uuid>>,
     error: Option<(String, Option<NativeParam>)>,
 }
@@ -79,17 +79,21 @@ impl StorageResult {
                 join_all(changed_items.into_iter()
                     .map(|item| async {
                         if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
+                            let mut ability_cache = vec![];
+                            
                             // Cache abilities for later use
                             if 
                                 let Ok(abilities) = base_item.data.get::<_, Value>(ItemEdna::Abilities) &&
                                 let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
                             {
                                 for ability in abilities.0 {
-                                    let _ = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await?;
+                                    if let Some(ability) = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await? {
+                                        ability_cache.push(ability);
+                                    }
                                 }
                             }
 
-                            Ok((item, base_item))
+                            Ok((item, base_item, ability_cache))
                         } else {
                             Err(anyhow!("Failed to load item template {}", item.template_id))
                         }
@@ -215,6 +219,9 @@ impl Inventory {
         }
     }
 }
+
+#[derive(Component)]
+pub struct ItemAbilities(Vec<Arc<CacheEntry>>);
 
 fn load_player_inventory(
     query: Query<(Entity, &PlayerController), Added<PlayerTag>>,
@@ -701,7 +708,7 @@ fn apply_storage_result(
         }
 
         if let Some(changed_items) = result.changed_items {
-            for (item, template) in changed_items {
+            for (item, template, abilities) in changed_items {
                 let mut instance = item.instance;
                 instance.set_parent(Some(template.data.clone()));
 
@@ -738,6 +745,7 @@ fn apply_storage_result(
                             template: template.clone(),
                         },
                         instance,
+                        ItemAbilities(abilities),
                     ))
                     .set_parent(storage_ent)
                     .id();
