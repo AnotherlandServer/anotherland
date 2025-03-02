@@ -35,7 +35,7 @@ pub enum AvatarType {
 }
 
 impl AvatarId {
-    pub fn new(val: u64, avatar_type: AvatarType) -> Self { Self((val & !0xFF, avatar_type)) }
+    pub fn new(val: u64, avatar_type: AvatarType) -> Self { Self((val << 8, avatar_type)) }
 
     pub const fn from_u64(mut val: u64) -> Self {
         let avatar_type = match val & 0xFF {
