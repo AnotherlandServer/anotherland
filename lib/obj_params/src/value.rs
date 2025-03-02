@@ -205,19 +205,19 @@ impl Value {
                     context("Vector3Uts", |i| {
                         let (i, uts) = number::complete::le_u32(i)?;
                         let (i, val) = count(number::complete::le_f32, 3usize)(i)?;
-                        Ok((i, Value::Vector3Uts((uts, Vec3::new(val[0], val[1], val[2])))))
+                        Ok((i, Value::Vector3Uts((uts, Vec3::new(val[1], val[2], -val[0])))))
                     })(i)
                 } else {
                     context("Vector3", |i| {
                         let (i, val) = count(number::complete::le_f32, 3usize)(i)?;
-                        Ok((i, Value::Vector3(Vec3::new(val[0], val[1], val[2]))))
+                        Ok((i, Value::Vector3(Vec3::new(val[1], val[2], -val[0]))))
                     })(i)
                 }
             },
             14 => {
                 context("Vector4", |i| {
                     let (i, val) = count(number::complete::le_f32, 4usize)(i)?;
-                    Ok((i, Value::Vector4(Vec4::new(val[0], val[1], val[2], val[3]))))
+                    Ok((i, Value::Vector4(Vec4::new(val[1], val[2], -val[0], val[3]))))
                 })(i)
             },
             15 => {
@@ -281,7 +281,7 @@ impl Value {
                 // todo: validate the binary layout
                 context("Quarternion", |i| {
                     let (i, val) = count(number::complete::le_f32, 4usize)(i)?;
-                    Ok((i, Value::Quarternion(Quat::from_xyzw(val[0], val[1], val[2], val[3]))))
+                    Ok((i, Value::Quarternion(Quat::from_xyzw(val[1], val[2], -val[0], val[3]))))
                 })(i)
             },
             21 => {
@@ -290,8 +290,8 @@ impl Value {
                     let (i, quat_val) = count(number::complete::le_f32, 4usize)(i)?;
                     let (i, vec_val) = count(number::complete::le_f32, 3usize)(i)?;
                     Ok((i, Value::Positionable(
-                        Quat::from_xyzw(quat_val[0], quat_val[1], quat_val[2], quat_val[3]), 
-                        Vec3::new(vec_val[0], vec_val[1], vec_val[2])
+                        Quat::from_xyzw(quat_val[1], quat_val[2], -quat_val[0], quat_val[3]), 
+                        Vec3::new(vec_val[1], vec_val[2], -vec_val[0])
                     )))
                 })(i)
             },
@@ -532,22 +532,22 @@ impl Value {
             },
             Self::Vector3(val) => {
                 writer.write(13u8)?;
+                writer.write_bytes((-val.z).to_le_bytes().as_slice())?;
                 writer.write_bytes(val.x.to_le_bytes().as_slice())?;
                 writer.write_bytes(val.y.to_le_bytes().as_slice())?;
-                writer.write_bytes(val.z.to_le_bytes().as_slice())?;
             },
             Self::Vector3Uts((uts, val)) => {
                 writer.write(13u8)?;
                 writer.write(*uts)?;
+                writer.write_bytes((-val.z).to_le_bytes().as_slice())?;
                 writer.write_bytes(val.x.to_le_bytes().as_slice())?;
                 writer.write_bytes(val.y.to_le_bytes().as_slice())?;
-                writer.write_bytes(val.z.to_le_bytes().as_slice())?;
             }
             Self::Vector4(val) => {
                 writer.write(14u8)?;
+                writer.write_bytes((-val.z).to_le_bytes().as_slice())?;
                 writer.write_bytes(val.x.to_le_bytes().as_slice())?;
                 writer.write_bytes(val.y.to_le_bytes().as_slice())?;
-                writer.write_bytes(val.z.to_le_bytes().as_slice())?;
                 writer.write_bytes(val.w.to_le_bytes().as_slice())?;
             },
             Self::LocalizedString(val) => {
@@ -575,20 +575,20 @@ impl Value {
             },
             Self::Quarternion(val) => {
                 writer.write(20u8)?;
+                writer.write_bytes((-val.z).to_le_bytes().as_slice())?;
                 writer.write_bytes(val.x.to_le_bytes().as_slice())?;
                 writer.write_bytes(val.y.to_le_bytes().as_slice())?;
-                writer.write_bytes(val.z.to_le_bytes().as_slice())?;
                 writer.write_bytes(val.w.to_le_bytes().as_slice())?;
             },
             Self::Positionable(rot, pos) => {
                 writer.write(21u8)?;
+                writer.write_bytes((-rot.z).to_le_bytes().as_slice())?;
                 writer.write_bytes(rot.x.to_le_bytes().as_slice())?;
                 writer.write_bytes(rot.y.to_le_bytes().as_slice())?;
-                writer.write_bytes(rot.z.to_le_bytes().as_slice())?;
                 writer.write_bytes(rot.w.to_le_bytes().as_slice())?;
+                writer.write_bytes((-pos.z).to_le_bytes().as_slice())?;
                 writer.write_bytes(pos.x.to_le_bytes().as_slice())?;
                 writer.write_bytes(pos.y.to_le_bytes().as_slice())?;
-                writer.write_bytes(pos.z.to_le_bytes().as_slice())?;
             },
             Self::ContentRef(val) => {
                 writer.write(22u8)?;

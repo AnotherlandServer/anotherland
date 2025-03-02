@@ -13,9 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::f32::consts::PI;
-
-use glam::{Quat, Vec3};
+use glam::{EulerRot, Quat, Vec3};
 
 pub trait OtherlandQuatExt {
     fn from_unit_vector(val: Vec3) -> Quat;
@@ -23,23 +21,22 @@ pub trait OtherlandQuatExt {
 }
 
 impl OtherlandQuatExt for Quat {
-    fn from_unit_vector(val: Vec3) -> Quat {
-        let a = val.x.atan2(val.y);
-        let b = (-val.z).asin();
-    
-        Quat::from_euler(glam::EulerRot::XYZ, PI / 2.0, 0.0, 0.0)
-            .mul_quat(Quat::from_euler(glam::EulerRot::XYZ, a, b, 0.0))
+    fn from_unit_vector(mut val: Vec3) -> Quat {
+        val = val.normalize_or(Vec3::Z);
+        val.z = -val.z;
+
+        if val == Vec3::ZERO {
+            Quat::IDENTITY
+        } else {
+            Quat::from_rotation_arc(Vec3::Z, val)
+        }
     }
 
     fn as_unit_vector(&self) -> Vec3 {
-        let (a, b, _) = Quat::from_euler(glam::EulerRot::XYZ, -PI / 2.0, 0.0, 0.0)
-            .mul_quat(*self)
-            .to_euler(glam::EulerRot::XYZ);
+        let mut vec = self.mul_vec3(Vec3::Z)
+            .normalize();
 
-        let x = a.cos() * b.cos();
-        let y = a.sin() * b.cos();
-        let z = b.sin();
-
-        Vec3::new(x, y, -z)
+        vec.z = -vec.z;
+        vec
     }
 }
