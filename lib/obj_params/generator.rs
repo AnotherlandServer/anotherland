@@ -270,9 +270,9 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             ParamType::BitSetFilter => quote! { Value::BitSetFilter(0) },
                             ParamType::Bool => if default_str == "true" { quote!{ Value::Bool(true) } } else { quote!{ Value::Bool(false) } },
                             ParamType::ClassRefPowerRangeList => quote! { Value::ClassRefPowerRangeList(#default_str.to_string()) },
-                            ParamType::ContentRef => quote! { Value::ContentRef(#default_str.to_string()) },
+                            ParamType::ContentRef => quote! { Value::ContentRef(#default_str.parse().unwrap_or_default()) },
                             ParamType::ContentRefAndInt => quote! { Value::ContentRefAndInt(#default_str.to_string()) },
-                            ParamType::ContentRefList => quote! { Value::ContentRefList(#default_str.to_string()) },
+                            ParamType::ContentRefList => quote! { Value::ContentRefList(#default_str.parse().unwrap_or_default()) },
                             ParamType::Float => {
                                 let val: f32 = default_str.parse().expect("failed to parse float");
                                 quote! { Value::Float(#val) }
@@ -348,9 +348,9 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                             ParamType::BitSetFilter => quote! { Value::BitSetFilter(0) },
                             ParamType::Bool =>  quote!{ Value::Bool(false) },
                             ParamType::ClassRefPowerRangeList => quote! { Value::ClassRefPowerRangeList(String::default()) },
-                            ParamType::ContentRef => quote! { Value::ContentRef(String::default()) },
+                            ParamType::ContentRef => quote! { Value::ContentRef(None) },
                             ParamType::ContentRefAndInt => quote! { Value::ContentRefAndInt(String::default()) },
-                            ParamType::ContentRefList => quote! { Value::ContentRefList(String::default()) },
+                            ParamType::ContentRefList => quote! { Value::ContentRefList(ContentRefList::default()) },
                             ParamType::Float => quote! { Value::Float(0.0) },
                             ParamType::FloatRange => quote! { Value::FloatRange((0.0, 0.0)) },
                             ParamType::FloatVector => quote! { Value::VectorFloat(vec![]) },
@@ -952,6 +952,8 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use crate::Value;
         use crate::GameObjectData;
         use crate::GenericParamSet;
+        use crate::ContentRef;
+        use crate::ContentRefList;
 
         #(#param_name_enums)*
 

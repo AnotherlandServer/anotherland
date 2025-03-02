@@ -23,7 +23,7 @@ use nom::{combinator::fail, error::{context, VerboseError}, multi, number, IResu
 use serde::{de::{self, DeserializeSeed, SeqAccess, Visitor}, ser::{SerializeMap, SerializeStruct}, Deserialize, Serialize};
 use toolkit::types::{AvatarId, Uuid};
 
-use crate::{param::{GenericParam, Param}, Attribute, AttributeInfo, Class, ParamFlag, ParamType, Value};
+use crate::{param::{GenericParam, Param}, Attribute, AttributeInfo, Class, ContentRef, ParamError, ParamFlag, ParamType, Value};
 
 pub type AttributeValue = (&'static dyn AttributeInfo, Value);
 
@@ -694,7 +694,11 @@ impl <'de> DeserializeSeed<'de> for DynSetDeserializer {
                         )
                     }
                     ParamType::ContentRef => Ok(
-                        Value::ContentRef(String::deserialize(deserializer)?)
+                        Value::ContentRef(
+                            String::deserialize(deserializer)?
+                                .parse::<ContentRef>()
+                                .ok()
+                        )
                     ),
                     ParamType::ContentRefAndInt => Ok(
                         Value::ContentRefAndInt(String::deserialize(deserializer)?)
@@ -703,7 +707,11 @@ impl <'de> DeserializeSeed<'de> for DynSetDeserializer {
                         Value::ContentRefAndFloat(String::deserialize(deserializer)?)
                     ),
                     ParamType::ContentRefList => Ok(
-                        Value::ContentRefList(String::deserialize(deserializer)?)
+                        Value::ContentRefList(
+                            String::deserialize(deserializer)?
+                                .parse()
+                                .map_err(|e: ParamError| serde::de::Error::custom(e))?
+                        )
                     ),
                     ParamType::ClassRefPowerRangeList => Ok(
                         Value::ClassRefPowerRangeList(String::deserialize(deserializer)?)

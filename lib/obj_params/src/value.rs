@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use base64::prelude::*;
+use log::debug;
 use std::{collections::{HashMap, HashSet}, io};
 
 use bitstream_io::ByteWrite;
@@ -23,7 +24,7 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use toolkit::types::{AvatarId, Uuid};
 
-use crate::{ParamError, ParamFlag, ParamType};
+use crate::{ContentRef, ContentRefList, ParamError, ParamFlag, ParamType};
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
@@ -49,10 +50,10 @@ pub enum Value {
     Int64(i64), // 19
     Quarternion(Quat), // 20
     Positionable(Quat, Vec3), // 21
-    ContentRef(String), // 22
+    ContentRef(Option<ContentRef>), // 22
     ContentRefAndInt(String), // 23
     ContentRefAndFloat(String), // 24
-    ContentRefList(String), // 25
+    ContentRefList(ContentRefList), // 25
     ClassRefPowerRangeList(String), // 26
     VectorInt(Vec<i32>), // 29
     VectorInt64(Vec<i64>), // 30
@@ -340,7 +341,12 @@ impl Value {
                     let (i, bytes) = take(len as usize)(i)?;
     
                     if let Ok(string) = String::from_utf8(bytes.to_vec()) {
-                        Ok((i, Value::ContentRefList(string)))
+                        Ok((i, Value::ContentRefList(
+                            string.parse().inspect_err(|_| {
+                                debug!("Failed to parse ContentRefList: {}", string);
+                            })
+                            .unwrap_or_default()
+                        )))
                     } else {
                         println!("Failed to parse ContentRefList: {:#?}", bytes);
                         fail(i)
@@ -592,8 +598,14 @@ impl Value {
             },
             Self::ContentRef(val) => {
                 writer.write(22u8)?;
-                writer.write(val.len() as u16)?;
-                writer.write_bytes(val.as_bytes())?;
+
+                if let Some(content_ref) = val {
+                    let str = content_ref.to_string();
+                    writer.write(str.len() as u16)?;
+                    writer.write_bytes(str.as_bytes())?;
+                } else {
+                    writer.write(0u16)?;
+                }
             },
             Self::ContentRefAndInt(val) => {
                 writer.write(23u8)?;
@@ -606,9 +618,11 @@ impl Value {
                 writer.write_bytes(val.as_bytes())?;
             },
             Self::ContentRefList(val) => {
+                let str = val.to_string();
+
                 writer.write(25u8)?;
-                writer.write(val.len() as u16)?;
-                writer.write_bytes(val.as_bytes())?;
+                writer.write(str.len() as u16)?;
+                writer.write_bytes(str.as_bytes())?;
             },
             Self::ClassRefPowerRangeList(val) => {
                 writer.write(26u8)?;
@@ -781,7 +795,7 @@ impl Clone for Value {
             Self::Int64(arg0) => Self::Int64(*arg0),
             Self::Quarternion(arg0) => Self::Quarternion(*arg0),
             Self::Positionable(arg0, arg1) => Self::Positionable(*arg0, *arg1),
-            Self::ContentRef(arg0) => Self::ContentRef(arg0.clone()),
+            Self::ContentRef(arg0) => Self::ContentRef(*arg0),
             Self::ContentRefAndInt(arg0) => Self::ContentRefAndInt(arg0.clone()),
             Self::ContentRefAndFloat(arg0) => Self::ContentRefAndFloat(arg0.clone()),
             Self::ContentRefList(arg0) => Self::ContentRefList(arg0.clone()),
@@ -833,10 +847,16 @@ impl Serialize for Value {
             Value::Positionable(quat, vec3) => {
                 (quat, vec3).serialize(serializer)
             },
-            Value::ContentRef(val) => val.serialize(serializer),
+            Value::ContentRef(val) => {
+                if let Some(val) = val {
+                    serializer.serialize_str(&val.to_string())
+                } else {
+                    serializer.serialize_str("")
+                }
+            },
             Value::ContentRefAndInt(val) => val.serialize(serializer),
             Value::ContentRefAndFloat(val) => serializer.serialize_str(val),
-            Value::ContentRefList(val) => serializer.serialize_str(val),
+            Value::ContentRefList(val) => serializer.serialize_str(&val.to_string()),
             Value::ClassRefPowerRangeList(val) => serializer.serialize_str(val),
             Value::VectorInt(vec) => vec.serialize(serializer),
             Value::VectorInt64(vec) => vec.serialize(serializer),
@@ -927,16 +947,26 @@ impl From<AvatarId> for Value {
     }
 }
 
+impl From<Option<ContentRef>> for Value {
+    fn from(value: Option<ContentRef>) -> Self {
+        Value::ContentRef(value)
+    }
+}
+
+impl From<ContentRefList> for Value {
+    fn from(value: ContentRefList) -> Self {
+        Value::ContentRefList(value)
+    }
+}
+
 impl <'a> TryFrom<&'a Value> for &'a String {
     type Error = ParamError;
     
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         match value {
             Value::String(val) => Ok(val),
-            Value::ContentRef(val) => Ok(val),
             Value::ContentRefAndInt(val) => Ok(val),
             Value::ContentRefAndFloat(val) => Ok(val),
-            Value::ContentRefList(val) => Ok(val),
             Value::ClassRefPowerRangeList(val) => Ok(val),
             Value::InstanceGroup(val) => Ok(val),
             _ => Err(ParamError::TypeMismatch),
@@ -1273,6 +1303,30 @@ impl <'a> TryFrom<&'a Value> for &'a Vec<u8> {
     
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         if let Value::Any(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a Option<ContentRef> {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::ContentRef(val) = value {
+            Ok(val)
+        } else {
+            Err(ParamError::TypeMismatch)
+        }
+    }
+}
+
+impl <'a> TryFrom<&'a Value> for &'a ContentRefList {
+    type Error = ParamError;
+    
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        if let Value::ContentRefList(val) = value {
             Ok(val)
         } else {
             Err(ParamError::TypeMismatch)

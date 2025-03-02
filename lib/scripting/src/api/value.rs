@@ -94,10 +94,16 @@ impl ParamValue {
                     tbl.get::<Vec3Wrapper>(2)?.0,
                 )
             },
-            ParamType::ContentRef => obj_params::Value::ContentRef(String::from_lua(val, lua)?),
+            ParamType::ContentRef => obj_params::Value::ContentRef(
+                if val.is_nil() {
+                    None
+                } else {
+                    String::from_lua(val, lua)?.parse().map_err(mlua::Error::external).map(Some)?
+                }
+            ),
             ParamType::ContentRefAndInt => obj_params::Value::ContentRefAndInt(String::from_lua(val, lua)?),
             ParamType::ContentRefAndFloat => obj_params::Value::ContentRefAndFloat(String::from_lua(val, lua)?),
-            ParamType::ContentRefList => obj_params::Value::ContentRefList(String::from_lua(val, lua)?),
+            ParamType::ContentRefList => obj_params::Value::ContentRefList(String::from_lua(val, lua)?.parse().map_err(mlua::Error::external)?),
             ParamType::ClassRefPowerRangeList => obj_params::Value::ClassRefPowerRangeList(String::from_lua(val, lua)?),
             ParamType::VectorInt => obj_params::Value::VectorInt(Vec::<i32>::from_lua(val, lua)?),
             ParamType::VectorInt64 => obj_params::Value::VectorInt64(Vec::<i64>::from_lua(val, lua)?),
@@ -184,10 +190,14 @@ impl IntoLua for ParamValue {
                 QuatWrapper(quat),
                 Vec3Wrapper(vec3)
             )),
-            obj_params::Value::ContentRef(val) => val.into_lua(lua),
+            obj_params::Value::ContentRef(val) => if let Some(val) = val {
+                val.to_string().into_lua(lua)
+            } else {
+                Ok(mlua::Value::Nil)
+            },
             obj_params::Value::ContentRefAndInt(val) => val.into_lua(lua),
             obj_params::Value::ContentRefAndFloat(val) => val.into_lua(lua),
-            obj_params::Value::ContentRefList(val) => val.into_lua(lua),
+            obj_params::Value::ContentRefList(val) => val.to_string().into_lua(lua),
             obj_params::Value::ClassRefPowerRangeList(val) => val.into_lua(lua),
             obj_params::Value::VectorInt(vec) => vec.into_lua(lua),
             obj_params::Value::VectorInt64(vec) => vec.into_lua(lua),
