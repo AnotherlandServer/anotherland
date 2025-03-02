@@ -13,18 +13,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{sync::Arc, time::Instant};
+use std::{sync::Arc, time::{Duration, Instant}};
 
-use bevy::{app::{App, Plugin, Update}, ecs::{component::Component, event::{Event, EventReader, EventWriter}, query::With, system::Res}, math::{Quat, Vec3}, prelude::{Entity, In, Query}, utils::HashMap};
-use chrono::Duration;
+use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{component::Component, event::{Event, EventReader, EventWriter}, query::{Changed, With}, system::Res}, math::{Quat, Vec3}, prelude::{Entity, In, Query}, utils::HashMap};
 use log::debug;
-use obj_params::{tags::{ItemBaseTag, PlayerTag}, GameObjectData};
-use protocol::oaPktAbilityRequest;
-use toolkit::types::Uuid;
+use obj_params::{tags::ItemBaseTag, ContentRefList, EdnaAbility, EdnaFunction, GameObjectData, NpcOtherland};
+use protocol::{oaPktAbilityRequest, oaPktAbilityUse, oaPktCooldownUpdate, AbilityEffect, CooldownEntry, CooldownUpdate, OaPktAbilityUseAbilityType, OaPktAbilityUseEventType};
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use toolkit::types::{AvatarId, Uuid};
 
-use crate::object_cache::CacheEntry;
+use crate::{object_cache::CacheEntry, plugins::ConnectionState};
 
-use super::{AvatarIdManager, HealthUpdateEvent, Interests, Inventory, ItemAbilities, Movement, NetworkExtPriv, PlayerController};
+use super::{AvatarIdManager, AvatarInfo, ContentInfo, CurrentState, HealthUpdateEvent, Interests, Inventory, ItemAbilities, Movement, NetworkExtPriv, PlayerController};
 
 pub struct AbilitiesPlugin;
 
@@ -33,35 +34,55 @@ impl Plugin for AbilitiesPlugin {
         app.register_message_handler(handle_ability_request);
 
         app.add_systems(Update, perform_abilities);
+        app.add_systems(PostUpdate, send_cooldown_updates);
 
         app.add_event::<AbilityTriggerEvent>();
     }
 }
 
+#[derive(Debug)]
 pub enum AbilityToggleMode {
     Once,
 }
 
+#[derive(Debug)]
+#[allow(unused)]
 pub enum AbilityKind {
-    Item(Uuid),
-    Skill(Uuid),
-    Buff(Uuid),
+    Item(Arc<CacheEntry>),
+    Skill(Arc<CacheEntry>),
+    Buff(Arc<CacheEntry>),
 }
 
 #[derive(Event)]
+#[allow(unused)]
 pub struct AbilityTriggerEvent {
-    pub entity: Entity,
+    pub source: Entity,
     pub ability: Arc<CacheEntry>,
     pub kind: AbilityKind,
     pub toggle_mode: AbilityToggleMode,
     pub target: Option<Entity>,
-    pub position: Option<Vec3>,
+    pub position: Vec3,
     pub rotation: Option<Quat>,
     pub prediction_id: Option<i32>,
     pub combo_stage_id: Option<i32>,
+    pub effects: Vec<Effect>
+}
+
+#[derive(Debug)]
+pub enum Effect {
+    Targeted { target: Entity, kind: EffectType },
+    TargetFactory { factory: TargetFactory, kind: EffectType },
+}
+
+#[derive(Debug, Clone, Copy)]
+#[allow(unused)]
+pub enum EffectType {
+    Damage { min: f32, max: f32 },
+    Heal { min: f32, max: f32 },
 }
 
 #[derive(Component)]
+#[allow(unused)]
 pub struct Abilities(Vec<Arc<CacheEntry>>);
 
 enum CooldownState {
@@ -69,394 +90,363 @@ enum CooldownState {
     Cooldown(Instant, Duration),
 }
 
-#[derive(Component)]
-pub struct Cooldowns(HashMap<Uuid, CooldownState>);
+#[derive(Component, Default)]
+pub struct Cooldowns(HashMap<Uuid, (Arc<CacheEntry>, CooldownState)>);
 
 impl Cooldowns {
-    pub fn is_ready(&self, group: Uuid) -> bool {
-        self.0.get(&group).map_or_else(|| true, |state| matches!(state, CooldownState::Ready))
+    pub fn insert(&mut self, group: Arc<CacheEntry>) {
+        self.0.insert(group.id, (group, CooldownState::Ready));
     }
 
-    pub fn consume(&mut self, group: Uuid, duration: Duration) -> bool {
-        if let Some(state) = self.0.get_mut(&group) {
-            if let CooldownState::Ready = state {
-                *state = CooldownState::Cooldown(Instant::now(), duration);
-                true
-            } else {
-                false
+    #[allow(unused)]
+    pub fn is_ready(&self, group: Uuid) -> bool {
+        self.0.get(&group).map_or_else(|| false, |(_, state)| matches!(state, CooldownState::Ready))
+    }
+
+    pub fn update(&mut self) {
+        for (_, (_, state)) in self.0.iter_mut() {
+            if let CooldownState::Cooldown(start, duration) = state {
+                if start.elapsed() >= *duration {
+                    *state = CooldownState::Ready;
+                }
             }
-        } else {
-            self.0.insert(group, CooldownState::Cooldown(Instant::now(), duration));
+        }
+    }
+
+    pub fn consume(&mut self, groups: &[Uuid], duration: Duration) -> bool {
+        self.update();
+
+        let states = self.0.iter_mut()
+            .filter(|(group, (_, state))| {
+                groups.contains(group) && matches!(state, CooldownState::Ready)
+            })
+            .collect::<Vec<_>>();
+        
+        if states.len() == groups.len() {
+            for (_, (_, state)) in states {
+                *state = CooldownState::Cooldown(Instant::now(), duration);
+            }
+
             true
+        } else {
+            false
         }
     }
 }
 
-/*
-
-oaPktAbilityRequest {
-        field8_0x8: 0,
-        instigator: AvatarId(
-            (
-                106357916860630272,
-                Player,
-            ),
-        ),
-        item_id: a301ae36-0fe3-4336-9b73-0d497c179866,
-        field_3: 133961,
-        flag: 29,
-        skill_id: Some(
-            a301ae36-0fe3-4336-9b73-0d497c179866,
-        ),
-        target_info: None,
-        toggle_mode: Some(
-            1,
-        ),
-        field_8: Some(
-            0,
-        ),
-        target_rotation: Some(
-            NetworkVec4 {
-                x: 0.5385568,
-                y: 0.0,
-                z: -0.0,
-                w: 0.8425892,
-            },
-        ),
-        field_10: None,
+#[derive(Serialize, Deserialize)]
+enum EffectorSettings {
+    Damage {
+        #[serde(default)]
+        delay: f32,
+        #[serde(default)]
+        children: EffectorChildren,
+        #[serde(default)]
+        aoe_target_cap: Option<f32>,
+        #[serde(default)]
+        aoe_coefficient: Option<f32>,
+        #[serde(default)]
+        target_factory: Option<TargetFactory>,
     }
+}
 
-*/
+#[derive(Serialize, Deserialize, Default)]
+struct EffectorChildren {
+    buff: Option<EffectorBuff>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EffectorBuff {
+    buff_name: String,
+    buff_duration: f32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TargetFactory {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    settings: TargetFactorySettings,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct TargetFactorySettings {
+    radius_max: Option<f32>,
+    angle: Option<f32>,
+    target_self: bool,
+    affect_enemies: bool,
+}
 
 fn handle_ability_request(
     In((ent, pkt)): In<(Entity, oaPktAbilityRequest)>,
-    _avatar_man: Res<AvatarIdManager>,
-    players: Query<(&PlayerController, &Interests, &Movement, &GameObjectData, &Inventory)>,
-    _items: Query<(&GameObjectData, &ItemAbilities), With<ItemBaseTag>>,
-    _targets: Query<(&GameObjectData, &Movement)>,
-    mut _health_update: EventWriter<HealthUpdateEvent>,
+    avatar_man: Res<AvatarIdManager>,
+    players: Query<(&Movement, &Inventory)>,
+    items: Query<(&ContentInfo, &GameObjectData, &ItemAbilities), With<ItemBaseTag>>,
+    mut ability_trigger: EventWriter<AbilityTriggerEvent>,
 ) {
-    
-    debug!("Ability request: Avatar {} ToggleMode {:?} Skill {:?} Prediction {} Combo {:?}", pkt.caster, pkt.toggle_mode, pkt.skill_id, pkt.prediction_id, pkt.combo_stage_id);
-    debug!("{:#?}", pkt);
+    if let Ok((movement, inventory)) = players.get(ent) {
+        // Lookup the ability, either directly or via provided item
+        let ability_info = if let Some(item_id) = pkt.item_id {
+            if 
+                let Some(item_ent) = inventory.items.get(&item_id) &&
+                let Ok((item_info, _, abilities)) = items.get(*item_ent)
+            {
+                let activation_type = match pkt.toggle_mode {
+                    None => "Instant",
+                    Some(1) => "heldDown",
+                    _ => {
+                        debug!("Unknown activation type: {:?}", pkt.toggle_mode);
+                        ""
+                    },
+                };
 
-    if let Ok((controller, interests, movement, player, inventory)) = players.get(ent) {
-        // 
-    }
-
-    /*let invoke_location = pos.get(ent)
-        .map(|pos| pos.position)
-        .unwrap_or_default();
-
-    if pkt.toggle_mode == Some(1) || pkt.toggle_mode.is_none() {
-        // Incredibly quick and dirty damage logic
-        let target_avatar = pkt.params.and_then(|s| s.parse::<AvatarId>().ok());/*player.get(ent).ok()
-            .and_then(|(_, _, _, data)| data.get::<_, AvatarId>(Player::Target).ok())
-            .cloned();*/
-
-        let effects = if 
-            let Some(target_avatar) = target_avatar &&
-            let Some(target_ent) = avatar_man.entity_from_avatar_id(target_avatar)
-        {
-            let id = HealthUpdateEvent::damage(target_ent, 100)
-                .send(&mut health_update);
-
-            vec![AbilityEffect {
-                effect_type: 1,
-                target_actor: target_avatar,
-                flags: 72,
-                total_damage_or_heal_amount: Some(100.0),
-                //effect_delay: Some(0.5),
-                //effect_duration_from_server: Some(1.0),
-                delta_hp_id: Some(id),
-                ..Default::default()
-            }]
+                abilities.iter()
+                    .find(|ability| ability.data.get::<_, String>(EdnaAbility::ActivationType).unwrap() == activation_type)
+                    .cloned()
+                    .map(|ability| (ability, AbilityKind::Item(item_info.template.clone())))
+            } else {
+                debug!("Item {} not found", item_id);
+                None
+            }
         } else {
-            vec![]
+            todo!()
         };
 
-        debug!("Effects: {:#?}", effects);
+        let target = pkt.params
+            .and_then(|s| s.parse::<AvatarId>().ok())
+            .and_then(|id| avatar_man.entity_from_avatar_id(id));
 
-        for (controller, interests, movement, _) in player.iter() {
-            if controller.avatar_id() == pkt.caster {
-                debug!("Send ability use");
+        if let Some((ability, kind)) = ability_info {
+            let effect = match ability.data.get::<_, String>(EdnaAbility::EffectType).unwrap().as_str() {
+                "Damage" => {
+                    match &kind {
+                        AbilityKind::Item(item) => {
+                            EffectType::Damage { 
+                                min: item.data.get::<_, f32>(EdnaFunction::WepMinDmg).cloned().unwrap_or_default(),
+                                max: item.data.get::<_, f32>(EdnaFunction::WepMaxDmg).cloned().unwrap_or_default() 
+                            }
+                        },
+                        AbilityKind::Skill(_skill) => todo!(),
+                        AbilityKind::Buff(_buff) => todo!(),
+                    }
+                }
+                _ => {
+                    debug!("Unknown effect type: {}", ability.data.get::<_, String>(EdnaAbility::EffectType).unwrap());
+                    return;
+                }
+            };  
 
-                controller.send_packet(oaPktAbilityUse {
-                    player: controller.avatar_id(),
-                    caster: pkt.caster,
-                    ability_id: "a7e96bda-e2c1-44e1-ad88-ecdc08c271a4".parse().unwrap(),
-                    buff_id: "b6ece40e-dd0e-4748-9dbf-69797e123be1".parse().unwrap(),
-                    prediction_id: pkt.prediction_id,
-                    event_type: OaPktAbilityUseEventType::Charge,
-                    combo_stage_id: pkt.combo_stage_id.unwrap_or_default() as i32,
-                    //ability_invoke_location: invoke_location.into(),
-                    ability_type: OaPktAbilityUseAbilityType::Item,
-                    server_event_duration: 1.7,
-                    flag: if pkt.target_rotation.is_some() { 2 } else { 0 },
-                    rotation: pkt.target_rotation.clone(),
-                    effect_count: effects.len() as u32,
-                    effects: effects.clone(),
-                    //effect_count: 1,
-                    /*effects: vec![AbilityEffect {
-                        effect_type: 0x0,
-                        //target_actor: pkt.caster,
-                        flags: 48,
-                        effect_delay: Some(0.5),
-                        effect_duration_from_server: Some(1.0),
-                        ..Default::default()
-                    }],*/
-                    //flag: 6,
-                    //target_hit_location: Some(invoke_location.into()),
-                    //rotation: Some(movement.rotation.into()),
+            let mut effects = vec![];
 
-                    ..Default::default()
+            debug!("{:#?}", serde_json::from_value::<TargetFactory>(
+                ability.data.get::<_, serde_json::Value>(EdnaAbility::TargetFactory).ok().and_then(|v| v.get("targetFactory")).cloned().unwrap_or_default()
+            ));
+
+            if let Ok(target_factory) = serde_json::from_value::<TargetFactory>(
+                ability.data.get::<_, serde_json::Value>(EdnaAbility::TargetFactory).ok().and_then(|v| v.get("targetFactory")).cloned().unwrap_or_default()
+                ) {
+
+                effects.push(Effect::TargetFactory {
+                    factory: target_factory,
+                    kind: effect,
                 });
-            } else if interests.contains(&ent) {
-                controller.send_packet(oaPktAbilityUse {
-                    player: controller.avatar_id(),
-                    caster: pkt.caster,
-                    ability_id: "d5bfa0b8-a6df-45ca-a810-b9c29bcf32f3".parse().unwrap(),
-                    buff_id: "3846d61b-2428-4d2c-88a5-9b17ccbfee8a".parse().unwrap(),
-                    event_type: OaPktAbilityUseEventType::Use,
-                    combo_stage_id: pkt.combo_stage_id.unwrap_or_default() as i32,
-                    ability_invoke_location: invoke_location.into(),
-                    ability_type: OaPktAbilityUseAbilityType::Item,
-                    ..Default::default()
+            } else if let Some(target) = target {
+                effects.push(Effect::Targeted {
+                    target,
+                    kind: effect,
                 });
             }
+
+            ability_trigger.send(AbilityTriggerEvent {
+                source: ent,
+                ability,
+                kind,
+                toggle_mode: AbilityToggleMode::Once,
+                target,
+                position: movement.position,
+                rotation: pkt.target_rotation.map(|v| v.into()),
+                prediction_id: if pkt.prediction_id != 0 { Some(pkt.prediction_id) } else { None },
+                combo_stage_id: pkt.combo_stage_id,
+                effects
+            });
         }
-    }*/
+    }
 }
 
 fn perform_abilities(
     mut events: EventReader<AbilityTriggerEvent>,
-    players: Query<(&GameObjectData, &PlayerController, &Inventory), With<PlayerTag>>,
-    controller: Query<&PlayerController>,
+    mut sources: Query<(&AvatarInfo, &mut Cooldowns, &Movement, &Interests)>,
+    targets: Query<(Entity, &AvatarInfo, &GameObjectData, &Movement)>,
+    players: Query<(Entity, &PlayerController, &Interests)>,
+    mut health_events: EventWriter<HealthUpdateEvent>,
 ) {
     for event in events.read() {
-
-    }
-}
-
-/*fn handle_ability_request(
-    In((ent, pkt)): In<(Entity, oaPktAbilityRequest)>,
-    avatar_man: Res<AvatarIdManager>,
-    player: Query<(&PlayerController, &Interests, &Movement, &GameObjectData)>,
-    pos: Query<&Movement>,
-    mut health_update: EventWriter<HealthUpdateEvent>,
-) {
-    
-    debug!("Ability request: Avatar {} ToggleMode {:?} Skill {:?} Prediction {} Combo {:?}", pkt.caster, pkt.toggle_mode, pkt.skill_id, pkt.prediction_id, pkt.combo_stage_id);
-    //debug!("{:#?}", pkt);
-
-    let invoke_location = pos.get(ent)
-        .map(|pos| pos.position)
-        .unwrap_or_default();
-
-    if pkt.toggle_mode == Some(1) || pkt.toggle_mode.is_none() {
-        // Incredibly quick and dirty damage logic
-        let target_avatar = pkt.params.and_then(|s| s.parse::<AvatarId>().ok());/*player.get(ent).ok()
-            .and_then(|(_, _, _, data)| data.get::<_, AvatarId>(Player::Target).ok())
-            .cloned();*/
-
-        let effects = if 
-            let Some(target_avatar) = target_avatar &&
-            let Some(target_ent) = avatar_man.entity_from_avatar_id(target_avatar)
-        {
-            let id = HealthUpdateEvent::damage(target_ent, 100)
-                .send(&mut health_update);
-
-            vec![AbilityEffect {
-                effect_type: 1,
-                target_actor: target_avatar,
-                flags: 72,
-                total_damage_or_heal_amount: Some(100.0),
-                //effect_delay: Some(0.5),
-                //effect_duration_from_server: Some(1.0),
-                delta_hp_id: Some(id),
-                ..Default::default()
-            }]
+        let (source_avatar, mut cooldowns, movement, interests) = if let Ok((source_avatar, cooldowns, movement, interests)) = sources.get_mut(event.source) {
+            (source_avatar, cooldowns, movement, interests)
         } else {
-            vec![]
+            continue;
         };
 
-        debug!("Effects: {:#?}", effects);
+        // Consume cooldowns
+        let cooldown = *event.ability.data.get::<_, f32>(EdnaAbility::InternalCooldown).unwrap();
 
-        for (controller, interests, movement, _) in player.iter() {
-            if controller.avatar_id() == pkt.caster {
-                debug!("Send ability use");
+        if let Ok(external_cooldowns) = event.ability.data.get::<_, ContentRefList>(EdnaAbility::ExternalCooldownsConsumed) {
+            let groups = external_cooldowns.iter()
+                .map(|content_ref| content_ref.id)
+                .collect::<Vec<_>>();
 
-                controller.send_packet(oaPktAbilityUse {
-                    player: controller.avatar_id(),
-                    caster: pkt.caster,
-                    ability_id: "a7e96bda-e2c1-44e1-ad88-ecdc08c271a4".parse().unwrap(),
-                    buff_id: "b6ece40e-dd0e-4748-9dbf-69797e123be1".parse().unwrap(),
-                    prediction_id: pkt.prediction_id,
-                    event_type: OaPktAbilityUseEventType::Charge,
-                    combo_stage_id: pkt.combo_stage_id.unwrap_or_default() as i32,
-                    //ability_invoke_location: invoke_location.into(),
-                    ability_type: OaPktAbilityUseAbilityType::Item,
-                    server_event_duration: 1.7,
-                    flag: if pkt.target_rotation.is_some() { 2 } else { 0 },
-                    rotation: pkt.target_rotation.clone(),
-                    effect_count: effects.len() as u32,
-                    effects: effects.clone(),
-                    //effect_count: 1,
-                    /*effects: vec![AbilityEffect {
-                        effect_type: 0x0,
-                        //target_actor: pkt.caster,
-                        flags: 48,
-                        effect_delay: Some(0.5),
-                        effect_duration_from_server: Some(1.0),
-                        ..Default::default()
-                    }],*/
-                    //flag: 6,
-                    //target_hit_location: Some(invoke_location.into()),
-                    //rotation: Some(movement.rotation.into()),
-
-                    ..Default::default()
-                });
-            } else if interests.contains(&ent) {
-                controller.send_packet(oaPktAbilityUse {
-                    player: controller.avatar_id(),
-                    caster: pkt.caster,
-                    ability_id: "d5bfa0b8-a6df-45ca-a810-b9c29bcf32f3".parse().unwrap(),
-                    buff_id: "3846d61b-2428-4d2c-88a5-9b17ccbfee8a".parse().unwrap(),
-                    event_type: OaPktAbilityUseEventType::Use,
-                    combo_stage_id: pkt.combo_stage_id.unwrap_or_default() as i32,
-                    ability_invoke_location: invoke_location.into(),
-                    ability_type: OaPktAbilityUseAbilityType::Item,
-                    server_event_duration: 1.0,
-                    target: Some(pkt.caster),
-                    ..Default::default()
-                });
+            if !cooldowns.consume(&groups, Duration::from_secs_f32(cooldown)) {
+                debug!("Cooldowns not ready");
+                continue;
             }
         }
-    }
-}*/
 
-/*
+        // Produce targets
+        let mut target_effects = vec![];
+        let rotation = event.rotation.unwrap_or(movement.rotation);
+        let forward = rotation.mul_vec3(Vec3::Z).normalize();
+        
+        for effect in &event.effects {
+            match effect {
+                Effect::Targeted { target, kind } => target_effects.push((*target, *kind)),
+                Effect::TargetFactory { factory, kind } => {
+                    if factory.kind == "pie" {
+                        let angle = factory.settings.angle.unwrap_or(90.0);
+                        let radius = factory.settings.radius_max.unwrap_or(10.0);
+                    
+                        for ent in interests.keys() {
+                            if let Ok((ent, _, data, target_movement)) = targets.get(*ent) {
+                                let size = data.get::<_, f32>(NpcOtherland::Size).copied().unwrap_or(0.0) * 100.0;
+                                let direction = (target_movement.position - event.position).with_y(0.0);
 
-fn handle_ability_request(
-    In((ent, pkt)): In<(Entity, oaPktAbilityRequest)>,
-    avatar_man: Res<AvatarIdManager>,
-    player: Query<(&PlayerController, &Interests, &Movement, &GameObjectData)>,
-    mut target: Query<&mut Health>,
-    pos: Query<&Movement>,
-) {
-    
-    debug!("Ability request: Avatar {} ToggleMode {:?} Skill {:?} Prediction {} Combo {:?}", pkt.caster, pkt.toggle_mode, pkt.skill_id, pkt.prediction_id, pkt.combo_stage_id);
-    //debug!("{:#?}", pkt);
+                                if direction.length() - size <= radius{
+                                    let angle_diff = forward.angle_between(direction.with_y(0.0).normalize());
 
-    let invoke_location = pos.get(ent)
-        .map(|pos| pos.position)
-        .unwrap_or_default();
+                                    if angle_diff <= angle / 2.0 {
+                                        target_effects.push((ent, *kind));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        }
 
-    if pkt.toggle_mode == Some(1) || pkt.toggle_mode.is_none() {
-        // Incredibly quick and dirty damage logic
-        let target_avatar = pkt.params.and_then(|s| s.parse::<AvatarId>().ok());/*player.get(ent).ok()
-            .and_then(|(_, _, _, data)| data.get::<_, AvatarId>(Player::Target).ok())
-            .cloned();*/
+        // Setup ability source
+        let (source_id, ability_type) = match &event.kind {
+            AbilityKind::Item(item) => {
+                (item.id, OaPktAbilityUseAbilityType::Item)
+            },
+            AbilityKind::Skill(skill) => {
+                (skill.id, OaPktAbilityUseAbilityType::Skill)
+            },
+            AbilityKind::Buff(buff) => {
+                (buff.id, OaPktAbilityUseAbilityType::Buff)
+            },
+        };
 
-        let dmg = if let Some(target_ent) = target_avatar.and_then(|target| avatar_man.entity_from_avatar_id(target)) {
-            if let Ok(mut target) = target.get_mut(target_ent) {
-                target.current -= 100;
-                if target.current < target.min {
-                    target.current = target.min;
+        let event_type = match event.toggle_mode {
+            AbilityToggleMode::Once => OaPktAbilityUseEventType::Charge,
+        };
+
+        // Apply effects
+        let effects = target_effects.into_iter()
+            .filter_map(|(ent, effect)| {
+                match effect {
+                    EffectType::Damage { min, max } => {
+                        if let Ok((ent, avatar, _data, _target_movement)) = targets.get(ent) {
+                            let dmg = rand::thread_rng().gen_range(min..=max).round();
+                            let id = HealthUpdateEvent::damage(ent, dmg as i32)
+                                .send(&mut health_events);
+
+                            Some(AbilityEffect {
+                                effect_type: 1,
+                                target_actor: avatar.id,
+                                flags: 72,
+                                total_damage_or_heal_amount: Some(dmg),
+                                delta_hp_id: Some(id),
+                                ..Default::default()
+                            })
+                        } else {
+                            None
+                        }
+                    },
+                    EffectType::Heal { .. } => todo!(),
                 }
-
-                Some((target.current, 100))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let (hp_updated, effects) = if 
-            let Some((hp, dmg)) = dmg &&
-            let Some(target_avatar) = target_avatar
-        {
-            let id = random();
-
-            (
-                Some(oaPkt_Combat_HpUpdate {
-                    avatar_id: target_avatar,
-                    hp,
-                    id,
-                    ..Default::default()
-                }),
-
-                vec![AbilityEffect {
-                    effect_type: 1,
-                    target_actor: target_avatar,
-                    flags: 72,
-                    total_damage_or_heal_amount: Some(dmg as f32),
-                    //effect_delay: Some(0.5),
-                    //effect_duration_from_server: Some(1.0),
-                    delta_hp_id: Some(id as i32),
-                    ..Default::default()
-                }]
-            )
-        } else {
-            (None, vec![])
-        };
-
-        debug!("Effects: {:#?}", effects);
-
-        for (controller, interests, movement, _) in player.iter() {
-            if let Some(hp_updated) = &hp_updated {
-                controller.send_packet(hp_updated.clone());
-            }
-
-            if controller.avatar_id() == pkt.caster {
-                debug!("Send ability use");
-
-                controller.send_packet(oaPktAbilityUse {
-                    player: controller.avatar_id(),
-                    caster: pkt.caster,
-                    ability_id: "d5bfa0b8-a6df-45ca-a810-b9c29bcf32f3".parse().unwrap(),
-                    buff_id: "ac81b7d5-8034-430a-9873-7b5c569abd37".parse().unwrap(),
-                    prediction_id: pkt.prediction_id,
-                    event_type: OaPktAbilityUseEventType::Charge,
-                    combo_stage_id: pkt.combo_stage_id.unwrap_or_default() as i32,
-                    //ability_invoke_location: invoke_location.into(),
-                    ability_type: OaPktAbilityUseAbilityType::Item,
-                    server_event_duration: 1.7,
-                    flag: if pkt.target_rotation.is_some() { 2 } else { 0 },
-                    rotation: pkt.target_rotation.clone(),
+            })
+            .collect::<Vec<_>>();
+        
+        // Send ability use to all interested players
+        for (ent, controller, interests) in players.iter() {
+            if ent == event.source {
+                let pkt = oaPktAbilityUse {
+                    player: source_avatar.id,
+                    source_avatar: source_avatar.id,
+                    skill_id: event.ability.id,
+                    source_id,
+                    event_type,
+                    ability_invoke_location: event.position.into(),
+                    ability_type,
+                    server_event_duration: *event.ability.data
+                        .get::<_, f32>(EdnaAbility::ExecutionTime).unwrap(),
+                    flag: if event.rotation.is_some() { 2 } else { 0 },
+                    rotation: event.rotation.map(|v| v.into()).clone(),
                     effect_count: effects.len() as u32,
                     effects: effects.clone(),
-                    //effect_count: 1,
-                    /*effects: vec![AbilityEffect {
-                        effect_type: 0x0,
-                        //target_actor: pkt.caster,
-                        flags: 48,
-                        effect_delay: Some(0.5),
-                        effect_duration_from_server: Some(1.0),
-                        ..Default::default()
-                    }],*/
-                    //flag: 6,
-                    //target_hit_location: Some(invoke_location.into()),
-                    //rotation: Some(movement.rotation.into()),
+                    prediction_id: event.prediction_id.unwrap_or_default(),
+                    combo_stage_id: event.combo_stage_id.unwrap_or_default(),
+                    ..Default::default()
+                };
 
-                    ..Default::default()
-                });
-            } else if interests.contains(&ent) {
-                controller.send_packet(oaPktAbilityUse {
-                    player: controller.avatar_id(),
-                    caster: pkt.caster,
-                    ability_id: "d5bfa0b8-a6df-45ca-a810-b9c29bcf32f3".parse().unwrap(),
-                    buff_id: "3846d61b-2428-4d2c-88a5-9b17ccbfee8a".parse().unwrap(),
-                    event_type: OaPktAbilityUseEventType::Use,
-                    combo_stage_id: pkt.combo_stage_id.unwrap_or_default() as i32,
-                    ability_invoke_location: invoke_location.into(),
-                    ability_type: OaPktAbilityUseAbilityType::Item,
-                    ..Default::default()
-                });
+                controller.send_packet(pkt);
+            } else if interests.contains_key(&event.source) {
+
             }
         }
     }
 }
 
-*/
+fn send_cooldown_updates(
+    players: Query<(&PlayerController, &mut Cooldowns, &CurrentState), Changed<Cooldowns>>,
+) {
+    for (controller, cooldowns, state) in players.iter() {
+        if state.state < ConnectionState::PlayerLoaded {
+            continue;
+        }
+
+        controller.send_packet(oaPktCooldownUpdate {
+            avatar_id: controller.avatar_id(),
+            field_2: CooldownUpdate {
+                entry_count: cooldowns.0.len() as u32,
+                entries: cooldowns.0.iter().map(|(_, (cooldown, state))| {
+                    match state {
+                        CooldownState::Ready => {
+                            CooldownEntry {
+                                key: cooldown.numeric_id,
+                                field_1: true,
+                                total_duration: 0.0,
+                                remaining_duration: 0.0,
+                            }
+                        },
+                        CooldownState::Cooldown(start, duration) => {
+                            let elapsed = start.elapsed().as_secs_f32();
+                            let remaining = duration.as_secs_f32() - elapsed;
+
+                            CooldownEntry {
+                                key: cooldown.numeric_id,
+                                field_1: false,
+                                total_duration: duration.as_secs_f32(),
+                                remaining_duration: remaining,
+                            }
+                        }
+                    }
+                })
+                .collect()
+            },
+            ..Default::default()
+        });
+    }
+}

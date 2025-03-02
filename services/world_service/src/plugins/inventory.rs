@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{sync::Arc, time::Duration};
+use std::{ops::Deref, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use bevy::{app::{Last, Plugin, PostUpdate, Update}, ecs::{component::Component, query::Without, system::{Resource, SystemId}}, prelude::{Added, App, BuildChildren, Changed, Commands, DetectChangesMut, Entity, In, IntoSystemConfigs, Or, Parent, Query, Res, With}, time::common_conditions::on_timer, utils::hashbrown::{HashMap, HashSet}};
@@ -34,7 +34,7 @@ use super::{BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentSt
 #[derive(Resource)]
 #[allow(clippy::type_complexity)]
 struct InventorySystems {
-    insert_item_storage: SystemId<In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>)>)>>>,
+    insert_item_storage: SystemId<In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>, Vec<Arc<CacheEntry>>)>)>>>,
     apply_storage_result: SystemId<In<(Entity, StorageResult)>>,
     apply_equipment_result: SystemId<In<(Entity, EquipmentResult)>>,
 }
@@ -63,6 +63,7 @@ impl EquipmentResult {
 }
 
 #[derive(Default)]
+#[allow(clippy::complexity)]
 struct StorageResult {
     storage_id: Uuid,
     bling: Option<i32>,
@@ -192,14 +193,14 @@ struct CharacterPreset {
 
 #[derive(Component)]
 pub struct Inventory {
-    id: Uuid,
-    name: String,
+    pub id: Uuid,
+    pub name: String,
 
-    items: HashMap<Uuid, Entity>,
+    pub items: HashMap<Uuid, Entity>,
 
-    bling: Option<i32>,
-    game_cash: Option<i32>,
-    max_slots: i32,
+    pub bling: Option<i32>,
+    pub game_cash: Option<i32>,
+    pub max_slots: i32,
 
     observing_players: HashSet<Entity>,
 }
@@ -223,6 +224,14 @@ impl Inventory {
 #[derive(Component)]
 pub struct ItemAbilities(Vec<Arc<CacheEntry>>);
 
+impl Deref for ItemAbilities {
+    type Target = Vec<Arc<CacheEntry>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 fn load_player_inventory(
     query: Query<(Entity, &PlayerController), Added<PlayerTag>>,
     instance: Res<ZoneInstance>,
@@ -241,16 +250,24 @@ fn load_player_inventory(
             for item in storage.items {
                 if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
                     // Cache abilities for later use
-                    if 
+                    let abilities = if 
                         let Ok(abilities) = base_item.data.get::<_, Value>(ItemEdna::Abilities) &&
                         let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
                     {
-                        for ability in abilities.0 {
-                            let _ = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await?;
-                        }
-                    }
+                        let mut item_abilities = vec![];
 
-                    items.push((item, base_item));
+                        for ability in abilities.0 {
+                            if let Some(ability) = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await? {
+                                item_abilities.push(ability);
+                            }
+                        }
+
+                        item_abilities
+                    } else {
+                        vec![]
+                    };
+
+                    items.push((item, base_item, abilities));
                 }
             }
 
@@ -271,7 +288,7 @@ fn load_player_inventory(
 
 #[allow(clippy::type_complexity)]
 fn insert_item_storage(
-    In(result): In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>)>)>>,
+    In(result): In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>, Vec<Arc<CacheEntry>>)>)>>,
     ents: Query<Entity>,
     mut player: Query<&mut GameObjectData, With<PlayerTag>>,
     mut commands: Commands,
@@ -284,7 +301,7 @@ fn insert_item_storage(
             }
 
             if let Ok(ent) = ents.get(ent) {
-                for (item, template) in items {
+                for (item, template, abilities) in items {
                     let mut instance = item.instance;
                     instance.set_parent(Some(template.data.clone()));
 
@@ -293,10 +310,13 @@ fn insert_item_storage(
                             placement_id: item.id,
                             template: template.clone(),
                         },
+                        ItemAbilities(abilities),
                         instance,
                     ))
                     .set_parent(ent)
                     .id();
+
+                    debug!("Inserting item {}: {}", item.id, item_ent);
 
                     storage.items.insert(item.id, item_ent);
                 }
@@ -343,13 +363,13 @@ fn command_add_item(
                     match StorageResult::from_result(res).await {
                         Ok(result) => (ent, result),
                         Err(e) => {
-                            error!("Failed to insert item: {}", e);
+                            error!("Failed to insert item: {:?}", e);
                             (ent, StorageResult::default())
                         }
                     }
                 },
                 Err(e) => {
-                    warn!("Failed to insert item: {}", e);
+                    warn!("Failed to insert item: {:?}", e);
                     (ent, StorageResult::default())
                 }
             }
@@ -391,71 +411,6 @@ fn command_apply_class_preset(
     _systems: Res<InventorySystems>,
     mut _commands: Commands,
 ) {
-    /*let mut args = args.into_iter();
-
-    if let Some(NativeParam::String(template_name)) = args.next() {
-        // Delete current equipment
-        if let Ok(mut inventory) = players.get_mut(ent) {
-            for item_ent in inventory.equipped_items.drain(..).collect::<Vec<_>>() {
-                commands.entity(item_ent).despawn();
-                inventory.id_lookup.retain(|_, v| *v != item_ent);
-            }
-
-            for item_ent in inventory.costume_items.drain(..).collect::<Vec<_>>() {
-                commands.entity(item_ent).despawn();
-                inventory.id_lookup.retain(|_, v| *v != item_ent);
-            }
-        }
-
-        let object_cache = instance.object_cache.clone();
-
-        commands.run_system_async(
-            IoTaskPool::get()
-            .spawn(async move {
-                if 
-                    let Some (preset) = object_cache.get_object_by_name(&template_name).await
-                        .ok()
-                        .flatten() &&
-                    let Some(default_equipment) = preset.data.get::<_, Value>(ClassItem::DefaultEquipment).ok()
-                        .and_then(|v| serde_json::from_value::<DefaultEquipment>(v.clone()).ok())
-                {
-                    let weapons = 
-                        join_all(
-                            default_equipment.weapons.iter()
-                            .map(|name| object_cache.get_object_by_name(name))
-                            .collect::<Vec<_>>()
-                        ).await
-                        .into_iter()
-                        .flatten()
-                        .flatten()
-                        .collect::<Vec<_>>();
-
-                    let armors = 
-                        join_all(
-                            default_equipment.armors.iter()
-                            .map(|name| object_cache.get_object_by_name(name))
-                            .collect::<Vec<_>>()
-                        ).await
-                        .into_iter()
-                        .flatten()
-                        .flatten()
-                        .collect::<Vec<_>>();
-
-                    (ent, Some(CharacterPreset {
-                        combat_style: default_equipment.combat_style,
-                        level: default_equipment.level,
-                        level_up_skills: default_equipment.level_up_skills,
-                        weapons,
-                        armors,
-                        qboost: vec![],
-                    }))
-                } else { 
-                    (ent, None)
-                }
-            }), 
-            systems.apply_character_preset
-        );
-    }*/
 }
 
 #[allow(dead_code)]
@@ -465,37 +420,6 @@ fn apply_character_preset(
     mut _commands: Commands,
 ) {
     if let Some(_preset) = preset {
-        /*let default_equipment = preset.data.get::<_, Value>(ClassItem::DefaultEquipment).unwrap();
-        let mut items = vec![];
-
-        if let Some(Value::Array(weapons)) = default_equipment.get("Weapons") {
-            for weapon in weapons {
-                items.push(weapon.as_str().unwrap().to_string());
-            }
-        }
-        
-        if let Some(Value::Array(armors)) = default_equipment.get("Armors") {
-            for armor in armors {
-                items.push(armor.as_str().unwrap().to_string());
-            }
-        }
-
-        for item in items {
-            let object_cache = instance.object_cache.clone();
-
-            debug!("Loading item {}", item);
-
-            commands.spawn(AsyncItemInsert {
-                player: task.player,
-                destination: ItemInsertDestination::Equipment,
-                task: IoTaskPool::get()
-                    .spawn(async move {
-                        object_cache.get_object_by_name(&item).await
-                            .ok()
-                            .flatten()
-                    })
-            });
-        }*/
     }
 }
 

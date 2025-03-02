@@ -13,12 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
-use bevy::{app::{First, Plugin}, ecs::{component::Component, system::{In, Resource}}, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, utils::HashMap};
+use bevy::{app::{First, Plugin, PreUpdate}, ecs::{component::Component, query::{Or, With}, schedule::IntoSystemConfigs, system::{In, Resource}}, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, utils::HashMap};
 use futures_util::TryStreamExt;
-use log::{info, trace, warn};
-use obj_params::{tag_gameobject_entity, GameObjectData, NonClientBase};
+use log::{debug, info, trace, warn};
+use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, StructureBaseTag}, GameObjectData, NonClientBase};
 use realm_api::ObjectPlacement;
 use toolkit::types::Uuid;
 
@@ -67,6 +67,10 @@ impl Plugin for LoaderPlugin {
             });
 
         app.add_systems(First, init_gameobjects);
+        app.add_systems(PreUpdate, (
+            update_spawn_state,
+            spawn_init_entity
+        ).chain());
 
         let instance = app.world().get_resource::<ZoneInstance>().unwrap();
         let realm_api = instance.realm_api.clone();
@@ -130,6 +134,7 @@ fn ingest_content(
             },
             placement.data,
             Active,
+            SpawnState::default(),
         )).id();
 
         entry.insert(entity);
@@ -147,5 +152,78 @@ pub fn init_gameobjects(
     }
 }
 
+#[allow(clippy::type_complexity)]
+pub fn update_spawn_state(
+    mut entities: Query<(Entity, &GameObjectData, &mut SpawnState), Or<(With<NpcBaseTag>, With<StructureBaseTag>)>>,
+    mut commands: Commands,
+) {
+    for (ent, obj, mut state) in entities.iter_mut() {
+        match *state {
+            SpawnState::Alive => {
+                if !*obj.get_named::<bool>("alive").unwrap() {
+                    debug!("Entity {} is dead", ent);
+                    state.mark_killed();
+                }
+            }
+            SpawnState::Killed(instant) => {
+                let despawn_delay = *obj.get::<_, f32>(NonClientBase::DespawnDelay).unwrap();
+
+                if instant.elapsed().as_secs_f32() >= despawn_delay {
+                    debug!("Despawning entity {}", ent);
+
+                    state.mark_despawned();
+                    commands.entity(ent).remove::<Active>();
+                }
+            },
+            SpawnState::Despawned(instant) => {
+                let despawn_delay = *obj.get::<_, f32>(NonClientBase::DespawnDelay).unwrap();
+
+                if instant.elapsed().as_secs_f32() >= despawn_delay {
+                    debug!("Respawning entity {}", ent);
+
+                    state.mark_alive();
+                    commands.entity(ent).insert(Active);
+                }
+            },
+        }
+    }
+}
+
+#[allow(clippy::type_complexity)]
+pub fn spawn_init_entity(
+    mut entities: Query<&mut GameObjectData, (Added<Active>, Or<(With<NpcBaseTag>, With<StructureBaseTag>)>)>,
+) {
+    for mut obj in entities.iter_mut() {
+        let hp_mod = *obj.get_named::<f32>("HpMod").unwrap_or(&1.0);
+        let hp_max = *obj.get_named::<i32>("hpMax").unwrap();
+        let bonus_hp = *obj.get_named::<f32>("BonusHP").unwrap_or(&0.0);
+
+        obj.set_named("alive", true);
+        obj.set_named("hpCur", (hp_max as f32 * hp_mod + bonus_hp).round() as i32);
+    }
+}
+
 #[derive(Component)]
 pub struct Active;
+
+#[derive(Component, Default, Clone, Copy)]
+pub enum SpawnState {
+    #[default]
+    Alive,
+    Killed(Instant),
+    Despawned(Instant),
+}
+
+impl SpawnState {
+    pub fn mark_killed(&mut self) {
+        *self = SpawnState::Killed(Instant::now());
+    }
+
+    pub fn mark_despawned(&mut self) {
+        *self = SpawnState::Despawned(Instant::now());
+    }
+
+    pub fn mark_alive(&mut self) {
+        *self = SpawnState::Alive;
+    }
+}

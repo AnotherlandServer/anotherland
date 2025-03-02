@@ -40,7 +40,7 @@ fn sync_avatar_data(
             .collect::<Box<dyn GenericParamSet>>();
 
         for (player_avatar, interests, controller) in players.iter() {
-            if interests.contains(&entity) || obj_avatar.id == player_avatar.id {
+            if interests.contains_key(&entity) || obj_avatar.id == player_avatar.id {
                 let mut param_buffer = Vec::new();
                 let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 

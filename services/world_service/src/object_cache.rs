@@ -30,6 +30,7 @@ struct Inner {
     name_access: HashMap<String, Weak<CacheEntry>>,
 }
 
+#[derive(Debug)]
 pub struct CacheEntry {
     pub id: Uuid,
     pub numeric_id: i32,

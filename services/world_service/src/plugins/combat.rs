@@ -19,14 +19,14 @@ use bevy::{app::{Plugin, PreUpdate, Update}, ecs::event::{Event, EventReader, Ev
 use obj_params::{tags::{EdnaContainerTag, EdnaReceptorTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, SpawnerTag, StructureTag, VehicleBaseTag}, GameObjectData, Player};
 use protocol::{oaPkt_Combat_HpUpdate, CPktTargetRequest};
 
-use super::{AvatarInfo, Interests, NetworkExtPriv, PlayerController};
+use super::{spawn_init_entity, AvatarInfo, Interests, NetworkExtPriv, PlayerController};
 
 pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.register_message_handler(handle_ability_request);
-        app.add_systems(PreUpdate, init_health);
+        app.add_systems(PreUpdate, init_health.after(spawn_init_entity));
         app.add_systems(Update, (
             process_health_events,
             store_health.after(process_health_events),
@@ -215,7 +215,7 @@ fn process_health_events(
             };
 
             for (controller, interests) in receivers.iter() {
-                if interests.contains(&event.entity) || avatar.id == controller.avatar_id() {
+                if interests.contains_key(&event.entity) || avatar.id == controller.avatar_id() {
                     controller.send_packet(pkt.clone());
                 }
             }

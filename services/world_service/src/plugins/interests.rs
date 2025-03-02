@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
+use std::{ops::Deref, time::Duration};
 
 use bevy::{app::{App, Plugin, Update}, prelude::{Changed, Commands, Component, Entity, IntoSystemConfigs, Or, Query, With, Without}, time::common_conditions::on_timer, utils::HashMap};
 use bitstream_io::{ByteWriter, LittleEndian};
@@ -55,8 +55,12 @@ pub struct Interests {
     interests: HashMap<Entity, (AvatarId, InterestState)>,
 }
 
-impl Interests {
-    pub fn contains(&self, ent: &Entity) -> bool { self.interests.contains_key(ent) }
+impl Deref for Interests {
+    type Target = HashMap<Entity, (AvatarId, InterestState)>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.interests
+    }
 }
 
 #[derive(Component)]
@@ -179,7 +183,7 @@ fn update_interest_list(
 
         // update interests
         for ent in &found_interests {
-            if !interests.contains(ent) {
+            if !interests.contains_key(ent) {
                 interests.interests.insert(*ent, (
                     avatar_info.get(*ent).unwrap().id, 
                     InterestState::Initial

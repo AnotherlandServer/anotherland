@@ -15,6 +15,7 @@
 
 use bevy::{app::{First, Last, Plugin, Update}, ecs::{event::EventWriter, query::Without}, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
+use futures::TryStreamExt;
 use log::{debug, error, trace, warn};
 use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, Class, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
 use protocol::{oaPktS2XConnectionState, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
@@ -22,15 +23,15 @@ use realm_api::Character;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
 
-use crate::{instance::{InstanceState, ZoneInstance}, plugins::{Active, ForeignResource}, proto::TravelMode};
+use crate::{instance::{InstanceState, ZoneInstance}, plugins::{Active, ForeignResource}, proto::TravelMode, OBJECT_CACHE};
 
-use super::{clear_obj_changes, init_gameobjects, AvatarInfo, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction, StringBehavior};
+use super::{clear_obj_changes, init_gameobjects, AvatarInfo, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction, StringBehavior};
 
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        let (character_sender, character_receiver) = mpsc::channel::<(Entity, Character)>(10);
+        let (character_sender, character_receiver) = mpsc::channel::<(Entity, Character, Cooldowns)>(10);
 
         app.insert_resource(ForeignResource(character_sender));
         app.insert_resource(ForeignResource(character_receiver));
@@ -57,7 +58,7 @@ impl Plugin for PlayerPlugin {
 fn request_player_characters(
     query: Query<(Entity, &PlayerController), Added<PlayerController>>,
     instance: Res<ZoneInstance>,
-    sender: Res<ForeignResource<Sender<(Entity, Character)>>>,
+    sender: Res<ForeignResource<Sender<(Entity, Character, Cooldowns)>>>,
 ) {
     for (entity, controller) in query.iter() {
         let realm_api = instance.realm_api.clone();
@@ -67,14 +68,31 @@ fn request_player_characters(
     
         instance.spawn_task(async move {
             if let Ok(Some(character)) = realm_api.get_character(state.character()).await {
-                let _ = sender.send((entity, character)).await;
+                let mut cooldowns = Cooldowns::default();
+
+                // TODO: This is incredibly ugly. Cache cooldows on world start and copy them here or 
+                // probably during player spawn.
+                if let Ok(mut cursor) = realm_api.query_object_templates()
+                    .class(Class::CooldownGroupExternal)
+                    .query().await {
+                    
+                    while let Some(cooldown) = cursor.try_next().await.unwrap() {
+                        let cooldown = OBJECT_CACHE.wait()
+                            .get_object_by_guid(cooldown.id).await.unwrap()
+                            .unwrap();
+
+                        cooldowns.insert(cooldown);
+                    }
+                }
+
+                let _ = sender.send((entity, character, cooldowns)).await;
             }
         });
     }
 }
 
 fn insert_player_characters(
-    mut receiver: ResMut<ForeignResource<Receiver<(Entity, Character)>>>,
+    mut receiver: ResMut<ForeignResource<Receiver<(Entity, Character, Cooldowns)>>>,
     controller: Query<&PlayerController>,
     starting_points: Query<&GameObjectData, With<StartingPointTag>>,
     portals: Query<(&ContentInfo, &GameObjectData), With<PortalTag>>,
@@ -82,7 +100,7 @@ fn insert_player_characters(
     instance: Res<ZoneInstance>,
     mut commands: Commands,
 ) {
-    while let Ok((entity, mut character)) = receiver.try_recv() {
+    while let Ok((entity, mut character, cooldowns)) = receiver.try_recv() {
         if let Ok(controller) = controller.get(entity) {
 
             // Update zone info in character data
@@ -192,6 +210,7 @@ fn insert_player_characters(
                     character.take_data(),
                     movement,
                     QuestLog::default(),
+                    cooldowns,
                 ));
         }
     }

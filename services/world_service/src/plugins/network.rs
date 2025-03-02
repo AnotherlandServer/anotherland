@@ -381,7 +381,7 @@ pub struct CurrentState {
     pub state: ConnectionState,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd)]
 pub enum ConnectionState {
     #[default]
     Offline,

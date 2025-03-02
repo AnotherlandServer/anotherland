@@ -13,7 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate}, ecs::component::Component, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}};
+use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{change_detection::DetectChangesMut, component::Component, system::Res}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time}};
+use log::debug;
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase, Player};
 use protocol::{oaPktMoveManagerPosUpdate, oaPktMoveManagerStateChanged, Physics, PhysicsState};
 use toolkit::OtherlandQuatExt;
@@ -25,6 +26,7 @@ pub struct MovementPlugin;
 impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, setup_non_client_movement);
+        app.add_systems(Update, update_position);
         app.add_systems(PostUpdate, send_position_updates);
 
         app.register_message_handler(handle_move_manager_state_changed);
@@ -32,7 +34,7 @@ impl Plugin for MovementPlugin {
     }
 }
 
-#[derive(Component, Clone)]
+#[derive(Component, Clone, Debug)]
 pub struct Movement {
     pub position: Vec3,
     pub rotation: Quat,
@@ -52,12 +54,18 @@ pub fn handle_move_manager_pos_update(
     if let Ok((mut obj, mut movement)) = query.get_mut(ent) {
         movement.mode = pkt.physics.state;
         movement.position = pkt.pos.into();
-        movement.rotation = pkt.rot.into();
+        movement.rotation = pkt.rot.clone().into();
         movement.velocity = pkt.vel.into();
         movement.seconds = pkt.seconds;
+        movement.mover_key = pkt.mover_key;
 
         obj.set(Player::Pos, (0u32, movement.position));
         obj.set(Player::Rot, movement.rotation.as_unit_vector());
+
+        debug!("New Pos: {}", movement.position);
+        debug!("New Rot: {:?} / {} / {}", pkt.rot, movement.rotation, movement.rotation.as_unit_vector());
+        debug!("New Vel: {}", movement.velocity);
+        debug!("New key: {}", movement.mover_key);
     }
 }
 
@@ -70,6 +78,8 @@ pub fn handle_move_manager_state_changed(
         movement.mover_replication_policy = pkt.mover_replication_policy;
         movement.version = pkt.new_version;
         movement.mover_key = pkt.mover_key;
+
+        debug!("Player mover init: {:#?}", movement);
     }
 }
 
@@ -85,7 +95,7 @@ pub fn setup_non_client_movement(
             mode: PhysicsState::Walking,
             mover_type: 1,
             mover_replication_policy: 7,
-            version: 0,
+            version: 1,
             seconds: 0.0,
             mover_key: 0,
         };
@@ -101,7 +111,7 @@ pub fn send_position_updates(
     for (entity, avatar, pos) in positions.iter() {
         // check player interest list to dispatch updates
         for (interests, controller) in players.iter() {
-            if interests.contains(&entity) {
+            if interests.contains_key(&entity) {
                 controller.send_packet(oaPktMoveManagerPosUpdate {
                     avatar_id: avatar.id,
                     pos: pos.position.into(),
@@ -116,5 +126,16 @@ pub fn send_position_updates(
                 });
             }
         }
+    }
+}
+
+pub fn update_position(
+    mut positions: Query<&mut Movement>,
+    time: Res<Time<Real>>,
+) {
+    for mut pos in positions.iter_mut() {
+        let vel = pos.velocity;
+
+        pos.bypass_change_detection().position += vel * time.delta_secs();
     }
 }
