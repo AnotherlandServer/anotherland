@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use glam::{EulerRot, Quat, Vec3};
+use glam::{Quat, Vec3};
 
 pub trait OtherlandQuatExt {
     fn from_unit_vector(val: Vec3) -> Quat;
@@ -21,22 +21,16 @@ pub trait OtherlandQuatExt {
 }
 
 impl OtherlandQuatExt for Quat {
-    fn from_unit_vector(mut val: Vec3) -> Quat {
-        val = val.normalize_or(Vec3::Z);
-        val.z = -val.z;
-
+    fn from_unit_vector(val: Vec3) -> Quat {
         if val == Vec3::ZERO {
             Quat::IDENTITY
         } else {
-            Quat::from_rotation_arc(Vec3::Z, val)
+            Quat::from_rotation_arc(Vec3::Z, val.normalize_or(Vec3::Z))
         }
     }
 
     fn as_unit_vector(&self) -> Vec3 {
-        let mut vec = self.mul_vec3(Vec3::Z)
-            .normalize();
-
-        vec.z = -vec.z;
-        vec
+        self.mul_vec3(Vec3::Z)
+            .normalize()
     }
 }
