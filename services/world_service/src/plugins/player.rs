@@ -225,10 +225,10 @@ fn begin_loading_sequence(
         let mut serialized = Vec::new();
         let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
 
-        obj.write_to_privileged_client(&mut writer).unwrap();
-
         // Send character to client, so it begins loading the level
         if matches!(controller.travel_mode(), TravelMode::Login) {
+            obj.write_to_privileged_client(&mut writer).unwrap();
+
             controller.send_packet(CPktBlob {
                 avatar_id: controller.avatar_id(),
                 avatar_name: avatar.name.clone(),
@@ -251,23 +251,17 @@ fn begin_loading_sequence(
                 ..Default::default()
             });
         } else {
+            let changes = obj.changes().
+                filter(|(attr, _)| !attr.has_flag(&ParamFlag::ClientUnknown))
+                .collect::<Box<dyn GenericParamSet>>();
+
+            changes.write_to_privileged_client(&mut writer).unwrap();
+
             controller.send_packet(CPktAvatarUpdate {
-                full_update: true,
+                full_update: false,
                 avatar_id: Some(controller.avatar_id()),
                 name: Some(avatar.name.clone()),
                 class_id: Some(obj.class().id() as u32),
-                movement: Some(MoveManagerInit {
-                    pos: movement.position.into(),
-                    rot: movement.rotation.into(),
-                    vel: movement.velocity.into(),
-                    physics: Physics {
-                        state: movement.mode,
-                    },
-                    mover_type: movement.mover_type,
-                    mover_replication_policy: movement.mover_replication_policy,
-                    version: movement.version,
-                    ..Default::default()
-                }.to_bytes().into()),
                 params: serialized.into(),
                 ..Default::default()
             });
