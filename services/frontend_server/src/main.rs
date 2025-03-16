@@ -24,6 +24,7 @@ use once_cell::sync::Lazy;
 use raknet::RakNetListener;
 use realm_api::{proto::{NodeAddress, NodeType, RealmClient, RealmRequest}, RealmApi};
 use reqwest::Url;
+use tokio::select;
 use toolkit::print_banner;
 
 mod error;
@@ -84,12 +85,22 @@ async fn main() -> FrontendResult<()> {
         realm_client.send(RealmRequest::RegisterNode(NodeType::Frontend, NodeAddress::Public(ARGS.public_addr))).await?;
     
         loop {
-            let socket = listener.accept().await.unwrap();
-            FrontendSessionContext::start_frontend_session(
-                core_api.clone(), 
-                realm_api.clone(), 
-                socket
-            );
+            select! {
+                Ok(socket) = listener.accept() => {
+                    FrontendSessionContext::start_frontend_session(
+                        core_api.clone(), 
+                        realm_api.clone(), 
+                        socket
+                    );
+                },
+                Err(_) = realm_client.recv() => {
+                    break;
+                }
+            }
         }
+
+        listener.close().await;
+
+        Ok(())
     }).await?
 }
