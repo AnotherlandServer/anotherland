@@ -28,6 +28,8 @@ mod cash_shop_item_bundle;
 mod cash_shop_item;
 mod cash_shop_vendor;
 mod item_storage;
+mod ability_bar;
+mod skillbook;
 
 pub use base::*;
 pub use error::*;
@@ -43,6 +45,8 @@ pub use cash_shop_item_bundle::*;
 pub use cash_shop_item::*;
 pub use cash_shop_vendor::*;
 pub use item_storage::*;
+pub use ability_bar::*;
+pub use skillbook::*;
 
 // reexport
 pub use realm_manager_service::proto;

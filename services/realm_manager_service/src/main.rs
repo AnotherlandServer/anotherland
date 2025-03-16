@@ -19,6 +19,7 @@
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 use std::sync::Arc;
@@ -28,6 +29,7 @@ use async_graphql_poem::GraphQL;
 use chat_router::ChatRouter;
 use clap::Parser;
 use cluster::{ClusterEvent, Endpoint, Host, PeerIdentity};
+use content::set_content_path;
 use core_api::CoreApi;
 use core_api::proto::{CoreRequest, CoreClient, CoreNotification};
 use database::DatabaseExt;
@@ -93,6 +95,14 @@ async fn main() -> RealmResult<()> {
     let args = Args::parse();
 
     print_banner();
+
+    let content_path = std::env::var("CONTENT_PATH")
+        .ok()
+        .and_then(|p| p.parse::<PathBuf>().ok())
+        .or(std::env::current_dir().map(|p| p.join("content")).ok())
+        .expect("content path inacessible");
+
+    set_content_path(content_path).unwrap();
 
     // Init core api
     let core_api = CoreApi::new(args.service_core_url);

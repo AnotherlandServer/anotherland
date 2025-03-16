@@ -19,6 +19,7 @@ async-graphql-poem = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 cluster = { workspace = true }
+content = { version = "0.1.0", path = "../../lib/content" }
 core_api = { workspace = true }
 cynic = { workspace = true }
 database = { workspace = true }

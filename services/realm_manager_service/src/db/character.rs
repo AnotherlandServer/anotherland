@@ -15,6 +15,7 @@
 
 use std::{collections::HashSet, sync::Arc};
 
+use async_graphql::Enum;
 use database::DatabaseRecord;
 use log::debug;
 use mongodb::{bson::{self, doc}, options::IndexOptions, ClientSession, IndexModel};
@@ -26,6 +27,29 @@ use anyhow::anyhow;
 use crate::equipment_slots::EQUIPMENT_SLOTS;
 
 use super::{ItemStorage, ObjectTemplate};
+
+#[derive(Enum, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum CombatStyle {
+    Rage,
+    Tech,
+    Assassin,
+    Energizer,
+    Hacker,
+    Cyber,
+    None,
+}
+
+impl CombatStyle {
+    pub async fn load_definition(&self) -> Result<content::CombatStyle, content::error::Error> {
+        match self {
+            CombatStyle::Rage => content::CombatStyle::load("rage").await,
+            CombatStyle::Tech => content::CombatStyle::load("tech").await,
+            CombatStyle::Assassin => content::CombatStyle::load("assassin").await,
+            CombatStyle::Energizer => content::CombatStyle::load("energizer").await,
+            _ => Ok(content::CombatStyle::default()),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, GraphqlCrud)]
 #[graphql_crud(name = "character")]
@@ -54,6 +78,14 @@ impl DatabaseRecord for Character {
 
     fn collection_name() -> &'static str {
         "characters"
+    }
+
+    fn relations() -> &'static[(&'static str, &'static str)] {
+        &[
+            ("skillbook", "id"),
+            ("ability_bar", "id"),
+            ("item_storage", "owner.Character"),
+        ]
     }
 
     async fn build_index(db: &mongodb::Database) -> database::DBResult<()> {

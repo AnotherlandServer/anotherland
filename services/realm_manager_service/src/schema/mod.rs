@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use abilitybar_ext::AbilityBarExtMutationRoot;
 use async_graphql::MergedObject;
 use character_ext::{CharacterExtMutationRoot, CharacterExtRoot};
 use instances::{InstancesMutationRoot, InstancesRoot};
@@ -20,6 +21,7 @@ use item_storage_ext::ItemStorageExtMutationRoot;
 use nodes::NodesRoot;
 use premium_currency::{PremiumCurrencyMutationRoot, PremiumCurrencyRoot};
 use session_state::{SessionStateMutationRoot, SessionStateRoot};
+use skillbook_ext::SkillbookExtMutationRoot;
 
 use crate::db;
 
@@ -30,6 +32,8 @@ mod types;
 mod instances;
 mod session_state;
 mod item_storage_ext;
+mod skillbook_ext;
+mod abilitybar_ext;
 
 pub use types::*;
 
@@ -49,6 +53,8 @@ pub struct QueryRoot(
     pub db::CashShopItemQueryRoot,
     pub db::CashShopVendorQueryRoot,
     pub db::ItemStorageQueryRoot,
+    pub db::SkillbookQueryRoot,
+    pub db::AbilityBarQueryRoot,
 );
 
 #[derive(MergedObject, Default)]
@@ -66,5 +72,9 @@ pub struct MutationRoot(
     pub db::CashShopItemMutationRoot,
     pub db::CashShopVendorMutationRoot,
     pub db::ItemStorageMutationRoot,
+    pub db::SkillbookMutationRoot,
+    pub db::AbilityBarMutationRoot,
     pub ItemStorageExtMutationRoot,
+    pub SkillbookExtMutationRoot,
+    pub AbilityBarExtMutationRoot,
 );

@@ -13,30 +13,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod character;
-mod premium_currency;
-mod premium_currency_transaction;
-mod worlddef;
-mod zone;
-mod object_placement;
-mod object_template;
-mod cash_shop_item_bundle;
-mod cash_shop_item;
-mod cash_shop_vendor;
-mod item_storage;
-mod skillbook;
-mod ability_bar;
+use async_graphql::{Context, Error, Object};
+use database::DatabaseRecord;
+use mongodb::Database;
+use toolkit::types::Uuid;
 
-pub use character::*;
-pub use premium_currency::*;
-pub use premium_currency_transaction::*;
-pub use worlddef::*;
-pub use zone::*;
-pub use object_placement::*;
-pub use object_template::*;
-pub use cash_shop_item_bundle::*;
-pub use cash_shop_item::*;
-pub use cash_shop_vendor::*;
-pub use item_storage::*;
-pub use skillbook::*;
-pub use ability_bar::*;
+use crate::db::{self, AbilityBarOutput};
+
+#[derive(Default)]
+pub struct AbilityBarExtMutationRoot;
+
+#[Object]
+impl AbilityBarExtMutationRoot {
+    pub async fn get_or_create_ability_bar(&self, ctx: &Context<'_>, character_id: Uuid) -> Result<AbilityBarOutput, Error> {
+        let db = ctx.data::<Database>()?.clone();
+        Ok(
+            db::AbilityBar::get_or_create(&db, character_id).await?.try_into()?
+        )
+    }
+}

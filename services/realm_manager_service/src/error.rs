@@ -42,6 +42,9 @@ pub enum RealmError {
     Param(#[from] obj_params::ParamError),
 
     #[error(transparent)]
+    ContentError(#[from] content::error::Error),
+
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 

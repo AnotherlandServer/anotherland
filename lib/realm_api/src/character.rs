@@ -21,6 +21,45 @@ use toolkit::types::Uuid;
 
 use crate::{schema, RealmApi, RealmApiError, RealmApiResult};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CombatStyle {
+    Rage,
+    Tech,
+    Assassin,
+    Energizer,
+    Hacker,
+    Cyber,
+    None,
+}
+
+impl From<character_graphql::CombatStyle> for CombatStyle {
+    fn from(value: character_graphql::CombatStyle) -> Self {
+        match value {
+            character_graphql::CombatStyle::Rage => CombatStyle::Rage,
+            character_graphql::CombatStyle::Tech => CombatStyle::Tech,
+            character_graphql::CombatStyle::Assassin => CombatStyle::Assassin,
+            character_graphql::CombatStyle::Energizer => CombatStyle::Energizer,
+            character_graphql::CombatStyle::Hacker => CombatStyle::Hacker,
+            character_graphql::CombatStyle::Cyber => CombatStyle::Cyber,
+            character_graphql::CombatStyle::None => CombatStyle::None,
+        }
+    }
+}
+
+impl From<CombatStyle> for character_graphql::CombatStyle {
+    fn from(value: CombatStyle) -> Self {
+        match value {
+            CombatStyle::Rage => character_graphql::CombatStyle::Rage,
+            CombatStyle::Tech => character_graphql::CombatStyle::Tech,
+            CombatStyle::Assassin => character_graphql::CombatStyle::Assassin,
+            CombatStyle::Energizer => character_graphql::CombatStyle::Energizer,
+            CombatStyle::Hacker => character_graphql::CombatStyle::Hacker,
+            CombatStyle::Cyber => character_graphql::CombatStyle::Cyber,
+            CombatStyle::None => character_graphql::CombatStyle::None,
+        }
+    }
+}
+
 pub struct Character {
     api_base: RealmApi,
 
@@ -274,5 +313,17 @@ pub(crate) mod character_graphql {
         pub id: Uuid,
         pub index: i32,
         pub name: String,
+    }
+
+    #[derive(cynic::Enum, Clone, Copy, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub enum CombatStyle {
+        Rage,
+        Tech,
+        Assassin,
+        Energizer,
+        Hacker,
+        Cyber,
+        None,
     }
 }
