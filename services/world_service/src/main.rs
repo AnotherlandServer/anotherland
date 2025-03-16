@@ -20,6 +20,7 @@ use instance::{InstanceLabel, ZoneSubApp};
 use object_cache::ObjectCache;
 use plugins::{ControllerEvent, NetworkExt};
 use protocol::CPkt;
+use tokio_util::sync::CancellationToken;
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -89,7 +90,7 @@ fn handle_realm_events(manager: InstanceManager, mut notifications: mpsc::Receiv
     });
 }
 
-fn handle_realm_msgs(realm_client: Arc<RealmClient>, manager: InstanceManager) {
+fn handle_realm_msgs(realm_client: Arc<RealmClient>, manager: InstanceManager, cancel_token: CancellationToken) {
     tokio::spawn(async move {
         while let Ok(msg) = realm_client.recv().await {
             match msg {
@@ -100,6 +101,9 @@ fn handle_realm_msgs(realm_client: Arc<RealmClient>, manager: InstanceManager) {
                 _ => (),
             }
         }
+
+        warn!("Realm server is down. Clean shutdown impossible!");
+        cancel_token.cancel();
     });
 }
 
@@ -237,6 +241,8 @@ async fn main() -> WorldResult<()> {
     // initialize caches
     let _ = OBJECT_CACHE.set(ObjectCache::new(realm_api.clone()));
 
+    let cancel_token = CancellationToken::new();
+
     let (instance_event_sender, mut instance_events) = mpsc::unbounded_channel();
 
     let server = Arc::new(WorldServer::bind(&ARGS.zmq_bind_url).await?);
@@ -262,7 +268,7 @@ async fn main() -> WorldResult<()> {
     }
 
     handle_realm_events(manager.clone(), notifications);
-    handle_realm_msgs(realm_client.clone(), manager.clone());
+    handle_realm_msgs(realm_client.clone(), manager.clone(), cancel_token.clone());
     handle_world_msgs(server, realm_api.clone(), instance_event_sender.clone(), manager.clone());
 
     info!("Starting world server!");
@@ -330,6 +336,10 @@ async fn main() -> WorldResult<()> {
                     None => break,
                 }
             },
+            _ = cancel_token.cancelled() => {
+                warn!("Forced unclean shutdown!");
+                break;
+            }
         }
     }
 

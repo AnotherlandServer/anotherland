@@ -13,38 +13,57 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Last, Plugin, Update}, ecs::{event::EventWriter, query::Without}, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
+use std::sync::Arc;
+
+use bevy::{app::{First, Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, event::EventWriter, query::Without}, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
-use futures::TryStreamExt;
+use futures::{future::join_all, TryStreamExt};
 use log::{debug, error, trace, warn};
-use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, Class, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
-use protocol::{oaPktS2XConnectionState, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
-use realm_api::Character;
+use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, AttributeInfo, Class, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
+use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktS2XConnectionState, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
+use realm_api::{AbilitySlot, Character, State};
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
+use toolkit::{types::{Uuid, UUID_NIL}, NativeParam, OtherlandQuatExt};
 
-use crate::{instance::{InstanceState, ZoneInstance}, plugins::{Active, ForeignResource}, proto::TravelMode, OBJECT_CACHE};
+use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource}, proto::TravelMode, OBJECT_CACHE};
 
-use super::{clear_obj_changes, init_gameobjects, AvatarInfo, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction, StringBehavior};
+use super::{clear_obj_changes, init_gameobjects, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction, StringBehavior};
+
+#[derive(Debug)]
+pub struct Skill {
+    id: Uuid,
+    ability: Arc<CacheEntry>,
+    group: String,
+    state: State,
+    stance: i32,
+}
+
+#[derive(Component)]
+pub struct Skillbook(Vec<Skill>);
+
+#[derive(Component)]
+pub struct EnableClientUpdates;
 
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        let (character_sender, character_receiver) = mpsc::channel::<(Entity, Character, Cooldowns)>(10);
+        let (character_sender, character_receiver) = mpsc::channel::<(Entity, Character, Cooldowns, Skillbook)>(10);
 
         app.insert_resource(ForeignResource(character_sender));
         app.insert_resource(ForeignResource(character_receiver));
 
         app.add_systems(First, (
-            request_player_characters, 
-            insert_player_characters.before(init_gameobjects)
+            request_player_characters,
+            update_skillbook.before(insert_player_characters),
+            insert_player_characters.before(init_gameobjects),
         ).run_if(in_state(InstanceState::Running)));
 
         app.add_systems(Update, spawn_player);
+
         app.add_systems(Last, (
             begin_loading_sequence,
-            save_player_data.before(clear_obj_changes)
+            save_player_data.before(clear_obj_changes),
         ));
         
         app.register_message_handler(handle_avatar_update);
@@ -58,7 +77,7 @@ impl Plugin for PlayerPlugin {
 fn request_player_characters(
     query: Query<(Entity, &PlayerController), Added<PlayerController>>,
     instance: Res<ZoneInstance>,
-    sender: Res<ForeignResource<Sender<(Entity, Character, Cooldowns)>>>,
+    sender: Res<ForeignResource<Sender<(Entity, Character, Cooldowns, Skillbook)>>>,
 ) {
     for (entity, controller) in query.iter() {
         let realm_api = instance.realm_api.clone();
@@ -67,7 +86,46 @@ fn request_player_characters(
         let state = controller.state().clone();
     
         instance.spawn_task(async move {
-            if let Ok(Some(character)) = realm_api.get_character(state.character()).await {
+            if 
+                let Ok(Some(mut character)) = realm_api.get_character(state.character()).await &&
+                let Ok(mut skillbook) = realm_api.get_or_create_skillbook(*character.id()).await &&
+                let Ok(ability_bar) = realm_api.get_or_create_ability_bar(*character.id()).await
+            {
+                let level = *character.data().get::<_, i32>(Player::Lvl).unwrap();
+                let combat_style = CombatStyle::from_id(*character.data().get::<_, i32>(Player::CombatStyle).unwrap());
+
+                if skillbook.combat_style != combat_style.into() {
+                    debug!("Player combat style does not match skillbook");
+
+                    if let Err(e) = skillbook.change_class(combat_style.into(), Some(level)).await {
+                        warn!("Failed to change skillbook: {:?}", e);
+                    }
+                } else if skillbook.character_level != level {
+                    let _ = skillbook.level_up(level).await;
+                }
+
+                let _ = skillbook.unlock_all().await;
+
+                let skills = join_all(skillbook.skills.iter()
+                    .map(async |s| {
+                        if let Ok(Some(ability)) = OBJECT_CACHE.wait().get_object_by_guid(s.ability_id).await {
+                            Some(Skill {
+                                id: s.id,
+                                ability,
+                                group: s.group.clone(),
+                                state: s.state,
+                                stance: s.stance,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                ).await
+                .into_iter()
+                .flatten()
+                .collect();
+                
+
                 let mut cooldowns = Cooldowns::default();
 
                 // TODO: This is incredibly ugly. Cache cooldows on world start and copy them here or 
@@ -85,14 +143,38 @@ fn request_player_characters(
                     }
                 }
 
-                let _ = sender.send((entity, character, cooldowns)).await;
+                let main_skill_bar = [()]
+                    .repeat(7)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, _)| {
+                        if let Some(entry) = ability_bar.slots.get(i) {
+                            AbilityBarReference { id: entry.id, skill: entry.ability.clone() }
+                        } else {
+                            AbilityBarReference { id: -1, ..Default::default() }
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                character.data_mut().set(Player::CurrentAbilityBarReferences, oaAbilityBarReferences {
+                    class_hash: 0xFE0D0DC2,
+                    version: 1,
+                    count: main_skill_bar.len() as u32,
+                    main_skill_bar,
+                    single_slot_bar: AbilityBarReference {
+                        id: ability_bar.single_slot.id,
+                        skill: ability_bar.single_slot.ability,
+                    }
+                }.to_bytes());
+
+                let _ = sender.send((entity, character, cooldowns, Skillbook(skills))).await;
             }
         });
     }
 }
 
 fn insert_player_characters(
-    mut receiver: ResMut<ForeignResource<Receiver<(Entity, Character, Cooldowns)>>>,
+    mut receiver: ResMut<ForeignResource<Receiver<(Entity, Character, Cooldowns, Skillbook)>>>,
     controller: Query<&PlayerController>,
     starting_points: Query<&GameObjectData, With<StartingPointTag>>,
     portals: Query<(&ContentInfo, &GameObjectData), With<PortalTag>>,
@@ -100,7 +182,7 @@ fn insert_player_characters(
     instance: Res<ZoneInstance>,
     mut commands: Commands,
 ) {
-    while let Ok((entity, mut character, cooldowns)) = receiver.try_recv() {
+    while let Ok((entity, mut character, cooldowns, skillbook)) = receiver.try_recv() {
         if let Ok(controller) = controller.get(entity) {
 
             // Update zone info in character data
@@ -172,12 +254,10 @@ fn insert_player_characters(
                 }
 
                 // Update stance data
-                let mut writer = ByteWriter::<Vec<u8>, LittleEndian>::new(vec![]);
-                let _ = writer.write(3i32);
-                let _ = writer.write(0i32);
-                let _ = writer.write(1i32);
-
-                obj.set(Player::ClassData, writer.writer().to_vec());
+                obj.set(Player::ClassData, oaPlayerClassData {
+                    class_hash: 0x9D35021A,
+                    ..Default::default()
+                }.to_bytes());
 
                 // Update zone info in player data
                 obj.set(Player::WorldMapGuid, instance.world_def.guid().to_string());
@@ -211,15 +291,17 @@ fn insert_player_characters(
                     movement,
                     QuestLog::default(),
                     cooldowns,
+                    skillbook,
                 ));
         }
     }
 }
 
-fn begin_loading_sequence(
-    query: Query<(&PlayerController, &AvatarInfo, &GameObjectData, &Movement), Added<GameObjectData>>,
+pub fn begin_loading_sequence(
+    query: Query<(Entity, &PlayerController, &AvatarInfo, &GameObjectData, &Movement), Added<GameObjectData>>,
+    mut commands: Commands,
 ) {
-    for (controller, avatar, obj, movement) in query.iter() {
+    for (ent, controller, avatar, obj, movement) in query.iter() {
         debug!("Starting spawning sequence for character: {}", avatar.name);
 
         let mut serialized = Vec::new();
@@ -266,6 +348,8 @@ fn begin_loading_sequence(
                 ..Default::default()
             });
         }
+
+        commands.entity(ent).insert(EnableClientUpdates);
     }
 }
 
@@ -308,20 +392,46 @@ fn save_player_data(
 ) {
     for (controller, obj) in query.iter() {
         let id = *controller.state().character();
-        let diff = obj.changes()
-            .filter(|(attr, _)| attr.has_flag(&ParamFlag::Persistent))
+        let volatile_diff = obj.changes()
+        .filter(|(attr, _)| !attr.has_flag(&ParamFlag::Persistent))
             .collect::<Box<dyn GenericParamSet>>();
         let realm_api = instance.realm_api.clone();
 
-        if !diff.is_empty() {
-            trace!("Saving character update for: {} - {:#?}", id, diff);
+        if 
+            let Some(Value::Any(ability_bar)) = volatile_diff.get_param(Player::CurrentAbilityBarReferences.name()) &&
+            let Ok((_, current_ability_bar)) = oaAbilityBarReferences::from_bytes(ability_bar)
+        {
+            let mut ability_bar = realm_api.create_empty_ability_bar(id);
+            ability_bar.single_slot = AbilitySlot {
+                id: current_ability_bar.single_slot_bar.id,
+                ability: current_ability_bar.single_slot_bar.skill.clone(),
+            };
+
+            ability_bar.slots = current_ability_bar.main_skill_bar.iter()
+                .map(|e| AbilitySlot {
+                    id: e.id,
+                    ability: e.skill.clone(),
+                })
+                .collect();
+
+            instance.spawn_task(async move {
+                let _ = ability_bar.save().await;
+            });
+        }
+
+        let persistent_diff =  obj.changes()
+            .filter(|(attr, _)| attr.has_flag(&ParamFlag::Persistent))
+            .collect::<Box<dyn GenericParamSet>>();
+
+        if !persistent_diff.is_empty() {
+            trace!("Saving character update for: {} - {:#?}", id, persistent_diff);
 
             // We probably should move this into it's own task and just 
             // send a (blocking) message here, se we can have
             // backpressure in case our updates don't go trough.
             // Also, errors are not really handled here.
             instance.spawn_task(async move {
-                if let Err(e) = realm_api.update_character_data_diff(&id, diff).await {
+                if let Err(e) = realm_api.update_character_data_diff(&id, persistent_diff).await {
                     error!("Character update failed: {:?}", e);
                 }
             });
@@ -344,6 +454,13 @@ pub fn handle_avatar_update(
             .filter(|(a, _)| !a.has_flag(&ParamFlag::ExcludeFromClient))
             .filter(|(a, v)| obj.get_named::<Value>(a.name()).unwrap() != v)
             .collect::<Box<dyn GenericParamSet>>();
+
+        if 
+            let Some(Value::Any(ability_bar)) = params.get_param(Player::CurrentAbilityBarReferences.name()) &&
+            let Ok(ability_bar) = oaAbilityBarReferences::from_bytes(ability_bar)
+        {
+            debug!("{:#?}", ability_bar);
+        }
 
         obj.apply(params.as_mut());
     }
@@ -379,5 +496,29 @@ fn behavior_respawnnow(
         },
         Some(m) => warn!("Unknown respawn mode: {}", m),
         None => (),
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn update_skillbook(
+    mut query: Query<(&mut GameObjectData, &Skillbook), Changed<Skillbook>>,
+) {
+    for (mut player, skillbook) in query.iter_mut() {
+        debug!("Updating skillbook");
+
+        player.set(Player::CurrentClassSkills,
+            oaAbilityDataPlayerArray {
+                class_hash: 0x81E0A735,
+                count: skillbook.0.len() as u32,
+                skills: skillbook.0.iter()
+                    .map(|s| oaAbilityDataPlayer {
+                        version: 0,
+                        id: s.id,
+                        content_id: s.ability.id,
+                        group: s.group.clone(),
+                        field_4: s.stance,
+                    })
+                    .collect(),
+            }.to_bytes());
     }
 }

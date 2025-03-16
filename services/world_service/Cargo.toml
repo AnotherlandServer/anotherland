@@ -39,3 +39,4 @@ mlua = { workspace = true }
 saphyr = { workspace = true }
 tokio-util = { workspace = true }
 futures.workspace = true
+content = { version = "0.1.0", path = "../../lib/content" }
