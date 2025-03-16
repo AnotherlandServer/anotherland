@@ -24,6 +24,7 @@ pub trait DatabaseRecord: DeserializeOwned + Serialize + Send + Sync + Unpin {
     fn key(&self) -> &Self::PrimaryKey;
     fn key_name() -> &'static str;
     fn collection_name() -> &'static str;
+    fn relations() -> &'static[(&'static str, &'static str)] { &[] }
 
     fn collection(db: &Database) -> Collection<Self> {
         db.collection::<Self>(Self::collection_name())
@@ -32,7 +33,7 @@ pub trait DatabaseRecord: DeserializeOwned + Serialize + Send + Sync + Unpin {
     async fn build_index(_db: &Database) -> DBResult<()> { Ok(()) }
 
     fn query_one(key: &Self::PrimaryKey) -> Document {
-        doc!{ "id": { "$eq": bson::to_bson(key).unwrap() } }
+        doc!{ Self::key_name(): { "$eq": bson::to_bson(key).unwrap() } }
     }
 
     async fn get(db: &Database, key: &Self::PrimaryKey) -> DBResult<Option<Self>> {
@@ -67,9 +68,27 @@ pub trait DatabaseRecord: DeserializeOwned + Serialize + Send + Sync + Unpin {
     async fn delete(&self, db: &Database) -> DBResult<()> {
         let collection = Self::collection(db);
 
+        let mut session = db.client()
+            .start_session()
+            .await?;
+
         collection.delete_one(
             Self::query_one(self.key()),
-        ).await?;
+        )
+        .session(&mut session)
+        .await?;
+
+        for relation in Self::relations() {
+            let collection = db.collection::<Document>(relation.0);
+
+            collection.delete_one(
+                doc! { relation.1: { "$eq": bson::to_bson(self.key()).unwrap() } }
+            )
+            .session(&mut session)
+            .await?;
+        }
+
+        session.commit_transaction().await?;
 
         Ok(())
     }
