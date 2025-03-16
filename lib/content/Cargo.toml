@@ -1,0 +1,16 @@
+[package]
+name = "content"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+once_cell.workspace = true
+serde.workspace = true
+serde_yaml = "0.9.34"
+thiserror.workspace = true
+tokio.workspace = true
+yaml-rust2 = "0.10.0"

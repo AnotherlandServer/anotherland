@@ -21,7 +21,7 @@ members = [
     "services/world_service",
     "tools/kismet-plotter",
     "tools/seed-realm"
-]
+, "lib/content"]
 
 [workspace.dependencies]
 bytes = "1.9.0"
