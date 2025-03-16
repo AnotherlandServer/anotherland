@@ -102,7 +102,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
     let read_multiple_filter_ident = format_ident!("{}Filter", ast.ident);
     let delete_single_ident = format_ident!("delete_{}", opts.name);
     let create_single_ident = format_ident!("create_{}", opts.name);
-    let _update_single_ident = format_ident!("update_{}", opts.name);
+    let update_single_ident = format_ident!("update_{}", opts.name);
     let create_multiple_ident = format_ident!("batch_create_{}s", opts.name);
 
     let fields = if let syn::Data::Struct(data) = &ast.data {
@@ -417,6 +417,23 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
                         .map(|r| r.try_into())
                         .collect::<Result<Vec<_>, toolkit::anyhow::Error>>()?
                     )
+                }
+
+                async fn #update_single_ident(
+                    &self, 
+                    ctx: &async_graphql::Context<'_>, 
+                    id: <super::#struct_name as DatabaseRecord>::PrimaryKey,
+                    #intput_validator input: #record_input_ident
+                ) -> Result<Option<#struct_name>, async_graphql::Error> {
+                    let db = ctx.data::<mongodb::Database>()?.clone();
+                    if let Some(mut record) = super::#struct_name::get(&db, &id).await? {
+                        record = input.try_into()?;
+                        record.save(&db).await?;
+
+                        Ok(Some(record.try_into()?))
+                    } else {
+                        Ok(None)
+                    }
                 }
             }
         }
