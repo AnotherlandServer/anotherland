@@ -143,7 +143,7 @@ impl GameObjectData {
             if cur_val != &val {
                 self.instance.set_param(attr, val)
             } else {
-                None
+                Some(cur_val.clone())
             }
         } else {
             self.instance.set_param(attr, val)
