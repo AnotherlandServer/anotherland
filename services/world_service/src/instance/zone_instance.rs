@@ -211,7 +211,6 @@ impl ZoneInstanceBuilder {
             AsyncLoaderPlugin,
             NetworkPlugin,
             ScriptingPlugin,
-            ScriptObjectInfoPlugin,
             CommandsPlugin,
         ));
 
@@ -219,10 +218,11 @@ impl ZoneInstanceBuilder {
             LuaRuntimeBuilder::default()
                 .hot_reload(ARGS.hot_reload)
                 .add_require_lookup_directory(content_path.join("lua"))
-                .add_require_lookup_directory(content_path.join("lua/scripts"))
-                .add_require_lookup_directory(content_path.join("lua/scripts").join(world_def.name()))
+                .add_require_lookup_directory(content_path.join("lua/maps").join(world_def.name()))
                 .build()?
         );
+
+        app.add_plugins(ScriptObjectInfoPlugin);
 
         // Game logic plugins
         app.add_plugins((

@@ -25,6 +25,9 @@ pub enum ScriptError {
     #[error(transparent)]
     LuaRuntimeBuilderError(#[from] LuaRuntimeBuilderError),
 
+    #[error("File not found: {0}")]
+    FileNotFound(String),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

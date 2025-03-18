@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use anyhow::anyhow;
 use once_cell::sync::OnceCell;
 

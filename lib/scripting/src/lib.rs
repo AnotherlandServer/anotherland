@@ -21,15 +21,13 @@ mod script_component;
 mod error;
 mod commands;
 mod runtime;
-mod api_names;
-mod api;
 mod mlua_ext;
+mod api_names;
 
 pub use plugin::*;
 pub use script_component::*;
 pub use error::*;
 pub use commands::*;
 pub use runtime::*;
-pub use api_names::*;
-pub use api::*;
 pub use mlua_ext::*;
+pub use api_names::*;

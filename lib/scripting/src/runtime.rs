@@ -22,7 +22,7 @@ use mlua::{ffi::{LUA_LOADED_TABLE, LUA_PRELOAD_TABLE}, Function, IntoLua, Lua, L
 use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
 
-use crate::{api, create_gameobject_table, ScriptApi, ScriptCommandsExt, ScriptResult, Scripted};
+use crate::{api_names::ScriptApi, ScriptCommandsExt, ScriptError, ScriptResult, ScriptObject};
 
 pub(crate) const REG_WORLD: &str = "world";
 
@@ -79,10 +79,6 @@ impl LuaRuntimeBuilder {
         let scoped_global = lua.create_table()?;
         scoped_global.set("__index", lua.globals())?;
 
-        // Create global api
-        lua.globals().set("Log", api::create_log_table(&lua)?)?;
-        lua.globals().set("print", lua.globals().get::<Table>("Log")?.get::<Function>("Info")?)?; // Add shortcut from print to log.info
-
         // Replace require to facilitate hot-reload
         if self.hot_reload.unwrap_or_default() {
             let require = lua.globals().get::<Function>("require")?;
@@ -106,9 +102,11 @@ impl LuaRuntimeBuilder {
                     }
 
                     if let Some(module) = module.as_table() {
+                        let metatable = lua.create_table()?;
+                        metatable.set("__index", module.clone())?;
+
                         let hotreload = lua.create_table()?;
-                        hotreload.set_metatable(Some(module.clone()));
-                        hotreload.set("_index", module)?;
+                        hotreload.set_metatable(Some(metatable));
 
                         loaded.set(modname, &hotreload)?;
 
@@ -122,17 +120,12 @@ impl LuaRuntimeBuilder {
             })?)?;
         }
 
-        let mut runtime = self
+        lua.globals().set("__engine", lua.create_table()?)?;
+
+        Ok(self
             .lua(lua.clone())
             .scoped_global(scoped_global)
-            .build_private()?;
-
-        // Load base scripts
-        let _ = runtime.load_scripted_class(ApiType::Script, ApiType::Script.base())?;
-        let _ = runtime.load_scripted_class(ApiType::Npc, ApiType::Npc.base())?;
-        let _ = runtime.load_scripted_class(ApiType::Player, ApiType::Player.base())?;
-
-        Ok(runtime)
+            .build_private()?)
     }
 }
 
@@ -164,14 +157,21 @@ impl ApiType {
 impl LuaRuntime {
     pub fn vm(&self) -> &Lua { &self.lua }
 
-    pub fn load_scripted_class(&mut self, api_type: ApiType, name: &str) -> ScriptResult<Table> {
+    pub fn register_native(&self, name: &str, functions: Table) -> ScriptResult<()> {
+        let globals = self.lua.globals();
+        let native_api = globals.get::<Table>("__engine")?;
+        native_api.set(name, functions)?;
+        Ok(())
+    }
+
+    pub fn load_script(&mut self, name: &str) -> ScriptResult<Table> {
         let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
         if let Ok(script) = loaded.get::<Table>(name) {
             return Ok(script);
         }
 
         let file_path = self.require_lookup_directories.iter()
-            .map(|p| p.join(format!("{}.lua", name)))
+            .map(|p| p.join(format!("{}.lua", name.replace('.', std::path::MAIN_SEPARATOR_STR))))
             .find(|p| p.is_file())
             .and_then(|p| p.canonicalize().ok());
 
@@ -182,62 +182,53 @@ impl LuaRuntime {
                 // Prepare the environment for the script to run in
                 let env = self.lua.create_table()?;
                 env.set_metatable(Some(self.scoped_global.clone()));
-
-                let base = self.lua.create_table()?;
-                base.set("__index", &base)?;
-                base.set("based_on", api_type.base())?;
-
-                env.set(api_type.name(), &base)?;
                 
                 // Load chunk
                 let res = self.lua.load(content)
                     .set_environment(env.clone())
                     .set_name(format!("@{}", file_path.display()))
-                    .exec();
+                    .call::<Table>(());
 
-                // Load base but avoid self-referencing
-                let based_on = base.get::<String>("based_on")?;
-                if based_on != name {
-                    base.set_metatable(
-                        Some(self.load_scripted_class(api_type, &based_on)?)
-                    );
-                } else if name == "_script" {
-                    base.set_metatable(Some(
-                        create_gameobject_table(&self.lua)?
-                    ));
-                }
+                if let Ok(base) = &res {
+                    let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
+                    loaded.set(name, base)?;
 
-                // Register module
-                let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
-                loaded.set(name, &base)?;
-
-                if self.hot_reload {
-                    if let Err(e) = res {
-                        // Warn instead of hard error in hot reload mode,
-                        // so we can try to reload the script later and still
-                        // have all the references ready.
-                        warn!("{:?}", e);
+                    // Register module
+                    if self.hot_reload {
+                        let paths = self.lua.named_registry_value::<Table>("_MODULE_PATHS")?;
+                        paths.set(file_path.display().to_string(), name)?;
+    
+                        let envs = self.lua.named_registry_value::<Table>("_MODULE_ENVS")?;
+                        envs.set(name, env)?;
                     }
 
-                    let paths = self.lua.named_registry_value::<Table>("_MODULE_PATHS")?;
-                    paths.set(file_path.display().to_string(), name)?;
+                    // Register the metatable
+                    self.lua.set_named_registry_value(name, base)?;
+                    self.entity_meta_tables.push(base.clone());
 
-                    let envs = self.lua.named_registry_value::<Table>("_MODULE_ENVS")?;
-                    envs.set(name, env)?;
+                    Ok(base.clone())
+                } else if self.hot_reload {
+                    // Warn instead of hard error in hot reload mode,
+                    // so we can try to reload the script later and still
+                    // have all the references ready.
+                    warn!("{:?}", res.err().unwrap());
+
+                    let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
+                    let base = if let Ok(base) = loaded.get(name) {
+                        base
+                    } else {
+                        self.lua.create_table()?
+                    };
+
+                    Ok(base)
                 } else {
-                    res?;
+                    Err(res.err().unwrap().into())
                 }
-
-                // Register the metatable
-                self.lua.set_named_registry_value(name, &base)?;
-                self.entity_meta_tables.push(base.clone());
-
-                Ok(base)
             } else {
                 Err(anyhow::Error::msg("failed to read file").into())    
             }
         } else {
-            Err(anyhow::Error::msg("file not found").into())
+            Err(ScriptError::FileNotFound(name.to_string()))
         }
     }
 
@@ -340,7 +331,7 @@ pub(crate) fn prepare_hot_reload(
 pub(crate) fn hot_reload(
     recv: NonSendMut<HotReloadEvent>,
     mut runtime: ResMut<LuaRuntime>,
-    query: Query<(Entity, &Scripted)>,
+    query: Query<(Entity, &ScriptObject)>,
     mut commands: Commands,
 ) {
     let mut had_events = false;
@@ -357,7 +348,7 @@ pub(crate) fn hot_reload(
     if had_events {
         // Trigger hot reload for all affected entities
         for (ent, script) in query.iter() {
-            if let Ok(true) = script.script.get::<bool>("__hot_reload") {
+            if let Ok(true) = script.object.get::<bool>("__hot_reload") {
                 commands.entity(ent)
                     .call_named_lua_method(ScriptApi::HotReload, ());
             }

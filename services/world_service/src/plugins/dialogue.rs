@@ -18,7 +18,7 @@ use bevy::{app::{Plugin, PreStartup}, prelude::{App, Commands, Entity, In, Query
 use mlua::{Lua, Table};
 use obj_params::tags::PlayerTag;
 use protocol::{dialogStructure, oaDialogNode, oaPktDialogList, CPktStream_166_2};
-use scripting::{ApiType, LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, Scripted};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject};
 use toolkit::types::AvatarId;
 
 use crate::error::WorldResult;
@@ -38,13 +38,15 @@ impl Plugin for DialoguePlugin {
 fn insert_dialogue_api(
     world: &mut World,
 ) {
-    let mut runtime = world.get_resource_mut::<LuaRuntime>().unwrap();
-    let lua = runtime.vm().clone();
-    let player = runtime.load_scripted_class(ApiType::Player, ApiType::Player.base()).unwrap().clone();
+    let runtime = world.get_resource::<LuaRuntime>().unwrap();
+    let lua: Lua = runtime.vm().clone();
+    let dialogue_api = lua.create_table().unwrap();
+    runtime.register_native("dialogue", dialogue_api.clone()).unwrap();
 
-    player.set("ShowTutorialMessage", lua.create_bevy_function(world, lua_show_tutorial_message).unwrap()).unwrap();
-    player.set("StartDialogue", lua.create_function(lua_start_dialogue).unwrap()).unwrap();
-    player.set("FinishDialogue", lua.create_function(lua_finish_dialogue).unwrap()).unwrap();
+    dialogue_api.set("ShowTutorialMessage", lua.create_bevy_function(world, lua_show_tutorial_message).unwrap()).unwrap();
+    dialogue_api.set("StartDialogue", lua.create_function(lua_start_dialogue).unwrap()).unwrap();
+    dialogue_api.set("FinishDialogue", lua.create_function(lua_finish_dialogue).unwrap()).unwrap();
+
 }
 
 fn lua_show_tutorial_message(
@@ -85,7 +87,7 @@ fn lua_finish_dialogue(_lua: &Lua, _player: Table) -> mlua::Result<()> {
 fn handle_dialogue_request(
     In((ent, pkt)): In<(Entity, oaPktDialogList)>,
     avatar_id_manager: Res<AvatarIdManager>,
-    query: Query<&Scripted, With<PlayerTag>>,
+    query: Query<&ScriptObject, With<PlayerTag>>,
     mut commands: Commands,
 ) {
     if 
@@ -93,6 +95,6 @@ fn handle_dialogue_request(
         let Ok(player) = query.get(ent)
     {
         commands.entity(target_ent)
-            .call_named_lua_method("RequestDialogue", player.script().clone());
+            .call_named_lua_method("RequestDialogue", player.object().clone());
     }
 }

@@ -20,7 +20,7 @@ use log::warn;
 use mlua::{Function, IntoLua, MultiValue, Table};
 use obj_params::{Class, GameObjectData};
 use protocol::{oaPktAvatarTellBehavior, oaPktAvatarTellBehaviorBinary};
-use scripting::{ScriptCommandsExt, Scripted};
+use scripting::{ScriptCommandsExt, ScriptObject};
 use toolkit::NativeParam;
 
 use crate::error::WorldError;
@@ -115,8 +115,8 @@ impl BehaviorExt for App {
 
 fn handle_avatar_tell_behavior(
     In((ent, pkt)): In<(Entity, oaPktAvatarTellBehavior)>,
-    instigator: Query<(Entity, &PlayerController, Option<&Scripted>)>,
-    target: Query<(&AvatarInfo, &GameObjectData, Option<&Scripted>)>,
+    instigator: Query<(Entity, &PlayerController, Option<&ScriptObject>)>,
+    target: Query<(&AvatarInfo, &GameObjectData, Option<&ScriptObject>)>,
     behaviors: Res<BehaviorMap<StringBehavior>>,
     avatars: Res<AvatarIdManager>,
     mut commands: Commands
@@ -138,13 +138,13 @@ fn handle_avatar_tell_behavior(
         {
             commands.run_system_with_input(*system, (instigator_ent, target_ent, behavior));
         } else if 
-            let Some(instigator_script) = instigator_script &&
+            let Some(instigator) = instigator_script &&
             let Some(target_script) = target_script &&
-            let Ok(behaviors) = target_script.script().get::<Table>("_BEHAVIOR") &&
+            let Ok(behaviors) = target_script.object().get::<Table>("_BEHAVIOR") &&
             let Ok(behavior_func) = behaviors.get::<Function>(behavior.name.as_str())
         {
             let mut args = MultiValue::new();
-            args.push_back(instigator_script.script().into_lua(instigator_script.vm()).unwrap());
+            args.push_back(instigator.object().into_lua(instigator.vm()).unwrap());
             args.append(&mut behavior.args.into_iter()
                 .map(|v| v.into_lua(target_script.vm()).unwrap())
                 .collect()
@@ -160,8 +160,8 @@ fn handle_avatar_tell_behavior(
 
 fn handle_avatar_tell_behavior_binary(
     In((ent, pkt)): In<(Entity, oaPktAvatarTellBehaviorBinary)>,
-    instigator: Query<(Entity, &PlayerController, Option<&Scripted>)>,
-    target: Query<(&AvatarInfo, &GameObjectData, Option<&Scripted>)>,
+    instigator: Query<(Entity, &PlayerController, Option<&ScriptObject>)>,
+    target: Query<(&AvatarInfo, &GameObjectData, Option<&ScriptObject>)>,
     behaviors: Res<BehaviorMap<BinaryBehavior>>,
     avatars: Res<AvatarIdManager>,
     mut commands: Commands
@@ -189,11 +189,11 @@ fn handle_avatar_tell_behavior_binary(
         } else if 
             let Some(instigator_script) = instigator_script &&
             let Some(target_script) = target_script &&
-            let Ok(behaviors) = target_script.script().get::<Table>("_BEHAVIOR") &&
+            let Ok(behaviors) = target_script.object().get::<Table>("_BEHAVIOR") &&
             let Ok(behavior_func) = behaviors.get::<Function>(behavior.name.as_str())
         {
             let mut args = MultiValue::new();
-            args.push_back(instigator_script.script().into_lua(instigator_script.vm()).unwrap());
+            args.push_back(instigator_script.object().into_lua(instigator_script.vm()).unwrap());
 
             if let NativeParam::Struct(vec) = behavior.args {
                 args.append(

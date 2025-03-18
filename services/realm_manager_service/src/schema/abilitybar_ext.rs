@@ -14,7 +14,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_graphql::{Context, Error, Object};
-use database::DatabaseRecord;
 use mongodb::Database;
 use toolkit::types::Uuid;
 

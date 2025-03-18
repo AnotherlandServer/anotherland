@@ -16,54 +16,37 @@
 use bevy::{app::App, prelude::Component};
 use mlua::{Lua, Table};
 
-use crate::{ApiType, LuaRuntime, ScriptResult};
+use crate::{LuaRuntime, ScriptResult};
 
 pub(crate) fn create_script_object_hooks(app: &mut App) {
-    app.world_mut().register_component_hooks::<Scripted>()
+    app.world_mut().register_component_hooks::<ScriptObject>()
         .on_add(|world, entity, _| {
-            let script = world.entity(entity).get::<Scripted>().unwrap();
-            script.script.raw_set("__ent", script.lua.create_any_userdata(entity).unwrap())
+            let script = world.entity(entity).get::<ScriptObject>().unwrap();
+            script.object.raw_set("__ent", script.lua.create_any_userdata(entity).unwrap())
                 .expect("failed to attach entity to script object");
         });
 }
 
 #[derive(Component)]
-pub struct Scripted {
+pub struct ScriptObject {
     pub(crate) lua: Lua,
-    pub(crate) script: Table,
-    pub(crate) api: ApiType,
+    pub(crate) object: Table,
 }
 
-impl Scripted {
+impl ScriptObject {
+    pub fn new(runtime: &LuaRuntime, base: Table) -> ScriptResult<ScriptObject> {
+        let meta = runtime.vm().create_table()?;
+        meta.set("__index", base.clone())?;
+
+        let object = runtime.vm().create_table()?;
+        object.set_metatable(Some(meta));
+
+        Ok(Self {
+            lua: runtime.vm().clone(),
+            object,
+        })
+    }
+
     pub fn vm(&self) -> &Lua { &self.lua }
-    pub fn script(&self) -> &Table { &self.script }
-    pub fn api_type(&self) -> ApiType { self.api }
-}
-
-impl LuaRuntime {
-    pub fn create_scripted_player(&mut self) -> ScriptResult<Scripted> {
-        let object = self.vm().create_table()?;
-        object.set_metatable(Some(
-            self.load_scripted_class(ApiType::Player, "_player")?
-        ));
-
-        Ok(Scripted {
-            lua: self.vm().clone(),
-            script: object,
-            api: ApiType::Player,
-        })
-    }
-
-    pub fn create_scripted_entity(&mut self, api_type: ApiType, script_name: &str) -> ScriptResult<Scripted> {
-        let object = self.vm().create_table()?;
-        object.set_metatable(Some(
-            self.load_scripted_class(api_type, script_name)?
-        ));
-
-        Ok(Scripted {
-            lua: self.vm().clone(),
-            script: object,
-            api: ApiType::Script,
-        })
-    }
+    pub fn object(&self) -> &Table { &self.object }
 }

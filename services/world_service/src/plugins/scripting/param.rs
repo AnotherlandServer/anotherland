@@ -15,7 +15,7 @@
 
 use std::{collections::{HashMap, HashSet}, str::FromStr};
 
-use mlua::{IntoLua, FromLua, Lua, LuaSerdeExt, Value};
+use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt};
 use obj_params::{AttributeInfo, ParamType};
 use toolkit::{types::{AvatarId, Uuid}, QuatWrapper, Vec3Wrapper, Vec4Wrapper};
 
@@ -26,7 +26,7 @@ impl ParamValue {
         Self(val)
     }
 
-    pub fn from_lua(attr: &'static dyn AttributeInfo, val: Value, lua: &Lua) -> Result<Self, mlua::Error> {
+    pub fn from_lua(attr: &'static dyn AttributeInfo, val: mlua::Value, lua: &Lua) -> Result<Self, mlua::Error> {
         let param_val = match attr.datatype() {
             ParamType::String => obj_params::Value::String(String::from_lua(val, lua)?),
             ParamType::StringPair => {

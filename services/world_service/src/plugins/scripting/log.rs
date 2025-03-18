@@ -16,7 +16,9 @@
 use log::{logger, Level, RecordBuilder};
 use mlua::{Lua, MultiValue, Table};
 
-pub(crate) fn create_log_table(lua: &Lua) -> Result<Table, mlua::Error> {
+use crate::error::WorldResult;
+
+pub fn create_log_table(lua: &Lua) -> WorldResult<Table> {
     let log = lua.create_table()?;
 
     log.set("Trace", lua.create_function(|lua, args: MultiValue| {

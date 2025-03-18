@@ -17,7 +17,7 @@ use bevy::prelude::{Entity, EntityCommand, EntityCommands, World};
 use log::{debug, error};
 use mlua::{Function, IntoLuaMulti, Value};
 
-use crate::{LuaRuntime, Scripted, REG_WORLD};
+use crate::{LuaRuntime, ScriptObject, REG_WORLD};
 
 pub trait IntoLuaApiName {
     fn name(&self) -> &str;
@@ -69,8 +69,8 @@ impl <T: IntoLuaMulti + Send + 'static> EntityCommand for LuaMethodCall<T> {
             .vm().clone();
 
         if let Err(e) = lua.scope(|scope| {
-            let obj = world.entity(entity).get::<Scripted>()
-                .unwrap().script.clone();
+            let obj = world.entity(entity).get::<ScriptObject>()
+                .unwrap().object.clone();
 
             // We have to borrow the world to the lua vm,
             // so it can be accessed within api functions.

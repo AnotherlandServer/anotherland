@@ -1,38 +1,27 @@
 ---@meta
 
----@class Script
----@field name string
----@field class string
----@field avatar_id integer
----@field placement_guid string | nil
----@field template_guid string | nil
-SCRIPT = {}
+__engine = {}
+__engine.gameobject = {}
 
 --- Gets a parameter of the attached object.
 --- @param param string
 --- @return any
-function SCRIPT:Get(param)
+function __engine.gameobject:Get(param)
 end
 
 --- Sets a parameter of the attached object.
 --- @param param string
 --- @param value any
 --- @return any
-function SCRIPT:Set(param, value)
+function __engine.gameobject:Set(param, value)
 end
 
 --- Resets a parameter of the attached object.
 --- @param param string
 --- @param value any
 --- @return any
-function SCRIPT:Reset(param, value)
+function __engine.gameobject:Reset(param, value)
 end
-
----@class Player: Script 
-PLAYER = {}
-
----@class Npc: Script
-NPC = {}
 
 ---@class log
 Log = {}

@@ -13,11 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+mod param;
+mod script_objects;
 mod log;
-mod gameobject;
-mod value;
 
-pub(crate) use log::*;
-pub(crate) use gameobject::*;
-
-pub use value::*;
+pub use script_objects::*;
+pub use log::*;
