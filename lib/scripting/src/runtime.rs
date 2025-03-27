@@ -32,8 +32,8 @@ pub struct LuaRuntime {
     #[builder(private)]
     pub(crate) lua: Lua,
 
-    #[builder(private)]
-    pub(crate) scoped_global: Table,
+    //#[builder(private)]
+    //pub(crate) scoped_global: Table,
 
     #[builder(setter(custom), field(ty = "Vec<PathBuf>"))]
     pub(crate) require_lookup_directories: Vec<PathBuf>,
@@ -88,9 +88,6 @@ impl LuaRuntimeBuilder {
 
             lua.globals().set("require", lua.create_function(move |lua: &Lua, modname: String| {
                 let (module, loader_data): (Value, Value) = require.call(modname.clone())?;
-                
-                debug!("{:?}", module);
-                debug!("{:?}", loader_data);
 
                 if let Some(loader_data) = loader_data.as_string() {
                     let paths = lua.named_registry_value::<Table>("_MODULE_PATHS")?;
@@ -99,14 +96,13 @@ impl LuaRuntimeBuilder {
                     if loader_data != ":preload:" {
                         let path = loader_data.to_str()?.parse::<PathBuf>().unwrap().canonicalize().unwrap();
                         paths.set(path.display().to_string(), modname.clone())?;
+
+                        debug!("Loaded: {} from {}", modname, path.display());
                     }
 
                     if let Some(module) = module.as_table() {
-                        let metatable = lua.create_table()?;
-                        metatable.set("__index", module.clone())?;
-
                         let hotreload = lua.create_table()?;
-                        hotreload.set_metatable(Some(metatable));
+                        hotreload.set_metatable(Some(create_hotreload_indirection(lua, module.clone())?));
 
                         loaded.set(modname, &hotreload)?;
 
@@ -124,7 +120,7 @@ impl LuaRuntimeBuilder {
 
         Ok(self
             .lua(lua.clone())
-            .scoped_global(scoped_global)
+            //.scoped_global(scoped_global)
             .build_private()?)
     }
 }
@@ -171,7 +167,12 @@ impl LuaRuntime {
         }
 
         let file_path = self.require_lookup_directories.iter()
-            .map(|p| p.join(format!("{}.lua", name.replace('.', std::path::MAIN_SEPARATOR_STR))))
+            .flat_map(|p| {
+                [
+                    p.join(format!("{}.lua", name.replace('.', std::path::MAIN_SEPARATOR_STR))),
+                    p.join(format!("{}/init.lua", name.replace('.', std::path::MAIN_SEPARATOR_STR)))
+                ]
+            })
             .find(|p| p.is_file())
             .and_then(|p| p.canonicalize().ok());
 
@@ -179,31 +180,30 @@ impl LuaRuntime {
             if let Ok(content) = fs::read_to_string(&file_path) {
                 debug!("Loading '{}' from {}", name, file_path.display());
 
-                // Prepare the environment for the script to run in
-                let env = self.lua.create_table()?;
-                env.set_metatable(Some(self.scoped_global.clone()));
-                
                 // Load chunk
                 let res = self.lua.load(content)
-                    .set_environment(env.clone())
                     .set_name(format!("@{}", file_path.display()))
                     .call::<Table>(());
 
-                if let Ok(base) = &res {
-                    let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
-                    loaded.set(name, base)?;
-
+                if let Ok(mut base) = res.clone() {
                     // Register module
                     if self.hot_reload {
+                        debug!("Register: {} for hot reloading", file_path.display().to_string());
+
                         let paths = self.lua.named_registry_value::<Table>("_MODULE_PATHS")?;
                         paths.set(file_path.display().to_string(), name)?;
-    
-                        let envs = self.lua.named_registry_value::<Table>("_MODULE_ENVS")?;
-                        envs.set(name, env)?;
+
+                        let indirect_base = self.lua.create_table()?;
+                        indirect_base.set_metatable(Some(create_hotreload_indirection(&self.lua, base)?));
+
+                        base = indirect_base;
                     }
 
+                    let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
+                    loaded.set(name, &base)?;
+
                     // Register the metatable
-                    self.lua.set_named_registry_value(name, base)?;
+                    self.lua.set_named_registry_value(name, &base)?;
                     self.entity_meta_tables.push(base.clone());
 
                     Ok(base.clone())
@@ -234,35 +234,29 @@ impl LuaRuntime {
 
     fn hot_reload_script(&mut self, path: &Path) -> ScriptResult<()> {
         let paths = self.lua.named_registry_value::<Table>("_MODULE_PATHS")?;
-        let envs = self.lua.named_registry_value::<Table>("_MODULE_ENVS")?;
         let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
 
         if 
             let Ok(module_name) = paths.get::<String>(path.display().to_string()) &&
             let Ok(module) = loaded.get::<Table>(module_name.clone())
         {
-            if let Ok(env) = envs.get::<Table>(module_name.clone()) {
-                if let Ok(content) = fs::read_to_string(path) {
-                    info!("Hot-reloading: {}", path.display());
-        
-                    self.lua.load(content)
-                        .set_environment(env.clone())
-                        .set_name(format!("@{}", path.display()))
-                        .exec()?;
+            if let Ok(content) = fs::read_to_string(path) {
+                info!("Hot-reloading: {}", path.display());
+    
+                let base = self.lua.load(content)
+                    .set_name(format!("@{}", path.display()))
+                    .call::<Table>(())?;
 
-                    // Mark object for hot reloading
-                    if !module.contains_key("__hot_reload")? {
-                        module.raw_set("__hot_reload", true)?;
-                    }
-
-                    Ok(())
-                } else {
-                    Err(anyhow::Error::msg("failed to read file").into())
+                // Mark object for hot reloading
+                if !module.contains_key("__hot_reload")? {
+                    module.raw_set("__hot_reload", true)?;
                 }
-            } else {
-                // Remove module from loaded list, to enable requiring it anew
-                loaded.raw_remove(module_name)?;
+
+                module.set_metatable(Some(create_hotreload_indirection(&self.lua, base)?));
+
                 Ok(())
+            } else {
+                Err(anyhow::Error::msg("failed to read file").into())
             }
         } else {
             trace!("Ignoring hot reload event for {}. Script not loaded.", path.display());
@@ -328,6 +322,24 @@ pub(crate) fn prepare_hot_reload(
     }
 }
 
+fn create_hotreload_indirection(lua: &Lua, base: Table) -> mlua::Result<Table> {
+    let metatable = lua.create_table()?;
+    metatable.set("__index", base.clone())?;
+    metatable.set("__eq", lua.create_function(move |_, (a, b): (Table, Table)| {
+        /*if a.contains_key("__index")? && a.get::<Table>("__index")? == b {
+            Ok(true)
+        } else if b.contains_key("__index")? {
+            Ok(a == b.get::<Table>("__index")?)
+        } else {
+            Ok(a == b)
+        }*/
+
+        Ok(a == base || b == base)
+    })?)?;
+
+    Ok(metatable)
+}
+
 pub(crate) fn hot_reload(
     recv: NonSendMut<HotReloadEvent>,
     mut runtime: ResMut<LuaRuntime>,
@@ -355,8 +367,14 @@ pub(crate) fn hot_reload(
         }
 
         // Remove hot reload markers
-        for table in &runtime.entity_meta_tables {
-            let _ = table.raw_remove("__hot_reload");
-        }
+        let loaded = runtime.lua.named_registry_value::<Table>(LUA_LOADED_TABLE).unwrap();
+        let _ = loaded.for_each(|_: Value, module: Value| {
+            if let Some(module) = module.as_table() {
+                module.raw_remove("__hot_reload")?;
+            }
+
+            Ok(())
+        });
+
     }
 }

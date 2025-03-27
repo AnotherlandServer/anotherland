@@ -4,12 +4,19 @@
     ],
     "yaml.schemas": {
         "otherland-proto": "${workspaceFolder}/packet_definitions/otherland.packet.schema.yaml",
+        "file:///d%3A/Otherland-Next/Server/packet_definitions/otherland.packet.schema.yaml": "file:///d%3A/Otherland-Next/Server/packet_definitions/packets/actions.yaml"
     },
     "rust-analyzer.showUnlinkedFileNotification": false,
     "rust-analyzer.checkOnSave": true,
     "rust-analyzer.check.command": "clippy",
     "rust-analyzer.check.features": "all",
     "Lua.workspace.library": [
-        "${workspaceFolder}/lib/scripting/library"
-    ]
+        "${workspaceFolder}/services/world_service/lua"
+    ],
+    "Lua.workspace.ignoreSubmodules": false,
+    "Lua.runtime.path": [
+        "${workspaceFolder}/content/lua/?.lua",
+        "${workspaceFolder}/content/lua/?/init.lua"
+    ],
+    "Lua.runtime.pathStrict": true
 }

@@ -15,12 +15,17 @@
 
 use std::{ops::Deref, time::Duration};
 
-use bevy::{app::{App, Plugin, Update}, prelude::{Changed, Commands, Component, Entity, IntoSystemConfigs, Or, Query, With, Without}, time::common_conditions::on_timer, utils::HashMap};
+use bevy::{app::{App, Plugin, Update}, ecs::{system::{In, Res, ResMut}, world::World}, prelude::{Changed, Commands, Component, Entity, IntoSystemConfigs, Or, Query, With, Without}, time::common_conditions::on_timer, utils::HashMap};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
+use mlua::{Lua, Table};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase, ParamWriter, Player};
 use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, Physics};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptObject, ScriptResult};
 use toolkit::types::{AvatarId, UUID_NIL};
+use anyhow::anyhow;
+
+use crate::error::WorldResult;
 
 use super::{Active, AvatarInfo, ConnectionState, CurrentState, Movement, PlayerController, QuestEntity, QuestLog};
 
@@ -40,8 +45,43 @@ impl Plugin for InterestsPlugin {
                     .after(update_interest_list)
                     .run_if(on_timer(Duration::from_secs(1)))
             ));
+
+        insert_interests_api(app.world_mut()).unwrap();
     }
 }
+
+fn insert_interests_api(
+    world: &mut World,
+) -> ScriptResult<()> {
+    let runtime = world.get_resource::<LuaRuntime>().unwrap();
+    let lua: Lua = runtime.vm().clone();
+    let skillbook_api = lua.create_table().unwrap();
+    runtime.register_native("interests", skillbook_api.clone()).unwrap();
+
+    skillbook_api.set("GetInterests", lua.create_bevy_function(world, 
+        |
+            In(player): In<Table>,
+            query: Query<&Interests>,
+            objects: Query<&ScriptObject>,
+            runtime: Res<LuaRuntime>,
+        | -> WorldResult<Table> {
+            let interests = query.get(player.entity()?)
+                .map_err(|_| anyhow!("player not found"))?;
+
+            let result = runtime.vm().create_table()?;
+
+            for ent in interests.keys() {
+                if let Ok(obj) = objects.get(*ent) {
+                    result.push(obj.object().clone())?;
+                }
+            }
+
+            Ok(result)
+        })?)?;
+
+    Ok(())
+}
+
 
 #[derive(Default)]
 pub enum InterestState {

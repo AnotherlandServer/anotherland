@@ -16,25 +16,27 @@
 use std::{ops::Deref, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, Update}, ecs::{component::Component, query::Without, system::{Resource, SystemId}}, prelude::{Added, App, BuildChildren, Changed, Commands, DetectChangesMut, Entity, In, IntoSystemConfigs, Or, Parent, Query, Res, With}, time::common_conditions::on_timer, utils::hashbrown::{HashMap, HashSet}};
+use bevy::{app::{Last, Plugin, PostUpdate, Update}, ecs::{component::Component, query::Without, system::{ResMut, Resource, SystemId}, world::World}, prelude::{Added, App, BuildChildren, Changed, Commands, DetectChangesMut, Entity, In, IntoSystemConfigs, Or, Parent, Query, Res, With}, time::common_conditions::on_timer, utils::hashbrown::{HashMap, HashSet}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::future::join_all;
 use log::{debug, error, warn};
-use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, GameObjectData, GenericParamSet, ItemEdna, ParamWriter, Player};
+use mlua::{FromLua, IntoLua, Lua, Table, UserData};
+use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, EdnaAbility, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player};
 use protocol::{oaPktItemStorage, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
 use realm_api::{Item, ItemRef, StorageOwner};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toolkit::{types::Uuid, NativeParam};
 
 use crate::{error::WorldResult, instance::ZoneInstance, object_cache::CacheEntry, OBJECT_CACHE};
 
-use super::{BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, PlayerController, StringBehavior};
+use super::{load_class_script, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, ParamValue, PlayerController, StringBehavior};
 
 #[derive(Resource)]
 #[allow(clippy::type_complexity)]
 struct InventorySystems {
-    insert_item_storage: SystemId<In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>, Vec<Arc<CacheEntry>>)>)>>>,
+    insert_item_storage: SystemId<In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>, Vec<CachedObject>)>)>>>,
     apply_storage_result: SystemId<In<(Entity, StorageResult)>>,
     apply_equipment_result: SystemId<In<(Entity, EquipmentResult)>>,
 }
@@ -68,7 +70,7 @@ struct StorageResult {
     storage_id: Uuid,
     bling: Option<i32>,
     game_cash: Option<i32>,
-    changed_items: Option<Vec<(Item, Arc<CacheEntry>, Vec<Arc<CacheEntry>>)>>,
+    changed_items: Option<Vec<(Item, Arc<CacheEntry>, Vec<CachedObject>)>>,
     removed_items: Option<Vec<Uuid>>,
     error: Option<(String, Option<NativeParam>)>,
 }
@@ -89,7 +91,7 @@ impl StorageResult {
                             {
                                 for ability in abilities.0 {
                                     if let Some(ability) = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await? {
-                                        ability_cache.push(ability);
+                                        ability_cache.push(CachedObject(ability));
                                     }
                                 }
                             }
@@ -178,7 +180,106 @@ impl Plugin for InventoryPlugin {
 
                 registry.0.remove(&storage_id);
             });
+
+        insert_inventory_api(app.world_mut()).unwrap();
     }
+}
+
+fn insert_inventory_api(
+    world: &mut World,
+) -> ScriptResult<()> {
+    let runtime = world.get_resource::<LuaRuntime>().unwrap();
+    let lua: Lua = runtime.vm().clone();
+    let inventory_api = lua.create_table().unwrap();
+    runtime.register_native("inventory", inventory_api.clone()).unwrap();
+
+    //inventory_api.set("AddItem", lua.create_bevy_function(world, lua_add_item)?)?;
+    //inventory_api.set("ApplyClassPreset", lua.create_bevy_function(world, lua_apply_class_preset)?)?;
+    //inventory_api.set("RemoveItem", lua.create_bevy_function(world, lua_remove_item)?)?;
+    inventory_api.set("GetItem", lua.create_bevy_function(world, 
+        |
+            In((player, item_id)): In<(Table, String)>,
+            query: Query<&Inventory>,
+            item: Query<&ScriptObject>,
+        | -> WorldResult<Option<Table>> {
+            let storage = query.get(player.entity()?)
+                .map_err(|_| anyhow!("player not found"))?;
+
+            if 
+                let Some(item_ent) = storage.items.get(&item_id.parse::<Uuid>()?) &&
+                let Ok(item) = item.get(*item_ent)
+            {
+                Ok(Some(item.object().clone()))
+            } else {
+                Ok(None)
+            }
+        })?)?;
+
+    inventory_api.set("GetEquipment", lua.create_bevy_function(world, 
+        |
+            In(player): In<Table>,
+            query: Query<&Inventory>,
+            item: Query<(&GameObjectData, &ScriptObject)>,
+            runtime: Res<LuaRuntime>,
+        | -> WorldResult<Table> {
+            let storage = query.get(player.entity()?)
+                .map_err(|_| anyhow!("player not found"))?;
+
+            let items = runtime.vm().create_table()?;
+            
+            for ent in storage.items.values() {
+                if 
+                    let Ok((data, object)) = item.get(*ent) &&
+                    let Ok(&container_id) = data.get::<_, i32>(ItemBase::ContainerId) &&
+                    container_id == 1
+                {
+                    items.push(object.object().clone())?;
+                }
+            }
+
+            Ok(items)
+        })?)?;
+
+    inventory_api.set("GetItems", lua.create_bevy_function(world, 
+        |
+            In(player): In<Table>,
+            query: Query<&Inventory>,
+            item: Query<&ScriptObject>,
+            runtime: Res<LuaRuntime>,
+        | -> WorldResult<Table> {
+            let storage = query.get(player.entity()?)
+                .map_err(|_| anyhow!("player not found"))?;
+
+            let items = runtime.vm().create_table()?;
+            
+            for ent in storage.items.values() {
+                if let Ok(item) = item.get(*ent) {
+                    items.push(item.object().clone())?;
+                }
+            }
+
+            Ok(items)
+        })?)?;
+
+    inventory_api.set("GetItemAbilities", lua.create_bevy_function(world, 
+        |
+            In(item): In<Table>,
+            query: Query<&ItemAbilities>,
+            mut runtime: ResMut<LuaRuntime>,
+        | -> WorldResult<Table> {
+            let item_abilities = query.get(item.entity()?)
+                .map_err(|_| anyhow!("item not found"))?;
+
+            let abilities = runtime.vm().create_table_with_capacity(item_abilities.len(), 0)?;
+            
+            for ability in item_abilities.iter() {
+                abilities.push(ability.construct_lua_table(&mut runtime)?)?;
+            }
+
+            Ok(abilities)
+        })?)?;
+
+    Ok(())
 }
 
 #[allow(dead_code)]
@@ -221,11 +322,62 @@ impl Inventory {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct CachedObject(Arc<CacheEntry>);
+
+impl Deref for CachedObject {
+    type Target = Arc<CacheEntry>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl UserData for CachedObject {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("Get", |lua, this, name: String| {
+            let val = this.data.get_named::<obj_params::Value>(&name)
+                .map_err(mlua::Error::external)?;
+        
+            ParamValue::new(val.clone())
+                .into_lua(lua)
+       });
+    }
+}
+
+impl FromLua for CachedObject {
+    fn from_lua(value: mlua::Value, _: &mlua::Lua) -> mlua::Result<Self> {
+        let usr = value.as_userdata().ok_or(mlua::Error::runtime("object expected"))?;
+        Ok(usr.borrow::<CachedObject>()?.clone())
+    }
+}
+
+impl CachedObject {
+    pub fn construct_lua_table(&self, runtime: &mut LuaRuntime) -> WorldResult<Table> {
+        let base = load_class_script(runtime, 
+            self.0.class, 
+            self.0.data.get::<_, String>(EdnaAbility::LuaScript).ok().map(|s| s.as_str()))?;
+
+        let metatable = runtime.vm().create_table()?;
+        metatable.set("__index", base)?;
+
+        let table = runtime.vm().create_table()?;
+        table.set_metatable(Some(metatable));
+        table.set("__item_ability", self.clone())?;
+
+        table.set("id", self.id.to_string())?;
+        table.set("name", self.name.clone())?;
+        table.set("class", self.class.name().to_string())?;
+
+        Ok(table)
+    }
+}
+
 #[derive(Component)]
-pub struct ItemAbilities(Vec<Arc<CacheEntry>>);
+pub struct ItemAbilities(Vec<CachedObject>);
 
 impl Deref for ItemAbilities {
-    type Target = Vec<Arc<CacheEntry>>;
+    type Target = Vec<CachedObject>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -258,7 +410,7 @@ fn load_player_inventory(
 
                         for ability in abilities.0 {
                             if let Some(ability) = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await? {
-                                item_abilities.push(ability);
+                                item_abilities.push(CachedObject(ability));
                             }
                         }
 
@@ -288,7 +440,7 @@ fn load_player_inventory(
 
 #[allow(clippy::type_complexity)]
 fn insert_item_storage(
-    In(result): In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>, Vec<Arc<CacheEntry>>)>)>>,
+    In(result): In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>, Vec<CachedObject>)>)>>,
     ents: Query<Entity>,
     mut player: Query<&mut GameObjectData, With<PlayerTag>>,
     mut commands: Commands,
@@ -571,11 +723,11 @@ fn behavior_inventory_request_unequip(
 
 fn apply_equipment_result(
     In((instigator, result)): In<(Entity, EquipmentResult)>,
-    mut players: Query<(&mut GameObjectData, &PlayerController), With<PlayerTag>>,
+    mut players: Query<(&mut GameObjectData, &PlayerController, &ScriptObject), With<PlayerTag>>,
     systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
-    if let Ok((mut player, controller)) = players.get_mut(instigator) {
+    if let Ok((mut player, controller, object)) = players.get_mut(instigator) {
         if let Some(err) = result.error {
             controller.send_message(MessageType::PopUp, err.0);
         }
@@ -587,6 +739,9 @@ fn apply_equipment_result(
         for storage_result in result.storage_results {
             commands.run_system_with_input(systems.apply_storage_result, (instigator, storage_result));
         }
+
+        commands.entity(instigator)
+            .fire_lua_event("OnEquipmentChanged", ());
     }
 }
 

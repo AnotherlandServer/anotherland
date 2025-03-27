@@ -19,3 +19,4 @@ mod log;
 
 pub use script_objects::*;
 pub use log::*;
+pub use param::*;

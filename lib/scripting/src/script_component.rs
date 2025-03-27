@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::{app::App, prelude::Component};
-use mlua::{Lua, Table};
+use mlua::{Function, IntoLua, IntoLuaMulti, Lua, Table};
 
 use crate::{LuaRuntime, ScriptResult};
 

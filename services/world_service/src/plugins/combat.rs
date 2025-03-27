@@ -15,9 +15,14 @@
 
 use std::{sync::atomic::AtomicI32, time::Duration};
 
-use bevy::{app::{Plugin, PreUpdate, Update}, ecs::event::{Event, EventReader, EventWriter}, prelude::{Added, App, Changed, Commands, Component, Entity, In, IntoSystemConfigs, Mut, Or, Query, With}, time::common_conditions::on_timer};
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, EventWriter}, system::ResMut, world::World}, prelude::{Added, App, Changed, Commands, Component, Entity, In, IntoSystemConfigs, Mut, Or, Query, With}, time::common_conditions::on_timer};
+use mlua::{Integer, Lua, Number, Table};
 use obj_params::{tags::{EdnaContainerTag, EdnaReceptorTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, SpawnerTag, StructureTag, VehicleBaseTag}, GameObjectData, Player};
 use protocol::{oaPkt_Combat_HpUpdate, CPktTargetRequest};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use anyhow::anyhow;
+
+use crate::error::WorldResult;
 
 use super::{spawn_init_entity, AvatarInfo, Interests, NetworkExtPriv, PlayerController};
 
@@ -34,6 +39,8 @@ impl Plugin for CombatPlugin {
         ));
 
         app.add_event::<HealthUpdateEvent>();
+
+        insert_combat_api(app.world_mut()).unwrap();
     }
 }
 
@@ -249,5 +256,44 @@ fn update_energy(
         regenerate_energy(&mut obj, Player::StatEnergyCurrentS2, energy_max);
         regenerate_energy(&mut obj, Player::StatEnergyCurrentS3, energy_max);
     }
+}
+
+fn insert_combat_api(
+    world: &mut World,
+) -> ScriptResult<()> {
+    let runtime = world.get_resource::<LuaRuntime>().unwrap();
+    let lua: Lua = runtime.vm().clone();
+    let combat_api = lua.create_table().unwrap();
+    runtime.register_native("combat", combat_api.clone()).unwrap();
+
+    combat_api.set("Damage", lua.create_bevy_function(world, 
+        |
+            In((target, amount)): In<(Table, Integer)>,
+            mut health_events: EventWriter<HealthUpdateEvent>,
+        | -> WorldResult<i32> {
+            let ent = target.entity()
+                .map_err(|_| anyhow!("entity not found"))?;
+
+            Ok(
+                HealthUpdateEvent::damage(ent, amount as i32)
+                    .send(&mut health_events)
+            )
+        })?)?;
+
+    combat_api.set("Heal", lua.create_bevy_function(world, 
+        |
+            In((target, amount)): In<(Table, Integer)>,
+            mut health_events: EventWriter<HealthUpdateEvent>,
+        | -> WorldResult<i32> {
+            let ent = target.entity()
+                .map_err(|_| anyhow!("entity not found"))?;
+
+            Ok(
+                HealthUpdateEvent::heal(ent, amount as i32)
+                    .send(&mut health_events)
+            )
+        })?)?;
+
+    Ok(())
 }
 

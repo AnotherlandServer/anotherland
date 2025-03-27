@@ -16,7 +16,7 @@
 use core_api::CoreApiError;
 use realm_api::RealmApiError;
 use thiserror::Error;
-use toolkit::NativeParamError;
+use toolkit::{bson, NativeParamError};
 
 #[derive(Error, Debug)]
 pub enum WorldError {
@@ -49,6 +49,9 @@ pub enum WorldError {
 
     #[error("native param error")]
     NativeParamError(#[from] NativeParamError),
+
+    #[error(transparent)]
+    UuidError(#[from] bson::uuid::Error),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error)

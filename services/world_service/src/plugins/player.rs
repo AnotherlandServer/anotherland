@@ -13,34 +13,112 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
-use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, query::Without}, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
+use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, query::Without, world::World}, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all, TryStreamExt};
 use log::{debug, error, trace, warn};
-use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, AttributeInfo, Class, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
+use mlua::{FromLua, IntoLua, Lua, Table, UserData};
+use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, AttributeInfo, Class, EdnaAbility, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
 use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktS2XConnectionState, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
 use realm_api::{AbilitySlot, Character, State};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
+use anyhow::anyhow;
 
-use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource}, proto::TravelMode, OBJECT_CACHE};
+use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource}, proto::TravelMode, OBJECT_CACHE};
 
-use super::{clear_obj_changes, init_gameobjects, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, PlayerController, QuestLog, ServerAction, StringBehavior};
+use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
 
 #[derive(Debug)]
 #[allow(unused)]
 pub struct Skill {
-    id: Uuid,
-    ability: Arc<CacheEntry>,
-    group: String,
-    state: State,
-    stance: i32,
+    pub id: Uuid,
+    pub ability: Arc<CacheEntry>,
+    pub group: String,
+    pub state: State,
+    pub stance: i32,
+}
+
+#[derive(Clone, Debug)]
+pub struct SkillbookEntry(Arc<Skill>);
+
+impl UserData for SkillbookEntry {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("Get", |lua, this, name: String| {
+            let val = this.ability.data.get_named::<obj_params::Value>(&name)
+                .map_err(mlua::Error::external)?;
+        
+            ParamValue::new(val.clone())
+                .into_lua(lua)
+       });
+    }
+}
+
+impl FromLua for SkillbookEntry {
+    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
+        let usr = value.as_userdata().ok_or(mlua::Error::runtime("object expected"))?;
+        Ok(usr.borrow::<SkillbookEntry>()?.clone())
+    }
+}
+
+impl Deref for SkillbookEntry {
+    type Target = Skill;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl SkillbookEntry {
+    pub fn construct_lua_table(&self, runtime: &mut LuaRuntime) -> WorldResult<Table> {
+        let base = load_class_script(runtime, 
+            self.0.ability.class, 
+            self.0.ability.data.get::<_, String>(EdnaAbility::LuaScript).ok().map(|s| s.as_str()))?;
+
+        let metatable = runtime.vm().create_table()?;
+        metatable.set("__index", base)?;
+
+        let table = runtime.vm().create_table()?;
+        table.set_metatable(Some(metatable));
+        table.set("__skill", self.clone())?;
+
+        Ok(table)
+    }
+}
+
+fn insert_skillbook_api(
+    world: &mut World,
+) -> ScriptResult<()> {
+    let runtime = world.get_resource::<LuaRuntime>().unwrap();
+    let lua: Lua = runtime.vm().clone();
+    let skillbook_api = lua.create_table().unwrap();
+    runtime.register_native("skillbook", skillbook_api.clone()).unwrap();
+
+    skillbook_api.set("GetSkill", lua.create_bevy_function(world, 
+        |
+            In((player, skill_id)): In<(Table, String)>,
+            query: Query<&Skillbook>,
+            mut runtime: ResMut<LuaRuntime>,
+        | -> WorldResult<Option<Table>> {
+            let skillbook = query.get(player.entity()?)
+                .map_err(|_| anyhow!("player not found"))?;
+
+            let skill_id = skill_id.parse::<Uuid>()?;
+
+            skillbook.0.iter()
+                .find(|s| s.id == skill_id)
+                .map(|s| s.construct_lua_table(&mut runtime))
+                .transpose()
+        })?)?;
+
+    Ok(())
 }
 
 #[derive(Component)]
-pub struct Skillbook(Vec<Skill>);
+pub struct Skillbook(Vec<SkillbookEntry>);
 
 #[derive(Component)]
 pub struct EnableClientUpdates;
@@ -72,6 +150,8 @@ impl Plugin for PlayerPlugin {
         app.register_command("instantKill", cmd_instant_kill);
 
         app.register_string_behavior(Class::Player, "respawnnow", behavior_respawnnow);
+
+        insert_skillbook_api(app.world_mut()).unwrap();
     }
 }
 
@@ -111,13 +191,13 @@ fn request_player_characters(
                 let skills = join_all(skillbook.skills.iter()
                     .map(async |s| {
                         if let Ok(Some(ability)) = OBJECT_CACHE.wait().get_object_by_guid(s.ability_id).await {
-                            Some(Skill {
+                            Some(SkillbookEntry(Arc::new(Skill {
                                 id: s.id,
                                 ability,
                                 group: s.group.clone(),
                                 state: s.state,
                                 stance: s.stance,
-                            })
+                            })))
                         } else {
                             None
                         }

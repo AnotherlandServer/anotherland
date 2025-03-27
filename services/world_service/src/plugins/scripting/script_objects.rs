@@ -17,7 +17,7 @@ use bevy::{app::{Plugin, PreUpdate}, ecs::{system::{In, Res}, world::World}, pre
 use convert_case::{Case, Casing};
 use log::error;
 use mlua::{IntoLua, Lua, Table};
-use obj_params::{GameObjectData, NonClientBase};
+use obj_params::{Class, GameObjectData, NonClientBase};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptApi, ScriptCommandsExt, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 
@@ -115,41 +115,60 @@ fn lua_gameobject_reset(
     }
 }
 
+pub fn load_class_script(runtime: &mut LuaRuntime, class: Class, name: Option<&str>) -> WorldResult<Table> {
+    let mut object_scripts = vec![];
+        
+    if 
+        let Some(script_name) = name &&
+        !script_name.is_empty()
+    {
+        object_scripts.push(format!("{}.{}", class.name().to_case(Case::Snake), script_name));
+    }
+
+    let mut current_class = Some(class);
+    while let Some(class) = current_class {
+        object_scripts.push(format!("global.base.{}", class.name().to_case(Case::Snake)));
+        current_class = class.parent();
+    }
+
+    object_scripts.push("global.base.entity".to_string());
+
+    for script_name in &object_scripts {
+        match runtime.load_script(script_name) {
+            Ok(lua_class) => {
+                return Ok(lua_class);
+            },
+            Err(e) => {
+                if matches!(e, scripting::ScriptError::FileNotFound(_)) {
+                    continue;
+                }
+
+                error!("Failed to load script '{}': {}", script_name, e);
+                break;
+            },
+        }
+    }
+
+    Ok(runtime.vm()
+        .create_table()?)
+}
+
 pub fn attach_scripts(
     added: Query<(Entity, &GameObjectData), Added<GameObjectData>>,
     mut runtime: ResMut<LuaRuntime>,
     mut commands: Commands,
 ) {
     for (ent, obj) in added.iter() {
-        let mut object_scripts = vec![];
-        
-        if 
-            let Ok(script_name) = obj.get::<_, String>(NonClientBase::LuaScript) &&
-            !script_name.is_empty()
-        {
-            object_scripts.push(format!("{}.{}", obj.class().name().to_case(Case::Snake), script_name));
-        }
-
-        object_scripts.push(format!("global.base.{}", obj.class().name().to_case(Case::Snake)));
-        object_scripts.push("global.base.entity".to_string());
-
-        for script_name in &object_scripts {
-            match runtime.load_script(script_name) {
-                Ok(lua_class) => {
-                    commands.entity(ent)
-                        .insert(ScriptObject::new(&runtime, lua_class).unwrap())
-                        .queue(insert_avatar_info)
-                        .call_named_lua_method(ScriptApi::Attach, ());
-                },
-                Err(e) => {
-                    if matches!(e, scripting::ScriptError::FileNotFound(_)) {
-                        continue;
-                    }
-
-                    error!("Failed to load script '{}': {}", script_name, e);
-                    break;
-                },
-            }
+        match load_class_script(&mut runtime, obj.class(), obj.get::<_, String>(NonClientBase::LuaScript).ok().map(|s| s.as_str())) {
+            Ok(lua_class) => {
+                commands.entity(ent)
+                    .insert(ScriptObject::new(&runtime, lua_class).unwrap())
+                    .queue(insert_avatar_info)
+                    .call_named_lua_method(ScriptApi::Attach, ());
+            },
+            Err(e) => {
+                error!("Failed to load script: {}", e);
+            },
         }
     }
 }

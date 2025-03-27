@@ -15,8 +15,8 @@
 
 use std::{collections::{HashMap, HashSet}, str::FromStr};
 
-use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt};
-use obj_params::{AttributeInfo, ParamType};
+use mlua::{FromLua, IntoLua, Lua, LuaSerdeExt, Table};
+use obj_params::{AttributeInfo, ContentRef, ParamType};
 use toolkit::{types::{AvatarId, Uuid}, QuatWrapper, Vec3Wrapper, Vec4Wrapper};
 
 pub struct ParamValue(obj_params::Value);
@@ -103,7 +103,21 @@ impl ParamValue {
             ),
             ParamType::ContentRefAndInt => obj_params::Value::ContentRefAndInt(String::from_lua(val, lua)?),
             ParamType::ContentRefAndFloat => obj_params::Value::ContentRefAndFloat(String::from_lua(val, lua)?),
-            ParamType::ContentRefList => obj_params::Value::ContentRefList(String::from_lua(val, lua)?.parse().map_err(mlua::Error::external)?),
+            ParamType::ContentRefList => {
+                if let Some(table) = val.as_table() {
+                    let mut list = Vec::new();
+                    for val in table.sequence_values::<Table>().flatten() {
+                        list.push(ContentRef {
+                            class: val.get::<String>("class")?.parse().map_err(mlua::Error::external)?,
+                            id: val.get::<String>("id")?.parse().map_err(mlua::Error::external)?,
+                        });
+                    }
+
+                    obj_params::Value::ContentRefList(list.into())
+                } else {
+                    return Err(mlua::Error::runtime("content ref list expected"));
+                }
+            },
             ParamType::ClassRefPowerRangeList => obj_params::Value::ClassRefPowerRangeList(String::from_lua(val, lua)?),
             ParamType::VectorInt => obj_params::Value::VectorInt(Vec::<i32>::from_lua(val, lua)?),
             ParamType::VectorInt64 => obj_params::Value::VectorInt64(Vec::<i64>::from_lua(val, lua)?),
@@ -197,7 +211,18 @@ impl IntoLua for ParamValue {
             },
             obj_params::Value::ContentRefAndInt(val) => val.into_lua(lua),
             obj_params::Value::ContentRefAndFloat(val) => val.into_lua(lua),
-            obj_params::Value::ContentRefList(val) => val.to_string().into_lua(lua),
+            obj_params::Value::ContentRefList(val) => {
+                let list = lua.create_table()?;
+
+                for ContentRef { class, id } in val.iter() {
+                    let tbl = lua.create_table_with_capacity(2, 0)?;
+                    tbl.set("class", class.name().into_lua(lua)?)?;
+                    tbl.set("id", id.to_string().into_lua(lua)?)?;
+                    list.push(tbl)?;
+                }
+
+                list.into_lua(lua)
+            },
             obj_params::Value::ClassRefPowerRangeList(val) => val.into_lua(lua),
             obj_params::Value::VectorInt(vec) => vec.into_lua(lua),
             obj_params::Value::VectorInt64(vec) => vec.into_lua(lua),

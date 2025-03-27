@@ -15,7 +15,7 @@
 
 use bevy::prelude::{Entity, EntityCommand, EntityCommands, World};
 use log::{debug, error};
-use mlua::{Function, IntoLuaMulti, Value};
+use mlua::{Function, IntoLua, IntoLuaMulti, Table, Value};
 
 use crate::{LuaRuntime, ScriptObject, REG_WORLD};
 
@@ -26,19 +26,27 @@ pub trait IntoLuaApiName {
 pub trait ScriptCommandsExt {
     fn call_named_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, name: impl IntoLuaApiName, args: T) -> &mut Self;
     fn call_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, func: Function, args: T) -> &mut Self;
+    fn fire_lua_event<T: IntoLuaMulti + Send + 'static>(&mut self, event: &'static str, args: T) -> &mut Self;
 }
 
 impl ScriptCommandsExt for EntityCommands<'_> {
-    fn call_named_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, name: impl IntoLuaApiName, args: T) -> &mut Self{
+    fn call_named_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, name: impl IntoLuaApiName, args: T) -> &mut Self {
         self.queue(LuaMethodCall {
             method: MethodRef::Name(name.name().to_string()),
             args: Box::new(args),
         })
     }
 
-    fn call_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, func: Function, args: T) -> &mut Self{
+    fn call_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, func: Function, args: T) -> &mut Self {
         self.queue(LuaMethodCall {
             method: MethodRef::Function(func),
+            args: Box::new(args),
+        })
+    }
+
+    fn fire_lua_event<T: IntoLuaMulti + Send + 'static>(&mut self, event: &'static str, args: T) -> &mut Self {
+        self.queue(LuaMethodCall {
+            method: MethodRef::Event(event),
             args: Box::new(args),
         })
     }
@@ -55,6 +63,7 @@ impl IntoLuaApiName for String {
 enum MethodRef {
     Name(String),
     Function(Function),
+    Event(&'static str),
 }
 
 struct LuaMethodCall<T: IntoLuaMulti + Send> {
@@ -78,18 +87,28 @@ impl <T: IntoLuaMulti + Send + 'static> EntityCommand for LuaMethodCall<T> {
                 scope.create_any_userdata_ref_mut(world)?
             )?;
 
-            if let Some(method) = match self.method {
+            if let Some((method, mut args)) = match self.method {
                 MethodRef::Name(name) => {
                     if let Ok(method) = obj.get::<Function>(name.as_str()) {
-                        Some(method)
+                        Some((method, self.args.into_lua_multi(&lua)?))
                     } else {
                         debug!("Method '{}' not found!", name);
                         None
                     }
                 },
-                MethodRef::Function(function) => Some(function),
+                MethodRef::Function(function) => Some((function, self.args.into_lua_multi(&lua)?)),
+                MethodRef::Event(event) => {
+                    if let Ok(method) = obj.get::<Function>("Emit") {
+                        let mut args = self.args.into_lua_multi(&lua)?;
+                        args.push_front(event.into_lua(&lua)?);
+
+                        Some((method, args))
+                    } else {
+                        debug!("Method 'Emit' not found!");
+                        None
+                    }
+                },
             } {
-                let mut args = self.args.into_lua_multi(&lua)?;
                 args.push_front(mlua::Value::Table(obj));
 
                 let _ = method.call::<Value>(args)?;

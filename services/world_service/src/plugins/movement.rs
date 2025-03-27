@@ -13,11 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{change_detection::DetectChangesMut, component::Component, system::Res}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time}};
+use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{change_detection::DetectChangesMut, component::Component, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time}};
 use log::debug;
+use mlua::{Lua, Table};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase, Player};
 use protocol::{oaPktMoveManagerPosUpdate, oaPktMoveManagerStateChanged, Physics, PhysicsState};
-use toolkit::OtherlandQuatExt;
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use toolkit::{OtherlandQuatExt, QuatWrapper, Vec3Wrapper};
+use anyhow::anyhow;
+
+use crate::error::WorldResult;
 
 use super::{AvatarInfo, Interests, NetworkExtPriv, PlayerController};
 
@@ -31,7 +36,52 @@ impl Plugin for MovementPlugin {
 
         app.register_message_handler(handle_move_manager_state_changed);
         app.register_message_handler(handle_move_manager_pos_update);
+
+        insert_movement_api(app.world_mut()).unwrap();
     }
+}
+
+fn insert_movement_api(
+    world: &mut World,
+) -> ScriptResult<()> {
+    let runtime = world.get_resource::<LuaRuntime>().unwrap();
+    let lua: Lua = runtime.vm().clone();
+    let api = lua.create_table().unwrap();
+    runtime.register_native("movement", api.clone()).unwrap();
+
+    api.set("GetPosition", lua.create_bevy_function(world, 
+        |
+            In(object): In<Table>,
+            query: Query<&Movement>,
+        | -> WorldResult<Vec3Wrapper> {
+            let movement = query.get(object.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+            
+            Ok(Vec3Wrapper(movement.position))
+        })?)?;
+
+    api.set("GetRotation", lua.create_bevy_function(world, 
+        |
+            In(object): In<Table>,
+            query: Query<&Movement>,
+        | -> WorldResult<QuatWrapper> {
+            let movement = query.get(object.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+            
+            Ok(QuatWrapper(movement.rotation))
+        })?)?;
+
+    api.set("GetVelocity", lua.create_bevy_function(world, |
+            In(object): In<Table>,
+            query: Query<&Movement>,
+        | -> WorldResult<Vec3Wrapper> {
+            let movement = query.get(object.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+            
+            Ok(Vec3Wrapper(movement.velocity))
+        })?)?;
+
+    Ok(())
 }
 
 #[derive(Component, Clone, Debug)]

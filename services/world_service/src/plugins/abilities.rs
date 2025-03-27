@@ -15,17 +15,20 @@
 
 use std::{sync::Arc, time::{Duration, Instant}};
 
-use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{component::Component, event::{Event, EventReader, EventWriter}, query::{Changed, With}, system::Res}, math::{Quat, Vec3}, prelude::{Entity, In, Query}, utils::HashMap};
-use log::debug;
-use obj_params::{tags::ItemBaseTag, ContentRefList, EdnaAbility, EdnaFunction, GameObjectData, NpcOtherland};
+use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{component::Component, event::{Event, EventReader, EventWriter}, query::{Changed, With}, system::{Commands, Res, ResMut}, world::World}, math::{Quat, Vec3}, prelude::{Entity, In, Query}, utils::HashMap};
+use log::{debug, error};
+use mlua::{Lua, LuaSerdeExt, Table, Value};
+use obj_params::{tags::{ItemBaseTag, PlayerTag}, ContentRefList, EdnaAbility, EdnaFunction, GameObjectData, NpcOtherland};
 use protocol::{oaPktAbilityRequest, oaPktAbilityUse, oaPktCooldownUpdate, AbilityEffect, CooldownEntry, CooldownUpdate, OaPktAbilityUseAbilityType, OaPktAbilityUseEventType};
 use rand::Rng;
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
-use toolkit::types::{AvatarId, Uuid};
+use toolkit::{types::{AvatarId, Uuid, UUID_NIL}, QuatWrapper, Vec3Wrapper};
+use anyhow::anyhow;
 
-use crate::{object_cache::CacheEntry, plugins::ConnectionState};
+use crate::{error::WorldResult, object_cache::CacheEntry, plugins::ConnectionState};
 
-use super::{AvatarIdManager, AvatarInfo, ContentInfo, CurrentState, HealthUpdateEvent, Interests, Inventory, ItemAbilities, Movement, NetworkExtPriv, PlayerController};
+use super::{interests, AvatarIdManager, AvatarInfo, CachedObject, ContentInfo, CurrentState, HealthUpdateEvent, Interests, Inventory, ItemAbilities, Movement, NetworkExtPriv, PlayerController, SkillbookEntry};
 
 pub struct AbilitiesPlugin;
 
@@ -33,10 +36,13 @@ impl Plugin for AbilitiesPlugin {
     fn build(&self, app: &mut App) {
         app.register_message_handler(handle_ability_request);
 
-        app.add_systems(Update, perform_abilities);
+        //app.add_systems(Update, perform_abilities);
         app.add_systems(PostUpdate, send_cooldown_updates);
 
         app.add_event::<AbilityTriggerEvent>();
+
+        insert_cooldown_api(app.world_mut()).unwrap();
+        insert_ability_api(app.world_mut()).unwrap();
     }
 }
 
@@ -48,16 +54,15 @@ pub enum AbilityToggleMode {
 #[derive(Debug)]
 #[allow(unused)]
 pub enum AbilityKind {
-    Item(Arc<CacheEntry>),
-    Skill(Arc<CacheEntry>),
-    Buff(Arc<CacheEntry>),
+    Item(Entity, CachedObject),
+    Skill(SkillbookEntry),
 }
 
 #[derive(Event)]
 #[allow(unused)]
 pub struct AbilityTriggerEvent {
     pub source: Entity,
-    pub ability: Arc<CacheEntry>,
+    pub ability: CachedObject,
     pub kind: AbilityKind,
     pub toggle_mode: AbilityToggleMode,
     pub target: Option<Entity>,
@@ -134,6 +139,33 @@ impl Cooldowns {
     }
 }
 
+
+fn insert_cooldown_api(
+    world: &mut World,
+) -> ScriptResult<()> {
+    let runtime = world.get_resource::<LuaRuntime>().unwrap();
+    let lua: Lua = runtime.vm().clone();
+    let cooldown_api = lua.create_table().unwrap();
+    runtime.register_native("cooldown", cooldown_api.clone()).unwrap();
+
+    cooldown_api.set("Consume", lua.create_bevy_function(world, 
+        |
+            In((player, groups, duration)): In<(Table, Vec<String>, f32)>,
+            mut query: Query<&mut Cooldowns>,
+        | -> WorldResult<bool> {
+            let mut cooldowns = query.get_mut(player.entity()?)
+                .map_err(|_| anyhow!("player not found"))?;
+
+            let groups = groups.into_iter()
+                .map(|s| s.parse::<Uuid>())
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(cooldowns.consume(&groups, Duration::from_secs_f32(duration)))
+        })?)?;
+
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize)]
 enum EffectorSettings {
     Damage {
@@ -181,12 +213,38 @@ struct TargetFactorySettings {
 
 fn handle_ability_request(
     In((ent, pkt)): In<(Entity, oaPktAbilityRequest)>,
+    lua_objects: Query<&ScriptObject>,
+    runtime: Res<LuaRuntime>,
     avatar_man: Res<AvatarIdManager>,
-    players: Query<(&Movement, &Inventory)>,
+    mut commands: Commands,
+    /*players: Query<(&Movement, &Inventory)>,
     items: Query<(&ContentInfo, &GameObjectData, &ItemAbilities), With<ItemBaseTag>>,
-    mut ability_trigger: EventWriter<AbilityTriggerEvent>,
+    mut ability_trigger: EventWriter<AbilityTriggerEvent>,*/
 ) {
-    if let Ok((movement, inventory)) = players.get(ent) {
+    if let Ok(lua_player) = lua_objects.get(ent) {
+        let request = runtime.vm().create_table().unwrap();
+
+        let target = pkt.params
+            .and_then(|s| s.parse::<AvatarId>().ok())
+            .and_then(|id| avatar_man.entity_from_avatar_id(id))
+            .and_then(|ent| lua_objects.get(ent).ok())
+            .map(|obj| obj.object().clone());
+
+        request.set("target", target).unwrap();
+        request.set("ability_id", pkt.ability_id.to_string()).unwrap();
+        request.set("reference_id", pkt.item_id.map(|v| v.to_string())).unwrap();
+        request.set("prediction_id", pkt.prediction_id).unwrap();
+        request.set("toggle_mode", pkt.toggle_mode).unwrap();
+        request.set("combo_stage_id", pkt.combo_stage_id).unwrap();
+        request.set("target_rotation", 
+            pkt.target_rotation
+                    .map(|v| QuatWrapper(v.into()))
+        ).unwrap();
+
+        commands.entity(ent)
+            .fire_lua_event("OnAbilityRequest", request);
+    }
+    /*if let Ok((movement, inventory)) = players.get(ent) {
         // Lookup the ability, either directly or via provided item
         let ability_info = if let Some(item_id) = pkt.item_id {
             if 
@@ -272,10 +330,10 @@ fn handle_ability_request(
                 effects
             });
         }
-    }
+    }*/
 }
 
-fn perform_abilities(
+/*fn perform_abilities(
     mut events: EventReader<AbilityTriggerEvent>,
     mut sources: Query<(&AvatarInfo, &mut Cooldowns, &Movement, &Interests)>,
     targets: Query<(Entity, &AvatarInfo, &GameObjectData, &Movement)>,
@@ -407,7 +465,7 @@ fn perform_abilities(
             }
         }
     }
-}
+}*/
 
 fn send_cooldown_updates(
     players: Query<(&PlayerController, &mut Cooldowns, &CurrentState), Changed<Cooldowns>>,
@@ -449,4 +507,130 @@ fn send_cooldown_updates(
             ..Default::default()
         });
     }
+}
+
+fn insert_ability_api(
+    world: &mut World,
+) -> ScriptResult<()> {
+    let runtime = world.get_resource::<LuaRuntime>().unwrap();
+    let lua: Lua = runtime.vm().clone();
+    let skillbook_api = lua.create_table().unwrap();
+    runtime.register_native("ability", skillbook_api.clone()).unwrap();
+
+    skillbook_api.set("Invoke", lua.create_bevy_function(world, 
+        |
+            In(params): In<Table>,
+            players: Query<(Entity, &PlayerController, &Interests)>,
+            content: Query<&ContentInfo>,
+            targets: Query<&AvatarInfo>,
+        | -> WorldResult<()> {
+            let ability = if let Ok(skill) = params.get::<Table>("ability")?.get::<SkillbookEntry>("__skill") {
+                skill.ability.clone()
+            } else if let Ok(ability) = params.get::<Table>("ability")?.get::<CachedObject>("__item_ability") {
+                (*ability).clone()
+            } else {
+                return Err(anyhow!("invalid ability").into());
+            };
+
+            let source_id = if let Ok(item) = params.get::<Table>("item")?.entity() {
+                if let Ok(content_info) = content.get(item) {
+                    content_info.template.id
+                } else {
+                    return Err(anyhow!("item not found").into());
+                }
+            } else {
+                UUID_NIL
+            };
+
+            let source_ent = params.get::<Table>("source")?.entity()?;
+            let source = targets.get(source_ent)
+                .map_err(|_| anyhow!("source not found"))?;
+            let effects = params.get::<Table>("effects")?;
+            let prediction_id = params.get::<i32>("prediction_id")?;
+            let combo_stage_id = params.get::<i32>("combo_stage_id")?;
+            let rotation = params.get::<QuatWrapper>("rotation").ok().map(|v| v.0);
+            let ability_invoke_location = params.get::<Vec3Wrapper>("position")?.0;
+            let event_duration = params.get::<f32>("event_duration")?;
+            let ability_type = params.get::<i32>("ability_type")?;
+            let event_type = params.get::<i32>("event_type")?;
+
+            let effects = effects.sequence_values()
+                .flatten()
+                .map(|effect: Table| -> WorldResult<AbilityEffect> {
+                    let target = params.get::<Table>("target")?.entity()?;
+                    let effect_type = effect.get::<i32>("type")?;
+                    let total_damage_or_heal_amount = effect.get::<f32>("amount").ok();
+                    let delta_hp_id = effect.get::<i32>("delta_hp_id").ok();
+                    let effect_delay = effect.get::<f32>("delay").ok();
+                    let effect_duration_from_server = effect.get::<f32>("effect_duration").ok();
+                    let combat_flags = effect.get::<i32>("combat_flags").ok();
+
+                    let avatar = targets.get(target)
+                        .map_err(|_| anyhow!("target not found"))?;
+
+                    Ok(AbilityEffect {
+                        target_actor: avatar.id,
+                        effect_type,
+                        flags: 
+                            if combat_flags.is_some() { 0x4 } else { 0x0 } |
+                            if total_damage_or_heal_amount.is_some() { 0x8 } else { 0x0 } |
+                            if effect_delay.is_some() { 0x10 } else { 0x0 } |
+                            if effect_duration_from_server.is_some() { 0x20 } else { 0x0 } |
+                            if delta_hp_id.is_some() { 0x40 } else { 0x0 },
+                        combat_flags,
+                        total_damage_or_heal_amount,
+                        effect_delay,
+                        effect_duration_from_server,
+                        delta_hp_id,
+                        ..Default::default()
+                    })
+                })
+                .collect::<WorldResult<Vec<AbilityEffect>>>()?;
+
+            for (ent, controller, interests) in players.iter() {
+                if ent == source_ent {
+                    controller.send_packet(oaPktAbilityUse {
+                        player: controller.avatar_id(),
+                        source_avatar: source.id,
+                        skill_id: ability.id,
+                        source_id,
+                        event_type: event_type.try_into()
+                            .map_err(|_| anyhow!("invalid event type"))?,
+                        ability_invoke_location: ability_invoke_location.into(),
+                        ability_type: ability_type.try_into()
+                            .map_err(|_| anyhow!("invalid ability type"))?,
+                        server_event_duration: event_duration,
+                        flag: if rotation.is_some() { 2 } else { 0 },
+                        rotation: rotation.map(|v| v.into()),
+                        effect_count: effects.len() as _,
+                        effects: effects.clone(),
+                        prediction_id,
+                        combo_stage_id,
+                        ..Default::default()
+                    });
+                } else if interests.contains_key(&source_ent) {
+                    controller.send_packet(oaPktAbilityUse {
+                        player: controller.avatar_id(),
+                        source_avatar: source.id,
+                        skill_id: ability.id,
+                        source_id,
+                        event_type: event_type.try_into()
+                            .map_err(|_| anyhow!("invalid event type"))?,
+                        ability_invoke_location: ability_invoke_location.into(),
+                        ability_type: ability_type.try_into()
+                            .map_err(|_| anyhow!("invalid ability type"))?,
+                        server_event_duration: event_duration,
+                        flag: if rotation.is_some() { 2 } else { 0 },
+                        rotation: rotation.map(|v| v.into()),
+                        effect_count: effects.len() as _,
+                        effects: effects.clone(),
+                        ..Default::default()
+                    });
+                }
+            }
+
+            Ok(())
+        })?)?;
+
+    Ok(())
 }
