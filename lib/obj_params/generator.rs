@@ -929,6 +929,18 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         }
     }).collect();
 
+    let class_parent: Vec<_> = paramlist.classes.iter().map(|v| {
+        let class = v.borrow();
+        let class_name: syn::Ident = format_ident!("{}", class.name.to_case(Case::UpperCamel));
+        
+        if let Some(parent) = &class.extends_ref {
+            let parent_name: syn::Ident = format_ident!("{}", parent.borrow().name.to_case(Case::UpperCamel));
+            quote!{ Self::#class_name => Some(Class::#parent_name), }
+        } else {
+            quote!{ Self::#class_name => None, }
+        }
+    }).collect();
+
     write_source("generated_params.rs", quote! {
         use glam::Vec3;
         use std::collections::HashSet;
@@ -991,6 +1003,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             pub fn name(&self) -> &'static str {
                 match self {
                     #(#class_names)*
+                }
+            }
+
+            pub fn parent(&self) -> Option<Class> {
+                match self {
+                    #(#class_parent)*
                 }
             }
 
