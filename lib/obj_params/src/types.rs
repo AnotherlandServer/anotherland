@@ -96,6 +96,12 @@ impl Display for ContentRef {
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct ContentRefList(Vec<ContentRef>);
 
+impl From<Vec<ContentRef>> for ContentRefList {
+    fn from(content_refs: Vec<ContentRef>) -> Self {
+        ContentRefList(content_refs)
+    }
+}
+
 impl Deref for ContentRefList {
     type Target = Vec<ContentRef>;
 
