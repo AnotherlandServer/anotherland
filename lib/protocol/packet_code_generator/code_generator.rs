@@ -41,6 +41,15 @@ pub fn generate_enum_code(enums: &Vec<Rc<RefCell<GeneratedEnum>>>) -> TokenStrea
                 quote! { rh == &#k && self == &#enum_identifier::#val_ident }
             }).collect();
 
+        let try_from: Vec<_> = generated_enum.values.iter()
+            .map(|(k, v)| {
+                let val_ident = format_ident!("{}", v);
+                let k = *k as i32;
+
+                quote! { #k => Ok(#enum_identifier::#val_ident) }
+            }).collect();
+
+
         code.extend(quote! {
             #[allow(non_camel_case_types)]
             #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -52,6 +61,17 @@ pub fn generate_enum_code(enums: &Vec<Rc<RefCell<GeneratedEnum>>>) -> TokenStrea
             impl PartialEq<u32> for #enum_identifier {
                 fn eq(&self, rh: &u32) -> bool {
                     #(#compare)||*
+                }
+            }
+
+            impl TryFrom<i32> for #enum_identifier {
+                type Error = ();
+
+                fn try_from(v: i32) -> Result<Self, Self::Error> {
+                    match v {
+                        #(#try_from),*,
+                        _ => Err(()),
+                    }
                 }
             }
         });
