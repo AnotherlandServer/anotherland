@@ -17,7 +17,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ConfLoginServer {
-    pub one_time_password_duration: Option<u32>,
+    pub one_time_password_duration: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]

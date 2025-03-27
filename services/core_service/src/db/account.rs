@@ -56,7 +56,7 @@ impl PasswordHash {
             PasswordHash::Unset => false,
             PasswordHash::Password(hash) => bcrypt::verify(password, hash).expect("failed to verify password"),
             PasswordHash::OneTimePassword(date, hash) => {
-                if Utc::now().signed_duration_since(date).num_seconds() < CLUSTER_CONF.login.one_time_password_duration.unwrap_or(900).into() {
+                if Utc::now().signed_duration_since(date).num_seconds() < CLUSTER_CONF.login.one_time_password_duration.unwrap_or(900) {
                     bcrypt::verify(password, hash).expect("failed to verify password")
                 } else {
                     false
