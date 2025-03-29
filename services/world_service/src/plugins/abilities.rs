@@ -514,10 +514,10 @@ fn insert_ability_api(
 ) -> ScriptResult<()> {
     let runtime = world.get_resource::<LuaRuntime>().unwrap();
     let lua: Lua = runtime.vm().clone();
-    let skillbook_api = lua.create_table().unwrap();
-    runtime.register_native("ability", skillbook_api.clone()).unwrap();
+    let ability_api = lua.create_table().unwrap();
+    runtime.register_native("ability", ability_api.clone()).unwrap();
 
-    skillbook_api.set("Invoke", lua.create_bevy_function(world, 
+    ability_api.set("Invoke", lua.create_bevy_function(world, 
         |
             In(params): In<Table>,
             players: Query<(Entity, &PlayerController, &Interests)>,
@@ -557,7 +557,7 @@ fn insert_ability_api(
             let effects = effects.sequence_values()
                 .flatten()
                 .map(|effect: Table| -> WorldResult<AbilityEffect> {
-                    let target = params.get::<Table>("target")?.entity()?;
+                    let target = effect.get::<Table>("target")?.entity()?;
                     let effect_type = effect.get::<i32>("type")?;
                     let total_damage_or_heal_amount = effect.get::<f32>("amount").ok();
                     let delta_hp_id = effect.get::<i32>("delta_hp_id").ok();

@@ -44,7 +44,12 @@ end
 ---@field y number
 ---@field z number
 ---@field w number
-local Quaternion = {}
+---@operator add(Quaternion): Quaternion
+---@operator sub(Quaternion): Quaternion
+---@operator mul(Vector|Quaternion|number): Quaternion
+---@operator div(number): Quaternion
+---@operator unm: Quaternion
+Quaternion = {}
 
 --- Checks if the quaternion is approximately equal to another quaternion within a tolerance.
 --- @param rhs Quaternion
@@ -130,50 +135,56 @@ function Quaternion:RotateTowards(to, max_angle) end
 --- @return Quaternion
 function Quaternion:Slerp(rhs, t) end
 
+--- @type Quaternion
+Quaternion.IDENTITY = nil
+
+--- @type Quaternion
+Quaternion.NAN = nil
+
 --- Creates a quaternion from an axis and angle.
 --- @param axis Vector
 --- @param angle number
 --- @return Quaternion
-function Quaternion:FromAxisAngle(axis, angle) end
+function Quaternion.FromAxisAngle(axis, angle) end
 
 --- Creates a quaternion from Euler angles.
 --- @param x number
 --- @param y number
 --- @param z number
 --- @return Quaternion
-function Quaternion:FromEuler(x, y, z) end
+function Quaternion.FromEuler(x, y, z) end
 
 --- Creates a quaternion from a rotation arc.
 --- @param from Vector
 --- @param to Vector
 --- @return Quaternion
-function Quaternion:FromRotationArc(from, to) end
+function Quaternion.FromRotationArc(from, to) end
 
 --- Creates a quaternion from a rotation arc, allowing colinear vectors.
 --- @param from Vector
 --- @param to Vector
 --- @return Quaternion
-function Quaternion:FromRotationArcColinear(from, to) end
+function Quaternion.FromRotationArcColinear(from, to) end
 
 --- Creates a quaternion from a rotation around the X axis.
 --- @param angle number
 --- @return Quaternion
-function Quaternion:FromRotationX(angle) end
+function Quaternion.FromRotationX(angle) end
 
 --- Creates a quaternion from a rotation around the Y axis.
 --- @param angle number
 --- @return Quaternion
-function Quaternion:FromRotationY(angle) end
+function Quaternion.FromRotationY(angle) end
 
 --- Creates a quaternion from a rotation around the Z axis.
 --- @param angle number
 --- @return Quaternion
-function Quaternion:FromRotationZ(angle) end
+function Quaternion.FromRotationZ(angle) end
 
 --- Creates a quaternion from scaled axis representation.
 --- @param axis Vector
 --- @return Quaternion
-function Quaternion:FromScaledAxis(axis) end
+function Quaternion.FromScaledAxis(axis) end
 
 --- Creates a quaternion from its components.
 --- @param x number
@@ -181,14 +192,20 @@ function Quaternion:FromScaledAxis(axis) end
 --- @param z number
 --- @param w number
 --- @return Quaternion
-function Quaternion:FromXYZW(x, y, z, w) end
+function Quaternion.FromXYZW(x, y, z, w) end
+
 
 ---
 ---@class Vector
 ---@field x number
 ---@field y number
 ---@field z number
-local Vector = {}
+---@operator add(Vector): Vector
+---@operator sub(Vector): Vector
+---@operator mul(Vector|number): Vector
+---@operator div(Vector|number): Vector
+---@operator unm: Vector
+Vector = {}
 
 --- Computes the absolute value of each component.
 --- @return Vector
@@ -366,13 +383,6 @@ function Vector:MinElement() end
 --- @return Vector
 function Vector:MoveTowards(target, max_distance) end
 
---- Creates a new vector.
---- @param x number
---- @param y number
---- @param z number
---- @return Vector
-function Vector.New(x, y, z) end
-
 --- Normalizes the vector.
 --- @return Vector
 function Vector:Normalize() end
@@ -458,6 +468,26 @@ function Vector:WithY(y) end
 --- @return Vector
 function Vector:WithZ(z) end
 
+--- @type Vector
+Vector.X = nil
+
+--- @type Vector
+Vector.Y = nil
+
+--- @type Vector
+Vector.Z = nil
+
+--- @type Vector
+Vector.ZERO = nil
+
+
+--- Creates a new vector.
+--- @param x number
+--- @param y number
+--- @param z number
+--- @return Vector
+function Vector.New(x, y, z) end
+
 ---
 ---@class AbilityRequest
 ---@field ability_id string
@@ -466,7 +496,7 @@ function Vector:WithZ(z) end
 ---@field prediction_id integer
 ---@field toggle_mode? integer
 ---@field combo_stage_id? integer
----@field target_rogation? Quaternion
+---@field target_rotation? Quaternion
 ---@field item? EdnaFunction
 
 ---
@@ -486,4 +516,4 @@ function Log.Trace(...) end
 function Log.Debug(...) end
 function Log.Info(...) end
 function Log.Warn(...) end
-function Log.eErr(...) end
+function Log.Err(...) end

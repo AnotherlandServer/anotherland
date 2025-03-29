@@ -21,6 +21,7 @@ use log::{debug, error, info, trace, warn};
 use mlua::{ffi::{LUA_LOADED_TABLE, LUA_PRELOAD_TABLE}, Function, IntoLua, Lua, LuaOptions, StdLib, Table, Value};
 use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
+use toolkit::init_vector_api;
 
 use crate::{api_names::ScriptApi, ScriptCommandsExt, ScriptError, ScriptResult, ScriptObject};
 
@@ -117,6 +118,8 @@ impl LuaRuntimeBuilder {
         }
 
         lua.globals().set("__engine", lua.create_table()?)?;
+
+        init_vector_api(&lua)?;
 
         Ok(self
             .lua(lua.clone())

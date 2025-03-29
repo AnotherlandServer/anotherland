@@ -14,8 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use glam::{Quat, Vec3, Vec4};
-use mlua::{AnyUserData, FromLua, IntoLua, MetaMethod, UserData, Value};
+use mlua::{AnyUserData, FromLua, IntoLua, MetaMethod, UserData, UserDataRef, Value};
 
+#[derive(Clone, Copy)]
 pub struct Vec3Wrapper(pub Vec3);
 
 impl UserData for Vec3Wrapper {
@@ -238,10 +239,6 @@ impl UserData for Vec3Wrapper {
             Ok(Vec3Wrapper(this.0.mul_add(mul.0, add.0)))
         });
 
-        methods.add_function("New", |_, (x, y, z): (f32, f32, f32)| {
-            Ok(Vec3Wrapper(Vec3::new(x, y, z)))
-        });
-
         methods.add_method("Normalize", |_, this, _: ()| {
             Ok(Vec3Wrapper(this.0.normalize()))
         });
@@ -317,9 +314,8 @@ impl UserData for Vec3Wrapper {
 }
 
 impl FromLua for Vec3Wrapper {
-    fn from_lua(value: mlua::Value, _: &mlua::Lua) -> mlua::Result<Self> {
-        let usr = value.as_userdata().ok_or(mlua::Error::runtime("vector expected"))?;
-        usr.take::<Vec3Wrapper>()
+    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
+        Ok(*UserDataRef::<Vec3Wrapper>::from_lua(value, lua)?)
     }
 }
 
@@ -356,6 +352,7 @@ impl FromLua for Vec4Wrapper {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct QuatWrapper(pub Quat);
 
 impl UserData for QuatWrapper {
@@ -490,47 +487,70 @@ impl UserData for QuatWrapper {
             Ok(QuatWrapper(this.0.slerp(rhs.0, t)))
         });
 
-        methods.add_function("FromXYZW", |_, (x, y, z, w): (f32, f32, f32, f32)| {
-            Ok(QuatWrapper(Quat::from_xyzw(x, y, z, w)))
-        });
-
-        methods.add_function("FromEuler", |_, (x, y, z): (f32, f32, f32)| {
-            Ok(QuatWrapper(Quat::from_euler(glam::EulerRot::XYZ, x, y, z)))
-        });
-
-        methods.add_function("FromAxisAngle", |_, (axis, angle): (Vec3Wrapper, f32)| {
-            Ok(QuatWrapper(Quat::from_axis_angle(axis.0, angle)))
-        });
-
-        methods.add_function("FromRotationArc", |_, (from, to): (Vec3Wrapper, Vec3Wrapper)| {
-            Ok(QuatWrapper(Quat::from_rotation_arc(from.0, to.0)))
-        });
-
-        methods.add_function("FromRotationArcColinear", |_, (from, to): (Vec3Wrapper, Vec3Wrapper)| {
-            Ok(QuatWrapper(Quat::from_rotation_arc_colinear(from.0, to.0)))
-        });
-
-        methods.add_function("FromRotationX", |_, angle: f32| {
-            Ok(QuatWrapper(Quat::from_rotation_x(angle)))
-        });
-
-        methods.add_function("FromRotationY", |_, angle: f32| {
-            Ok(QuatWrapper(Quat::from_rotation_y(angle)))
-        });
-
-        methods.add_function("FromRotationZ", |_, angle: f32| {
-            Ok(QuatWrapper(Quat::from_rotation_z(angle)))
-        });
-
-        methods.add_function("FromScaledAxis", |_, axis: Vec3Wrapper| {
-            Ok(QuatWrapper(Quat::from_scaled_axis(axis.0)))
-        });
     }
 }
 
 impl FromLua for QuatWrapper {
-    fn from_lua(value: mlua::Value, _: &mlua::Lua) -> mlua::Result<Self> {
-        let usr = value.as_userdata().ok_or(mlua::Error::runtime("vector expected"))?;
-        usr.take::<QuatWrapper>()
+    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
+        Ok(*UserDataRef::<QuatWrapper>::from_lua(value, lua)?)
     }
+}
+
+pub fn init_vector_api(lua: &mlua::Lua) -> mlua::Result<()> {
+    let vector = lua.create_table()?;
+    let quaternion = lua.create_table()?;
+
+    vector.set("New", lua.create_function(|_, (x, y, z): (f32, f32, f32)| {
+        Ok(Vec3Wrapper(Vec3::new(x, y, z)))
+    })?)?;
+
+    vector.set("X", Vec3Wrapper(Vec3::X))?;
+    vector.set("Y", Vec3Wrapper(Vec3::Y))?;
+    vector.set("Z", Vec3Wrapper(Vec3::Z))?;
+    vector.set("ZERO", Vec3Wrapper(Vec3::ZERO))?;
+
+    lua.globals().set("Vector", vector)?;
+
+    quaternion.set("FromXYZW", lua.create_function(|_, (x, y, z, w): (f32, f32, f32, f32)| {
+        Ok(QuatWrapper(Quat::from_xyzw(x, y, z, w)))
+    })?)?;
+
+    quaternion.set("FromEuler", lua.create_function(|_, (x, y, z): (f32, f32, f32)| {
+        Ok(QuatWrapper(Quat::from_euler(glam::EulerRot::XYZ, x, y, z)))
+    })?)?;
+
+    quaternion.set("FromAxisAngle", lua.create_function(|_, (axis, angle): (Vec3Wrapper, f32)| {
+        Ok(QuatWrapper(Quat::from_axis_angle(axis.0, angle)))
+    })?)?;
+
+    quaternion.set("FromRotationArc", lua.create_function(|_, (from, to): (Vec3Wrapper, Vec3Wrapper)| {
+        Ok(QuatWrapper(Quat::from_rotation_arc(from.0, to.0)))
+    })?)?;
+
+    quaternion.set("FromRotationArcColinear", lua.create_function(|_, (from, to): (Vec3Wrapper, Vec3Wrapper)| {
+        Ok(QuatWrapper(Quat::from_rotation_arc_colinear(from.0, to.0)))
+    })?)?;
+
+    quaternion.set("FromRotationX", lua.create_function(|_, angle: f32| {
+        Ok(QuatWrapper(Quat::from_rotation_x(angle)))
+    })?)?;
+
+    quaternion.set("FromRotationY", lua.create_function(|_, angle: f32| {
+        Ok(QuatWrapper(Quat::from_rotation_y(angle)))
+    })?)?;
+
+    quaternion.set("FromRotationZ", lua.create_function(|_, angle: f32| {
+        Ok(QuatWrapper(Quat::from_rotation_z(angle)))
+    })?)?;
+
+    quaternion.set("FromScaledAxis", lua.create_function(|_, axis: Vec3Wrapper| {
+        Ok(QuatWrapper(Quat::from_scaled_axis(axis.0)))
+    })?)?;
+
+    quaternion.set("IDENTITY", QuatWrapper(Quat::IDENTITY))?;
+    quaternion.set("NAN", QuatWrapper(Quat::NAN))?;
+
+    lua.globals().set("Quaternion", quaternion)?;
+
+    Ok(())
 }

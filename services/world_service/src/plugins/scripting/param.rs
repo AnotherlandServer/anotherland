@@ -95,10 +95,13 @@ impl ParamValue {
                 )
             },
             ParamType::ContentRef => obj_params::Value::ContentRef(
-                if val.is_nil() {
-                    None
+                if let Some(val) = val.as_table() {
+                    Some(ContentRef {
+                        class: val.get::<String>("class")?.parse().map_err(mlua::Error::external)?,
+                        id: val.get::<String>("id")?.parse().map_err(mlua::Error::external)?,
+                    })
                 } else {
-                    String::from_lua(val, lua)?.parse().map_err(mlua::Error::external).map(Some)?
+                    None
                 }
             ),
             ParamType::ContentRefAndInt => obj_params::Value::ContentRefAndInt(String::from_lua(val, lua)?),
@@ -204,8 +207,12 @@ impl IntoLua for ParamValue {
                 QuatWrapper(quat),
                 Vec3Wrapper(vec3)
             )),
-            obj_params::Value::ContentRef(val) => if let Some(val) = val {
-                val.to_string().into_lua(lua)
+            obj_params::Value::ContentRef(val) => if let Some(ContentRef { class, id }) = val {
+                let tbl = lua.create_table_with_capacity(2, 0)?;
+                tbl.set("class", class.name().into_lua(lua)?)?;
+                tbl.set("id", id.to_string().into_lua(lua)?)?;
+
+                tbl.into_lua(lua)
             } else {
                 Ok(mlua::Value::Nil)
             },
