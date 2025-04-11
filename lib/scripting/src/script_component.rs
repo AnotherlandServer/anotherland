@@ -34,12 +34,15 @@ pub struct ScriptObject {
 }
 
 impl ScriptObject {
-    pub fn new(runtime: &LuaRuntime, base: Table) -> ScriptResult<ScriptObject> {
-        let meta = runtime.vm().create_table()?;
-        meta.set("__index", base.clone())?;
-
+    pub fn new(runtime: &LuaRuntime, base: Option<Table>) -> ScriptResult<ScriptObject> {
         let object = runtime.vm().create_table()?;
-        object.set_metatable(Some(meta));
+
+        if let Some(base) = base {
+            let meta = runtime.vm().create_table()?;
+            meta.set("__index", base.clone())?;
+
+            object.set_metatable(Some(meta));
+        }
 
         Ok(Self {
             lua: runtime.vm().clone(),
