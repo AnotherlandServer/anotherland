@@ -21,7 +21,7 @@ use mongodb::{bson::doc, Database};
 use obj_params::GenericParamSet;
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{db::{self, Character, FlatennedStorageOwner, Item, ItemStorageOutput, ObjectTemplate, StorageOwner}, item_storage_session::{ItemStorageSession, ItemStorageSessionError, ItemStorageSessionResult}, proto::{RealmNotification, RealmServer}};
+use crate::{db::{self, Character, FlatennedStorageOwner, Item, ItemStorageOutput, ObjectTemplate, SkillbookOutput, StorageOwner}, item_storage_session::{ItemStorageSession, ItemStorageSessionError, ItemStorageSessionResult}, proto::{RealmNotification, RealmServer}};
 
 #[derive(Default)]
 pub struct ItemStorageExtMutationRoot;
@@ -66,9 +66,10 @@ impl From<ItemStorageSessionResult> for StorageResult {
 
 #[derive(SimpleObject)]
 pub struct EquipmentResult {
-    error: Option<async_graphql::Json<(String, Option<NativeParam>)>>,
-    storage_result: Vec<StorageResult>,
-    character_update: Option<async_graphql::Json<Box<dyn GenericParamSet>>>,
+    pub error: Option<async_graphql::Json<(String, Option<NativeParam>)>>,
+    pub storage_result: Vec<StorageResult>,
+    pub character_update: Option<async_graphql::Json<Box<dyn GenericParamSet>>>,
+    pub skillbook: Option<SkillbookOutput>,
 }
 
 #[derive(OneofObject)]
@@ -121,7 +122,7 @@ impl ItemStorageExtMutationRoot {
         let mut session = ItemStorageSession::start(&db, id).await?;
 
         if let Some(item) = find_item(&db, base_item).await? {
-            match session.insert_item(item, insert_at).await {
+            match session.insert_item(item, insert_at, None).await {
                 Ok(_) => {
                     let results = session.commit().await?;
                     send_inventory_update_notifications(ctx, tag, &results).await?;
@@ -224,14 +225,16 @@ impl ItemStorageExtMutationRoot {
                     Ok(EquipmentResult {
                         error: None,
                         character_update: Some(Json(changes)),
-                        storage_result: vec![res.into()]
+                        storage_result: vec![res.into()],
+                        skillbook: None,
                     })
                 },
                 Err(ItemStorageSessionError::ClientError(str, e)) => {
                     Ok(EquipmentResult {
                         error: Some(async_graphql::Json((str.to_string(), e))),
                         character_update: None,
-                        storage_result: vec![]
+                        storage_result: vec![],
+                        skillbook: None,
                     })
                 },
                 Err(e) => Err(e.into())
@@ -260,14 +263,16 @@ impl ItemStorageExtMutationRoot {
                     Ok(EquipmentResult {
                         error: None,
                         character_update: Some(Json(changes)),
-                        storage_result: vec![res.into()]
+                        storage_result: vec![res.into()],
+                        skillbook: None,
                     })
                 },
                 Err(ItemStorageSessionError::ClientError(str, e)) => {
                     Ok(EquipmentResult {
                         error: Some(async_graphql::Json((str.to_string(), e))),
                         character_update: None,
-                        storage_result: vec![]
+                        storage_result: vec![],
+                        skillbook: None,
                     })
                 },
                 Err(e) => Err(e.into())

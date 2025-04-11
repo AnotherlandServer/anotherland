@@ -51,6 +51,37 @@ impl CombatStyle {
     }
 }
 
+impl From<CombatStyle> for i32 {
+    fn from(style: CombatStyle) -> Self {
+        match style {
+            CombatStyle::Rage => 0,
+            CombatStyle::Tech => 1,
+            CombatStyle::Assassin => 2,
+            CombatStyle::Energizer => 3,
+            CombatStyle::Hacker => 4,
+            CombatStyle::Cyber => 5,
+            CombatStyle::None => 6,
+        }
+    }
+}
+
+impl TryFrom<i32> for CombatStyle {
+    type Error = anyhow::Error;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(CombatStyle::Rage),
+            1 => Ok(CombatStyle::Tech),
+            2 => Ok(CombatStyle::Assassin),
+            3 => Ok(CombatStyle::Energizer),
+            4 => Ok(CombatStyle::Hacker),
+            5 => Ok(CombatStyle::Cyber),
+            6 => Ok(CombatStyle::None),
+            _ => Err(anyhow!("Invalid combat style value: {}", value)),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, GraphqlCrud)]
 #[graphql_crud(name = "character")]
 pub struct Character {

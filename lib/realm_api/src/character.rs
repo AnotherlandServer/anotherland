@@ -19,7 +19,7 @@ use log::debug;
 use obj_params::{GameObjectData, GenericParamSet};
 use toolkit::types::Uuid;
 
-use crate::{schema, RealmApi, RealmApiError, RealmApiResult};
+use crate::{schema, EquipmentResult, RealmApi, RealmApiError, RealmApiResult};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CombatStyle {
@@ -212,12 +212,31 @@ impl RealmApi {
             unreachable!()
         }
     }
+
+    pub async fn character_apply_class_item(&self, id: &Uuid, class_item: &str, clear_inventory: bool) -> RealmApiResult<EquipmentResult> {
+        let response = self.0.client
+            .post(self.0.base_url.clone())
+            .run_graphql(character_graphql::CharacterApplyClassItem::build(character_graphql::CharacterApplyClassItemVariables {
+                id: *id,
+                class_item: class_item.to_string(),
+                clear_inventory,
+            })).await?;
+
+        if let Some(character_graphql::CharacterApplyClassItem { character_apply_class_item }) = response.data {
+            EquipmentResult::from_graphql(self, character_apply_class_item)
+        } else if let Some(errors) = response.errors {
+            debug!("Errors: {:#?}", errors);
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
 }
 
 pub(crate) mod character_graphql {
     use toolkit::types::Uuid;
 
-    use crate::schema::*;
+    use crate::{item_storage_graphql::EquipmentResult, schema::*};
 
     #[derive(cynic::QueryVariables, Debug)]
     pub struct GetCharactersForAccountVariables {
@@ -273,6 +292,13 @@ pub(crate) mod character_graphql {
         pub id: Uuid,
         pub params: Json,
     }
+
+    #[derive(cynic::QueryVariables, Debug)]
+    pub struct CharacterApplyClassItemVariables {
+        pub id: Uuid,
+        pub class_item: String,
+        pub clear_inventory: bool,
+    }
     
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateCharacterDataDiffVariables")]
@@ -305,6 +331,14 @@ pub(crate) mod character_graphql {
         pub create_character_in_account: Character,
     }
     
+    //CharacterApplyClassItemVariables
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "CharacterApplyClassItemVariables")]
+    pub struct CharacterApplyClassItem {
+        #[arguments(id: $id, classItem: $class_item, clearInventory: $clear_inventory)]
+        pub character_apply_class_item: EquipmentResult,
+    }
+
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct Character {

@@ -18,7 +18,7 @@ use item_storage_graphql::{GetOrCreateStorage, GetOrCreateStorageVariables, GetS
 use obj_params::{GameObjectData, GenericParamSet};
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{RealmApi, RealmApiError, RealmApiResult};
+use crate::{RealmApi, RealmApiError, RealmApiResult, Skillbook};
 
 pub enum ItemRef<'a> {
     Name(&'a str),
@@ -168,24 +168,25 @@ impl TryFrom<item_storage_graphql::StorageResult> for StorageResult {
     }
 }
 
+#[derive(Default)]
 pub struct EquipmentResult {
     pub error: Option<(String, Option<NativeParam>)>,
     pub storage_results: Vec<StorageResult>,
     pub character_update: Option<Box<dyn GenericParamSet>>,
+    pub skillbook: Option<Skillbook>,
 }
 
-impl TryFrom<item_storage_graphql::EquipmentResult> for EquipmentResult {
-    type Error = RealmApiError;
-    
-    fn try_from(value: item_storage_graphql::EquipmentResult) -> Result<Self, Self::Error> {
+impl EquipmentResult {
+    pub fn from_graphql(api_base: &RealmApi, result: item_storage_graphql::EquipmentResult) -> RealmApiResult<Self> {
         Ok(Self {
-            error: value.error
+            error: result.error
                 .and_then(|v| serde_json::from_value(v.0).ok()),
-            storage_results: value.storage_result.into_iter()
+            storage_results: result.storage_result.into_iter()
                 .map(StorageResult::try_from)
                 .collect::<Result<Vec<_>, _>>()?,
-            character_update: value.character_update
+            character_update: result.character_update
                 .and_then(|v| serde_json::from_value(v.0).ok()),
+            skillbook: result.skillbook.map(|v| Skillbook::from_graphql(api_base, v)),
         })
     }
 }
@@ -263,7 +264,7 @@ impl ItemStorageId {
             })).await?;
 
         if let Some(StorageEquipItem { storage_equip_item }) = response.data {
-            Ok(storage_equip_item.try_into()?)
+            EquipmentResult::from_graphql(&self.api_base, storage_equip_item)
         } else if let Some(errors) = response.errors {
             Err(RealmApiError::GraphQl(errors))
         } else {
@@ -281,7 +282,7 @@ impl ItemStorageId {
             })).await?;
 
         if let Some(StorageUneqipItem { storage_uneqip_item }) = response.data {
-            Ok(storage_uneqip_item.try_into()?)
+            EquipmentResult::from_graphql(&self.api_base, storage_uneqip_item)
         } else if let Some(errors) = response.errors {
             Err(RealmApiError::GraphQl(errors))
         } else {
@@ -339,7 +340,7 @@ impl RealmApi {
 pub(crate) mod item_storage_graphql {
     use toolkit::types::Uuid;
 
-    use crate::schema::*;
+    use crate::{schema::*, skillbook_graphql::Skillbook};
 
     #[derive(cynic::QueryVariables, Debug)]
     pub struct GetOrCreateStorageVariables<'a> {
@@ -536,6 +537,7 @@ pub(crate) mod item_storage_graphql {
         pub character_update: Option<Json>,
         pub error: Option<Json>,
         pub storage_result: Vec<StorageResult>,
+        pub skillbook: Option<Skillbook>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]

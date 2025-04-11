@@ -16,10 +16,14 @@
 use async_graphql::{futures_util::TryStreamExt, Context, Error, InputObject, Json, Object};
 use database::DatabaseRecord;
 use mongodb::{bson::doc, Database};
-use obj_params::{GameObjectData, GenericParamSet, Player};
+use obj_params::{ClassItem, EdnaFunction, EdnaModule, GameObjectData, GenericParamSet, ParamSet, Player};
+use serde::Deserialize;
+use serde_json::Value;
 use toolkit::{anyhow::anyhow, types::Uuid};
 
-use crate::db::{self, Character, CharacterOutput};
+use crate::{db::{self, Character, CharacterOutput, ItemStorage, ObjectTemplate, Skillbook, State}, item_storage_session::ItemStorageSession};
+
+use super::item_storage_ext::EquipmentResult;
 
 #[derive(Default)]
 pub struct CharacterExtRoot;
@@ -149,8 +153,149 @@ impl CharacterExtMutationRoot {
         }
     }
 
-    pub async fn character_apply_class_item(&self, _ctx: &Context<'_>, _id: Uuid, _class_item: String, _clear_inventory: bool) -> Result<Option<Json<Box<dyn GenericParamSet>>>, Error> {
-        todo!()
+    pub async fn character_apply_class_item(&self, ctx: &Context<'_>, id: Uuid, class_item: String, clear_inventory: bool) -> Result<EquipmentResult, Error> {
+        let db = ctx.data::<Database>()?.clone();
+
+        if 
+            let Some(mut character) = Character::get(&db, &id).await? &&
+            let Some(template) = ObjectTemplate::collection(&db).find_one(doc! { "name": class_item, "class": "ClassItem" }).await? &&
+            let Ok(default_equipment) = serde_json::from_value::<DefaultEquipment>(template.data.get::<_,Value>(ClassItem::DefaultEquipment).unwrap_or(&Value::Null).clone())
+        {
+            let mut skillbook = Skillbook::get_or_create(&db, character.id).await?;
+
+            let storage = ItemStorage::get_or_create_for_owner(&db, "inventory", db::StorageOwner::Character(id)).await?;
+            let mut session = ItemStorageSession::start(&db, storage.id).await?;
+            
+            if clear_inventory {
+                session.clear_items().await?;
+            }
+
+            /*
+                Apply weapon and armor templates.
+            */
+            {
+                let mut weapon_idx = 0;
+
+                for weapon_template in &default_equipment.weapon_templates {
+                    let mut overrides = ParamSet::<EdnaFunction>::new();
+
+                    if let Some(name_override) = &weapon_template.name_override {
+                        overrides.insert(EdnaFunction::Name, name_override.clone());
+                    }
+
+                    if let Some(item) = ObjectTemplate::collection(&db).find_one(doc! { "name": &weapon_template.weapon_content_entry }).await? {
+                        let id = session.insert_item(item, None, Some(Box::new(overrides))).await?;
+                        session.equip_item(id, Some(weapon_idx)).await?;
+
+                        weapon_idx += 1;
+                    }
+                }
+
+                for armor_template in &default_equipment.armor_templates {
+                    let mut overrides = ParamSet::<EdnaModule>::new();
+
+                    if let Some(name_override) = &armor_template.name_override {
+                        overrides.insert(EdnaModule::Name, name_override.clone());
+                    }
+
+                    if let Some(item) = ObjectTemplate::collection(&db).find_one(doc! { "name": &armor_template.armor_content_entry }).await? {
+                        let id = session.insert_item(item, None, Some(Box::new(overrides))).await?;
+                        session.equip_item(id, None).await?;
+                    }
+                }
+            }
+
+            /*
+                Apply weapon and armor items.
+                This is an alternative to the templates above.
+            */
+            {
+                let mut weapon_idx = 0;
+
+                for weapon in &default_equipment.weapons {
+                    if let Some(item) = ObjectTemplate::collection(&db).find_one(doc! { "name": weapon }).await? {
+                        let id = session.insert_item(item, None, None).await?;
+                        session.equip_item(id, Some(weapon_idx)).await?;
+
+                        weapon_idx += 1;
+                    }
+                }
+
+                for armor in &default_equipment.armors {
+                    if let Some(item) = ObjectTemplate::collection(&db).find_one(doc! { "name": armor }).await? {
+                        let id = session.insert_item(item, None, None).await?;
+                        session.equip_item(id, None).await?;
+                    }
+                }
+            }
+
+            if let Some(combat_style) = default_equipment.combat_style {
+                character.data.set(Player::CombatStyle, combat_style);
+
+                if skillbook.combat_style != combat_style.try_into()? {
+                    skillbook.change_class(&db, 
+                        combat_style.try_into()?, 
+                        *character.data.get::<_, i32>(Player::Lvl).unwrap()
+                    ).await?;
+                }
+            }
+
+            if let Some(level) = default_equipment.level {
+                character.data.set(Player::Lvl, level);
+
+                skillbook.level_up(level);
+            }
+
+            if let Some(true) = default_equipment.level_up_skills {
+                for skill in skillbook.skills.iter_mut() {
+                    if skill.state == State::Locked {
+                        skill.state = State::Unlocked;
+                    }
+                }
+            }
+
+            let (mut session, storage_results) = session.write_uncommitted().await?;
+
+            skillbook
+                .save_uncommited(&Skillbook::collection(&db))
+                .session(&mut session)
+                .await?;
+
+            character
+                .save_uncommited(&Character::collection(&db))
+                .session(&mut session)
+                .await?;
+
+            let mut character_update = Character::update_equipment(&db, &mut session, character.id, storage.id).await?;
+
+            session.commit_transaction().await?;
+
+            character.data.changes()
+                .for_each(|(attr, val)| {
+                    character_update.set_param(attr.name(), val);
+                });
+
+            Ok(EquipmentResult {
+                error: None,
+                storage_result: storage_results
+                    .into_iter()
+                    .map(|res| res.into())
+                    .collect(),
+                character_update: if character_update.is_empty() {
+                    None
+                } else {
+                    Some(Json(character_update))
+                },
+                skillbook: Some(skillbook.try_into()?),
+            })
+        } else {
+            Ok(EquipmentResult {
+                error: None,
+                storage_result: vec![],
+                character_update: None,
+                skillbook: None,
+            })
+        }
     }
 }
 
@@ -158,4 +303,37 @@ impl CharacterExtMutationRoot {
 pub struct CreateCharacterInput {
     account: Uuid,
     name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct DefaultEquipment {
+    combat_style: Option<i32>,
+    level: Option<i32>,
+    #[serde(rename = "levelUpSkills")]
+    level_up_skills: Option<bool>,
+    #[serde(rename = "QBoost")]
+    qboost: Option<String>,
+    #[serde(default)]
+    weapon_templates: Vec<WeaponTemplate>,
+    #[serde(default)]
+    armor_templates: Vec<ArmorTemplate>,
+    #[serde(default)]
+    weapons: Vec<String>,
+    #[serde(default)]
+    armors: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeaponTemplate {
+    weapon_content_entry: String,
+    name_override: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArmorTemplate {
+    armor_content_entry: String,
+    name_override: Option<String>,
 }

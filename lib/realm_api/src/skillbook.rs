@@ -66,7 +66,7 @@ pub struct Skillbook {
 }
 
 impl Skillbook {
-    fn from_graphql(api_base: &RealmApi, skillbook: skillbook_graphql::Skillbook) -> Self {
+    pub fn from_graphql(api_base: &RealmApi, skillbook: skillbook_graphql::Skillbook) -> Self {
         Skillbook {
             api_base: api_base.clone(),
             character_id: skillbook.character_id,

@@ -19,7 +19,7 @@ use database::{DatabaseError, DatabaseRecord};
 use futures_util::future::join_all;
 use log::{debug, warn};
 use mongodb::{bson::{self, doc}, options::{ReadConcern, ReadPreference, SelectionCriteria, TransactionOptions, WriteConcern}, ClientSession, Database};
-use obj_params::{GameObjectData, ItemBase, ItemEdna};
+use obj_params::{GameObjectData, GenericParamSet, ItemBase, ItemEdna};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use toolkit::{anyhow::anyhow, types::Uuid, NativeParam};
@@ -415,12 +415,16 @@ impl ItemStorageSession {
         }
     }
 
-    pub async fn insert_item(&mut self, base_item: ObjectTemplate, _insert_at: Option<i32>) -> Result<Uuid, ItemStorageSessionError> {
+    pub async fn insert_item(&mut self, base_item: ObjectTemplate, _insert_at: Option<i32>, overrides: Option<Box<dyn GenericParamSet>>) -> Result<Uuid, ItemStorageSessionError> {
         let mut item: Item = Item {
             id: Uuid::new(),
             base_item: (base_item.id, base_item.numeric_id),
             instance: GameObjectData::instantiate(&Arc::new(base_item.data)),
         };
+
+        if let Some(mut overrides) = overrides {
+            item.instance.apply(overrides.as_mut());
+        }
 
         let tab = self.get_item_tab(&item.instance);
         let id = item.id;
@@ -463,8 +467,9 @@ impl ItemStorageSession {
             let item = item.lock().await;
             let tab = self.get_item_tab(&item.instance);
 
-            let idx = *item.instance.get::<_, i32>(ItemBase::InventorySlotIndex).unwrap() as usize;
-            tab.slots[idx] = None;
+            if let Ok(&idx) = item.instance.get::<_, i32>(ItemBase::InventorySlotIndex) && idx != -1 {
+                tab.slots[idx as usize] = None;
+            }
 
             Ok(())
         } else {
@@ -622,6 +627,16 @@ impl ItemStorageSession {
     #[allow(unused)]
     pub async fn transfer_item(&mut self, _item_id: Uuid, _new_storage_id: Uuid, _new_slot: i32) -> Result<(), ItemStorageSessionError> {
         todo!()
+    }
+
+    pub async fn clear_items(&mut self) -> Result<(), ItemStorageSessionError> {
+        let item_ids = self.items.keys().cloned().collect::<Vec<_>>();
+
+        for item_id in item_ids {
+            self.destroy_item(item_id).await?;
+        }
+
+        Ok(())
     }
 
     async fn write(&self) -> Result<ItemStorageSessionResult, ItemStorageSessionError> {
