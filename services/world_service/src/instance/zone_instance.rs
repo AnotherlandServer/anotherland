@@ -15,19 +15,20 @@
 
 use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 
-use bevy::{app::{First, Last, Main, MainSchedulePlugin, PanicHandlerPlugin, SubApp}, core::{FrameCountPlugin, TaskPoolPlugin, TypeRegistrationPlugin}, ecs::{event::{event_update_condition, event_update_system, EventRegistry, EventUpdates}, schedule::ScheduleLabel, system::Resource}, prelude::{AppExtStates, AppTypeRegistry, HierarchyPlugin, IntoSystemConfigs, NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, state::States}, tasks::futures_lite::StreamExt, time::{common_conditions::on_timer, TimePlugin}};
+use bevy::{app::{First, Last, Main, MainSchedulePlugin, PanicHandlerPlugin, PreStartup, SubApp}, core::{FrameCountPlugin, TaskPoolPlugin, TypeRegistrationPlugin}, ecs::{component::Component, entity::Entity, event::{event_update_condition, event_update_system, EventRegistry, EventUpdates}, schedule::ScheduleLabel, system::{Commands, Resource}}, prelude::{AppExtStates, AppTypeRegistry, HierarchyPlugin, IntoSystemConfigs, NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, state::States}, tasks::futures_lite::StreamExt, time::{common_conditions::on_timer, TimePlugin}};
 use core_api::CoreApi;
 use derive_builder::Builder;
-use log::{debug, trace};
+use log::{debug, trace, error};
+use mlua::LuaSerdeExt;
 use obj_params::{Class, OaZoneConfig};
 use realm_api::{proto::RealmClient, Category, RealmApi, WorldDef, Zone};
-use scripting::{LuaRuntimeBuilder, ScriptingPlugin};
+use scripting::{LuaRuntime, LuaRuntimeBuilder, ScriptObject, ScriptingPlugin};
 use serde_json::Value;
 use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
+use crate::{error::{self, WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct InstanceShutdown;
@@ -121,6 +122,9 @@ pub struct ZoneInstance {
 
     #[builder(default)]
     pub instance_id: Option<Uuid>,
+
+    #[builder(setter(custom))]
+    pub world_controller: Entity,
 }
 
 impl ZoneInstance {
@@ -135,7 +139,9 @@ impl ZoneInstance {
 }
 
 impl ZoneInstanceBuilder {
-    pub async fn instantiate(self) -> WorldResult<SubApp> {
+    pub async fn instantiate(mut self) -> WorldResult<SubApp> {
+        self.world_controller = Some(Entity::PLACEHOLDER);
+
         let content_path = std::env::var("CONTENT_PATH")
             .ok()
             .and_then(|p| p.parse::<PathBuf>().ok())
@@ -160,7 +166,7 @@ impl ZoneInstanceBuilder {
                 force_generate_guid_key: *config.data
                     .get(OaZoneConfig::ForceGenerateGuidKey)?, 
                 allow_summon_portal: *config.data
-                    .get(OaZoneConfig::AllowSummonPortal)?, 
+                    .get(OaZoneConfig::AllowSummonPortal)?,
                 spawn_to_the_last_save_position: *config.data
                     .get(OaZoneConfig::SpawnToTheLastSavePosition)?,  
                 instance_type: (*config.data
@@ -218,7 +224,7 @@ impl ZoneInstanceBuilder {
             LuaRuntimeBuilder::default()
                 .hot_reload(ARGS.hot_reload)
                 .add_require_lookup_directory(content_path.join("lua"))
-                .add_require_lookup_directory(content_path.join("lua/maps").join(world_def.name()))
+                .add_require_lookup_directory(content_path.join("lua").join("maps").join(world_def.name()))
                 .build()?
         );
 
@@ -250,7 +256,77 @@ impl ZoneInstanceBuilder {
                 AbilitiesPlugin,
                 CombatPlugin,
             ));
+
+        app.add_systems(PreStartup, spawn_world_controller);
+
         Ok(app)
+    }
+}
+
+#[derive(Component)]
+pub struct WorldController;
+
+fn spawn_world_controller(
+    mut instance: ResMut<ZoneInstance>,
+    mut runtime: ResMut<LuaRuntime>,
+    mut commands: Commands,
+) {
+    let mut controller_scripts = vec![];
+
+    if !instance.zone.game_controller().is_empty() {
+        controller_scripts.push(format!("maps.{}.world", instance.world_def.name()));
+    }
+
+    controller_scripts.push("core.base_world".to_string());
+
+    for script_name in &controller_scripts {
+        match runtime.load_script(script_name) {
+            Ok(lua_class) => {
+                let obj = ScriptObject::new(&runtime, Some(lua_class)).unwrap();
+
+                let world = runtime.vm().create_table().unwrap();
+                world.set("id", *instance.world_def.id()).unwrap();
+                world.set("guid", instance.world_def.guid().to_string()).unwrap();
+                world.set("name", instance.world_def.name()).unwrap();
+                world.set("umap_guid", instance.world_def.umap_guid().to_string()).unwrap();
+
+                let zone = runtime.vm().create_table().unwrap();
+                zone.set("id", *instance.zone.id()).unwrap();
+                zone.set("guid", instance.zone.guid().to_string()).unwrap();
+                zone.set("zone", instance.zone.zone()).unwrap();
+                zone.set("is_instance", *instance.zone.is_instance()).unwrap();
+                zone.set("realu_zone_type", instance.zone.realu_zone_type()).unwrap();
+
+                let cfg = runtime.vm().create_table().unwrap();
+                cfg.set("force_generate_guid_key", instance.config.force_generate_guid_key).unwrap();
+                cfg.set("allow_summon_portal", instance.config.allow_summon_portal).unwrap();
+                cfg.set("spawn_to_the_last_save_position", instance.config.spawn_to_the_last_save_position).unwrap();
+                //cfg.set("instance_type", instance.config.instance_type).unwrap();
+                cfg.set("instance_scope", instance.config.instance_scope).unwrap();
+                //cfg.set("zone_type", instance.config.zone_type as i32).unwrap();
+                cfg.set("settings", runtime.vm().to_value(&instance.config.json_config).unwrap()).unwrap();
+
+                obj.object().set("world", world).unwrap();
+                obj.object().set("zone", zone).unwrap();
+                obj.object().set("conf", cfg).unwrap();
+
+                let id = commands.spawn((
+                    WorldController, 
+                    obj
+                )).id();
+
+                instance.world_controller = id;
+                break;
+            },
+            Err(e) => {
+                if matches!(e, scripting::ScriptError::FileNotFound(_)) {
+                    continue;
+                }
+
+                error!("Failed to load script '{}': {}", script_name, e);
+                break;
+            },
+        }
     }
 }
 

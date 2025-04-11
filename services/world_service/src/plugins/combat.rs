@@ -124,10 +124,10 @@ fn handle_ability_request(
 
 #[derive(Component)]
 pub struct Health {
-    min: i32,
-    max: i32,
-    current: i32,
-    alive: bool,
+    pub min: i32,
+    pub max: i32,
+    pub current: i32,
+    pub alive: bool,
 }
 
 #[derive(Component)]
@@ -205,10 +205,7 @@ fn process_health_events(
                 },
                 HealthUpdateType::Revive(hitpoints) => {
                     if !health.alive {
-                        health.current = hitpoints.unwrap_or(
-                            (health.max - health.min) / 4 + health.min
-                        ).clamp(health.min + 1, health.max);
-
+                        health.current = hitpoints.unwrap_or(health.max).clamp(health.min + 1, health.max);
                         health.alive = true;
                     }
                 },

@@ -532,7 +532,7 @@ fn insert_ability_api(
                 return Err(anyhow!("invalid ability").into());
             };
 
-            let source_id = if let Ok(item) = params.get::<Table>("item")?.entity() {
+            let source_id = if let Ok(item) = params.get::<Table>("item").and_then(|i| i.entity()) {
                 if let Ok(content_info) = content.get(item) {
                     content_info.template.id
                 } else {
@@ -543,8 +543,12 @@ fn insert_ability_api(
             };
 
             let source_ent = params.get::<Table>("source")?.entity()?;
+            let target_ent = params.get::<Table>("target").ok()
+                .and_then(|t| t.entity().ok());
             let source = targets.get(source_ent)
                 .map_err(|_| anyhow!("source not found"))?;
+            let target = target_ent
+                .and_then(|ent| targets.get(ent).ok());
             let effects = params.get::<Table>("effects")?;
             let prediction_id = params.get::<i32>("prediction_id")?;
             let combo_stage_id = params.get::<i32>("combo_stage_id")?;
@@ -571,7 +575,7 @@ fn insert_ability_api(
                     Ok(AbilityEffect {
                         target_actor: avatar.id,
                         effect_type,
-                        flags: 
+                        flags:
                             if combat_flags.is_some() { 0x4 } else { 0x0 } |
                             if total_damage_or_heal_amount.is_some() { 0x8 } else { 0x0 } |
                             if effect_delay.is_some() { 0x10 } else { 0x0 } |
@@ -600,7 +604,10 @@ fn insert_ability_api(
                         ability_type: ability_type.try_into()
                             .map_err(|_| anyhow!("invalid ability type"))?,
                         server_event_duration: event_duration,
-                        flag: if rotation.is_some() { 2 } else { 0 },
+                        flag: 
+                            if target.is_some() { 1 } else { 0 } |
+                            if rotation.is_some() { 2 } else { 0 },
+                        target: target.map(|t| t.id),
                         rotation: rotation.map(|v| v.into()),
                         effect_count: effects.len() as _,
                         effects: effects.clone(),

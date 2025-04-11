@@ -21,7 +21,7 @@ use toolkit::{types::AvatarId, IterExt, NativeParam};
 
 use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, proto::TravelMode};
 
-use super::{CommandMessage, NetworkExtPriv, PlayerController};
+use super::{CommandExtPriv, CommandMessage, NetworkExtPriv, PlayerController};
 
 pub struct TravelPlugin;
 
@@ -30,6 +30,38 @@ impl Plugin for TravelPlugin {
         app.register_community_command_handler(handle_join_dungeon);
         app.register_community_command_handler(handle_leave_dungeon);
         app.register_community_command_handler(handle_social_travel);
+
+        app.register_command("teleport_to_world", |
+            In((ent, args)): In<(Entity, Vec<NativeParam>)>,
+            players: Query<&PlayerController>,
+            instance: Res<ZoneInstance>,
+        | {
+            let mut args = args.into_iter();
+
+            if 
+                let Some(NativeParam::String(world)) = args.next() &&
+                let Ok(controller) = players.get(ent).cloned() 
+            {
+                let realm_api = instance.realm_api.clone();
+                instance.spawn_task(async move {
+                    if 
+                    let Some(world_def) = realm_api.query_worlddefs()
+                        .name(world.clone())
+                        .query().await?.try_next().await? &&
+                    let Some(zone) = realm_api.query_zones()
+                        .zone_type(ZoneType::World)
+                        .worlddef_guid(*world_def.guid())
+                        .query().await?.try_next().await?
+                {
+                    controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint);
+                } else {
+                    error!("Map '{}' not found!", world);
+                }
+
+                Ok::<_, WorldError>(())
+                });
+            }
+        });
     }
 }
 

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PreUpdate}, ecs::{system::{In, Res}, world::World}, prelude::{Added, App, Commands, Entity, EntityWorldMut, Query, ResMut}};
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{system::{In, Res}, world::World}, prelude::{Added, App, Commands, Entity, EntityWorldMut, Query, ResMut}};
 use convert_case::{Case, Casing};
 use log::error;
 use mlua::{IntoLua, Lua, Table};
@@ -23,16 +23,18 @@ use anyhow::anyhow;
 
 use crate::{error::WorldResult, plugins::{AvatarInfo, ContentInfo}};
 
-use super::{create_log_table, param::ParamValue};
+use super::{create_log_table, insert_timer_api, param::ParamValue, timers::update_timers};
 
 pub struct ScriptObjectInfoPlugin;
 
 impl Plugin for ScriptObjectInfoPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, attach_scripts);
+        app.add_systems(Update, update_timers);
 
         insert_game_object_api(app.world_mut()).unwrap();
         insert_log_api(app.world_mut()).unwrap();
+        insert_timer_api(app.world_mut()).unwrap();
     }
 }
 
@@ -162,7 +164,7 @@ pub fn attach_scripts(
         match load_class_script(&mut runtime, obj.class(), obj.get::<_, String>(NonClientBase::LuaScript).ok().map(|s| s.as_str())) {
             Ok(lua_class) => {
                 commands.entity(ent)
-                    .insert(ScriptObject::new(&runtime, lua_class).unwrap())
+                    .insert(ScriptObject::new(&runtime, Some(lua_class)).unwrap())
                     .queue(insert_avatar_info)
                     .call_named_lua_method(ScriptApi::Attach, ());
             },

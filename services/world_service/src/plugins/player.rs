@@ -15,22 +15,22 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, query::Without, world::World}, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
+use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, query::Without, system::{Resource, SystemId}, world::World}, hierarchy::DespawnRecursiveExt, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all, TryStreamExt};
 use log::{debug, error, trace, warn};
-use mlua::{FromLua, IntoLua, Lua, Table, UserData};
+use mlua::{FromLua, Function, IntoLua, Lua, Table, UserData};
 use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, AttributeInfo, Class, EdnaAbility, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
 use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktS2XConnectionState, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
-use realm_api::{AbilitySlot, Character, State};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use realm_api::{AbilitySlot, Character, EquipmentResult, RealmApiResult, State};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource}, proto::TravelMode, OBJECT_CACHE};
+use crate::{error::WorldResult, instance::{self, InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource}, proto::TravelMode, OBJECT_CACHE};
 
-use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
+use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, FutureCommands, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -117,6 +117,70 @@ fn insert_skillbook_api(
     Ok(())
 }
 
+fn insert_player_api(
+    world: &mut World,
+) -> ScriptResult<()> {
+    let runtime = world.get_resource::<LuaRuntime>().unwrap();
+    let lua: Lua = runtime.vm().clone();
+    let player_api = lua.create_table().unwrap();
+    runtime.register_native("player", player_api.clone()).unwrap();
+
+    player_api.set("Spawn", lua.create_bevy_function(world, 
+        |
+            In(player): In<Table>,
+            mut query: Query<(Entity, &AvatarInfo, &Movement, &mut PlayerController, &mut CurrentState), Changed<CurrentState>>,
+            mut commands: Commands
+        | -> WorldResult<()> {
+            if let Ok((ent, info, movement, controller, mut state)) = query.get_mut(player.entity()?) {
+                debug!("Spawning player: {}", info.name);
+
+                state.state = ConnectionState::InGame;
+    
+                controller.send_packet(oaPktS2XConnectionState {
+                    state: OaPktS2xconnectionStateState::InGame,
+                    ..Default::default()
+                });
+    
+                let spawn_action = match controller.travel_mode() {
+                    TravelMode::Login => ServerAction::DirectTravel(info.id, Some(movement.clone())),
+                    TravelMode::EntryPoint => ServerAction::NonPortalTravel(info.id, Some(movement.clone())),
+                    TravelMode::Portal { .. } => ServerAction::Portal(info.id, Some(movement.clone())), 
+                    TravelMode::Position { .. } => ServerAction::DirectTravel(info.id, Some(movement.clone())),
+                };
+    
+                controller.send_packet(spawn_action.into_pkt());
+                commands.entity(ent).insert(Active);
+
+                Ok(())
+            } else {
+                Err(anyhow!("Player not found!").into())
+            }
+        })?)?;
+
+    player_api.set("ApplyClassItem", lua.create_bevy_function(world,
+        |
+            In((player, class_item, clear_inventory, callback)): In<(Table, String, bool, Option<Function>)>,
+            query: Query<(Entity, &PlayerController)>,
+            instance: Res<ZoneInstance>,
+            systems: Res<PlayerSystems>,
+            mut commands: Commands
+        | -> WorldResult<()> {
+            let (ent, controller) = query.get(player.entity()?)
+                .map_err(|_| anyhow!("player not found"))?;
+
+            let realm_api = instance.realm_api.clone();
+            let character_id = controller.character_id();
+
+            commands.run_system_async(async move {
+                (ent, realm_api.character_apply_class_item(&character_id, &class_item, clear_inventory).await, callback)
+            }, systems.apply_class_item_result);
+
+            Ok(())
+        })?)?;
+
+    Ok(())
+}
+
 #[derive(Component)]
 pub struct Skillbook(Vec<SkillbookEntry>);
 
@@ -129,8 +193,13 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         let (character_sender, character_receiver) = mpsc::channel::<(Entity, Character, Cooldowns, Skillbook)>(10);
 
+        let player_systems = PlayerSystems {
+            apply_class_item_result: app.register_system(apply_class_item_result),
+        };
+
         app.insert_resource(ForeignResource(character_sender));
         app.insert_resource(ForeignResource(character_receiver));
+        app.insert_resource(player_systems);
 
         app.add_systems(First, (
             request_player_characters,
@@ -152,6 +221,7 @@ impl Plugin for PlayerPlugin {
         app.register_string_behavior(Class::Player, "respawnnow", behavior_respawnnow);
 
         insert_skillbook_api(app.world_mut()).unwrap();
+        insert_player_api(app.world_mut()).unwrap();
     }
 }
 
@@ -246,7 +316,7 @@ fn request_player_characters(
                     single_slot_bar: AbilityBarReference {
                         id: ability_bar.single_slot.id,
                         skill: ability_bar.single_slot.ability,
-                    }
+                    },
                 }.to_bytes());
 
                 let _ = sender.send((entity, character, cooldowns, Skillbook(skills))).await;
@@ -284,7 +354,7 @@ fn insert_player_characters(
                         error!("Starting point not found!");
                     }
 
-                    obj.set(Player::FirstTimeSpawn, false);
+                    //obj.set(Player::FirstTimeSpawn, false);
 
                     obj.set(Player::SpawnMode, 1);
                 } else {
@@ -438,32 +508,18 @@ pub fn begin_loading_sequence(
 
 #[allow(clippy::type_complexity)]
 fn spawn_player(
-    mut query: Query<(Entity, &AvatarInfo, &Movement, &mut PlayerController, &mut CurrentState, Option<&InitialInventoryTransfer>), Changed<CurrentState>>,
+    mut query: Query<(&mut CurrentState, Option<&InitialInventoryTransfer>, &ScriptObject), Changed<CurrentState>>,
+    instance: Res<ZoneInstance>,
     mut commands: Commands
 ) {
-    for (ent, info, movement, controller, mut state, inventory_transfer) in query.iter_mut() {
+    for (state, inventory_transfer, obj) in query.iter_mut() {
         if 
             matches!(state.state, ConnectionState::InitialInterestsLoaded) &&
             inventory_transfer.is_none()
         {
-            debug!("Spawning player: {}", info.name);
-
-            state.state = ConnectionState::InGame;
-
-            controller.send_packet(oaPktS2XConnectionState {
-                state: OaPktS2xconnectionStateState::InGame,
-                ..Default::default()
-            });
-
-            let spawn_action = match controller.travel_mode() {
-                TravelMode::Login => ServerAction::DirectTravel(info.id, Some(movement.clone())),
-                TravelMode::EntryPoint => ServerAction::NonPortalTravel(info.id, Some(movement.clone())),
-                TravelMode::Portal { .. } => ServerAction::Portal(info.id, Some(movement.clone())), 
-                TravelMode::Position { .. } => ServerAction::DirectTravel(info.id, Some(movement.clone())),
-            };
-
-            controller.send_packet(spawn_action.into_pkt());
-            commands.entity(ent).insert(Active);
+            commands
+                .entity(instance.world_controller)
+                .call_named_lua_method("SpawnPlayer", obj.object().clone());
         }
     }
 }
@@ -603,5 +659,43 @@ fn update_skillbook(
                     })
                     .collect(),
             }.to_bytes());
+    }
+}
+
+#[derive(Resource)]
+#[allow(clippy::type_complexity)]
+struct PlayerSystems {
+    apply_class_item_result: SystemId<In<(Entity, RealmApiResult<EquipmentResult>, Option<Function>)>>,
+}
+
+fn apply_class_item_result(
+    In((ent, result, callback)): In<(Entity, RealmApiResult<EquipmentResult>, Option<Function>)>,
+    mut query: Query<&mut GameObjectData>,
+    mut commands: Commands,
+) {
+    match result {
+        Ok(res) => {
+            if let Some(mut changes) = res.character_update {
+                if let Ok(mut data) = query.get_mut(ent) {
+                    data.apply(changes.as_mut());
+                } else {
+                    error!("Player not found!");
+                }
+
+                if let Some(callback) = callback {
+                    commands
+                        .entity(ent)
+                        .call_lua_method(callback, ());
+                } else {
+                    debug!("No callback")
+                }
+            }
+        },
+        Err(e) => {
+            error!("Failed to apply class item: {:?}", e);
+            commands
+                .entity(ent)
+                .despawn_recursive();
+        }
     }
 }

@@ -15,7 +15,7 @@
 
 use std::{sync::Arc, time::Instant};
 
-use bevy::{app::{First, Plugin, PreUpdate}, ecs::{component::Component, query::{Or, With}, schedule::IntoSystemConfigs, system::{In, Resource}}, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, utils::HashMap};
+use bevy::{app::{First, Plugin, PreUpdate}, ecs::{component::Component, event::EventWriter, query::{Or, With}, schedule::IntoSystemConfigs, system::{In, Resource}}, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, utils::HashMap};
 use futures_util::TryStreamExt;
 use log::{debug, info, trace, warn};
 use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, StructureBaseTag}, GameObjectData, NonClientBase};
@@ -24,7 +24,7 @@ use toolkit::types::Uuid;
 
 use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry};
 
-use super::{AvatarIdManager, AvatarInfo, FutureTaskComponent};
+use super::{AvatarIdManager, AvatarInfo, FutureTaskComponent, HealthUpdateEvent};
 
 #[derive(Component)]
 pub struct ContentInfo {
@@ -155,6 +155,7 @@ pub fn init_gameobjects(
 #[allow(clippy::type_complexity)]
 pub fn update_spawn_state(
     mut entities: Query<(Entity, &GameObjectData, &mut SpawnState), Or<(With<NpcBaseTag>, With<StructureBaseTag>)>>,
+    mut health_events: EventWriter<HealthUpdateEvent>,
     mut commands: Commands,
 ) {
     for (ent, obj, mut state) in entities.iter_mut() {
@@ -182,6 +183,7 @@ pub fn update_spawn_state(
                     debug!("Respawning entity {}", ent);
 
                     state.mark_alive();
+                    health_events.send(HealthUpdateEvent::revive(ent, None));
                     commands.entity(ent).insert(Active);
                 }
             },
@@ -191,7 +193,7 @@ pub fn update_spawn_state(
 
 #[allow(clippy::type_complexity)]
 pub fn spawn_init_entity(
-    mut entities: Query<&mut GameObjectData, (Added<Active>, Or<(With<NpcBaseTag>, With<StructureBaseTag>)>)>,
+    mut entities: Query<&mut GameObjectData, Or<(Added<NpcBaseTag>, Added<StructureBaseTag>)>>,
 ) {
     for mut obj in entities.iter_mut() {
         let hp_mod = *obj.get_named::<f32>("HpMod").unwrap_or(&1.0);
@@ -199,6 +201,7 @@ pub fn spawn_init_entity(
         let bonus_hp = *obj.get_named::<f32>("BonusHP").unwrap_or(&0.0);
 
         obj.set_named("alive", true);
+        obj.set_named("hpMax", (hp_max as f32 * hp_mod + bonus_hp).round() as i32);
         obj.set_named("hpCur", (hp_max as f32 * hp_mod + bonus_hp).round() as i32);
     }
 }

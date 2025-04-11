@@ -20,7 +20,7 @@ use bevy::{app::{Last, Plugin, PostUpdate, Update}, ecs::{component::Component, 
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::future::join_all;
 use log::{debug, error, warn};
-use mlua::{FromLua, IntoLua, Lua, Table, UserData};
+use mlua::{FromLua, Function, IntoLua, Lua, Table, UserData};
 use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, EdnaAbility, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player};
 use protocol::{oaPktItemStorage, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
 use realm_api::{Item, ItemRef, StorageOwner};
@@ -150,7 +150,7 @@ impl Plugin for InventoryPlugin {
         app.insert_resource(inventory_systems);
         app.init_resource::<StorageRegistry>();
 
-        app.add_systems(PostUpdate, load_player_inventory);
+        app.add_systems(PostUpdate, prepare_load_player_inventory);
         app.add_systems(Update, (
             (
                 init_client_inventory,
@@ -279,6 +279,78 @@ fn insert_inventory_api(
             Ok(abilities)
         })?)?;
 
+    inventory_api.set("BeginLoadInventory", lua.create_bevy_function(world, 
+        |
+            In(player): In<Table>,
+            query: Query<&PlayerController, Added<PlayerTag>>,
+            instance: Res<ZoneInstance>,
+            systems: Res<InventorySystems>,
+            mut commands: Commands,
+        | -> WorldResult<()> {
+            let controller = query.get(player.entity()?)
+                .map_err(|_| anyhow!("player not found"))?;
+
+            let realm_api = instance.realm_api.clone();
+            let character_id = controller.character_id();
+    
+            commands.run_system_async(async move {
+                let storage = realm_api.get_or_create_item_storage(StorageOwner::Character(character_id), "inventory").await?;
+                let mut items = vec![];
+    
+                // Load cached item templates
+                for item in storage.items {
+                    if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
+                        // Cache abilities for later use
+                        let abilities = if 
+                            let Ok(abilities) = base_item.data.get::<_, Value>(ItemEdna::Abilities) &&
+                            let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
+                        {
+                            let mut item_abilities = vec![];
+    
+                            for ability in abilities.0 {
+                                if let Some(ability) = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await? {
+                                    item_abilities.push(CachedObject(ability));
+                                }
+                            }
+    
+                            item_abilities
+                        } else {
+                            vec![]
+                        };
+    
+                        items.push((item, base_item, abilities));
+                    }
+                }
+    
+                let mut inventory = Inventory::new(
+                    storage.id, 
+                    storage.name, 
+                    storage.bling, 
+                    storage.game_cash,
+                    storage.capacity,
+                );
+    
+                inventory.observing_players.insert(player.entity()?);
+    
+                Ok((player.entity()?, inventory, items))
+            }, systems.insert_item_storage);
+            
+            Ok(())
+        })?)?;
+
+    inventory_api.set("ApplyTemplate", lua.create_bevy_function(world, 
+        |
+            In((player, template, callback)): In<(Table, String, Option<Function>)>,
+            query: Query<&Inventory>,
+            instance: Res<ZoneInstance>,
+        | -> WorldResult<()> {
+            let storage = query.get(player.entity()?)
+                .map_err(|_| anyhow!("player not found"))?;
+
+
+            Ok(())
+        })?)?;
+
     Ok(())
 }
 
@@ -384,57 +456,19 @@ impl Deref for ItemAbilities {
     }
 }
 
-fn load_player_inventory(
-    query: Query<(Entity, &PlayerController), Added<PlayerTag>>,
+fn prepare_load_player_inventory(
+    query: Query<(Entity, &ScriptObject), Added<PlayerTag>>,
     instance: Res<ZoneInstance>,
-    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
-    for (ent, controller) in query.iter() {
-        let realm_api = instance.realm_api.clone();
-        let character_id = controller.character_id();
+    for (ent, obj) in query.iter() {
+        commands
+            .entity(ent)
+            .insert(InitialInventoryTransfer(None));
 
-        commands.run_system_async(async move {
-            let storage = realm_api.get_or_create_item_storage(StorageOwner::Character(character_id), "inventory").await?;
-            let mut items = vec![];
-
-            // Load cached item templates
-            for item in storage.items {
-                if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
-                    // Cache abilities for later use
-                    let abilities = if 
-                        let Ok(abilities) = base_item.data.get::<_, Value>(ItemEdna::Abilities) &&
-                        let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
-                    {
-                        let mut item_abilities = vec![];
-
-                        for ability in abilities.0 {
-                            if let Some(ability) = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await? {
-                                item_abilities.push(CachedObject(ability));
-                            }
-                        }
-
-                        item_abilities
-                    } else {
-                        vec![]
-                    };
-
-                    items.push((item, base_item, abilities));
-                }
-            }
-
-            let mut inventory = Inventory::new(
-                storage.id, 
-                storage.name, 
-                storage.bling, 
-                storage.game_cash,
-                storage.capacity,
-            );
-
-            inventory.observing_players.insert(ent);
-
-            Ok((ent, inventory, items))
-        }, systems.insert_item_storage);
+        commands
+            .entity(instance.world_controller)
+            .call_named_lua_method("PreLoadPlayerInventory", obj.object().clone());
     }
 }
 
@@ -442,17 +476,20 @@ fn load_player_inventory(
 fn insert_item_storage(
     In(result): In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>, Vec<CachedObject>)>)>>,
     ents: Query<Entity>,
-    mut player: Query<&mut GameObjectData, With<PlayerTag>>,
+    mut player: Query<(&mut GameObjectData, &ScriptObject), With<PlayerTag>>,
+    instance: Res<ZoneInstance>,
     mut commands: Commands,
 ) {
     match result {
         Ok((ent, mut storage, items)) => {
-            if let Ok(mut player) = player.get_mut(ent) {
+            if 
+                let Ok((mut player, obj)) = player.get_mut(ent) &&
+                let Ok(ent) = ents.get(ent)
+            {
                 player.set(Player::Bling, storage.bling.unwrap_or(0));
                 player.set(Player::GameCash, storage.game_cash.unwrap_or(0));
-            }
 
-            if let Ok(ent) = ents.get(ent) {
+                
                 for (item, template, abilities) in items {
                     let mut instance = item.instance;
                     instance.set_parent(Some(template.data.clone()));
@@ -476,10 +513,14 @@ fn insert_item_storage(
                 commands.entity(ent)
                     .insert((
                         InitialInventoryTransfer(
-                            storage.items.values().copied().collect()
+                            Some(storage.items.values().copied().collect())
                         ),
                         storage,
                     ));
+
+                commands
+                    .entity(instance.world_controller)
+                    .call_named_lua_method("PostLoadPlayerInventory", obj.object().clone());
             }
         },
         Err(e) => {
@@ -856,7 +897,7 @@ fn apply_storage_result(
 }
 
 #[derive(Component)]
-pub struct InitialInventoryTransfer(Vec<Entity>);
+pub struct InitialInventoryTransfer(Option<Vec<Entity>>);
 
 fn init_client_inventory(
     inventories: Query<(&PlayerController, &Inventory), Added<Inventory>>
@@ -883,38 +924,42 @@ fn send_initial_items(
     mut commands: Commands,
 ) {
     for (entity, controller, mut queue, mut state) in transfer_queues.iter_mut() {
-        let count = queue.0.len().min(10);
-        for item_ent in queue.0.drain(..count) {
-            if let Ok((content, item)) = items.get(item_ent) {
-                let mut data = Vec::new();
-                {
-                    let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-                    item.write_to_privileged_client(&mut writer).unwrap();
+        if let Some(queue) = &mut queue.0 {
+            let count = queue.len().min(10);
+            for item_ent in queue.drain(..count) {
+                if let Ok((content, item)) = items.get(item_ent) {
+                    let mut data = Vec::new();
+                    {
+                        let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+                        item.write_to_privileged_client(&mut writer).unwrap();
+                    }
+
+                    controller.send_packet(CPktItemUpdate {
+                        avatar_id: controller.avatar_id(),
+                        id: content.placement_id,
+                        use_template: 1,
+                        template_id: Some(content.template.id),
+                        class_id: item.class().id() as u32,
+                        params: data,
+                        ..Default::default()
+                    });
                 }
-
-                controller.send_packet(CPktItemUpdate {
-                    avatar_id: controller.avatar_id(),
-                    id: content.placement_id,
-                    use_template: 1,
-                    template_id: Some(content.template.id),
-                    class_id: item.class().id() as u32,
-                    params: data,
-                    ..Default::default()
-                });
             }
-        }
 
-        if queue.0.is_empty() {
-            commands.entity(entity)
-                .remove::<InitialInventoryTransfer>();
+            if queue.is_empty() {
+                debug!("Finished initial inventory transfer for {}", entity);
 
-            // Re-trigger change of initial interests loaded, 
-            // so client can be spawned if interests transfer finished
-            // before item transfer.
-            // TODO: Find a better way to sync these two async operations
-            // (interest transfer and inventory transfer) in bevy
-            if matches!(state.state, ConnectionState::InitialInterestsLoaded) {
-                state.set_changed();
+                commands.entity(entity)
+                    .remove::<InitialInventoryTransfer>();
+
+                // Re-trigger change of initial interests loaded, 
+                // so client can be spawned if interests transfer finished
+                // before item transfer.
+                // TODO: Find a better way to sync these two async operations
+                // (interest transfer and inventory transfer) in bevy
+                if matches!(state.state, ConnectionState::InitialInterestsLoaded) {
+                    state.set_changed();
+                }
             }
         }
     }
