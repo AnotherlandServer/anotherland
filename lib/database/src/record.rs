@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use mongodb::{bson::{self, doc, Document}, Collection, Cursor, Database};
+use mongodb::{action::Update, bson::{self, doc, Document}, Collection, Cursor, Database};
 use serde::{de::DeserializeOwned, Serialize};
 use crate::DBResult;
 
@@ -54,13 +54,17 @@ pub trait DatabaseRecord: DeserializeOwned + Serialize + Send + Sync + Unpin {
         Ok(record)
     }
 
-    async fn save(&mut self, db: &Database) -> DBResult<()> {
-        let collection = Self::collection(db);
-
+    fn save_uncommited<'a>(&mut self, collection: &'a Collection<Self>) -> Update<'a> {
         collection.update_one(
             Self::query_one(self.key()), 
             doc!{"$set": bson::to_bson(self).unwrap().as_document().unwrap()},
-        ).await?;
+        )
+    }
+
+    async fn save(&mut self, db: &Database) -> DBResult<()> {
+        let collection = Self::collection(db);
+
+        self.save_uncommited(&collection).await?;
 
         Ok(())
     }
