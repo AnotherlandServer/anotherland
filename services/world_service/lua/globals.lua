@@ -20,9 +20,8 @@ end
 
 --- Resets a parameter of the attached object.
 --- @param param string
---- @param value any
 --- @return any
-function __engine.gameobject:Reset(param, value)
+function __engine.gameobject:Reset(param)
 end
 
 ----
