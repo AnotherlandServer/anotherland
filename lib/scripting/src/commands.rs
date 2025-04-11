@@ -16,7 +16,7 @@
 use anyhow::anyhow;
 use bevy::prelude::{Entity, EntityCommand, EntityCommands, World};
 use log::{debug, error};
-use mlua::{Function, IntoLua, IntoLuaMulti, Table, Value};
+use mlua::{Function, IntoLua, IntoLuaMulti, Value};
 
 use crate::{LuaRuntime, ScriptObject, REG_WORLD};
 

@@ -306,6 +306,7 @@ pub struct CreateCharacterInput {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 #[serde(rename_all = "PascalCase")]
 pub struct DefaultEquipment {
     combat_style: Option<i32>,

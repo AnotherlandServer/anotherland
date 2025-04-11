@@ -14,7 +14,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![feature(let_chains)]
-#![feature(hash_extract_if)]
 #![feature(exclusive_wrapper)]
 
 use std::collections::HashMap;

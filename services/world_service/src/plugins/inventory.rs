@@ -20,7 +20,7 @@ use bevy::{app::{Last, Plugin, PostUpdate, Update}, ecs::{component::Component, 
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::future::join_all;
 use log::{debug, error, warn};
-use mlua::{FromLua, Function, IntoLua, Lua, Table, UserData};
+use mlua::{FromLua, IntoLua, Lua, Table, UserData};
 use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, EdnaAbility, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player};
 use protocol::{oaPktItemStorage, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
 use realm_api::{Item, ItemRef, StorageOwner};
@@ -335,19 +335,6 @@ fn insert_inventory_api(
                 Ok((player.entity()?, inventory, items))
             }, systems.insert_item_storage);
             
-            Ok(())
-        })?)?;
-
-    inventory_api.set("ApplyTemplate", lua.create_bevy_function(world, 
-        |
-            In((player, template, callback)): In<(Table, String, Option<Function>)>,
-            query: Query<&Inventory>,
-            instance: Res<ZoneInstance>,
-        | -> WorldResult<()> {
-            let storage = query.get(player.entity()?)
-                .map_err(|_| anyhow!("player not found"))?;
-
-
             Ok(())
         })?)?;
 
@@ -764,11 +751,11 @@ fn behavior_inventory_request_unequip(
 
 fn apply_equipment_result(
     In((instigator, result)): In<(Entity, EquipmentResult)>,
-    mut players: Query<(&mut GameObjectData, &PlayerController, &ScriptObject), With<PlayerTag>>,
+    mut players: Query<(&mut GameObjectData, &PlayerController), With<PlayerTag>>,
     systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
-    if let Ok((mut player, controller, object)) = players.get_mut(instigator) {
+    if let Ok((mut player, controller)) = players.get_mut(instigator) {
         if let Some(err) = result.error {
             controller.send_message(MessageType::PopUp, err.0);
         }

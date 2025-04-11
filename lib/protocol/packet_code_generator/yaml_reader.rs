@@ -88,7 +88,7 @@ impl DefinitionFile {
     pub fn load_from_file(file_path: &str) -> io::Result<Self> {
         let yaml_contents = fs::read(file_path)?;
         let yaml_doc = YamlLoader::load_from_str(String::from_utf8_lossy(&yaml_contents).as_ref())
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| io::Error::other(e.to_string()))?;
         let yaml_defintion = &yaml_doc[0];
 
         let mut definition = DefinitionFile {
@@ -117,9 +117,9 @@ impl DefinitionFile {
 impl PacketDefintion {
     pub fn load_from_yaml(name: &str, yaml: &Yaml) -> io::Result<Self> {
         let id = yaml["id"].as_i64()
-            .ok_or(io::Error::new(io::ErrorKind::Other, "id required"))? as u8;
+            .ok_or(io::Error::other("id required"))? as u8;
         let sub_id = yaml["subId"].as_i64()
-            .ok_or(io::Error::new(io::ErrorKind::Other, "subId required"))? as u8;
+            .ok_or(io::Error::other("subId required"))? as u8;
         let inherit = yaml["inherit"].as_str();
         let fields = yaml["fields"].as_vec();
 
@@ -193,7 +193,7 @@ impl StructDefinition {
     pub fn load_from_yaml(name: &str, yaml: &Yaml) -> io::Result<Self> {
         let inherit = yaml["inherit"].as_str();
         let fields = yaml["fields"].as_vec()
-            .ok_or(io::Error::new(io::ErrorKind::Other, "fields required"))?;
+            .ok_or(io::Error::other("fields required"))?;
 
         let mut definition = Self {
             name: name.to_owned(),
@@ -262,7 +262,7 @@ impl FieldDefinition {
     pub fn load_from_yaml(yaml: &Yaml) -> io::Result<Self> {
         if !yaml["branch"].is_badvalue() && !yaml["branch"].is_null() {
             let field = yaml["branch"]["field"].as_str()
-                .ok_or(io::Error::new(io::ErrorKind::Other, "field required"))?;
+                .ok_or(io::Error::other("field required"))?;
 
             let mut is_true = Vec::new();
             let mut is_false = Vec::new();
@@ -467,11 +467,11 @@ impl FieldTypeDefinition {
                 "array" => {
                     let len = if let Some(len) = yaml["len"].as_i64() {
                         FieldLengthDefinition::ConstLen(len as usize)
-                    } else if yaml["len"].as_str().ok_or(io::Error::new(io::ErrorKind::Other, "len required"))? == "_eof" {
+                    } else if yaml["len"].as_str().ok_or(io::Error::other("len required"))? == "_eof" {
                         FieldLengthDefinition::Remainder
                     } else {
                         FieldLengthDefinition::DynamicLen(yaml["len"].as_str()
-                            .ok_or(io::Error::new(io::ErrorKind::Other, "len required"))?
+                            .ok_or(io::Error::other("len required"))?
                             .to_owned())
                     };
                     
@@ -479,7 +479,7 @@ impl FieldTypeDefinition {
                     Ok(Self::Array { len, r#type: Box::new(r#type) })
                 },
                 "packet" => Ok(Self::Packet),
-                _ => Err(io::Error::new(io::ErrorKind::Other, format!("invalid type defition: {}", type_name)))
+                _ => Err(io::Error::other(format!("invalid type defition: {}", type_name)))
             }
         }
     }

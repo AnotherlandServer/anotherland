@@ -28,7 +28,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, instance::{self, InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource}, proto::TravelMode, OBJECT_CACHE};
+use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource}, proto::TravelMode, OBJECT_CACHE};
 
 use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, FutureCommands, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
 
@@ -58,7 +58,7 @@ impl UserData for SkillbookEntry {
 }
 
 impl FromLua for SkillbookEntry {
-    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
+    fn from_lua(value: mlua::Value, _: &mlua::Lua) -> mlua::Result<Self> {
         let usr = value.as_userdata().ok_or(mlua::Error::runtime("object expected"))?;
         Ok(usr.borrow::<SkillbookEntry>()?.clone())
     }

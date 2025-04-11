@@ -191,7 +191,7 @@ impl LuaRuntime {
                 if let Ok(mut base) = res.clone() {
                     // Register module
                     if self.hot_reload {
-                        debug!("Register: {} for hot reloading", file_path.display().to_string());
+                        debug!("Register: {} for hot reloading", file_path.display());
 
                         let paths = self.lua.named_registry_value::<Table>("_MODULE_PATHS")?;
                         paths.set(file_path.display().to_string(), name)?;

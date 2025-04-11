@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use glam::{Quat, Vec3, Vec4};
-use mlua::{AnyUserData, FromLua, IntoLua, MetaMethod, UserData, UserDataRef, Value};
+use mlua::{FromLua, IntoLua, MetaMethod, UserData, UserDataRef, Value};
 
 #[derive(Clone, Copy)]
 pub struct Vec3Wrapper(pub Vec3);

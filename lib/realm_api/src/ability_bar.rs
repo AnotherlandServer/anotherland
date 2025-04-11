@@ -128,6 +128,7 @@ pub(crate) mod ability_bar_graphql {
     }
 
     #[derive(cynic::QueryFragment, Debug)]
+    #[allow(dead_code)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateAbilityBarVariables")]
     pub struct UpdateAbilityBar {
         #[arguments(id: $id, input: $input)]

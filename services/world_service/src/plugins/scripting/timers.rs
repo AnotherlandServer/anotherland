@@ -14,7 +14,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::{ecs::{component::Component, entity::Entity, system::{Commands, In, Query, Res}, world::World}, hierarchy::{BuildChildren, DespawnRecursiveExt}, time::{Stopwatch, Time, Virtual}};
-use log::debug;
 use mlua::{Function, Lua, Table};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 
