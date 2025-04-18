@@ -23,7 +23,7 @@ use anyhow::anyhow;
 
 use crate::{error::WorldResult, plugins::{AvatarInfo, ContentInfo, PlayerLocalSets}};
 
-use super::{create_log_table, insert_timer_api, param::ParamValue, timers::update_timers};
+use super::{create_log_table, insert_timer_api, insert_world_api, param::ParamValue, timers::update_timers};
 
 pub struct ScriptObjectInfoPlugin;
 
@@ -35,6 +35,7 @@ impl Plugin for ScriptObjectInfoPlugin {
         insert_game_object_api(app.world_mut()).unwrap();
         insert_log_api(app.world_mut()).unwrap();
         insert_timer_api(app.world_mut()).unwrap();
+        insert_world_api(app.world_mut()).unwrap();
     }
 }
 
