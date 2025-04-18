@@ -5892,6 +5892,7 @@ dependencies = [
  "protocol",
  "rand 0.8.5",
  "realm_api",
+ "regex",
  "reqwest",
  "saphyr",
  "scripting",
