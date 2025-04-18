@@ -16,10 +16,10 @@
 use std::{collections::VecDeque, str::FromStr};
 
 use bevy::{app::Plugin, ecs::system::{Resource, SystemId}, prelude::{App, Commands, Entity, In, IntoSystem, Query, Res}, utils::hashbrown::HashMap};
-use log::warn;
+use log::{debug, warn};
 use mlua::{Function, IntoLua, MultiValue, Table};
 use obj_params::{Class, GameObjectData};
-use protocol::{oaPktAvatarTellBehavior, oaPktAvatarTellBehaviorBinary};
+use protocol::{oaPktAvatarTellBehavior, oaPktAvatarTellBehaviorBinary, CPktRequestAvatarBehaviors};
 use scripting::{ScriptCommandsExt, ScriptObject};
 use toolkit::NativeParam;
 
@@ -68,6 +68,7 @@ impl Plugin for BehaviorPlugin {
 
         app.register_message_handler(handle_avatar_tell_behavior);
         app.register_message_handler(handle_avatar_tell_behavior_binary);
+        app.register_message_handler(handle_avatar_request_behavior);
     }
 }
 
@@ -209,6 +210,53 @@ fn handle_avatar_tell_behavior_binary(
                 .call_lua_method(behavior_func, args);
         } else {
             warn!("No binary behavior '{}' defined for entity {:?}:{}. Args: {:#?}", behavior.name, target.class().name(), target_info.name, behavior.args)
+        }
+    }
+}
+
+fn handle_avatar_request_behavior(
+    In((ent, pkt)): In<(Entity, CPktRequestAvatarBehaviors)>,
+    instigator: Query<(Entity, &PlayerController, Option<&ScriptObject>)>,
+    target: Query<(&AvatarInfo, &GameObjectData, Option<&ScriptObject>)>,
+    behaviors: Res<BehaviorMap<StringBehavior>>,
+    avatars: Res<AvatarIdManager>,
+    mut commands: Commands
+) {
+    debug!("Request behavior: {} Data: {}", pkt.behaviour, pkt.data);
+
+    if 
+        let Ok((instigator_ent, controller, instigator_script)) = instigator.get(ent) &&
+        let Some(target_ent) = avatars.entity_from_avatar_id(pkt.avatar_id) &&
+        let Ok((target_info, target, target_script)) = target.get(target_ent) &&
+        let Ok(behavior) = format!("{} {}", pkt.behaviour, pkt.data).parse::<StringBehavior>()
+    {
+        if controller.avatar_id() != pkt.avatar_id {
+            warn!("Avatar {} tried to instigate behavior on behalf of {}", controller.avatar_id(), pkt.avatar_id);
+            return;
+        }
+
+        if let Some(system) = behaviors.0
+            .get(&target.class())
+            .and_then(|m| m.get(&behavior.name))
+        {
+            commands.run_system_with_input(*system, (instigator_ent, target_ent, behavior));
+        } else if 
+            let Some(instigator) = instigator_script &&
+            let Some(target_script) = target_script &&
+            let Ok(behaviors) = target_script.object().get::<Table>("_BEHAVIOR") &&
+            let Ok(behavior_func) = behaviors.get::<Function>(behavior.name.as_str())
+        {
+            let mut args = MultiValue::new();
+            args.push_back(instigator.object().into_lua(instigator.vm()).unwrap());
+            args.append(&mut behavior.args.into_iter()
+                .map(|v| v.into_lua(target_script.vm()).unwrap())
+                .collect()
+            );
+
+            commands.entity(target_ent)
+                .call_lua_method(behavior_func, args);
+        } else {
+            warn!("No behavior '{}' defined for entity {:?}:{}. Args: {:?}", behavior.name, target.class().name(), target_info.name, behavior.args)
         }
     }
 }

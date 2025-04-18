@@ -41,3 +41,4 @@ tokio-util = { workspace = true }
 futures.workspace = true
 content = { version = "0.1.0", path = "../../lib/content" }
 convert_case = "0.8.0"
+regex = "1.11.1"

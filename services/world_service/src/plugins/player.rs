@@ -21,8 +21,9 @@ use futures::{future::join_all, TryStreamExt};
 use log::{debug, error, trace, warn};
 use mlua::{FromLua, Function, IntoLua, Lua, Table, UserData};
 use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, AttributeInfo, Class, EdnaAbility, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
-use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktS2XConnectionState, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
+use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
 use realm_api::{AbilitySlot, Character, EquipmentResult, RealmApiResult, State};
+use regex::Regex;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
@@ -220,6 +221,49 @@ impl Plugin for PlayerPlugin {
         app.register_command("instantKill", cmd_instant_kill);
 
         app.register_string_behavior(Class::Player, "respawnnow", behavior_respawnnow);
+        app.register_string_behavior(Class::Player, "FlightTube", 
+            |
+                In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
+                query: Query<&PlayerController>,
+            | {
+                debug!("FlightTube beahavior: {:?}", behavior.args);
+
+                let re = Regex::new(r"SplineID=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) InverseTravel=([0-1]) Loc=\[ -?(\d+\.?\d*) -?(\d+\.?\d*) -?(\d+\.?\d*) \]").unwrap();
+                if let Some(captures) = re.captures(&behavior.args.join(" ")) {
+                    let spline_id = captures[1].parse().unwrap();
+                    let inverse_travel = &captures[2] == "1";
+                    let loc = Vec3::new(
+                        captures[3].parse().unwrap(), 
+                        captures[4].parse().unwrap(), 
+                        captures[5].parse().unwrap(),
+                    );
+        
+
+                    if let Ok(controller) = query.get(ent) {
+                        controller.send_packet(
+                            oaPkt_SplineSurfing_Acknowledge {
+                                avatar_id: controller.avatar_id(),
+                                spline_id,
+                                acknowledged: true,
+                                inverse_travel,
+                                loc: loc.into(),
+                                ..Default::default()
+                            }
+                        );
+
+                        controller.send_packet(
+                            oaPkt_SplineSurfing_Exit {
+                                avatar_id: controller.avatar_id(),
+                                spline_id,
+                                ..Default::default()
+                            }
+                        );
+                    }
+                } else {
+                    error!("Failed to parse FlightTube behavior: {:?}", behavior.args);
+                }
+            }
+        );
 
         insert_skillbook_api(app.world_mut()).unwrap();
         insert_player_api(app.world_mut()).unwrap();
