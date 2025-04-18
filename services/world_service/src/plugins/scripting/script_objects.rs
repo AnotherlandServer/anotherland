@@ -17,11 +17,11 @@ use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{system::{In, Res}, world::Wor
 use convert_case::{Case, Casing};
 use log::error;
 use mlua::{IntoLua, Lua, Table};
-use obj_params::{Class, GameObjectData, NonClientBase};
+use obj_params::{Class, GameObjectData, GenericParamSet, GenericParamSetBoxExt, NonClientBase};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptApi, ScriptCommandsExt, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, plugins::{AvatarInfo, ContentInfo}};
+use crate::{error::WorldResult, plugins::{AvatarInfo, ContentInfo, PlayerLocalSets}};
 
 use super::{create_log_table, insert_timer_api, param::ParamValue, timers::update_timers};
 
@@ -49,6 +49,72 @@ fn insert_game_object_api(
     object_api.set("Get", lua.create_bevy_function(world, lua_gameobject_get)?)?;
     object_api.set("Set", lua.create_bevy_function(world, lua_gameobject_set)?)?;
     object_api.set("Reset", lua.create_bevy_function(world, lua_gameobject_reset)?)?;
+
+    object_api.set("GetPlayerLocal", lua.create_bevy_function(world, |
+            In((object, player, index)): In<(Table, Table, String)>,
+            query: Query<(&GameObjectData, &PlayerLocalSets)>,
+            runtime: Res<LuaRuntime>,
+        | -> WorldResult<mlua::Value> {
+            let (gameobject, local_sets) = query.get(object.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+
+            let val = local_sets.0
+                .get(&player.entity()?)
+                .and_then(|local_set| local_set.get_param(&index))
+                .unwrap_or(
+                    gameobject.get_named::<obj_params::Value>(&index)
+                        .map_err(mlua::Error::external)?
+                );
+        
+            Ok(ParamValue::new(val.clone())
+                .into_lua(runtime.vm())?)
+        })?
+    )?;
+
+    object_api.set("SetPlayerLocal", lua.create_bevy_function(world, |
+            In((object, player, index, value)): In<(Table, Table, String, mlua::Value)>,
+            mut query: Query<(&GameObjectData, &mut PlayerLocalSets)>,
+            runtime: Res<LuaRuntime>,
+        | -> WorldResult<mlua::Value> {
+            let (gameobject, mut local_sets) = query.get_mut(object.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+
+            let attr = gameobject.class().get_attribute(&index)
+                .ok_or(mlua::Error::runtime("attribute not found"))?;
+
+            let value = ParamValue::from_lua(attr, value, runtime.vm())?;
+            let prev_val =  local_sets.0
+                .entry(player.entity()?)
+                .or_insert(Box::<dyn GenericParamSet>::new_for_class(gameobject.class()))
+                .set_param(&index, value.into());
+
+            if let Some(prev_val) = prev_val {
+                Ok(ParamValue::new(prev_val).into_lua(runtime.vm())?)
+            } else {
+                Ok(ParamValue::new(attr.default().clone()).into_lua(runtime.vm())?)
+            }
+        })?
+    )?;
+
+    object_api.set("ResetPlayerLocal", lua.create_bevy_function(world, |
+            In((object, player, index,)): In<(Table, Table, String)>,
+            mut query: Query<&mut PlayerLocalSets>,
+            runtime: Res<LuaRuntime>,
+        | -> WorldResult<mlua::Value> {
+            let mut local_sets = query.get_mut(object.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+
+            let prev_val = local_sets.0
+                .get_mut(&player.entity()?)
+                .and_then(|local_set| local_set.remove_param(&index));
+
+            if let Some(prev_val) = prev_val {
+                Ok(ParamValue::new(prev_val).into_lua(runtime.vm())?)
+            } else {
+                Ok(mlua::Value::Nil)
+            }
+        })?
+    )?;
 
     Ok(())
 }

@@ -49,6 +49,16 @@ pub trait GenericParamSet: Debug + Send + Sync {
     fn dyn_clone(&self) -> Box<dyn GenericParamSet>;
 }
 
+pub trait GenericParamSetBoxExt {
+    fn new_for_class(class: Class) -> Box<dyn GenericParamSet>;
+}
+
+impl GenericParamSetBoxExt for Box<dyn GenericParamSet> {
+    fn new_for_class(class: Class) -> Box<dyn GenericParamSet> {
+        class.create_param_set(vec![])
+    }
+}
+
 pub trait ParamWriter {
     fn write<W: ByteWrite>(&self, writer: &mut W) -> Result<(), io::Error>;
     fn write_to_client<W: ByteWrite>(&self, writer: &mut W) -> Result<(), io::Error>;

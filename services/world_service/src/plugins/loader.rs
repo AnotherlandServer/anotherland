@@ -24,7 +24,7 @@ use toolkit::types::Uuid;
 
 use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry};
 
-use super::{AvatarIdManager, AvatarInfo, FutureTaskComponent, HealthUpdateEvent};
+use super::{AvatarIdManager, AvatarInfo, FutureTaskComponent, HealthUpdateEvent, PlayerLocalSets};
 
 #[derive(Component)]
 pub struct ContentInfo {
@@ -135,6 +135,7 @@ fn ingest_content(
             placement.data,
             Active,
             SpawnState::default(),
+            PlayerLocalSets::default(),
         )).id();
 
         entry.insert(entity);

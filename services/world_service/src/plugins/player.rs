@@ -15,7 +15,7 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, query::Without, system::{Resource, SystemId}, world::World}, hierarchy::DespawnRecursiveExt, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}};
+use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, query::Without, removal_detection::RemovedComponents, system::{Resource, SystemId}, world::World}, hierarchy::DespawnRecursiveExt, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}, utils::HashMap};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all, TryStreamExt};
 use log::{debug, error, trace, warn};
@@ -212,6 +212,7 @@ impl Plugin for PlayerPlugin {
         app.add_systems(Last, (
             begin_loading_sequence,
             save_player_data.before(clear_obj_changes),
+            remove_local_changed,
         ));
         
         app.register_message_handler(handle_avatar_update);
@@ -696,6 +697,20 @@ fn apply_class_item_result(
             commands
                 .entity(ent)
                 .despawn_recursive();
+        }
+    }
+}
+
+#[derive(Component, Default)]
+pub struct PlayerLocalSets(pub HashMap<Entity, Box<dyn GenericParamSet>>);
+
+fn remove_local_changed(
+    mut removed: RemovedComponents<PlayerTag>,
+    mut query: Query<(Entity, &mut PlayerLocalSets)>,
+) {
+    for ent in removed.read() {
+        if let Ok((_, mut changes)) = query.get_mut(ent) {
+            changes.0.remove(&ent);
         }
     }
 }
