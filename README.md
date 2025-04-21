@@ -5,11 +5,9 @@
 ## Introduction
 Welcome to the **Anotherland Server Emulator** project, a community-driven initiative to resurrect the MMORPG, *Otherland*. This emulator aims to recreate the experience of *Otherland* by providing tools and instructions to set up and run your own server for the game.
 
-Currently, the project is undergoing a major rewrite and is not yet playable. If you simply want to run a local instance of the server, you should check out the tag `v0.1.1` and follow the README there, or use the pre-compiled Docker image with the same name.
-
 ## Prerequisites
 Before you begin, ensure you have the following installed:
-- **Rust 1.86.0-nightly**
+- **Rust 1.87.0-nightly**
 - A legally acquired copy of the game (*Otherland Next*)
 - **MongoDB**
 
