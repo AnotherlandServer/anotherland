@@ -349,7 +349,7 @@ impl PlayerController {
         });
     }
 
-    pub fn send_message(&self, ty: MessageType, message: String) {
+    pub fn send_message(&self, ty: MessageType, message: impl ToString) {
         let _ = self.sender.send(WorldEvent::Packet {
             controller: self.id,
             pkt: CPktGameMsg {
@@ -365,7 +365,7 @@ impl PlayerController {
                     MessageType::PopUp => CpktGameMsgMsgType::PopUp,
                     MessageType::IllegalZone => CpktGameMsgMsgType::IllegalZone,
                 },
-                message,
+                message: message.to_string(),
                 ..Default::default()
             }.into_pkt()
         });

@@ -22,16 +22,16 @@ use log::{debug, error, trace, warn};
 use mlua::{FromLua, Function, IntoLua, Lua, Table, UserData};
 use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, AttributeInfo, Class, EdnaAbility, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
 use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
-use realm_api::{AbilitySlot, Character, EquipmentResult, RealmApiResult, State};
+use realm_api::{AbilitySlot, Character, EquipmentResult, ObjectPlacement, RealmApiResult, State};
 use regex::Regex;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource}, proto::TravelMode, OBJECT_CACHE};
+use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource, MessageType}, proto::TravelMode, OBJECT_CACHE};
 
-use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, FutureCommands, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
+use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CachedObject, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, FutureCommands, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -179,6 +179,25 @@ fn insert_player_api(
             Ok(())
         })?)?;
 
+    player_api.set("TravelToPortal", lua.create_bevy_function(world,
+        |
+            In((player, portal_guid)): In<(Table, String)>,
+            instance: Res<ZoneInstance>,
+            systems: Res<PlayerSystems>,
+            mut commands: Commands
+        | -> WorldResult<()> {
+            let ent = player.entity()?;
+            let portal_guid = portal_guid.parse::<Uuid>()?;
+
+            let realm_api = instance.realm_api.clone();
+
+            commands.run_system_async(async move {
+                (ent, realm_api.get_object_placement(portal_guid).await)
+            }, systems.travel_to_portal);
+
+            Ok(())
+        })?)?;
+
     Ok(())
 }
 
@@ -196,6 +215,7 @@ impl Plugin for PlayerPlugin {
 
         let player_systems = PlayerSystems {
             apply_class_item_result: app.register_system(apply_class_item_result),
+            travel_to_portal: app.register_system(travel_to_portal),
         };
 
         app.insert_resource(ForeignResource(character_sender));
@@ -711,6 +731,7 @@ fn update_skillbook(
 #[allow(clippy::type_complexity)]
 struct PlayerSystems {
     apply_class_item_result: SystemId<In<(Entity, RealmApiResult<EquipmentResult>, Option<Function>)>>,
+    travel_to_portal: SystemId<In<(Entity, RealmApiResult<Option<ObjectPlacement>>)>>,
 }
 
 fn apply_class_item_result(
@@ -744,6 +765,26 @@ fn apply_class_item_result(
         }
     }
 }
+
+fn travel_to_portal(
+    In((ent, portal)): In<(Entity, RealmApiResult<Option<ObjectPlacement>>)>,
+    query: Query<&PlayerController>,
+) {
+    if let Ok(controller) = query.get(ent) {
+        if let Ok(placement) = portal {
+            if let Some(placement) = placement {
+                controller.request_travel(placement.zone_guid, None, TravelMode::Portal { uuid: placement.id });
+            } else {
+                controller.send_message(MessageType::Normal, "Travel failed. Portal not found.");
+            }
+        } else {
+            controller.send_message(MessageType::Normal, "Travel failed. Please try again later.");
+        }
+    } else {
+        error!("Player not found!");
+    }
+}
+
 
 #[derive(Component, Default)]
 pub struct PlayerLocalSets(pub HashMap<Entity, Box<dyn GenericParamSet>>);

@@ -18,9 +18,11 @@ mod script_objects;
 mod log;
 mod timers;
 mod world;
+mod portal_book;
 
 pub use script_objects::*;
 pub use log::*;
 pub use param::*;
 pub use timers::*;
 pub use world::*;
+pub use portal_book::*;
