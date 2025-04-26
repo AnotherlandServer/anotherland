@@ -189,7 +189,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 "paramid" => ParamIniLine::ParamId(tokens[1].to_owned(), complete::u16(tokens[2])?.1),
                 "help" => ParamIniLine::Ignore,
                 _ => {
-                    println!("Parsing line: {}", line_num);
+                    println!("Parsing line: {line_num}");
 
                     let mut paramtype = None;
                     let mut default = None;
@@ -233,7 +233,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 "oaSetGuid" => paramtype = Some(ParamType::OASetGuid),
                                 "oaVectorGuid" => paramtype = Some(ParamType::OAVectorGuid),
                                 "oaVectorLocalizedString" => paramtype = Some(ParamType::OAVactorLocalizedString),
-                                _ => panic!("Unknown paramtype {}", value),
+                                _ => panic!("Unknown paramtype {value}"),
                             },
                             "flag" => match value {
                                 "nodeOwn" => flags.push(ParamFlag::NodeOwn),
@@ -251,10 +251,10 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                                 "clientPrivileged" => flags.push(ParamFlag::ClientPrivileged),
                                 "uts" => flags.push(ParamFlag::Uts),
                                 "clientInit" => flags.push(ParamFlag::ClientInit),
-                                _ => panic!("Unknown flag {}", value),
+                                _ => panic!("Unknown flag {value}"),
                             },
                             "default" => default = Some(value.to_owned()),
-                            _ => println!("Skipped option {}", option),
+                            _ => println!("Skipped option {option}"),
                         }
                     }
 
@@ -469,7 +469,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             },
             Err(e) => {
                 println!("Error in line {}", line_number + 1);
-                println!("{}", e);
+                println!("{e}");
                 panic!();
             }
             _ => (),
@@ -964,7 +964,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use crate::Value;
         use crate::GameObjectData;
         use crate::GenericParamSet;
-        use crate::ContentRef;
         use crate::ContentRefList;
 
         #(#param_name_enums)*

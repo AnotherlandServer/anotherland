@@ -144,11 +144,12 @@ impl RakNetSocket {
                                     }
                                 }
             
-                                if encryption_active {
-                                    if let Err(e) = aes_decrypt(aes_key, &mut buf) {
-                                        trace!("Decryption failed: {:?}", e);
-                                        continue;
-                                    }
+                                if 
+                                    encryption_active &&
+                                    let Err(e) = aes_decrypt(aes_key, &mut buf)
+                                {
+                                    trace!("Decryption failed: {e:?}");
+                                    continue;
                                 }
             
                                 if let Ok(frame) = MessageFrame::from(&buf) {
@@ -191,7 +192,7 @@ impl RakNetSocket {
                                         }
                                     }
                                 } else {
-                                    debug!("Received malformed frame: {}", peer_addr);
+                                    debug!("Received malformed frame: {peer_addr}");
                                 }
 
                                 // Flush receive queue
@@ -239,7 +240,7 @@ impl RakNetSocket {
                                         },
                                         Ok(None) => (),
                                         Err(e) => {
-                                            debug!("Message handler failed: {:?}", e);
+                                            debug!("Message handler failed: {e:?}");
                                             close_notifier.notify_one();
                                         },
                                     }
@@ -267,7 +268,7 @@ impl RakNetSocket {
 
                 // send frames
                 for f in frames {
-                    trace!("TX: {:?}", f);
+                    trace!("TX: {f:?}");
 
                     let mut frame = MessageFrame::new();
                     frame.add_message(f);
@@ -358,7 +359,7 @@ impl RakNetSocket {
         user_data_sender: &Sender<Vec<u8>>,
         encryption_context: Option<&mut EncryptionHanshakeContext>,
     ) -> Result<Option<ConnectionState>> {
-        trace!("{:?} - RX: {:?}", state, frame);
+        trace!("{state:?} - RX: {frame:?}");
 
         if frame.data().is_empty() { return Ok(None); }
 

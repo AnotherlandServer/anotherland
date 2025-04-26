@@ -53,13 +53,13 @@ impl FrontendSessionContext {
                 if let Ok((_, pkt)) = CPkt::from_bytes(&buf) {
                     if session.is_none() {
                         if let Err(e) = context.handle_unauthenticated(&pkt, &mut session).await {
-                            error!("Message handler error: {:?}", e);
+                            error!("Message handler error: {e:?}");
                         }
                     }
 
                     if let Some(session) = session.as_ref() {
                         if let Err(e) = context.handle(pkt, session).await {
-                            error!("Message handler error: {:?}", e);
+                            error!("Message handler error: {e:?}");
                         }
                     }
                 }
@@ -230,7 +230,7 @@ impl FrontendSessionContext {
                 }
             },
             _ => {
-                warn!("Unhandled pkt: {:?}", pkt);
+                warn!("Unhandled pkt: {pkt:?}");
             }
         }
 

@@ -16,7 +16,6 @@
 // Otherland uses a modified version of RakNet (3.3)
 
 // Enable unstable features
-#![feature(let_chains)]
 #![feature(duration_millis_float)]
 
 mod definitions;

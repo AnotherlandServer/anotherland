@@ -323,7 +323,7 @@ fn spawn_world_controller(
                     continue;
                 }
 
-                error!("Failed to load script '{}': {}", script_name, e);
+                error!("Failed to load script '{script_name}': {e}");
                 break;
             },
         }

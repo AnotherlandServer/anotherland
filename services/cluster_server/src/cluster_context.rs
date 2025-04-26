@@ -179,7 +179,7 @@ impl ClusterContext {
                         match req {
                             Ok(pkt) => {
                                 if let Err(e) = channel.send(ClusterMessage::Forward { data: pkt }).await {
-                                    error!("Failed to handle client request: {:#?}", e);
+                                    error!("Failed to handle client request: {e:#?}");
                                     socket.close().await;
                                     break;
                                 }

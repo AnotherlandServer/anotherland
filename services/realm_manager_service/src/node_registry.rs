@@ -88,7 +88,7 @@ impl NodeRegistry {
             })
             .clone();
 
-        info!("Registered {} at {}", node_type, address);
+        info!("Registered {node_type} at {address}");
 
         let _ = self.events.send(NodeRegistryEvent::NodeAdded(entry));
     }

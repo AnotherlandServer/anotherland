@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![feature(let_chains)]
 #![feature(exclusive_wrapper)]
 
 use instance::{InstanceLabel, ZoneSubApp};
@@ -78,7 +77,7 @@ fn handle_realm_events(manager: InstanceManager, mut notifications: mpsc::Receiv
         while let Some(event) = notifications.recv().await {
             match event {
                 RealmNotification::InstanceRequested { transaction_id, zone, key, valid_until } => {
-                    debug!("Instance requested: {:?} {:?} {:?} {:?}", transaction_id, zone, key, valid_until);
+                    debug!("Instance requested: {transaction_id:?} {zone:?} {key:?} {valid_until:?}");
                     let _ = manager.offer_instance(transaction_id, zone, key, valid_until).await;
                 },
                 RealmNotification::ClusterNotification(_) => {
@@ -145,11 +144,11 @@ fn handle_world_msgs(server: Arc<WorldServer>, _realm_api: RealmApi, event_sende
                                     }).is_ok() {
                                         match controller.await {
                                             Ok(Ok(controller)) => {
-                                                debug!("Player controller spawned: {}", id);
+                                                debug!("Player controller spawned: {id}");
                                                 controllers.insert(id, (router_id, controller));
                                             },
                                             Ok(Err(e)) => {
-                                                error!("Failed to spawn player!: {:#?}", e);
+                                                error!("Failed to spawn player!: {e:#?}");
                                             }
                                             Err(_) => {
                                                 error!("Controler spawn cancelled!");
@@ -158,7 +157,7 @@ fn handle_world_msgs(server: Arc<WorldServer>, _realm_api: RealmApi, event_sende
                                     }
                                 },
                                 ClusterMessage::ClientLeft => {
-                                    debug!("Client left: {}", id);
+                                    debug!("Client left: {id}");
                                     controllers.remove(&id);
                                 },
                                 ClusterMessage::TravelAccepted => {

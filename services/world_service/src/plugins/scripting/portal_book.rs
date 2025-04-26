@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::ecs::{system::{In, Query, Res}, world::World};
+use bevy::ecs::{system::{In, Query}, world::World};
 use mlua::{Lua, Table};
 use protocol::{oaPktPortalRequestAck, PortalAckPartB};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};

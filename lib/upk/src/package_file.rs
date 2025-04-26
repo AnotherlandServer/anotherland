@@ -195,7 +195,7 @@ impl PackageFile {
 
     pub fn lookup_name(&self, idx: usize) -> FName {
         self.names.get(idx).cloned()
-            .unwrap_or_else(||panic!("Failed to lookup name index {}", idx))
+            .unwrap_or_else(||panic!("Failed to lookup name index {idx}"))
     }
 
     pub fn lookup_export_by_name(&self, name: &str) -> Option<ExportRef> {

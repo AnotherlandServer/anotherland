@@ -68,7 +68,7 @@ impl InstanceRegistry {
 
                         for (key, req) in timedout {
                             if req.count < 4 {
-                                warn!("Instance request {} timed out! Retrying...", key);
+                                warn!("Instance request {key} timed out! Retrying...");
 
                                 let request = {
                                     let entry = s.requests

@@ -13,8 +13,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![feature(let_chains)]
-
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use clap::Parser;
@@ -126,7 +124,7 @@ async fn main() -> ClusterFrontendResult<()> {
                                         connections.retain(|_, c| !c.is_closed()); // Cleanup connections
                                         connections.insert(session_id, sender);
                                     },
-                                    Err(e) => { error!("Failed to start cluster session: {:#?}", e); },
+                                    Err(e) => { error!("Failed to start cluster session: {e:#?}"); },
                                 }
                             }
                         });

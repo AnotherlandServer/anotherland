@@ -162,7 +162,7 @@ impl RealmApi {
         if let Some(CreateCharacterInAccount { create_character_in_account }) = response.data {
             Ok(Character::from_graphql(self, create_character_in_account)?)
         } else if let Some(errors) = response.errors {
-            debug!("Errors: {:#?}", errors);
+            debug!("Errors: {errors:#?}");
             Err(RealmApiError::GraphQl(errors))
         } else {
             unreachable!()
@@ -206,7 +206,7 @@ impl RealmApi {
                 Ok(None)
             }
         } else if let Some(errors) = response.errors {
-            debug!("Errors: {:#?}", errors);
+            debug!("Errors: {errors:#?}");
             Err(RealmApiError::GraphQl(errors))
         } else {
             unreachable!()
@@ -225,7 +225,7 @@ impl RealmApi {
         if let Some(character_graphql::CharacterApplyClassItem { character_apply_class_item }) = response.data {
             EquipmentResult::from_graphql(self, character_apply_class_item)
         } else if let Some(errors) = response.errors {
-            debug!("Errors: {:#?}", errors);
+            debug!("Errors: {errors:#?}");
             Err(RealmApiError::GraphQl(errors))
         } else {
             unreachable!()

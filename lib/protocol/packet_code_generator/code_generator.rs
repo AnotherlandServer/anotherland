@@ -130,8 +130,8 @@ pub fn generate_struct_code(structs: &Vec<Rc<RefCell<GeneratedStruct>>>) -> Toke
     for generated_struct in structs {
         let generated_struct = generated_struct.borrow();
 
-        if let GeneratedStructSource::PacketDefintion(pkg) = &generated_struct.definition {
-            if pkg.borrow().id == 0 { continue; }
+        if let GeneratedStructSource::PacketDefintion(pkg) = &generated_struct.definition && pkg.borrow().id == 0 {
+            continue;
         }
 
         let struct_ident = format_ident!("{}", generated_struct.name);
@@ -261,8 +261,8 @@ pub fn generate_nom_parser_for_field(generated_struct: &GeneratedStruct, field: 
                         FieldTypeDefinition::CString { .. } => quote! { parse_pkt_cstring },
                         FieldTypeDefinition::WString { .. } => quote! { parse_pkt_wstring },
                         FieldTypeDefinition::Struct(_) => {
-                            println!("{:#?}", field);
-                            println!("{:#?}", generated_field);
+                            println!("{field:#?}");
+                            println!("{generated_field:#?}");
                             match &generated_field.r#type {
                                 GeneratedFieldType::Struct(GeneratedStructReference::Resolved(generated_struct)) => {
                                     let struct_ident = format_ident!("{}", generated_struct.borrow().name);
@@ -340,11 +340,11 @@ pub fn generate_field_parser_code(generated_struct: &GeneratedStruct, field: &Fi
                     quote!{#cond_field_ident}
                 },
                 BranchTestDefinition::TestFlag(flag) => {
-                    let val = TokenStream::from_str(&format!("{}", flag)).unwrap();
+                    let val = TokenStream::from_str(&format!("{flag}")).unwrap();
                     quote!{(#cond_field_ident & #val) != 0}
                 },
                 BranchTestDefinition::TestEqual(val) => {
-                    let val = TokenStream::from_str(&format!("{}", val)).unwrap();
+                    let val = TokenStream::from_str(&format!("{val}")).unwrap();
                     quote!{#cond_field_ident == #val}
                 },
             };
@@ -573,11 +573,11 @@ pub fn generate_field_writer_code(generated_struct: &GeneratedStruct, field_def:
                 let condition = match &test {
                     BranchTestDefinition::BoolValue => quote!{self.#generated_test_field_ident.unwrap_or_default()},
                     BranchTestDefinition::TestFlag(flag) => {
-                        let val = TokenStream::from_str(&format!("{}", flag)).unwrap();
+                        let val = TokenStream::from_str(&format!("{flag}")).unwrap();
                         quote!{(self.#generated_test_field_ident.unwrap_or_default() & #val) != 0}
                     },
                     BranchTestDefinition::TestEqual(val) => {
-                        let val = TokenStream::from_str(&format!("{}", val)).unwrap();
+                        let val = TokenStream::from_str(&format!("{val}")).unwrap();
                         quote!{self.#generated_test_field_ident.unwrap_or_default() == #val}
                     },
                 };
@@ -593,11 +593,11 @@ pub fn generate_field_writer_code(generated_struct: &GeneratedStruct, field_def:
                 let condition = match &test {
                     BranchTestDefinition::BoolValue => quote!{self.#generated_test_field_ident},
                     BranchTestDefinition::TestFlag(flag) => {
-                        let val = TokenStream::from_str(&format!("{}", flag)).unwrap();
+                        let val = TokenStream::from_str(&format!("{flag}")).unwrap();
                         quote!{(self.#generated_test_field_ident & #val) != 0}
                     },
                     BranchTestDefinition::TestEqual(val) => {
-                        let val = TokenStream::from_str(&format!("{}", val)).unwrap();
+                        let val = TokenStream::from_str(&format!("{val}")).unwrap();
                         quote!{self.#generated_test_field_ident == #val}
                     },
                 };

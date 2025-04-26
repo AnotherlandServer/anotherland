@@ -66,7 +66,7 @@ fn handle_command_request(
             if let Some(system) = cmd_handlers.0.get(&cmd) {
                 commands.run_system_with_input(*system, (ent, iter.collect()));
             } else {
-                warn!("Unknown command: {}", cmd);
+                warn!("Unknown command: {cmd}");
             }
         }
     } else {

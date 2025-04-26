@@ -61,7 +61,7 @@ impl <T: Attribute> Param <T> {
         let attr: T = match attribute_id.try_into() {
             Ok(attr) => attr,
             Err(_) => {
-                warn!("failed to parse attribute id {}", attribute_id);
+                warn!("failed to parse attribute id {attribute_id}");
                 return fail(i);
             },
         };

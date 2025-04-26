@@ -65,10 +65,11 @@ impl AuthSessionContext {
                     res = context.socket.recv() => {
                         match res {
                             Ok(buf) => {
-                                if let Ok((_, pkt)) = CPkt::from_bytes(&buf) {
-                                    if let Err(e) = context.handle(pkt).await {
-                                        error!("Message handler error: {:?}", e);
-                                    }
+                                if 
+                                    let Ok((_, pkt)) = CPkt::from_bytes(&buf) &&
+                                    let Err(e) = context.handle(pkt).await
+                                {
+                                    error!("Message handler error: {e:?}");
                                 }
                             },
                             Err(_) => {
@@ -105,7 +106,7 @@ impl AuthSessionContext {
     }
 
     async fn handle(&mut self, pkt: CPkt) -> Result<(), AppError> {
-        debug!("Pkt: {:?}", pkt);
+        debug!("Pkt: {pkt:?}");
 
         match pkt {
             CPkt::CPktLogin(pkt) => {
@@ -226,7 +227,7 @@ impl AuthSessionContext {
                 Ok(())
             },
             _ => {
-                debug!("Unhandled message: {:?}", pkt);
+                debug!("Unhandled message: {pkt:?}");
                 Ok(())
             }
         }

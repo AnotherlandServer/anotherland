@@ -55,7 +55,7 @@ impl Plugin for TravelPlugin {
                 {
                     controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint);
                 } else {
-                    error!("Map '{}' not found!", world);
+                    error!("Map '{world}' not found!");
                 }
 
                 Ok::<_, WorldError>(())
@@ -183,31 +183,32 @@ fn handle_social_travel(
     instance: Res<ZoneInstance>,
     players: Query<&PlayerController>,
 ) {
-    if cmd.is_travel {
-        if let Ok(controller) = players.get(ent).cloned() {
-            let realm_api = instance.realm_api.clone();
-            instance.spawn_task(async move {
-                if let Err(e) = async {
-                    
-                    if 
-                        let Some(world_def) = realm_api.query_worlddefs()
-                            .name(cmd.map_name.clone())
-                            .query().await?.try_next().await? &&
-                        let Some(zone) = realm_api.query_zones()
-                            .zone_type(ZoneType::World)
-                            .worlddef_guid(*world_def.guid())
-                            .query().await?.try_next().await?
-                    {
-                        controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint);
-                    } else {
-                        error!("Map '{}' not found!", cmd.map_name);
-                    }
-
-                    Ok::<_, WorldError>(())
-                }.await {
-                    error!("Failed to travel to map '{}': {:?}", cmd.map_name, e);
+    if 
+        cmd.is_travel &&
+        let Ok(controller) = players.get(ent).cloned()
+    {
+        let realm_api = instance.realm_api.clone();
+        instance.spawn_task(async move {
+            if let Err(e) = async {
+                
+                if 
+                    let Some(world_def) = realm_api.query_worlddefs()
+                        .name(cmd.map_name.clone())
+                        .query().await?.try_next().await? &&
+                    let Some(zone) = realm_api.query_zones()
+                        .zone_type(ZoneType::World)
+                        .worlddef_guid(*world_def.guid())
+                        .query().await?.try_next().await?
+                {
+                    controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint);
+                } else {
+                    error!("Map '{}' not found!", cmd.map_name);
                 }
-            });
-        }
+
+                Ok::<_, WorldError>(())
+            }.await {
+                error!("Failed to travel to map '{}': {e:?}", cmd.map_name);
+            }
+        });
     }
 }

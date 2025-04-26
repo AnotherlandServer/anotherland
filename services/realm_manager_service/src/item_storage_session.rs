@@ -257,7 +257,7 @@ impl ItemStorageSession {
                         let id = item.id;
                         let idx = *item.instance.get::<_, i32>(ItemBase::InventorySlotIndex).unwrap() as usize;
 
-                        debug!("Loading time {:#?}", item);
+                        debug!("Loading time {item:#?}");
                         
                         if let Some(slot) = tab.slots.get_mut(idx) {
                             let item = Arc::new(Mutex::new(item));
@@ -334,7 +334,7 @@ impl ItemStorageSession {
             let tab = storage_session.get_item_tab(&item.instance);
             let id = item.id;
 
-            debug!("Placing unplacable item {:?}", id);
+            debug!("Placing unplacable item {id:?}");
 
             // Find free slot
             for (idx, slot) in tab.slots.iter_mut().enumerate() {
@@ -520,10 +520,11 @@ impl ItemStorageSession {
             // Remove item from any slot
             for slots in equipment.0.values_mut() {
                 for slot in slots.iter_mut() {
-                    if let Some(item) = slot {
-                        if item.id().await == item_id {
-                            *slot = None;
-                        }
+                    if 
+                        let Some(item) = slot &&
+                        item.id().await == item_id
+                    {
+                        *slot = None;
                     }
                 }
             }

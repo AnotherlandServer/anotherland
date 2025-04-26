@@ -35,7 +35,7 @@ pub struct CombatStyle {
 
 impl CombatStyle {
     pub async fn load(name: &str) -> Result<CombatStyle, Error> {
-        let path = get_content_path(format!("combat_styles/{}.yaml", name))?;
+        let path = get_content_path(format!("combat_styles/{name}.yaml"))?;
         let file = tokio::fs::read(path).await?;
         let style: CombatStyle = serde_yaml::from_slice(&file)?;
         Ok(style)

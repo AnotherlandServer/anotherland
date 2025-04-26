@@ -99,7 +99,7 @@ impl Router {
                                     }
                                 },
                                 Err(_) => {
-                                    warn!("World node '{}' connection closed.", world_id);
+                                    warn!("World node '{world_id}' connection closed.");
                                     break
                                 },
                             }

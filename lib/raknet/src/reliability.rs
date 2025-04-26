@@ -129,11 +129,12 @@ impl RecvQ {
             },
             Reliability::UnreliableSequenced => {
                 let message_number = frame.message_number();
-                if message_number >= self.sequenced_frame_index {
-                    if let Entry::Vacant(e) = self.packets.entry(frame.message_number()) {
-                        e.insert(frame);
-                        self.sequenced_frame_index = message_number + 1;
-                    }
+                if 
+                    message_number >= self.sequenced_frame_index &&
+                    let Entry::Vacant(e) = self.packets.entry(frame.message_number())
+                {
+                    e.insert(frame);
+                    self.sequenced_frame_index = message_number + 1;
                 }
             },
             Reliability::Reliable => {
@@ -162,11 +163,12 @@ impl RecvQ {
             },
             Reliability::ReliableSequenced => {
                 let message_number = frame.message_number();
-                if message_number >= self.sequenced_frame_index {
-                    if let Entry::Vacant(e) = self.packets.entry(frame.message_number()) {
-                        e.insert(frame);
-                        self.sequenced_frame_index = message_number + 1;
-                    }
+                if 
+                    message_number >= self.sequenced_frame_index &&
+                    let Entry::Vacant(e) = self.packets.entry(frame.message_number())
+                {
+                    e.insert(frame);
+                    self.sequenced_frame_index = message_number + 1;
                 }
             }
         }

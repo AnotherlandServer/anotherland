@@ -96,7 +96,7 @@ impl <T: IntoLuaMulti + Send + 'static> EntityCommand for LuaMethodCall<T> {
                         if let Ok(method) = obj.get::<Function>(name.as_str()) {
                             Some((method, self.args.into_lua_multi(&lua)?))
                         } else {
-                            debug!("Method '{}' not found!", name);
+                            debug!("Method '{name}' not found!");
                             None
                         }
                     },
@@ -121,7 +121,7 @@ impl <T: IntoLuaMulti + Send + 'static> EntityCommand for LuaMethodCall<T> {
 
             Ok(())
         }) {
-            error!("Script error: {}", e);
+            error!("Script error: {e}");
         }
     }
 }

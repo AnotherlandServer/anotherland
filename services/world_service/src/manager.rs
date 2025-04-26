@@ -106,7 +106,7 @@ impl InstanceManager {
                 }
             }
 
-            info!("Serving zones for groups: {:?}", groups);
+            info!("Serving zones for groups: {groups:?}");
         }
         
         Ok(Self(Arc::new(Mutex::new(InstanceManagerData { 
@@ -135,7 +135,7 @@ impl InstanceManager {
         let mut s = self.0.lock().await;
         if s.instances.len() >= s.limit { return Ok(()); } // Exit early if instance limit is hit
 
-        debug!("Got instance request for zone {} with key {:?} until {}", zone, key, valid_until);
+        debug!("Got instance request for zone {zone} with key {key:?} until {valid_until}");
 
         if let Some(zone) = s.zones.get(&zone).cloned() {
             if key.is_none() && !zone.realu_zone_type().is_empty() {
@@ -176,7 +176,7 @@ impl InstanceManager {
                 error!("Can't offer zone {}, world not found!", zone.guid());
             }
         } else {
-            debug!("Zone {} not served by this server.", zone);
+            debug!("Zone {zone} not served by this server.");
         }
 
         // Cleanup expired requests
@@ -214,7 +214,7 @@ impl InstanceManager {
                     let _ = s.event_sender.send(InstanceEvent::InstanceAdded(Box::new(instance)));
                 },
                 Err(e) => {
-                    error!("Failed to instantiate instance: {:?}", e);
+                    error!("Failed to instantiate instance: {e:?}");
                 }
             }
         }
@@ -231,7 +231,7 @@ impl InstanceManager {
         let mut s = self.0.lock().await;
         s.instances.retain(|l| l != &label);
 
-        debug!("Instance stopped {:?}", label);
+        debug!("Instance stopped {label:?}");
 
         let _ = s.event_sender.send(InstanceEvent::InstanceRemoved(label));
         if s.instances.is_empty() && s.limit == 0 {

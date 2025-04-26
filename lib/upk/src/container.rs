@@ -87,11 +87,11 @@ impl Container {
     pub fn mount_package<'a>(&'a mut self, name: &'a str) -> BoxFuture<'a, UPKResult<()>> {
         async move {
             if !self.packages.contains_key(name) {
-                debug!("*** Loading package: {}", name);
+                debug!("*** Loading package: {name}");
 
                 // open file
                 let file = Arc::new(PackageFile::open(
-                    self.base.join(format!("{}.upk", name))
+                    self.base.join(format!("{name}.upk"))
                 ).await?);
 
                 // register reference to package
@@ -103,7 +103,7 @@ impl Container {
                 }
 
                 // add exports to object map
-                debug!("*** Processing package: {}", name);
+                debug!("*** Processing package: {name}");
 
                 // fo a first pass to instantiate all the classes
                 for export in  file.iter_exports().filter(|export| matches!(export.class_ref(), LocalObjectIndexRef::Null)) {

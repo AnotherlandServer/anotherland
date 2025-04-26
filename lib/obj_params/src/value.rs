@@ -82,7 +82,7 @@ impl Value {
                     if let Ok(string) = String::from_utf8(bytes.to_vec()) {
                         Ok((i, Value::String(string)))
                     } else {
-                        println!("Failed to parse string: {:#?}", bytes);
+                        println!("Failed to parse string: {bytes:#?}");
                         fail(i)
                     }
                 })(i)
@@ -101,7 +101,7 @@ impl Value {
                     {
                         Ok((i, Value::StringPair((string_a, string_b))))
                     } else {
-                        println!("Failed to parse string: {:#?} / {:#?}", bytes_a, bytes_b);
+                        println!("Failed to parse string: {bytes_a:#?} / {bytes_b:#?}");
                         fail(i)
                     }
                 })(i)
@@ -117,7 +117,7 @@ impl Value {
                     if let Ok(string) = String::from_utf8(bytes.to_vec()) {
                         Ok((i, Value::StringFloatPair((string, val))))
                     } else {
-                        println!("Failed to parse string: {:#?}", bytes);
+                        println!("Failed to parse string: {bytes:#?}");
                         fail(i)
                     }
                 })(i)
@@ -133,7 +133,7 @@ impl Value {
                         if let Ok(string) = String::from_utf8(bytes.to_vec()) {
                             Ok((i, string))
                         } else {
-                            println!("Failed to parse string: {:#?}", bytes);
+                            println!("Failed to parse string: {bytes:#?}");
                             fail(i)
                         }
                     }, count as usize)(i)?;
@@ -304,7 +304,7 @@ impl Value {
                     if let Ok(string) = String::from_utf8(bytes.to_vec()) {
                         Ok((i, Value::ContentRef(string.parse().ok())))
                     } else {
-                        println!("Failed to parse ContentRef: {:#?}", bytes);
+                        println!("Failed to parse ContentRef: {bytes:#?}");
                         fail(i)
                     }
                 })(i)
@@ -317,7 +317,7 @@ impl Value {
                     if let Ok(string) = String::from_utf8(bytes.to_vec()) {
                         Ok((i, Value::ContentRefAndInt(string)))
                     } else {
-                        println!("Failed to parse ContentRefAndInt: {:#?}", bytes);
+                        println!("Failed to parse ContentRefAndInt: {bytes:#?}");
                         fail(i)
                     }
                 })(i)
@@ -330,7 +330,7 @@ impl Value {
                     if let Ok(string) = String::from_utf8(bytes.to_vec()) {
                         Ok((i, Value::ContentRefAndFloat(string)))
                     } else {
-                        println!("Failed to parse ContentRefAndFloat: {:#?}", bytes);
+                        println!("Failed to parse ContentRefAndFloat: {bytes:#?}");
                         fail(i)
                     }
                 })(i)
@@ -343,12 +343,12 @@ impl Value {
                     if let Ok(string) = String::from_utf8(bytes.to_vec()) {
                         Ok((i, Value::ContentRefList(
                             string.parse().inspect_err(|_| {
-                                debug!("Failed to parse ContentRefList: {}", string);
+                                debug!("Failed to parse ContentRefList: {string}");
                             })
                             .unwrap_or_default()
                         )))
                     } else {
-                        println!("Failed to parse ContentRefList: {:#?}", bytes);
+                        println!("Failed to parse ContentRefList: {bytes:#?}");
                         fail(i)
                     }
                 })(i)
@@ -361,7 +361,7 @@ impl Value {
                     if let Ok(string) = String::from_utf8(bytes.to_vec()) {
                         Ok((i, Value::ClassRefPowerRangeList(string)))
                     } else {
-                        println!("Failed to parse ClassRefPowerRangeList: {:#?}", bytes);
+                        println!("Failed to parse ClassRefPowerRangeList: {bytes:#?}");
                         fail(i)
                     }
                 })(i)
@@ -397,7 +397,7 @@ impl Value {
                         if let Ok(string) = String::from_utf8(bytes.to_vec()) {
                             Ok((i, string))
                         } else {
-                            println!("Failed to parse string: {:#?}", bytes);
+                            println!("Failed to parse string: {bytes:#?}");
                             fail(i)
                         }
                     }, count as usize)(i)?;
@@ -456,7 +456,7 @@ impl Value {
                     if let Ok(string) = String::from_utf8(bytes.to_vec()) {
                         Ok((i, Value::InstanceGroup(string)))
                     } else {
-                        println!("Failed to parse InstanceGroup: {:#?}", bytes);
+                        println!("Failed to parse InstanceGroup: {bytes:#?}");
                         fail(i)
                     }
                 })(i)

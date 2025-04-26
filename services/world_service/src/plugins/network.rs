@@ -459,10 +459,10 @@ pub fn handle_cluster_client_to_community(
     {
         if let Some(handler) = res.0.get(id) {
             if let Err(e) = handler(&mut commands, ent, pkt.field_3) {
-                error!("Failed to parse client to community command: {:?}", e);
+                error!("Failed to parse client to community command: {e:?}");
             }
         } else {
-            error!("Unknown client to community command: {:#02x}", id);
+            error!("Unknown client to community command: {id:#02x}");
         }
     }
 }
@@ -478,10 +478,10 @@ pub fn handle_cluster_client_to_communication(
     {
         if let Some(handler) = res.0.get(id) {
             if let Err(e) = handler(&mut commands, ent, pkt.field_3) {
-                error!("Failed to parse client to communication command: {:?}", e);
+                error!("Failed to parse client to communication command: {e:?}");
             }
         } else {
-            error!("Unknown client to communication command: {:#02x}", id);
+            error!("Unknown client to communication command: {id:#02x}");
         }
     }
 }
@@ -506,7 +506,7 @@ pub fn handle_cluster_client_to_cluster_node(
                 data.set(Player::PlayerLoading, false);
             }
             _ => {
-                warn!("Unknown cluster node packet: {:#?}", pkt);
+                warn!("Unknown cluster node packet: {pkt:#?}");
             }
         }
     }

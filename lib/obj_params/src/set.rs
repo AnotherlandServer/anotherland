@@ -368,7 +368,7 @@ fn read_attribute(class: Class, i: &[u8]) -> IResult<&[u8], AttributeValue, Verb
     let attribute = match class.get_attribute_from_id(attribute_id) {
         Some(attribute) => attribute,
         None => {
-            warn!("failed to parse attribute id {}", attribute_id);
+            warn!("failed to parse attribute id {attribute_id}");
             return fail(i);
         },
     };

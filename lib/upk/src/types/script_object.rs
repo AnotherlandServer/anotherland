@@ -265,7 +265,7 @@ fn parse_struct_attribute<'a>(file: &'a Arc<PackageFile>, container: &'a Contain
             file.lookup_name(idx as usize)
         })(i)?;
 
-        debug!("{}", name);
+        debug!("{name}");
 
         let attribute_def = object.data::<ScriptClass>()
             .unwrap()
@@ -326,7 +326,7 @@ fn parse_struct<'a>(file: &'a Arc<PackageFile>, container: &'a Container, object
                         .children()
                         .iter()
                         .find(|p| p.fname() == &class)
-                        .unwrap_or_else(|| panic!("Unable to find property class: {}", class))
+                        .unwrap_or_else(|| panic!("Unable to find property class: {class}"))
                     ))
                 }
             }

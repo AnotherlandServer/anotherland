@@ -153,7 +153,7 @@ impl NativeParam {
                     })(data)
                 },
                 _ => {
-                    error!("Unknown native param type {}", r#type);
+                    error!("Unknown native param type {type}");
                     context("unknown type", fail)(data)
                 }
                 //_ => panic!,

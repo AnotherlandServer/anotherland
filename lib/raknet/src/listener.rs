@@ -112,7 +112,7 @@ impl RakNetListener {
             tokio::spawn(async move {
                 let mut buf = [0u8; RECV_BUFFER_SIZE];
 
-                info!("Listening on {}", local_addr);
+                info!("Listening on {local_addr}");
 
                 'net_loop: loop {
                     let size;
@@ -130,7 +130,7 @@ impl RakNetListener {
                                     // Workaround for WSAECONNRESET after sending to a closed socket.
                                     // https://github.com/tokio-rs/tokio/issues/2017
                                     if e.kind() == io::ErrorKind::ConnectionReset { continue; }
-                                    debug!("Listener recv error: {}", e);
+                                    debug!("Listener recv error: {e}");
                                     break 'net_loop;
                                 }
                             }
@@ -279,7 +279,7 @@ impl RakNetListener {
                 let mut sessions = sessions.lock().await;
                 if sessions.contains_key(&addr) {
                     sessions.remove(&addr);
-                    debug!("reap session: {}", addr);
+                    debug!("reap session: {addr}");
                 }
             }
 
@@ -300,7 +300,7 @@ impl RakNetListener {
 
                 if sessions.contains_key(&addr) {
                     sessions.remove(&addr);
-                    debug!("reap session: {}", addr);
+                    debug!("reap session: {addr}");
                 }
             }
 

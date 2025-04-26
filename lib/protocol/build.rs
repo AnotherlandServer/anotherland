@@ -13,12 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![feature(let_chains)]
-
 use std::{env, path::Path, fs, io};
-
 use proc_macro2::TokenStream;
-
 use crate::packet_code_generator::generate_packet_code;
 
 mod packet_code_generator;
@@ -32,7 +28,7 @@ pub fn write_source(name: &str, tokens: TokenStream) -> io::Result<()> {
             Ok(v) => v,
             Err(e) => {
                 println!("Code generation error for {}!", out_dir_path.to_str().unwrap());
-                println!("Error: {}", e);
+                println!("Error: {e}");
                 panic!();
             }
         };

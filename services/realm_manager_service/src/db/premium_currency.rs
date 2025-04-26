@@ -50,10 +50,11 @@ impl PremiumCurrency {
 
             loop {
                 let result = session.commit_transaction().await;
-                if let Err(ref error) = result {
-                    if error.contains_label(UNKNOWN_TRANSACTION_COMMIT_RESULT) {
-                        continue;
-                    }
+                if 
+                    let Err(ref error) = result &&
+                    error.contains_label(UNKNOWN_TRANSACTION_COMMIT_RESULT)
+                {
+                    continue;
                 }
 
                 if result.is_ok() {

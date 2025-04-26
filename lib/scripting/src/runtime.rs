@@ -74,7 +74,7 @@ impl LuaRuntimeBuilder {
 
         // Prepare require
         let package = lua.globals().get::<Table>("package")?;
-        package.set("path", format!("./?.lua;./?/init.lua;{}", configured_paths))?;
+        package.set("path", format!("./?.lua;./?/init.lua;{configured_paths}"))?;
 
         // Scope global context for module loading
         let scoped_global = lua.create_table()?;
@@ -304,7 +304,7 @@ pub(crate) fn prepare_hot_reload(
                 },
                 Err(errors) => {
                     for err in errors {
-                        error!("{:?}", err);
+                        error!("{err:?}");
                     }
                 },
             }
@@ -354,7 +354,7 @@ pub(crate) fn hot_reload(
     // Ingest all events
     while let Ok(path) = recv.0.try_recv() {
         if let Err(e) = runtime.hot_reload_script(&path.canonicalize().unwrap()) {
-            error!("Hot-reload failed: {:?}", e);
+            error!("Hot-reload failed: {e:?}");
         }
 
         had_events = true;

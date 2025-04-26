@@ -137,6 +137,6 @@ impl Display for ContentRefList {
             content_refs.push(']');
         }
 
-        write!(f, "{}", content_refs)
+        write!(f, "{content_refs}")
     }
 }

@@ -266,8 +266,8 @@ impl Character {
             }
         }
 
-        debug!("Equipment: {:?}", visible_equipment);
-        debug!("Disguises: {:?}", disguises);
+        debug!("Equipment: {visible_equipment:?}");
+        debug!("Disguises: {disguises:?}");
 
         // Insert equipped items
         for item in visible_equipment {
@@ -279,7 +279,7 @@ impl Character {
             apply_equipment(Arc::new(item), &mut visible_slots);
         }
 
-        debug!("Visible slots: {:?}", visible_slots);
+        debug!("Visible slots: {visible_slots:?}");
 
         // Todo: Update character stats
 

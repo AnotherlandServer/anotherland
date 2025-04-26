@@ -77,10 +77,11 @@ impl Cooldowns {
 
     pub fn update(&mut self) {
         for (_, (_, state)) in self.0.iter_mut() {
-            if let CooldownState::Cooldown(start, duration) = state {
-                if start.elapsed() >= *duration {
-                    *state = CooldownState::Ready;
-                }
+            if 
+                let CooldownState::Cooldown(start, duration) = state &&
+                start.elapsed() >= *duration
+            {
+                *state = CooldownState::Ready;
             }
         }
     }

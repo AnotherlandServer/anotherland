@@ -163,7 +163,7 @@ pub fn update_spawn_state(
         match *state {
             SpawnState::Alive => {
                 if !*obj.get_named::<bool>("alive").unwrap() {
-                    debug!("Entity {} is dead", ent);
+                    debug!("Entity {ent} is dead");
                     state.mark_killed();
                 }
             }
@@ -171,7 +171,7 @@ pub fn update_spawn_state(
                 let despawn_delay = *obj.get::<_, f32>(NonClientBase::DespawnDelay).unwrap();
 
                 if instant.elapsed().as_secs_f32() >= despawn_delay {
-                    debug!("Despawning entity {}", ent);
+                    debug!("Despawning entity {ent}");
 
                     state.mark_despawned();
                     commands.entity(ent).remove::<Active>();
@@ -181,7 +181,7 @@ pub fn update_spawn_state(
                 let despawn_delay = *obj.get::<_, f32>(NonClientBase::DespawnDelay).unwrap();
 
                 if instant.elapsed().as_secs_f32() >= despawn_delay {
-                    debug!("Respawning entity {}", ent);
+                    debug!("Respawning entity {ent}");
 
                     state.mark_alive();
                     health_events.send(HealthUpdateEvent::revive(ent, None));

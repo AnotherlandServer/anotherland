@@ -129,7 +129,7 @@ pub fn handle_move_manager_state_changed(
         movement.version = pkt.new_version;
         movement.mover_key = pkt.mover_key;
 
-        debug!("Player mover init: {:#?}", movement);
+        debug!("Player mover init: {movement:#?}");
     }
 }
 

@@ -31,7 +31,7 @@ use anyhow::anyhow;
 
 use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource, MessageType}, proto::TravelMode, OBJECT_CACHE};
 
-use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CachedObject, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, FutureCommands, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
+use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, FutureCommands, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -315,7 +315,7 @@ fn request_player_characters(
                     debug!("Player combat style does not match skillbook");
 
                     if let Err(e) = skillbook.change_class(combat_style.into(), Some(level)).await {
-                        warn!("Failed to change skillbook: {:?}", e);
+                        warn!("Failed to change skillbook: {e:?}");
                     }
                 } else if skillbook.character_level != level {
                     let _ = skillbook.level_up(level).await;
@@ -439,7 +439,7 @@ fn insert_player_characters(
                                 obj.set(Player::Pos, (0u32, *exit_point.get::<_, Vec3>(NonClientBase::Pos).unwrap()));
                                 obj.set(Player::Rot, *exit_point.get::<_, Vec3>(NonClientBase::Rot).unwrap());
                             } else {
-                                warn!("No exit node found for portal {}", uuid);
+                                warn!("No exit node found for portal {uuid}");
 
                                 // Lookup the entrypoint
                                 if let Some(starting_point) = starting_points.iter().next() {
@@ -628,7 +628,7 @@ fn save_player_data(
             .collect::<Box<dyn GenericParamSet>>();
 
         if !persistent_diff.is_empty() {
-            trace!("Saving character update for: {} - {:#?}", id, persistent_diff);
+            trace!("Saving character update for: {id} - {persistent_diff:#?}");
 
             // We probably should move this into it's own task and just 
             // send a (blocking) message here, se we can have
@@ -636,7 +636,7 @@ fn save_player_data(
             // Also, errors are not really handled here.
             instance.spawn_task(async move {
                 if let Err(e) = realm_api.update_character_data_diff(&id, persistent_diff).await {
-                    error!("Character update failed: {:?}", e);
+                    error!("Character update failed: {e:?}");
                 }
             });
         }  
@@ -663,7 +663,7 @@ pub fn handle_avatar_update(
             let Some(Value::Any(ability_bar)) = params.get_param(Player::CurrentAbilityBarReferences.name()) &&
             let Ok(ability_bar) = oaAbilityBarReferences::from_bytes(ability_bar)
         {
-            debug!("{:#?}", ability_bar);
+            debug!("{ability_bar:#?}");
         }
 
         obj.apply(params.as_mut());
@@ -698,7 +698,7 @@ fn behavior_respawnnow(
                 }
             }
         },
-        Some(m) => warn!("Unknown respawn mode: {}", m),
+        Some(m) => warn!("Unknown respawn mode: {m}"),
         None => (),
     }
 }
@@ -758,7 +758,7 @@ fn apply_class_item_result(
             }
         },
         Err(e) => {
-            error!("Failed to apply class item: {:?}", e);
+            error!("Failed to apply class item: {e:?}");
             commands
                 .entity(ent)
                 .despawn_recursive();

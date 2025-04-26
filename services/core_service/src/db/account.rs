@@ -130,10 +130,11 @@ impl Account {
         self.last_login = Some(Utc::now());
 
         // reset password if one-time-password is used
-        if let Credentials::Username { password, .. } = &mut self.credentials {
-            if matches!(password, PasswordHash::OneTimePassword(_, _)) {
-                *password = PasswordHash::Unset;
-            }
+        if 
+            let Credentials::Username { password, .. } = &mut self.credentials &&
+            matches!(password, PasswordHash::OneTimePassword(_, _))
+        {
+            *password = PasswordHash::Unset;
         }
     }
 

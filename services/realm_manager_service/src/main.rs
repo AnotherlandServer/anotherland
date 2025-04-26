@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![feature(let_chains)]
 #![feature(exclusive_wrapper)]
 
 use std::collections::HashMap;
@@ -248,7 +247,7 @@ async fn main() -> RealmResult<()> {
                                                 NODE_REGISTRY.get().unwrap()
                                                     .register_node(peer, node_type, NodeSocketAddress::Internal(SocketAddr::new(ip, port))).await
                                             } else {
-                                                error!("Unsupported node endpoint: {}", endpoint);
+                                                error!("Unsupported node endpoint: {endpoint}");
                                             }
 
                                             break;
@@ -270,7 +269,7 @@ async fn main() -> RealmResult<()> {
                             .complete_instance_provisioning(peer, transaction_id).await;
                     },
                     proto::RealmRequest::InstanceShutdownNotification(key) => {
-                        debug!("Instance {:?} shutting down...", key);
+                        debug!("Instance {key:?} shutting down...");
                         INSTANCE_REGISTRY.get().unwrap()
                             .remove_instance(key.clone()).await;
 

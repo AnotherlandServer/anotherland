@@ -119,10 +119,10 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                         let desc = if let Some(ObjectProperty::String(desc)) = link.attrib("LinkDesc") {
                             desc.to_owned()
                         } else {
-                            format!("Input{}", idx)
+                            format!("Input{idx}")
                         };
 
-                        plot.push_str(format!("state \"{desc}\" as {}_input{idx} <<inputPin>>\n", obj_name).as_str());
+                        plot.push_str(format!("state \"{desc}\" as {obj_name}_input{idx} <<inputPin>>\n", ).as_str());
                     }
                 }
 
@@ -135,10 +135,10 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                         let desc = if let Some(ObjectProperty::String(desc)) = link.attrib("LinkDesc") {
                             desc.to_owned()
                         } else {
-                            format!("Input{}", idx)
+                            format!("Input{idx}")
                         };
 
-                        plot.push_str(format!("state \"{desc}\" as {}_output{idx} <<outputPin>>\n", obj_name).as_str());
+                        plot.push_str(format!("state \"{desc}\" as {obj_name}_output{idx} <<outputPin>>\n").as_str());
                     }
                 }
 
@@ -146,71 +146,71 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
 
                 // Shared object properties
                 if let Some(ObjectProperty::String(msg)) = seq.attrib("ObjComment") {
-                    plot.push_str(format!("{} : {}\n", obj_name, msg).as_str());
+                    plot.push_str(format!("{obj_name} : {msg}\n").as_str());
                 }
 
                 if let Some(ObjectProperty::String(value)) = seq.attrib("ObjName") {
-                    plot.push_str(format!("{} : ObjName: {} \n", obj_name, value).as_str());
+                    plot.push_str(format!("{obj_name} : ObjName: {value} \n").as_str());
                 }
 
                 if let Some(ObjectProperty::String(value)) = seq.attrib("EventDesc") {
-                    plot.push_str(format!("{} : EventDesc: {} \n", obj_name, value).as_str());
+                    plot.push_str(format!("{obj_name} : EventDesc: {value} \n").as_str());
                 }
 
                 // add additional data
                 match obj.class().name() {
                     "SeqAct_Log" => {
                         if let Some(ObjectProperty::String(msg)) = seq.attrib("LogMessage") {
-                            plot.push_str(format!("{} : LogMessage: {}\n", obj_name, msg).as_str());
+                            plot.push_str(format!("{obj_name} : LogMessage: {msg}\n").as_str());
                         }
                     },
                     "OLSeqEvent_Travel" => {
                         if let Some(ObjectProperty::String(name)) = seq.attrib("EventName") {
-                            plot.push_str(format!("{} : EventName: {}\n", obj_name, name).as_str());
+                            plot.push_str(format!("{obj_name} : EventName: {name}\n").as_str());
                         }
                     },
                     "OLSeqCond_Bypass" => {
                         if let Some(ObjectProperty::String(val)) = seq.attrib("BypassGroup") {
-                            plot.push_str(format!("{} : BypassGroup: {}\n", obj_name, val).as_str());
+                            plot.push_str(format!("{obj_name} : BypassGroup: {val}\n").as_str());
                         }
 
                         if let Some(ObjectProperty::String(val)) = seq.attrib("BypassName") {
-                            plot.push_str(format!("{} : BypassName: {}\n", obj_name, val).as_str());
+                            plot.push_str(format!("{obj_name} : BypassName: {val}\n").as_str());
                         }
                     },
                     "RUSeqAct_CallCinematic" => {
                         if let Some(ObjectProperty::String(msg)) = seq.attrib("CinematicProxyName") {
-                            plot.push_str(format!("{} : CinematicProxyName: {}\n", obj_name, msg).as_str());
+                            plot.push_str(format!("{obj_name} : CinematicProxyName: {msg}\n").as_str());
                         }
                     },
                     "RUSeqEvent_CinematicActivated" => {
                         if let Some(ObjectProperty::Name(msg)) = seq.attrib("CinematicName") {
-                            plot.push_str(format!("{} : CinematicName: {}\n", obj_name, msg).as_str());
+                            plot.push_str(format!("{obj_name} : CinematicName: {msg}\n").as_str());
                         }
                     },
                     "OLSeqAct_SetServerState" => {
                         if let Some(ObjectProperty::Enum(name, value)) = seq.attrib("ConnectionState") {
-                            plot.push_str(format!("{} : ConnectionState: {} {:?}\n", obj_name, name, value.as_ref()).as_str());
+                            plot.push_str(format!("{obj_name} : ConnectionState: {name} {:?}\n", value.as_ref()).as_str());
                         }
                     },
                     "OLSeqAct_WaitForPlayerConnectionState" => {
                         if let Some(ObjectProperty::Enum(name, value)) = seq.attrib("StateToWaitFor") {
-                            plot.push_str(format!("{} : StateToWaitFor: {} {:?}\n", obj_name, name, value.as_ref()).as_str());
+                            plot.push_str(format!("{obj_name} : StateToWaitFor: {name} {:?}\n", value.as_ref()).as_str());
                         }
                     },
                     "SeqAct_ActivateRemoteEvent" => {
                         if let Some(ObjectProperty::Name(value)) = seq.attrib("EventName") {
-                            plot.push_str(format!("{} : EventName: {} \n", obj_name, value).as_str());
+                            plot.push_str(format!("{obj_name} : EventName: {value} \n").as_str());
                         }
                     },
                     "SeqEvent_RemoteEvent" => {
                         if let Some(ObjectProperty::Name(value)) = seq.attrib("EventName") {
-                            plot.push_str(format!("{} : EventName: {} \n", obj_name, value).as_str());
+                            plot.push_str(format!("{obj_name} : EventName: {value} \n").as_str());
                         }
                     },
                     "SeqEvent_Console" => {
                         if let Some(ObjectProperty::Name(value)) = seq.attrib("ConsoleEventName") {
-                            plot.push_str(format!("{} : ConsoleEventName: {} \n", obj_name, value).as_str());
+                            plot.push_str(format!("{obj_name} : ConsoleEventName: {value} \n").as_str());
                         }
                     },
                     "SeqAct_ConsoleCommand" => {
@@ -221,28 +221,28 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                                 _ => None,
                             }).collect::<Vec<_>>();
 
-                            plot.push_str(format!("{} : Commands: {} \n", obj_name, cmd_args.join(" ")).as_str());
+                            plot.push_str(format!("{obj_name} : Commands: {} \n", cmd_args.join(" ")).as_str());
                         }
                     },
                     "SeqAct_ControlGameMovie" => {
                         if let Some(ObjectProperty::String(name)) = seq.attrib("MovieName") {
-                            plot.push_str(format!("{} : MovieName: {}\n", obj_name, name).as_str());
+                            plot.push_str(format!("{obj_name} : MovieName: {name}\n").as_str());
                         }
                     },
                     "SeqAct_RequestServerAction" => {
                         if let Some(ObjectProperty::String(name)) = seq.attrib("SequenceName") {
-                            plot.push_str(format!("{} : SequenceName: {}\n", obj_name, name).as_str());
+                            plot.push_str(format!("{obj_name} : SequenceName: {name}\n").as_str());
                         }
                     },
                     "OLSeqEvent_Cinematic" => {
                         if let Some(ObjectProperty::String(name)) = seq.attrib("EventName") {
-                            plot.push_str(format!("{} : EventName: {}\n", obj_name, name).as_str());
+                            plot.push_str(format!("{obj_name} : EventName: {name}\n").as_str());
                         }
                         if let Some(ObjectProperty::String(name)) = seq.attrib("LevelName") {
-                            plot.push_str(format!("{} : LevelName: {}\n", obj_name, name).as_str());
+                            plot.push_str(format!("{obj_name} : LevelName: {name}\n").as_str());
                         }
                         if let Some(ObjectProperty::String(name)) = seq.attrib("CinematicName") {
-                            plot.push_str(format!("{} : CinematicName: {}\n", obj_name, name).as_str());
+                            plot.push_str(format!("{obj_name} : CinematicName: {name}\n").as_str());
                         }
                     },
                     _ => {},
@@ -272,8 +272,8 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                             let do_fork = links.len() > 1;
 
                             if do_fork {
-                                plot.push_str(format!("state {}_join_i{input_idx} <<join>>\n", obj_name).as_str());
-                                plot.push_str(format!("{}_join_i{input_idx} ---> {}_input{input_idx}\n", obj_name, obj_name).as_str());
+                                plot.push_str(format!("state {obj_name}_join_i{input_idx} <<join>>\n").as_str());
+                                plot.push_str(format!("{obj_name}_join_i{input_idx} ---> {obj_name}_input{input_idx}\n").as_str());
                             }
 
                             for link in links.iter().filter_map(|a| match &a {
@@ -295,9 +295,9 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                                 let output_obj_name = format!("{}_{}", output_obj.parent().unwrap().name(), output_obj.name());
 
                                 if do_fork {
-                                    plot.push_str(format!("{}_output{output_idx} -> {}_join_i{input_idx}\n", output_obj_name, obj_name).as_str());
+                                    plot.push_str(format!("{output_obj_name}_output{output_idx} -> {obj_name}_join_i{input_idx}\n").as_str());
                                 } else {
-                                    plot.push_str(format!("{}_output{output_idx} ---> {}_input{input_idx}\n", output_obj_name, obj_name).as_str());
+                                    plot.push_str(format!("{output_obj_name}_output{output_idx} ---> {obj_name}_input{input_idx}\n").as_str());
                                 }
                             }
                         }
@@ -315,8 +315,8 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                             let do_fork = links.len() > 1;
 
                             if do_fork {
-                                plot.push_str(format!("state {}_fork_o{output_idx} <<fork>>\n", obj_name).as_str());
-                                plot.push_str(format!("{}_output{output_idx} --> {}_fork_o{output_idx}\n", obj_name, obj_name).as_str());
+                                plot.push_str(format!("state {obj_name}_fork_o{output_idx} <<fork>>\n").as_str());
+                                plot.push_str(format!("{obj_name}_output{output_idx} --> {obj_name}_fork_o{output_idx}\n").as_str());
                             }
 
                             for link in links.iter().filter_map(|a| match &a {
@@ -333,9 +333,9 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                                     let input_obj_name = format!("{}_{}", input_obj.parent().unwrap().name(), input_obj.name());
                             
                                     if do_fork {
-                                        plot.push_str(format!("{}_fork_o{output_idx} ---> {}_input{input_idx}\n", obj_name, input_obj_name).as_str());
+                                        plot.push_str(format!("{obj_name}_fork_o{output_idx} ---> {input_obj_name}_input{input_idx}\n").as_str());
                                     } else {
-                                        plot.push_str(format!("{}_output{output_idx} ---> {}_input{input_idx}\n", obj_name, input_obj_name).as_str());
+                                        plot.push_str(format!("{obj_name}_output{output_idx} ---> {input_obj_name}_input{input_idx}\n").as_str());
                                     }
                                 };
                             }
@@ -352,14 +352,14 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                     }) {
                         if let Some(ObjectProperty::Bool(false)) = link.attrib("bHidden") {
 
-                            plot.push_str(format!("note left of {}\n", obj_name).as_str());
+                            plot.push_str(format!("note left of {obj_name}\n").as_str());
 
                             if let Some(ObjectProperty::String(desc)) = link.attrib("LinkDesc") {
-                                plot.push_str(format!("  Desc: {}\n", desc).as_str());
+                                plot.push_str(format!("  Desc: {desc}\n").as_str());
                             };
 
                             if let Some(ObjectProperty::Name(name)) = link.attrib("PropertyName") {
-                                plot.push_str(format!("  Property: {}\n", name).as_str());
+                                plot.push_str(format!("  Property: {name}\n").as_str());
                             };
 
                             if let Some(ObjectProperty::Array(vars)) = link.attrib("LinkedVariables") {
@@ -370,23 +370,23 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                                     plot.push_str(format!("  LinkedVar: {}\n", obj.name()).as_str());
 
                                     if let Some(ObjectProperty::Name(name)) = var.attrib("FindVarName") {
-                                        plot.push_str(format!("  FindVarName: {}\n", name).as_str());
+                                        plot.push_str(format!("  FindVarName: {name}\n").as_str());
                                     }
 
                                     if let Some(ObjectProperty::Name(name)) = var.attrib("VarName") {
-                                        plot.push_str(format!("  VarName: {}\n", name).as_str());
+                                        plot.push_str(format!("  VarName: {name}\n").as_str());
                                     }
 
                                     if let Some(ObjectProperty::String(val)) = var.attrib("StrValue") {
-                                        plot.push_str(format!("  StrValue: {}\n", val).as_str());
+                                        plot.push_str(format!("  StrValue: {val}\n").as_str());
                                     }
 
                                     if let Some(ObjectProperty::Int(val)) = var.attrib("IntValue") {
-                                        plot.push_str(format!("  IntValue: {}\n", val).as_str());
+                                        plot.push_str(format!("  IntValue: {val}\n").as_str());
                                     }
 
                                     if let Some(ObjectProperty::Float(val)) = var.attrib("FloatValue") {
-                                        plot.push_str(format!("  FloatValue: {}\n", val).as_str());
+                                        plot.push_str(format!("  FloatValue: {val}\n").as_str());
                                     }
 
                                     if let Some(ObjectProperty::Object(val)) = var.attrib("ObjValue") {

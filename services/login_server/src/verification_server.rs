@@ -36,7 +36,7 @@ pub async fn start_verification_server(auth_api: CoreApi, bind_addr: impl ToSock
             let auth_api = auth_api.clone();
             let (mut client, peer_addr) = listener.accept().await.unwrap();
             tokio::spawn(async move {
-                info!("Connected: {}", peer_addr);
+                info!("Connected: {peer_addr}");
                 loop {
                     let mut msg = vec![0; 1024];
 
@@ -87,7 +87,7 @@ pub async fn start_verification_server(auth_api: CoreApi, bind_addr: impl ToSock
                             continue;
                         }
                         Err(e) => {
-                            error!("Error: {}", e);
+                            error!("Error: {e}");
                             return;
                         }
                     }

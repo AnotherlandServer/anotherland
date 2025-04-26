@@ -54,9 +54,9 @@ fn lua_log(lua: &Lua, level: log::Level, args: MultiValue) -> Result<(), mlua::E
 
     let target = if let Some(source) = debug.source().source {
         if debug.source().what.is_empty() {
-            &format!("lua::{}", source)
+            &format!("lua::{source}")
         } else {
-            &format!("lua::{}::{}", source, debug.source().what)
+            &format!("lua::{source}::{}", debug.source().what)
         }
     } else {
         "lua"
@@ -66,7 +66,7 @@ fn lua_log(lua: &Lua, level: log::Level, args: MultiValue) -> Result<(), mlua::E
         .target(target)
         .line(Some(debug.curr_line() as u32))
         .level(level)
-        .args(format_args!("{}", msg))
+        .args(format_args!("{msg}"))
         .build());
 
     Ok(())

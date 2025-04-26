@@ -337,7 +337,7 @@ impl FieldDefinition {
         match self {
             FieldDefinition::Field { name, .. } => {
                 if name.is_none() {
-                    *name = Some(format!("field_{}", field_count));
+                    *name = Some(format!("field_{field_count}"));
                 }
 
                 *field_count += 1;
@@ -391,18 +391,20 @@ impl FieldDefinition {
             },
             FieldDefinition::Branch { is_true, is_false, .. } => {
                 for field in is_true {
-                    if let FieldDefinition::Field { name: Some(name), .. } = field {
-                        if name == lookup_name {
-                            return true;
-                        }
+                    if 
+                        let FieldDefinition::Field { name: Some(name), .. } = field &&
+                        name == lookup_name
+                    {
+                        return true;
                     }
                 }
 
                 for field in is_false { 
-                    if let FieldDefinition::Field { name: Some(name), .. } = field {
-                        if name == lookup_name {
-                            return true;
-                        }
+                    if 
+                        let FieldDefinition::Field { name: Some(name), .. } = field &&
+                        name == lookup_name
+                    {
+                        return true;
                     }
                 }
 
@@ -479,7 +481,7 @@ impl FieldTypeDefinition {
                     Ok(Self::Array { len, r#type: Box::new(r#type) })
                 },
                 "packet" => Ok(Self::Packet),
-                _ => Err(io::Error::other(format!("invalid type defition: {}", type_name)))
+                _ => Err(io::Error::other(format!("invalid type defition: {type_name}")))
             }
         }
     }
@@ -490,12 +492,12 @@ impl FieldTypeDefinition {
                 match struct_reference {
                     StructDefinitionReference::Unresolved(name) => {
                         if let Some(resolved) = structs.get(name) {
-                            println!("Resolved {}", name);
+                            println!("Resolved {name}");
 
                             *struct_reference = StructDefinitionReference::Resolved(resolved.clone());
                             Ok(())
                         } else {
-                            Err(io::Error::new(io::ErrorKind::NotFound, format!("struct {} not found", name)))
+                            Err(io::Error::new(io::ErrorKind::NotFound, format!("struct {name} not found")))
                         }
                     },
                     StructDefinitionReference::Resolved(_) => Ok(()),

@@ -73,7 +73,7 @@ impl <T: Request + 'static, TR: Response + 'static, N: Notification + 'static>Cl
                                     }
                                 },
                                 Err(e) => {
-                                    debug!("Error receiving message: {:?}", e);
+                                    debug!("Error receiving message: {e:?}");
                                     break;
                                 }
                             }

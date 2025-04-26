@@ -213,7 +213,7 @@ pub fn load_class_script(runtime: &mut LuaRuntime, class: Class, name: Option<&s
                     continue;
                 }
 
-                error!("Failed to load script '{}': {}", script_name, e);
+                error!("Failed to load script '{script_name}': {e}");
                 break;
             },
         }
@@ -237,7 +237,7 @@ pub fn attach_scripts(
                     .call_named_lua_method(ScriptApi::Attach, ());
             },
             Err(e) => {
-                error!("Failed to load script: {}", e);
+                error!("Failed to load script: {e}");
             },
         }
     }

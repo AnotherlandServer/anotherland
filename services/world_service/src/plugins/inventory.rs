@@ -511,7 +511,7 @@ fn insert_item_storage(
             }
         },
         Err(e) => {
-            error!("Failed to load player inventory: {}", e);
+            error!("Failed to load player inventory: {e}");
         }
     }
 }
@@ -533,7 +533,7 @@ fn command_add_item(
         let storage_id = storage.id;
 
         commands.run_system_async(async move {
-            debug!("Try inserting item {}", item_name);
+            debug!("Try inserting item {item_name}");
 
             match realm_api.item_storage_access(&storage_id)
                 .insert_item(ItemRef::Name(&item_name), Some(ent.to_string()))
@@ -543,13 +543,13 @@ fn command_add_item(
                     match StorageResult::from_result(res).await {
                         Ok(result) => (ent, result),
                         Err(e) => {
-                            error!("Failed to insert item: {:?}", e);
+                            error!("Failed to insert item: {e:?}");
                             (ent, StorageResult::default())
                         }
                     }
                 },
                 Err(e) => {
-                    warn!("Failed to insert item: {:?}", e);
+                    warn!("Failed to insert item: {e:?}");
                     (ent, StorageResult::default())
                 }
             }
@@ -628,7 +628,7 @@ fn behavior_inventory_item_pos(
                 match StorageResult::from_result(res).await {
                     Ok(result) => (ent, result),
                     Err(e) => {
-                        error!("Failed to move item: {}", e);
+                        error!("Failed to move item: {e}");
                         (ent, StorageResult::default())
                     }
                 }
@@ -664,7 +664,7 @@ fn behavior_inventory_discard_item(
                 match StorageResult::from_result(res).await {
                     Ok(result) => (ent, result),
                     Err(e) => {
-                        error!("Failed to discard item: {}", e);
+                        error!("Failed to discard item: {e}");
                         (ent, StorageResult::default())
                     }
                 }
@@ -701,7 +701,7 @@ fn behavior_inventory_request_equip(
                 match EquipmentResult::from_result(res).await {
                     Ok(result) => (ent, result),
                     Err(e) => {
-                        error!("Failed to equip item: {}", e);
+                        error!("Failed to equip item: {e}");
                         (ent, EquipmentResult::default())
                     }
                 }
@@ -737,7 +737,7 @@ fn behavior_inventory_request_unequip(
                 match EquipmentResult::from_result(res).await {
                     Ok(result) => (ent, result),
                     Err(e) => {
-                        error!("Failed to unequip item: {}", e);
+                        error!("Failed to unequip item: {e}");
                         (ent, EquipmentResult::default())
                     }
                 }
@@ -934,7 +934,7 @@ fn send_initial_items(
             }
 
             if queue.is_empty() {
-                debug!("Finished initial inventory transfer for {}", entity);
+                debug!("Finished initial inventory transfer for {entity}");
 
                 commands.entity(entity)
                     .remove::<InitialInventoryTransfer>();

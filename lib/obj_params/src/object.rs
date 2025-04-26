@@ -278,16 +278,16 @@ mod test {
         obj.set(Player::Lvl, 10i32);
         obj.set(Player::Zone, "test");
 
-        println!("{:?}", obj);
+        println!("{obj:?}");
 
         let json = serde_json::to_string(&obj)
             .expect("failed to serialize object");
-        println!("{}", json);
+        println!("{json}");
 
         let new_obj = serde_json::from_str::<GameObjectData>(&json)
             .expect("failed to deserialize object");
 
-        println!("{:?}", new_obj);
+        println!("{new_obj:?}");
 
         assert_eq!(obj.instance.len(), new_obj.instance.len());
         for (attr, val) in obj.instance.values() {

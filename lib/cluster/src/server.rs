@@ -80,7 +80,7 @@ impl <T: Request + 'static, TR: Response, N: Notification>ClusterServer<T, TR, N
         let mut socket = RouterSocket::new();
         let endpoint = socket.bind(uri).await?;
 
-        info!("server listening on {}", endpoint);
+        info!("server listening on {endpoint}");
 
         let clients = Arc::new(RwLock::new(HashMap::new()));
         let (tx_sender, tx_receiver) = mpsc::channel(100);
@@ -92,14 +92,14 @@ impl <T: Request + 'static, TR: Response, N: Notification>ClusterServer<T, TR, N
                 loop {
                     match monitor.next().await {
                         Some(SocketEvent::Accepted(endpoint, identity)) => {
-                            debug!("connected cluster client {:?} @ {}", identity, endpoint);
+                            debug!("connected cluster client {identity:?} @ {endpoint}");
 
                             let mut clients = clients.write().await;
                             clients.entry(identity.clone()).or_insert_with(ClientState::default);
                             let _ = events.send(ClusterEvent::Accepted(identity, endpoint));
                         },
                         Some(SocketEvent::Disconnected(identity)) => {
-                            debug!("disconnected cluster client {:?}", identity);
+                            debug!("disconnected cluster client {identity:?}");
 
                             let mut clients = clients.write().await;
                             clients.remove(&identity);
