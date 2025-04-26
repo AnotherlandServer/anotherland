@@ -9,7 +9,7 @@ Welcome to the **Anotherland Server Emulator** project, a community-driven initi
 Before you begin, ensure you have the following installed:
 - **Rust 1.88.0-nightly**
 - A legally acquired copy of the game (*Otherland Next*)
-- **MongoDB**
+- **MongoDB** (You need to configure a replica set for transactions to work)
 
 ## Compilation
 Clone the repository to your local machine:
