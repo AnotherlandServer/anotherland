@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub fn print_banner() {
-    print!("Copyright (C) 2024  AnotherlandServer\n\
+    print!("Copyright (C) 2025  AnotherlandServer\n\
     This program comes with ABSOLUTELY NO WARRANTY.\n\
     This is free software, and you are welcome to redistribute it\n\
     under certain conditions; See LICENSE for details.\n\n");
