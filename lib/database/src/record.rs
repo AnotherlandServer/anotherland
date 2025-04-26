@@ -76,6 +76,9 @@ pub trait DatabaseRecord: DeserializeOwned + Serialize + Send + Sync + Unpin {
             .start_session()
             .await?;
 
+        
+        session.start_transaction().await?;
+
         collection.delete_one(
             Self::query_one(self.key()),
         )
