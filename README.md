@@ -7,7 +7,7 @@ Welcome to the **Anotherland Server Emulator** project, a community-driven initi
 
 ## Prerequisites
 Before you begin, ensure you have the following installed:
-- **Rust 1.87.0-nightly**
+- **Rust 1.88.0-nightly**
 - A legally acquired copy of the game (*Otherland Next*)
 - **MongoDB**
 

@@ -22,6 +22,7 @@ members = [
     "tools/kismet-plotter",
     "tools/seed-realm"
 , "lib/content"]
+package.rust-version = "1.88"
 
 [workspace.dependencies]
 bytes = "1.9.0"
