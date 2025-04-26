@@ -18,7 +18,7 @@ use std::{collections::HashSet, sync::Arc};
 use async_graphql::Enum;
 use database::DatabaseRecord;
 use log::debug;
-use mongodb::{bson::{self, doc}, options::IndexOptions, ClientSession, IndexModel};
+use mongodb::{bson::{self, doc}, options::{Collation, CollationStrength, IndexOptions}, ClientSession, IndexModel};
 use obj_params::{GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamSet, Player};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud};
@@ -130,7 +130,16 @@ impl DatabaseRecord for Character {
         collection.create_index(
             IndexModel::builder()
             .keys(doc! { "name": 1 })
-            .options(IndexOptions::builder().unique(true).build())
+            .options(
+                IndexOptions::builder()
+                    .unique(true)
+                    .collation(
+                        Collation::builder()
+                        .locale("en")
+                        .strength(CollationStrength::Secondary)
+                        .build()
+                    )
+                    .build())
             .build()).await?;
 
         collection.create_index(
