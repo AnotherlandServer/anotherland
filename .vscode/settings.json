@@ -18,5 +18,9 @@
         "${workspaceFolder}/content/lua/?.lua",
         "${workspaceFolder}/content/lua/?/init.lua"
     ],
-    "Lua.runtime.pathStrict": true
+    "Lua.runtime.pathStrict": true,
+    "Lua.workspace.ignoreDir": [
+        ".vscode",
+        "packet_definitions"
+    ]
 }
