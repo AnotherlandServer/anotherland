@@ -143,14 +143,25 @@ impl FrontendSessionContext {
             },
             CPkt::oaPktCharacterDelete(pkt) => {
                 if let Some(character) = self.realm_api.get_character_for_account(session.account().id(), pkt.character_id).await? {
-                    character.delete().await?;
-
-                    self.socket.send(
-                        &oaPktCharacterDeleteSuccess {
-                            character_id: pkt.character_id,
-                            ..Default::default()
-                        }.into_pkt().to_bytes(), Reliability::ReliableOrdered
-                    ).await?;
+                    match character.delete().await {
+                        Ok(_) => {
+                            self.socket.send(
+                                &oaPktCharacterDeleteSuccess {
+                                    character_id: pkt.character_id,
+                                    ..Default::default()
+                                }.into_pkt().to_bytes(), Reliability::ReliableOrdered
+                            ).await?;
+                        },
+                        Err(e) => {
+                            error!("Failed to delete character: {e:?}");
+                            self.socket.send(
+                                &oaPktCharacterFailure {
+                                    error_code: OaPktCharacterFailureErrorCode::DatabaseError,
+                                    ..Default::default()
+                                }.into_pkt().to_bytes(), Reliability::ReliableOrdered
+                            ).await?;
+                        }
+                    }
                 } else {
                     self.socket.send(
                         &oaPktCharacterFailure {
