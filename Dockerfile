@@ -35,7 +35,7 @@ RUN cargo install seed-realm --path tools/seed-realm
 
 # bundle
 FROM debian:stable-slim
-RUN apt-get update && apt-get install -y libsqlite3-0 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libsqlite3-0 libssl3 && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/cargo/bin/* /usr/local/bin/
 COPY --from=builder /usr/src/anotherland/conf /etc/anotherland
 COPY --from=builder /usr/src/anotherland/content /usr/local/lib/anotherland
