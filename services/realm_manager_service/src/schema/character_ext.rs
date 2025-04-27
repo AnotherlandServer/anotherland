@@ -15,6 +15,7 @@
 
 use async_graphql::{futures_util::TryStreamExt, Context, Error, InputObject, Json, Object};
 use database::DatabaseRecord;
+use log::error;
 use mongodb::{bson::doc, Database};
 use obj_params::{ClassItem, EdnaFunction, EdnaModule, GameObjectData, GenericParamSet, ParamSet, Player};
 use serde::Deserialize;
@@ -158,7 +159,7 @@ impl CharacterExtMutationRoot {
 
         if 
             let Some(mut character) = Character::get(&db, &id).await? &&
-            let Some(template) = ObjectTemplate::collection(&db).find_one(doc! { "name": class_item, "class": "ClassItem" }).await? &&
+            let Some(template) = ObjectTemplate::collection(&db).find_one(doc! { "name": &class_item, "class": "ClassItem" }).await? &&
             let Ok(default_equipment) = serde_json::from_value::<DefaultEquipment>(template.data.get::<_,Value>(ClassItem::DefaultEquipment).unwrap_or(&Value::Null).clone())
         {
             let mut skillbook = Skillbook::get_or_create(&db, character.id).await?;
@@ -289,6 +290,8 @@ impl CharacterExtMutationRoot {
                 skillbook: Some(skillbook.try_into()?),
             })
         } else {
+            error!("Failed to apply class item: {class_item:?}");
+
             Ok(EquipmentResult {
                 error: None,
                 storage_result: vec![],

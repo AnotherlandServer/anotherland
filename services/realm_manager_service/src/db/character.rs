@@ -113,7 +113,7 @@ impl DatabaseRecord for Character {
 
     fn relations() -> &'static[(&'static str, &'static str)] {
         &[
-            ("skillbook", "id"),
+            ("skillbook", "character_id"),
             ("ability_bar", "id"),
             ("item_storage", "owner.Character"),
         ]

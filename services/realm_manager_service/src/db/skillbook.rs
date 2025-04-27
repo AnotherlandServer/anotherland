@@ -139,9 +139,15 @@ impl Skillbook {
     }
 
     pub fn level_up(&mut self, level: i32) {
+        self.character_level = level;
+
         for skill in self.skills.iter_mut() {
-            if skill.state == State::Unqualified && level >= skill.required_level {
-                skill.state = State::Locked;
+            if level >= skill.required_level {
+                if skill.state == State::Unqualified {
+                    skill.state = State::Locked;
+                }
+            } else {
+                skill.state = State::Unqualified;
             }
         }
     }

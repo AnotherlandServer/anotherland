@@ -273,10 +273,7 @@ fn spawn_world_controller(
 ) {
     let mut controller_scripts = vec![];
 
-    if !instance.zone.game_controller().is_empty() {
-        controller_scripts.push(format!("maps.{}.world", instance.world_def.name()));
-    }
-
+    controller_scripts.push(format!("maps.{}.world", instance.world_def.name()));
     controller_scripts.push("core.base_world".to_string());
 
     for script_name in &controller_scripts {
@@ -304,7 +301,12 @@ fn spawn_world_controller(
                 //cfg.set("instance_type", instance.config.instance_type).unwrap();
                 cfg.set("instance_scope", instance.config.instance_scope).unwrap();
                 //cfg.set("zone_type", instance.config.zone_type as i32).unwrap();
-                cfg.set("settings", runtime.vm().to_value(&instance.config.json_config).unwrap()).unwrap();
+                let settings = runtime.vm().to_value(&instance.config.json_config).unwrap();
+                if settings == runtime.vm().null() {
+                    cfg.set("settings", runtime.vm().create_table().unwrap()).unwrap();
+                } else {
+                    cfg.set("settings", settings).unwrap();
+                }
 
                 obj.object().set("world", world).unwrap();
                 obj.object().set("zone", zone).unwrap();
