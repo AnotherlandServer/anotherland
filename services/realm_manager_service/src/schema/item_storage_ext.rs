@@ -287,8 +287,35 @@ impl ItemStorageExtMutationRoot {
         unimplemented!()
     }
 
-    pub async fn storage_purchase_item(&self, _ctx: &Context<'_>, _tag: Option<String>, _id: Uuid, _base_item: ItemRef, _price: Price) -> Result<StorageResult, Error> {
-        unimplemented!()
+    pub async fn storage_purchase_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, base_item: ItemRef, _price: Price) -> Result<StorageResult, Error> {
+        let db = ctx.data::<Database>()?.clone();
+        let mut session = ItemStorageSession::start(&db, id).await?;
+
+        if let Some(item) = find_item(&db, base_item).await? {
+            match session.insert_item(item, None, None).await {
+                Ok(_) => {
+                    let results = session.commit().await?;
+                    send_inventory_update_notifications(ctx, tag, &results).await?;
+
+                    let res = results.into_iter().next().unwrap();
+
+                    Ok(res.into())
+                },
+                Err(ItemStorageSessionError::ClientError(str, e)) => {
+                    Ok(StorageResult { 
+                        storage_id: id, 
+                        error: Some(async_graphql::Json((str.to_string(), e))),
+                        changed_items: None, 
+                        removed_items: None, 
+                        bling: None,
+                        game_cash: None,
+                    })
+                },
+                Err(e) => Err(e.into())
+            }
+        } else {
+            Err(Error::new("Item not found"))
+        }
     }
 
     pub async fn storage_sell_item(&self, _ctx: &Context<'_>, _tag: Option<String>, _id: Uuid, _item_id: Uuid) -> Result<StorageResult, Error> {

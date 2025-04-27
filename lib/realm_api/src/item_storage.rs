@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
-use item_storage_graphql::{GetOrCreateStorage, GetOrCreateStorageVariables, GetStorage, GetStorageVariables, StorageDestroyItem, StorageDestroyItemVariables, StorageEquipItem, StorageEquipItemVariables, StorageInsertItem, StorageInsertItemVariables, StorageMoveItem, StorageMoveItemVariables, StorageUneqipItem, StorageUneqipItemVariables};
+use item_storage_graphql::{GetOrCreateStorage, GetOrCreateStorageVariables, GetStorage, GetStorageVariables, StorageDestroyItem, StorageDestroyItemVariables, StorageEquipItem, StorageEquipItemVariables, StorageInsertItem, StorageInsertItemVariables, StorageMoveItem, StorageMoveItemVariables, StoragePurchaseItemVariables, StoragePurchaseitem, StorageUneqipItem, StorageUneqipItemVariables};
 use obj_params::{GameObjectData, GenericParamSet};
 use toolkit::{types::Uuid, NativeParam};
 
@@ -45,6 +45,28 @@ impl <'a> TryFrom<ItemRef<'a>> for item_storage_graphql::ItemRef<'a> {
                 name: None,
                 id: None,
                 uuid: Some(uuid),
+            }),
+        }
+    }
+}
+
+pub enum Price {
+    Bling(i32),
+    GameCash(i32),
+}
+
+impl TryFrom<Price> for item_storage_graphql::Price {
+    type Error = RealmApiError;
+    
+    fn try_from(value: Price) -> Result<Self, Self::Error> {
+        match value {
+            Price::Bling(bling) => Ok(Self {
+                bling: Some(bling),
+                game_cash: None,
+            }),
+            Price::GameCash(game_cash) => Ok(Self {
+                bling: None,
+                game_cash: Some(game_cash),
             }),
         }
     }
@@ -283,6 +305,25 @@ impl ItemStorageId {
 
         if let Some(StorageUneqipItem { storage_uneqip_item }) = response.data {
             EquipmentResult::from_graphql(&self.api_base, storage_uneqip_item)
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub async fn purchase_item(&self, item_ref: ItemRef<'_>, tag: Option<String>, price: Price) -> RealmApiResult<StorageResult> {
+        let response = self.api_base.0.client
+            .post(self.api_base.0.base_url.clone())
+            .run_graphql(StoragePurchaseitem::build(StoragePurchaseItemVariables {
+                base_item: item_ref.try_into()?,
+                id: self.id,
+                price: price.try_into()?,
+                tag,
+            })).await?;
+
+        if let Some(StoragePurchaseitem { storage_purchase_item }) = response.data {
+            Ok(storage_purchase_item.try_into()?)
         } else if let Some(errors) = response.errors {
             Err(RealmApiError::GraphQl(errors))
         } else {
@@ -562,7 +603,9 @@ pub(crate) mod item_storage_graphql {
     #[derive(cynic::InputObject, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct Price {
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub bling: Option<i32>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub game_cash: Option<i32>,
     }
 

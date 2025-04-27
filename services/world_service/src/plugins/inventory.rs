@@ -22,8 +22,8 @@ use futures::future::join_all;
 use log::{debug, error, warn};
 use mlua::{FromLua, IntoLua, Lua, Table, UserData};
 use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, EdnaAbility, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player};
-use protocol::{oaPktItemStorage, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
-use realm_api::{Item, ItemRef, StorageOwner};
+use protocol::{oaPktItemStorage, oaPktShopCartBuyRequest, oaPktSteamMicroTxn, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
+use realm_api::{Item, ItemRef, Price, StorageOwner};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -31,13 +31,14 @@ use toolkit::{types::Uuid, NativeParam};
 
 use crate::{error::WorldResult, instance::ZoneInstance, object_cache::CacheEntry, OBJECT_CACHE};
 
-use super::{load_class_script, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, ParamValue, PlayerController, StringBehavior};
+use super::{load_class_script, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, NetworkExtPriv, ParamValue, PlayerController, StringBehavior};
 
 #[derive(Resource)]
 #[allow(clippy::type_complexity)]
 struct InventorySystems {
     insert_item_storage: SystemId<In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>, Vec<CachedObject>)>)>>>,
     apply_storage_result: SystemId<In<(Entity, StorageResult)>>,
+    handle_purchase_result: SystemId<In<(Entity, StorageResult)>>,
     apply_equipment_result: SystemId<In<(Entity, EquipmentResult)>>,
 }
 
@@ -76,6 +77,13 @@ struct StorageResult {
 }
 
 impl StorageResult {
+    pub fn error(msg: impl ToString) -> StorageResult {
+        Self {
+            error: Some((msg.to_string(), None)),
+            ..Default::default()
+        }
+    }
+
     pub async fn from_result(result: realm_api::StorageResult) -> WorldResult<Self> {
         let changed_items = if let Some(changed_items) = result.changed_items {
             Some(
@@ -144,6 +152,7 @@ impl Plugin for InventoryPlugin {
         let inventory_systems = InventorySystems {
             insert_item_storage: app.register_system(insert_item_storage),
             apply_storage_result: app.register_system(apply_storage_result),
+            handle_purchase_result: app.register_system(handle_purchase_result),
             apply_equipment_result: app.register_system(apply_equipment_result),
         };        
 
@@ -166,6 +175,8 @@ impl Plugin for InventoryPlugin {
         app.register_string_behavior(Class::Player, "requestdiscarditem", behavior_inventory_discard_item);
         app.register_string_behavior(Class::Player, "requestequip", behavior_inventory_request_equip);
         app.register_string_behavior(Class::Player, "requestunequip", behavior_inventory_request_unequip);        
+
+        app.register_message_handler(handle_shop_cart_buy_request);
 
         app.world_mut().register_component_hooks::<Inventory>()
             .on_add(|mut world, entity, _| {  
@@ -974,4 +985,69 @@ fn send_item_updates(
             });
         }
     }
+}
+
+fn handle_shop_cart_buy_request(
+    In((ent, pkt)): In<(Entity, oaPktShopCartBuyRequest)>,
+    query: Query<&Inventory>,
+    instance: Res<ZoneInstance>,
+    systems: Res<InventorySystems>,
+    mut commands: Commands,
+) {
+    if let Ok(storage) = query.get(ent) {
+        let realm_api = instance.realm_api.clone();
+        let storage_id = storage.id;
+
+        if let Some(entry) = pkt.shopping_cart.first().cloned() {
+            commands.run_system_async(async move {
+                match realm_api.item_storage_access(&storage_id)
+                    .purchase_item(ItemRef::Uuid(entry.id), None, Price::Bling(0))
+                    .await
+                {
+                    Ok(res) => {
+                        match StorageResult::from_result(res).await {
+                            Ok(result) => (ent, result),
+                            Err(e) => {
+                                error!("Failed to purchase item: {e}");
+                                (ent, StorageResult::default())
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        error!("Failed to purchase item: {e:?}");
+                        (ent, StorageResult::error("#Shop.false_buymultiple#"))
+                    }
+                }
+    
+            }, systems.handle_purchase_result);
+        }
+    }
+}
+
+fn handle_purchase_result(
+    In((instigator, result)): In<(Entity, StorageResult)>,
+    query: Query<&PlayerController>,
+    systems: Res<InventorySystems>,
+    mut commands: Commands,
+) {
+    if let Ok(controller) = query.get(instigator) {
+        let msg = if let Some(err) = &result.error {
+            err.0.clone()
+        } else {
+            "#Shop.successful#".to_string()
+        };
+
+        controller.send_packet(oaPktSteamMicroTxn {
+            field_1: controller.avatar_id(),
+            field_2: 1,
+            field_3: NativeParam::Struct(vec![
+                NativeParam::LongLong(0),
+                NativeParam::Bool(false),
+                NativeParam::String(msg),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    commands.run_system_with_input(systems.apply_storage_result, (instigator, result));
 }
