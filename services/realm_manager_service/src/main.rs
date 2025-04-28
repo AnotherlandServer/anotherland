@@ -320,15 +320,34 @@ async fn main() -> RealmResult<()> {
     let _ = core_client.subscribe("core.session.").await; // subscribe to session notifications
     //let _ = core_client.send(CoreRequest::ConnectRealm(args.realm_id, args.frontend_ip.into())).await;
 
-    tokio::spawn(async move {
+    let core_client_handle = tokio::spawn(async move {
+        loop {
+            if let Err(e) = core_client.recv().await {
+                error!("Error receiving core server messages: {e:?}");
+                break;
+            }
+        }
+    });
+
+    let graphql_handle = tokio::spawn(async move {
         info!("Starting realm server on http://{}", args.graphql_bind_addr);
-        Server::new(TcpListener::bind(args.graphql_bind_addr))
+        if let Err(e) = Server::new(TcpListener::bind(args.graphql_bind_addr))
             .run(app)
             .await
-            .unwrap();
-    })
-    .await
-    .unwrap();
+        {
+            error!("GraphQL server error: {e}");
+        }
+    });
+
+    // Wait for either task to complete (which would indicate a failure)
+    tokio::select! {
+        _ = core_client_handle => {
+            error!("Core client task exited unexpectedly");
+        },
+        _ = graphql_handle => {
+            error!("GraphQL server task exited unexpectedly");
+        },
+    }
 
     Ok(())
 }

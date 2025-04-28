@@ -120,7 +120,7 @@ impl <T: Request + 'static, TR: Response, N: Notification>ClusterServer<T, TR, N
             clients: Arc<RwLock<HashMap<PeerIdentity, ClientState>>>
         ) {
             tokio::spawn(async move {
-                let mut interval = time::interval(Duration::from_secs(1));
+                let mut interval = time::interval(Duration::from_millis(100));
 
                 loop {
                     tokio::select! {
@@ -141,6 +141,11 @@ impl <T: Request + 'static, TR: Response, N: Notification>ClusterServer<T, TR, N
                                     handle_state_message(&identity, state, clients.clone()).await;
                                 },
                                 Identifier::Pong => (),
+                                Identifier::Ping => {
+                                    let mut msg = ZmqMessage::from(Bytes::from(identity.clone()));
+                                    msg.push_back(flexbuffers::to_vec(Identifier::Pong).unwrap().into());
+                                    let _ = tx_sender.send(msg).await;
+                                },
                                 _ => unreachable!(),
                             }
                         },

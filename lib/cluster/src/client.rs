@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{io, marker::PhantomData};
+use std::{io, marker::PhantomData, time::Duration};
 
 use log::debug;
-use tokio::sync::{mpsc::{self, Receiver, Sender}, Mutex};
+use tokio::{sync::{mpsc::{self, Receiver, Sender}, Mutex}, time};
 use zeromq::{DealerSocket, Socket, SocketRecv, SocketSend, ZmqMessage};
 
 use crate::{identifier::Identifier, state::StateMessage, ClusterResult, Error, Notification, Request, Response};
@@ -48,6 +48,8 @@ impl <T: Request + 'static, TR: Response + 'static, N: Notification + 'static>Cl
             rx_sender: Sender<TR>, 
             notification_sender: Sender<N>
         ) {
+            let mut interval = time::interval(Duration::from_millis(100));
+
             tokio::spawn(async move {
                 loop {
                     tokio::select! {
@@ -69,6 +71,7 @@ impl <T: Request + 'static, TR: Response + 'static, N: Notification + 'static>Cl
                                             let msg = ZmqMessage::from(flexbuffers::to_vec(Identifier::Pong).unwrap());
                                             let _ = socket.send(msg).await;
                                         },
+                                        Identifier::Pong => (),
                                         _ => unreachable!(),
                                     }
                                 },
@@ -93,9 +96,19 @@ impl <T: Request + 'static, TR: Response + 'static, N: Notification + 'static>Cl
                                     let _ = socket.send(msg).await;
                                 },
                             }
+                        },
+                        _ = interval.tick() => {
+                            let msg = ZmqMessage::from(flexbuffers::to_vec(Identifier::Ping).unwrap());
+                            if let Err(e) = socket.send(msg).await {
+                                debug!("Error sending message: {e:?}");
+                                break;
+                            }
                         }
                     }
                 }
+
+                debug!("Receiver task stopped");
+                let _ = socket.close().await;
             });
         }
 
