@@ -115,7 +115,7 @@ impl DatabaseRecord for Character {
         &[
             ("skillbook", "character_id"),
             ("ability_bar", "id"),
-            ("item_storage", "owner.Character"),
+            ("item_storages", "owner.Character"),
         ]
     }
 
