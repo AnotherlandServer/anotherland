@@ -503,7 +503,6 @@ function Vector.New(x, y, z) end
 ---@field class string
 ---@field id string
 
----comment
 ---@param id string
 ---@return EdnaFunction
 function __engine.inventory:GetItem(id)

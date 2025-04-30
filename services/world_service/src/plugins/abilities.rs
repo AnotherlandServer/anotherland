@@ -59,6 +59,7 @@ pub struct Abilities(Vec<Arc<CacheEntry>>);
 
 enum CooldownState {
     Ready,
+    Consumed,
     Cooldown(Instant, Duration),
 }
 
@@ -86,12 +87,32 @@ impl Cooldowns {
         }
     }
 
-    pub fn consume(&mut self, groups: &[Uuid], duration: Duration) -> bool {
+    pub fn consume(&mut self, groups: &[Uuid]) -> bool {
         self.update();
 
         let states = self.0.iter_mut()
             .filter(|(group, (_, state))| {
                 groups.contains(group) && matches!(state, CooldownState::Ready)
+            })
+            .collect::<Vec<_>>();
+        
+        if states.len() == groups.len() {
+            for (_, (_, state)) in states {
+                *state = CooldownState::Consumed;
+            }
+
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn emit(&mut self, groups: &[Uuid], duration: Duration) -> bool {
+        self.update();
+
+        let states = self.0.iter_mut()
+            .filter(|(group, (_, state))| {
+                groups.contains(group) && matches!(state, CooldownState::Consumed)
             })
             .collect::<Vec<_>>();
         
@@ -118,6 +139,21 @@ fn insert_cooldown_api(
 
     cooldown_api.set("Consume", lua.create_bevy_function(world, 
         |
+            In((player, groups)): In<(Table, Vec<String>)>,
+            mut query: Query<&mut Cooldowns>,
+        | -> WorldResult<bool> {
+            let mut cooldowns = query.get_mut(player.entity()?)
+                .map_err(|_| anyhow!("player not found"))?;
+
+            let groups = groups.into_iter()
+                .map(|s| s.parse::<Uuid>())
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(cooldowns.consume(&groups))
+        })?)?;
+
+    cooldown_api.set("Emit", lua.create_bevy_function(world, 
+        |
             In((player, groups, duration)): In<(Table, Vec<String>, f32)>,
             mut query: Query<&mut Cooldowns>,
         | -> WorldResult<bool> {
@@ -128,7 +164,7 @@ fn insert_cooldown_api(
                 .map(|s| s.parse::<Uuid>())
                 .collect::<Result<Vec<_>, _>>()?;
 
-            Ok(cooldowns.consume(&groups, Duration::from_secs_f32(duration)))
+            Ok(cooldowns.emit(&groups, Duration::from_secs_f32(duration)))
         })?)?;
 
     Ok(())
@@ -229,6 +265,14 @@ fn send_cooldown_updates(
                                 field_1: true,
                                 total_duration: 0.0,
                                 remaining_duration: 0.0,
+                            }
+                        },
+                        CooldownState::Consumed => {
+                            CooldownEntry {
+                                key: cooldown.numeric_id,
+                                field_1: false,
+                                total_duration: -1.0,
+                                remaining_duration: -1.0,
                             }
                         },
                         CooldownState::Cooldown(start, duration) => {
