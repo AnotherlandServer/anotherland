@@ -20,7 +20,7 @@ use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all, TryStreamExt};
 use log::{debug, error, trace, warn};
 use mlua::{FromLua, Function, IntoLua, Lua, Table, UserData};
-use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, AttributeInfo, Class, EdnaAbility, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
+use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, AttributeInfo, Class, ContentRefList, EdnaAbility, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
 use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
 use realm_api::{AbilitySlot, Character, EquipmentResult, ObjectPlacement, RealmApiResult, State};
 use regex::Regex;
@@ -31,7 +31,7 @@ use anyhow::anyhow;
 
 use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource, MessageType}, proto::TravelMode, OBJECT_CACHE};
 
-use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, FutureCommands, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
+use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, Factions, FutureCommands, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -402,7 +402,6 @@ fn insert_player_characters(
 ) {
     while let Ok((entity, mut character, cooldowns, skillbook)) = receiver.try_recv() {
         if let Ok(controller) = controller.get(entity) {
-
             // Update zone info in character data
             {
                 let obj: &mut GameObjectData = character.data_mut();
@@ -498,6 +497,12 @@ fn insert_player_characters(
                 seconds: 0.0,
             };
 
+            let mut factions = Factions::default();
+
+            for faction in character.data().get::<_, ContentRefList>(Player::Faction).unwrap().iter() {
+                factions.add_faction(faction.id);
+            }
+
             // Insert character into world
             commands.entity(entity)
                 .insert((
@@ -510,6 +515,7 @@ fn insert_player_characters(
                     QuestLog::default(),
                     cooldowns,
                     skillbook,
+                    factions
                 ));
         }
     }

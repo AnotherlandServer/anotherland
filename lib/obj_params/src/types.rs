@@ -93,6 +93,12 @@ impl Display for ContentRef {
     }
 }
 
+impl From<ContentRef> for Uuid {
+    fn from(content_ref: ContentRef) -> Self {
+        content_ref.id
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct ContentRefList(Vec<ContentRef>);
 

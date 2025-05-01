@@ -18,13 +18,13 @@ use std::{sync::Arc, time::Instant};
 use bevy::{app::{First, Plugin, PreUpdate}, ecs::{component::Component, event::EventWriter, query::{Or, With}, schedule::IntoSystemConfigs, system::{In, Resource}}, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, utils::HashMap};
 use futures_util::TryStreamExt;
 use log::{debug, info, trace, warn};
-use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, StructureBaseTag}, GameObjectData, NonClientBase};
+use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, StructureBaseTag}, ContentRefList, GameObjectData, NonClientBase};
 use realm_api::ObjectPlacement;
 use toolkit::types::Uuid;
 
 use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry};
 
-use super::{AvatarIdManager, AvatarInfo, FutureTaskComponent, HealthUpdateEvent, PlayerLocalSets};
+use super::{AvatarIdManager, AvatarInfo, Factions, FutureTaskComponent, HealthUpdateEvent, PlayerLocalSets};
 
 #[derive(Component)]
 pub struct ContentInfo {
@@ -123,6 +123,18 @@ fn ingest_content(
 
         let entry = avatar_manager.new_avatar_entry();
 
+        let factions = if let Ok(faction) = placement.data.get_named::<ContentRefList>("Faction") {
+            let mut factions = Factions::default();
+
+            for faction in faction.iter() {
+                factions.add_faction(faction.id);
+            }
+
+            factions
+        } else {
+            Factions::default()
+        };
+
         let entity = commands.spawn((
             AvatarInfo {
                 id: *entry.key(),
@@ -136,6 +148,7 @@ fn ingest_content(
             Active,
             SpawnState::default(),
             PlayerLocalSets::default(),
+            factions
         )).id();
 
         entry.insert(entity);

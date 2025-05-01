@@ -15,6 +15,7 @@
 
 #![feature(exclusive_wrapper)]
 
+use factions::FactionManager;
 use instance::{InstanceLabel, ZoneSubApp};
 use object_cache::ObjectCache;
 use plugins::{ControllerEvent, NetworkExt};
@@ -43,6 +44,7 @@ mod manager;
 mod instance;
 mod plugins;
 mod object_cache;
+mod factions;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -71,6 +73,7 @@ pub struct Cli {
 
 pub static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
 pub static OBJECT_CACHE: OnceCell<ObjectCache> = OnceCell::new();
+pub static FACTIONS: OnceCell<FactionManager> = OnceCell::new();
 
 fn handle_realm_events(manager: InstanceManager, mut notifications: mpsc::Receiver<RealmNotification>) {
     tokio::spawn(async move {
@@ -239,6 +242,7 @@ async fn main() -> WorldResult<()> {
 
     // initialize caches
     let _ = OBJECT_CACHE.set(ObjectCache::new(realm_api.clone()));
+    let _ = FACTIONS.set(FactionManager::new(realm_api.clone()).await?);
 
     let cancel_token = CancellationToken::new();
 
