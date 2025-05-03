@@ -86,7 +86,8 @@ pub enum GeneratedFieldType {
     Array(Box<GeneratedFieldType>),
     Struct(GeneratedStructReference),
     Enum(GeneratedEnumReference),
-    Packet
+    Packet,
+    RawBuffer,
 }
 
 impl GeneratedStruct {
@@ -259,6 +260,7 @@ impl GeneratedFieldType {
                     "f64" => GeneratedFieldType::F64,
                     "uuid" => GeneratedFieldType::Uuid,
                     "buffer" => GeneratedFieldType::Buffer,
+                    "rawbuffer" => GeneratedFieldType::RawBuffer,
                     "nativeparam" => GeneratedFieldType::NativeParam,
                     "avatar_id" => GeneratedFieldType::AvatarId,
                     _ => panic!()

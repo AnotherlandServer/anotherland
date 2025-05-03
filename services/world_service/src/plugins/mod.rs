@@ -38,6 +38,7 @@ mod chat;
 mod commands;
 mod abilities;
 mod async_loader;
+mod buffs;
 
 pub use network::*;
 pub use loader::*;
@@ -64,3 +65,4 @@ pub use chat::*;
 pub use commands::*;
 pub use abilities::*;
 pub use async_loader::*;
+pub use buffs::*;

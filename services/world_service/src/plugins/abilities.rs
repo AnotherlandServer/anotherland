@@ -17,10 +17,11 @@ use std::{sync::Arc, time::{Duration, Instant}};
 
 use bevy::{app::{App, Plugin, PostUpdate}, ecs::{component::Component, query::Changed, system::{Commands, Res}, world::World}, prelude::{Entity, In, Query}, utils::HashMap};
 use mlua::{Lua, Table};
-use protocol::{oaPktAbilityRequest, oaPktAbilityUse, oaPktCooldownUpdate, AbilityEffect, CooldownEntry, CooldownUpdate};
+use obj_params::Class;
+use protocol::{oaPktAbilityRequest, oaPktAbilityUse, oaPktCooldownUpdate, AbilityEffect, CooldownEntry, CooldownUpdate, OaPktAbilityUseAbilityType};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
-use toolkit::{types::{AvatarId, Uuid, UUID_NIL}, QuatWrapper, Vec3Wrapper};
+use toolkit::{types::{AvatarId, Uuid}, QuatWrapper, Vec3Wrapper};
 use anyhow::anyhow;
 
 use crate::{error::WorldResult, object_cache::CacheEntry, plugins::ConnectionState};
@@ -303,29 +304,62 @@ fn insert_ability_api(
     let ability_api = lua.create_table().unwrap();
     runtime.register_native("ability", ability_api.clone()).unwrap();
 
-    ability_api.set("Invoke", lua.create_bevy_function(world, 
+    ability_api.set("FireEvent", lua.create_bevy_function(world, 
         |
             In(params): In<Table>,
             players: Query<(Entity, &PlayerController, &Interests)>,
             content: Query<&ContentInfo>,
             targets: Query<&AvatarInfo>,
         | -> WorldResult<()> {
-            let ability = if let Ok(skill) = params.get::<Table>("ability")?.get::<SkillbookEntry>("__skill") {
-                skill.ability.clone()
-            } else if let Ok(ability) = params.get::<Table>("ability")?.get::<CachedObject>("__item_ability") {
-                (*ability).clone()
-            } else {
-                return Err(anyhow!("invalid ability").into());
-            };
-
-            let source_id = if let Ok(item) = params.get::<Table>("item").and_then(|i| i.entity()) {
-                if let Ok(content_info) = content.get(item) {
-                    content_info.template.id
+            let ability = if let Ok(ability) = params.get::<Table>("ability") {
+                if let Ok(skill) = ability.get::<SkillbookEntry>("__skill") {
+                    Some(skill.ability.clone())
+                } else if let Ok(ability) = ability.get::<CachedObject>("__item_ability") {
+                    Some((*ability).clone())
                 } else {
-                    return Err(anyhow!("item not found").into());
+                    return Err(anyhow!("ability not found").into());
                 }
             } else {
-                UUID_NIL
+                None
+            };
+
+            let buff = if let Ok(buff) = params.get::<Table>("buff") {
+                if let Ok(content) = content.get(buff.entity()?) {
+                    Some(content)
+                } else {
+                    return Err(anyhow!("buff not found").into());
+                }
+            } else {
+                None
+            };
+
+            if ability.is_none() && buff.is_none() {
+                return Err(anyhow!("ability or buff must be set").into());
+            }
+
+            let (source_id, ability_type) = if let Ok(source) = params.get::<Table>("effect_source") {
+                if let Ok(ent) = source.entity() {
+                    if let Ok(content_info) = content.get(ent) {
+                        (content_info.template.id, match content_info.template.class {
+                            Class::EdnaFunction => OaPktAbilityUseAbilityType::Item,
+                            Class::EdnaModule => OaPktAbilityUseAbilityType::Item,
+                            Class::OaBuff2 => OaPktAbilityUseAbilityType::Buff,
+                            _ => return Err(anyhow!("invalid effect_source class").into()),
+                        })
+                    } else {
+                        return Err(anyhow!("effect_source ent not found").into());
+                    }
+                } else if let Ok(id) = source.get::<String>("id") {
+                    if let Ok(id) = id.parse::<Uuid>() {
+                        (id, OaPktAbilityUseAbilityType::Skill)
+                    } else {
+                        return Err(anyhow!("invalid effect_source id").into());
+                    }
+                } else {
+                    return Err(anyhow!("invalid effect_source").into());
+                }
+            } else {
+                return Err(anyhow!("effect_source not set").into());
             };
 
             let source_ent = params.get::<Table>("source")?.entity()?;
@@ -341,8 +375,15 @@ fn insert_ability_api(
             let rotation = params.get::<QuatWrapper>("rotation").ok().map(|v| v.0);
             let ability_invoke_location = params.get::<Vec3Wrapper>("position")?.0;
             let event_duration = params.get::<f32>("event_duration")?;
-            let ability_type = params.get::<i32>("ability_type")?;
             let event_type = params.get::<i32>("event_type")?;
+
+            let skill_id = if let Some(ability) = ability {
+                ability.id
+            } else if let Some(buff) = buff {
+                buff.placement_id
+            } else {
+                unreachable!()
+            };
 
             let effects = effects.sequence_values()
                 .flatten()
@@ -382,13 +423,12 @@ fn insert_ability_api(
                     controller.send_packet(oaPktAbilityUse {
                         player: controller.avatar_id(),
                         source_avatar: source.id,
-                        skill_id: ability.id,
+                        skill_id,
                         source_id,
                         event_type: event_type.try_into()
                             .map_err(|_| anyhow!("invalid event type"))?,
                         ability_invoke_location: ability_invoke_location.into(),
-                        ability_type: ability_type.try_into()
-                            .map_err(|_| anyhow!("invalid ability type"))?,
+                        ability_type,
                         server_event_duration: event_duration,
                         flag: 
                             if target.is_some() { 1 } else { 0 } |
@@ -405,13 +445,12 @@ fn insert_ability_api(
                     controller.send_packet(oaPktAbilityUse {
                         player: controller.avatar_id(),
                         source_avatar: source.id,
-                        skill_id: ability.id,
+                        skill_id,
                         source_id,
                         event_type: event_type.try_into()
                             .map_err(|_| anyhow!("invalid event type"))?,
                         ability_invoke_location: ability_invoke_location.into(),
-                        ability_type: ability_type.try_into()
-                            .map_err(|_| anyhow!("invalid ability type"))?,
+                        ability_type,
                         server_event_duration: event_duration,
                         flag: if rotation.is_some() { 2 } else { 0 },
                         rotation: rotation.map(|v| v.into()),

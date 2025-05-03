@@ -318,11 +318,11 @@ async fn main() -> RealmResult<()> {
     handle_requests(server.clone(), core_api.clone(), peer_endpoints);
 
     let _ = core_client.subscribe("core.session.").await; // subscribe to session notifications
-    //let _ = core_client.send(CoreRequest::ConnectRealm(args.realm_id, args.frontend_ip.into())).await;
 
     let core_client_handle = tokio::spawn(async move {
         loop {
-            if let Err(e) = core_client.recv().await {
+            let result = core_client.recv().await;
+            if let Err(e) = result {
                 error!("Error receiving core server messages: {e:?}");
                 break;
             }

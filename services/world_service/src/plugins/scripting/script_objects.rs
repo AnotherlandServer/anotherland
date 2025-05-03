@@ -233,7 +233,7 @@ pub fn attach_scripts(
             Ok(lua_class) => {
                 commands.entity(ent)
                     .insert(ScriptObject::new(&runtime, Some(lua_class)).unwrap())
-                    .queue(insert_avatar_info)
+                    .queue(insert_object_info)
                     .call_named_lua_method(ScriptApi::Attach, ());
             },
             Err(e) => {
@@ -243,7 +243,7 @@ pub fn attach_scripts(
     }
 }
 
-fn insert_avatar_info(entity: EntityWorldMut<'_>) {
+fn insert_object_info(entity: EntityWorldMut<'_>) {
     let script = entity.get::<ScriptObject>().unwrap();
     let object = entity.get::<GameObjectData>().unwrap();
     let content_info = entity.get::<ContentInfo>();

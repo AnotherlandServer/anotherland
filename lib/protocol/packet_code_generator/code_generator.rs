@@ -118,6 +118,7 @@ fn generate_field_type_code(r#type: &GeneratedFieldType) -> TokenStream {
         GeneratedFieldType::F64 => quote! {f64},
         GeneratedFieldType::Uuid => quote! {Uuid},
         GeneratedFieldType::Buffer => quote! {OABuffer},
+        GeneratedFieldType::RawBuffer => quote! {Vec<u8>},
         GeneratedFieldType::NativeParam => quote! {NativeParam},
         GeneratedFieldType::AvatarId => quote! {AvatarId},
         GeneratedFieldType::Packet => quote! {Option<CPkt>},
@@ -183,6 +184,7 @@ pub fn generate_nom_parser_for_primitive(primitive: &str) -> TokenStream {
         "f64" => quote! {le_f64},
         "uuid" => quote! {map(take(16usize), |v: &[u8]| Uuid::from_bytes_le(v.try_into().unwrap()))},
         "buffer" => quote! {OABuffer::from_bytes},
+        "rawbuffer" => quote! {map(rest, |v: &[u8]| v.to_vec())},
         "nativeparam" => quote! {NativeParam::parse_struct},
         "avatar_id" => quote! {map(le_u64, |v| v.into())},
         _ => panic!("Unknown primitive")
@@ -533,6 +535,8 @@ pub fn generate_primitive_writer_code(primitive: &str, generated_field: &Generat
     let field_getter = if generated_field.optional {
         if primitive == "buffer" {
             quote! { self.#field_name_ident.as_ref().unwrap_or(&#field_type::default()) }
+        } else if primitive == "rawbuffer" {
+            quote! { self.#field_name_ident.as_ref().unwrap_or(&[]) }
         } else {
             quote! { self.#field_name_ident.unwrap_or_default() }
         }
@@ -555,6 +559,7 @@ pub fn generate_primitive_writer_code(primitive: &str, generated_field: &Generat
         "avatar_id" => quote! { writer.write(#field_getter.as_u64())?; },
         "uuid" => quote! { writer.write_bytes(#field_getter.to_uuid_1().to_bytes_le().as_slice())?; }, 
         "buffer" => quote! { writer.write_bytes(#field_getter.to_bytes().as_slice())?; },
+        "rawbuffer" => quote! { writer.write_bytes(#field_getter.as_slice())?; },
         "nativeparam" => quote! { writer.write_bytes(#field_getter.to_struct_bytes().as_slice())?; },
         _ => panic!("Tried to serialize unkown primitive"),
     }

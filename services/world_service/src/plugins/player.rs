@@ -86,6 +86,10 @@ impl SkillbookEntry {
         table.set_metatable(Some(metatable));
         table.set("__skill", self.clone())?;
 
+        table.set("id", self.id.to_string())?;
+        table.set("name", self.ability.name.clone())?;
+        table.set("class", self.ability.class.name().to_string())?;
+
         Ok(table)
     }
 }

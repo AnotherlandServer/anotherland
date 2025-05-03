@@ -28,7 +28,7 @@ use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
+use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct InstanceShutdown;
@@ -255,6 +255,7 @@ impl ZoneInstanceBuilder {
                 ChatPlugin,
                 AbilitiesPlugin,
                 CombatPlugin,
+                BuffsPlugin,
             ));
 
         app.add_systems(PreStartup, spawn_world_controller);

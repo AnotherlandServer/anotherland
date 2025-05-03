@@ -16,7 +16,7 @@
 use std::{ops::Deref, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, Update}, ecs::{component::Component, query::Without, system::{ResMut, Resource, SystemId}, world::World}, prelude::{Added, App, BuildChildren, Changed, Commands, DetectChangesMut, Entity, In, IntoSystemConfigs, Or, Parent, Query, Res, With}, time::common_conditions::on_timer, utils::hashbrown::{HashMap, HashSet}};
+use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, query::Without, system::{ResMut, Resource, SystemId}, world::World}, prelude::{Added, App, BuildChildren, Changed, Commands, DetectChangesMut, Entity, In, IntoSystemConfigs, Or, Parent, Query, Res, With}, time::common_conditions::on_timer, utils::hashbrown::{HashMap, HashSet}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::future::join_all;
 use log::{debug, error, warn};
@@ -31,7 +31,7 @@ use toolkit::{types::Uuid, NativeParam};
 
 use crate::{error::WorldResult, instance::ZoneInstance, object_cache::CacheEntry, OBJECT_CACHE};
 
-use super::{load_class_script, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, NetworkExtPriv, ParamValue, PlayerController, StringBehavior};
+use super::{attach_scripts, load_class_script, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, NetworkExtPriv, ParamValue, PlayerController, StringBehavior};
 
 #[derive(Resource)]
 #[allow(clippy::type_complexity)]
@@ -159,6 +159,7 @@ impl Plugin for InventoryPlugin {
         app.insert_resource(inventory_systems);
         app.init_resource::<StorageRegistry>();
 
+        app.add_systems(PreUpdate, insert_item_info.after(attach_scripts));
         app.add_systems(PostUpdate, prepare_load_player_inventory);
         app.add_systems(Update, (
             (
@@ -1050,4 +1051,18 @@ fn handle_purchase_result(
     }
 
     commands.run_system_with_input(systems.apply_storage_result, (instigator, result));
+}
+
+#[allow(clippy::type_complexity)]
+fn insert_item_info(
+    query: Query<(&Parent, &ScriptObject), (With<ItemBaseTag>, Added<ScriptObject>)>,
+    objects: Query<&ScriptObject>,
+) {
+    for (owner, script) in query.iter() {
+        debug!("Inserting item info");
+
+        if let Ok(owner) = objects.get(owner.get()) {
+            script.object().set("owner", owner.object()).unwrap();
+        }
+    }
 }
