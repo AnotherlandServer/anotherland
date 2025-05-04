@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::{HashMap, HashSet}, sync::Arc};
 
 use async_graphql::Enum;
 use database::DatabaseRecord;
 use log::debug;
-use mongodb::{bson::{self, doc}, options::{Collation, CollationStrength, IndexOptions}, ClientSession, IndexModel};
-use obj_params::{GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamSet, Player};
+use mongodb::{action::Update, bson::{self, doc}, options::{Collation, CollationStrength, IndexOptions}, ClientSession, Collection, IndexModel};
+use obj_params::{GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamFlag, ParamSet, Player};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud};
 use anyhow::anyhow;
@@ -281,8 +281,6 @@ impl Character {
 
         debug!("Visible slots: {visible_slots:?}");
 
-        // Todo: Update character stats
-
         // Compile visual items
         let mut visual_items = HashSet::new();
         for item in visible_slots.into_iter().flatten() {
@@ -291,11 +289,7 @@ impl Character {
 
         character.data.set(Player::VisibleItemInfo, visual_items.into_iter().collect::<Vec<_>>());
         
-        Character::collection(db)
-            .update_one(
-                Character::query_one(character.key()), 
-                doc!{"$set": bson::to_bson(&character).unwrap().as_document().unwrap()},
-            )
+        character.save_param_diff_uncommited(&Character::collection(db))
             .session(&mut * session)
             .await?;
 
@@ -306,5 +300,22 @@ impl Character {
             });
 
         Ok(Box::new(changes))
+    }
+
+    pub fn save_param_diff_uncommited<'a>(&mut self, collection: &'a Collection<Self>) -> Update<'a> {
+        let changes = self.data.changes()
+            .filter(|(key, _)| key.has_flag(&ParamFlag::Persistent))
+            .map(|(key, value)| {
+                (
+                    format!("data.attributes.{}", key.name()), 
+                    bson::to_bson(&value).unwrap()
+                )
+            })
+            .collect::<HashMap<_,_>>();
+
+        collection.update_one(
+            Self::query_one(self.key()), 
+            doc!{"$set": bson::to_bson(&changes).unwrap()},
+        )
     }
 }

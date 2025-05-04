@@ -15,12 +15,12 @@
 
 use async_graphql::{futures_util::TryStreamExt, Context, Error, InputObject, Json, Object};
 use database::DatabaseRecord;
-use log::error;
+use log::{debug, error};
 use mongodb::{bson::doc, Database};
-use obj_params::{ClassItem, EdnaFunction, EdnaModule, GameObjectData, GenericParamSet, ParamSet, Player};
+use obj_params::{ClassItem, EdnaFunction, EdnaModule, GameObjectData, GenericParamSet, ParamFlag, ParamSet, Player};
 use serde::Deserialize;
 use serde_json::Value;
-use toolkit::{anyhow::anyhow, types::Uuid};
+use toolkit::{anyhow::anyhow, env_logger::DEFAULT_FILTER_ENV, types::Uuid};
 
 use crate::{db::{self, Character, CharacterOutput, ItemStorage, ObjectTemplate, Skillbook, State}, item_storage_session::ItemStorageSession};
 
@@ -146,7 +146,8 @@ impl CharacterExtMutationRoot {
             }
 
             character.data.apply(params.as_mut());
-            character.save(&db).await?;
+            character.save_param_diff_uncommited(&Character::collection(&db))
+                .await?;
 
             Ok(Some(character.try_into()?))
         } else {
@@ -263,7 +264,7 @@ impl CharacterExtMutationRoot {
                 .await?;
 
             character
-                .save_uncommited(&Character::collection(&db))
+                .save_param_diff_uncommited(&Character::collection(&db))
                 .session(&mut session)
                 .await?;
 
