@@ -15,14 +15,14 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, query::Without, removal_detection::RemovedComponents, system::{Resource, SystemId}, world::World}, hierarchy::DespawnRecursiveExt, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}, utils::HashMap};
+use bevy::{app::{First, Last, Plugin, Update}, ecs::{change_detection::DetectChangesMut, component::Component, event::EventWriter, query::Without, removal_detection::RemovedComponents, system::{Resource, SystemId}, world::World}, hierarchy::DespawnRecursiveExt, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}, utils::HashMap};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all, TryStreamExt};
 use log::{debug, error, trace, warn};
 use mlua::{FromLua, Function, IntoLua, Lua, Table, UserData};
 use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, AttributeInfo, Class, ContentRefList, EdnaAbility, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
-use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
-use realm_api::{AbilitySlot, Character, EquipmentResult, ObjectPlacement, RealmApiResult, State};
+use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktConfirmTravel, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
+use realm_api::{AbilitySlot, Character, EquipmentResult, ObjectPlacement, RealmApi, RealmApiResult, State};
 use regex::Regex;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use tokio::sync::mpsc::{self, Receiver, Sender};
@@ -183,6 +183,51 @@ fn insert_player_api(
             Ok(())
         })?)?;
 
+    player_api.set("TravelToZone", lua.create_bevy_function(world,
+        |
+            In((player, zone)): In<(Table, String)>,
+            query: Query<&PlayerController>,
+            instance: Res<ZoneInstance>
+        | -> WorldResult<()> {
+            let ent = player.entity()?;
+            
+            if let Ok(controller) = query.get(ent).cloned() {
+                let realm_api = instance.realm_api.clone();
+
+                instance.spawn_task(async move {
+                    match 
+                        realm_api
+                            .query_zones()
+                            .zone(zone.clone())
+                            .query()
+                            .await 
+                    {
+                        Ok(mut cursor) => {
+                            match cursor.try_next().await {
+                                Ok(Some(zone)) => {
+                                    controller
+                                        .request_travel(*zone.guid(), None, TravelMode::EntryPoint);
+                                },
+                                Ok(None) => {
+                                    controller.send_message(MessageType::IllegalZone, "Travel failed. Zone not found!");
+                                },
+                                Err(e) => {
+                                    error!("Failed to travel to zone '{zone}': {e:?}");
+                                    controller.send_message(MessageType::IllegalZone, "Travel failed. Server error!");
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            error!("Failed to travel to zone '{zone}': {e:?}");
+                            controller.send_message(MessageType::IllegalZone, "Travel failed. Server error!");
+                        }
+                    }
+                });
+            }
+
+            Ok(())
+        })?)?;
+
     player_api.set("TravelToPortal", lua.create_bevy_function(world,
         |
             In((player, portal_guid)): In<(Table, String)>,
@@ -195,12 +240,51 @@ fn insert_player_api(
 
             let realm_api = instance.realm_api.clone();
 
+            async fn load_object(realm_api: &RealmApi, id: Uuid) -> WorldResult<Option<ObjectPlacement>> {
+                if 
+                    let Some(mut object) = realm_api.get_object_placement(id).await? &&
+                    let Some(template) = OBJECT_CACHE.wait().get_object_by_guid(object.content_guid).await?
+                {
+                    object.data.set_parent(Some(template.data.clone()));
+                    Ok(Some(object))
+                } else {
+                    Ok(None)
+                }
+            }
+
             commands.run_system_async(async move {
-                (ent, realm_api.get_object_placement(portal_guid).await)
+                match load_object(&realm_api, portal_guid).await {
+                    Ok(Some(portal)) => {
+                        if let Ok(exit_point) = portal.data.get::<_, Uuid>(Portal::ExitPoint).cloned() {
+                            (ent, Ok(Some(portal)), load_object(&realm_api, exit_point).await)
+                        } else {
+                            (ent, Ok(Some(portal)), Ok(None))
+                        }
+                    },
+                    Ok(None) => (ent, Ok(None), Ok(None)),
+                    Err(e) => {
+                        (ent, Err(e), Ok(None))
+                    }
+                }
             }, systems.travel_to_portal);
 
             Ok(())
         })?)?;
+
+        player_api.set("ConfirmTravel", lua.create_bevy_function(world,
+            |
+                In(player): In<Table>,
+                query: Query<&PlayerController>,
+            | -> WorldResult<()> {
+                if let Ok(controller) = query.get(player.entity()?) {
+                    controller.send_packet(oaPktConfirmTravel {
+                        state: 1,
+                        ..Default::default()
+                    });
+                }
+    
+                Ok(())
+            })?)?;
 
     Ok(())
 }
@@ -741,7 +825,7 @@ fn update_skillbook(
 #[allow(clippy::type_complexity)]
 struct PlayerSystems {
     apply_class_item_result: SystemId<In<(Entity, RealmApiResult<EquipmentResult>, Option<Function>)>>,
-    travel_to_portal: SystemId<In<(Entity, RealmApiResult<Option<ObjectPlacement>>)>>,
+    travel_to_portal: SystemId<In<(Entity, WorldResult<Option<ObjectPlacement>>, WorldResult<Option<ObjectPlacement>>)>>,
 }
 
 fn apply_class_item_result(
@@ -776,14 +860,34 @@ fn apply_class_item_result(
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn travel_to_portal(
-    In((ent, portal)): In<(Entity, RealmApiResult<Option<ObjectPlacement>>)>,
-    query: Query<&PlayerController>,
+    In((ent, portal, exit_point)): In<(Entity, WorldResult<Option<ObjectPlacement>>, WorldResult<Option<ObjectPlacement>>)>,
+    mut query: Query<(&mut Movement, &PlayerController)>,
+    instance: Res<ZoneInstance>,
 ) {
-    if let Ok(controller) = query.get(ent) {
-        if let Ok(placement) = portal {
-            if let Some(placement) = placement {
-                controller.request_travel(placement.zone_guid, None, TravelMode::Portal { uuid: placement.id });
+    if let Ok((mut movement, controller)) = query.get_mut(ent) {
+        if let Ok(portal) = portal {
+            if let Some(portal) = portal {
+                controller.send_packet(ServerAction::Event("PortalDepart".to_string()).into_pkt());
+
+                if *instance.zone.guid() == portal.zone_guid {
+                    let exit_point = if let Ok(Some(exit_point)) = &exit_point {
+                        exit_point
+                    } else {
+                        &portal
+                    };
+
+                    movement.position = *exit_point.data.get::<_, Vec3>(NonClientBase::Pos).unwrap();
+                    movement.rotation = Quat::from_unit_vector(*exit_point.data.get::<_, Vec3>(NonClientBase::Rot).unwrap());
+                    movement.velocity = Vec3::ZERO;
+
+                    controller.send_packet(
+                        ServerAction::LocalPortal(controller.avatar_id(), movement.clone()).into_pkt()
+                    );
+                } else {
+                    controller.request_travel(portal.zone_guid, None, TravelMode::Portal { uuid: portal.id });
+                }
             } else {
                 controller.send_message(MessageType::Normal, "Travel failed. Portal not found.");
             }
