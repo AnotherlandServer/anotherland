@@ -82,7 +82,7 @@ impl ParamValue {
             },
             ParamType::Vector4 => obj_params::Value::Vector4(Vec4Wrapper::from_lua(val, lua)?.0),
             ParamType::LocalizedString => obj_params::Value::LocalizedString(val.to_string()?.parse().map_err(mlua::Error::external)?),
-            ParamType::AvatarId => obj_params::Value::AvatarId(AvatarId::from_u64(u64::from_lua(val, lua)?)),
+            ParamType::AvatarId => obj_params::Value::AvatarId(AvatarId::from_lua(val, lua)?),
             ParamType::UniqueId => obj_params::Value::UniqueId(i32::from_lua(val, lua)?),
             ParamType::JsonValue => obj_params::Value::JsonValue(serde_json::to_value(val).map_err(mlua::Error::external)?),
             ParamType::Int64 => obj_params::Value::Int64(i64::from_lua(val, lua)?),
@@ -127,15 +127,13 @@ impl ParamValue {
             ParamType::VectorFloat => obj_params::Value::VectorFloat(Vec::<f32>::from_lua(val, lua)?),
             ParamType::VectorString => obj_params::Value::VectorString(Vec::<String>::from_lua(val, lua)?),
             ParamType::AvatarIdSet => obj_params::Value::AvatarIdSet(
-                Vec::<u64>::from_lua(val, lua)?
+                Vec::<AvatarId>::from_lua(val, lua)?
                     .into_iter()
-                    .map(AvatarId::from_u64)
-                    .collect()
+                    .collect::<HashSet<_>>()
             ),
             ParamType::VectorAvatarId => obj_params::Value::VectorAvatarId(
-                Vec::<u64>::from_lua(val, lua)?
+                Vec::<AvatarId>::from_lua(val, lua)?
                     .into_iter()
-                    .map(AvatarId::from_u64)
                     .collect()
             ),
             ParamType::GuidSet => obj_params::Value::GuidSet(
@@ -198,7 +196,7 @@ impl IntoLua for ParamValue {
             )),
             obj_params::Value::Vector4(vec4) => Vec4Wrapper(vec4).into_lua(lua),
             obj_params::Value::LocalizedString(uuid) => uuid.to_string().into_lua(lua),
-            obj_params::Value::AvatarId(avatar_id) => avatar_id.as_u64().into_lua(lua),
+            obj_params::Value::AvatarId(avatar_id) => avatar_id.into_lua(lua),
             obj_params::Value::UniqueId(id) => id.into_lua(lua),
             obj_params::Value::JsonValue(value) => lua.to_value(&value),
             obj_params::Value::Int64(val) => val.into_lua(lua),
@@ -237,13 +235,11 @@ impl IntoLua for ParamValue {
             obj_params::Value::VectorString(vec) => vec.into_lua(lua),
             obj_params::Value::AvatarIdSet(hash_set) => {
                 hash_set.into_iter()
-                    .map(|id| id.as_u64())
                     .collect::<Vec<_>>()
                     .into_lua(lua)
             },
             obj_params::Value::VectorAvatarId(vec) => {
                 vec.into_iter()
-                    .map(|id| id.as_u64())
                     .collect::<Vec<_>>()
                     .into_lua(lua)
             },

@@ -39,13 +39,13 @@ pub fn insert_world_api(
     })?)?;
 
     object_api.set("GetEntityById", lua.create_bevy_function(world, |
-        In(id): In<u64>,
+        In(id): In<AvatarId>,
         runtime: Res<LuaRuntime>,
         avatar_manager: Res<AvatarIdManager>,
         query: Query<&ScriptObject>,
     | -> WorldResult<Value> {
         if 
-            let Some(entity_id) = avatar_manager.entity_from_avatar_id(AvatarId::from_u64(id)) &&
+            let Some(entity_id) = avatar_manager.entity_from_avatar_id(id) &&
             let Ok(obj) = query.get(entity_id)
         {
             Ok(obj.object().clone().into_lua(runtime.vm())?)

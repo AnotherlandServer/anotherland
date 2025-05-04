@@ -18,6 +18,7 @@ use std::num::ParseIntError;
 use std::str::FromStr;
 
 use log::kv::{ToValue, Value};
+use mlua::{FromLua, MetaMethod, UserData, UserDataRef};
 use serde::{Serialize, Deserialize, de};
 use serde::ser::Serializer;
 use serde::de::{Deserializer, Visitor};
@@ -156,3 +157,20 @@ impl From<AvatarId> for u64 {
     }
 }
 
+impl FromLua for AvatarId {
+    fn from_lua(value: mlua::Value, lua: &mlua::Lua) -> mlua::Result<Self> {
+        Ok(*UserDataRef::<Self>::from_lua(value, lua)?)
+    }
+}
+
+impl UserData for AvatarId {
+    fn add_methods< M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_meta_method(MetaMethod::Eq, |_, this, other: AvatarId| -> mlua::Result<bool> {
+            Ok(this.as_u64() == other.as_u64())
+        });
+
+        methods.add_meta_method(MetaMethod::ToString, |_, this, _: ()| -> mlua::Result<String> {
+            Ok(this.to_string())
+        });
+    }
+}
