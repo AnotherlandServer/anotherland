@@ -15,7 +15,7 @@
 
 use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{system::{In, Res}, world::World}, prelude::{Added, App, Commands, Entity, EntityWorldMut, Query, ResMut}};
 use convert_case::{Case, Casing};
-use log::error;
+use log::{error, warn};
 use mlua::{IntoLua, Lua, Table};
 use obj_params::{Class, GameObjectData, GenericParamSet, GenericParamSetBoxExt, NonClientBase};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptApi, ScriptCommandsExt, ScriptObject, ScriptResult};
@@ -192,7 +192,19 @@ pub fn load_class_script(runtime: &mut LuaRuntime, class: Class, name: Option<&s
         let Some(script_name) = name &&
         !script_name.is_empty()
     {
-        object_scripts.push(format!("{}.{}", class.name().to_case(Case::Snake), script_name));
+        match runtime.load_script(&format!("{}.{}", class.name().to_case(Case::Snake), script_name)) {
+            Ok(lua_class) => {
+                return Ok(lua_class);
+            },
+            Err(e) => {
+                if matches!(e, scripting::ScriptError::FileNotFound(_)) {
+                    warn!("Script '{script_name}' not found, falling back to class script.");
+                } else {
+                    error!("Failed to load script '{script_name}': {e}");
+                    return Ok(runtime.vm().create_table()?);
+                }
+            },
+        }
     }
 
     let mut current_class = Some(class);
