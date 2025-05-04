@@ -41,6 +41,7 @@ pub struct Zone {
     pub worlddef_guid: Uuid,
     #[graphql_crud(filter)]
     pub parent_zone_guid: Uuid,
+    #[graphql_crud(filter)]
     pub zone: String,
     #[graphql_crud(filter)]
     pub zone_type: ZoneType,

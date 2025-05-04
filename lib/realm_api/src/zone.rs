@@ -54,6 +54,9 @@ pub struct ZoneQuery {
     worlddef_guid: Option<Uuid>,
 
     #[builder(setter(strip_option), default)]
+    zone: Option<String>,
+
+    #[builder(setter(strip_option), default)]
     zone_type: Option<ZoneType>,
 
     #[builder(setter(strip_option), default)]
@@ -62,12 +65,13 @@ pub struct ZoneQuery {
 
 impl ZoneQuery {
     fn get_filter(&self) -> Option<ZoneFilter<'_>> {
-        if self.zone_guid.is_none() && self.worlddef_guid.is_none() && self.zone_type.is_none() && self.server.is_none() {
+        if self.zone_guid.is_none() && self.worlddef_guid.is_none() && self.zone.is_none() && self.zone_type.is_none() && self.server.is_none() {
             None
         } else {
             Some(ZoneFilter {
                 guid: self.zone_guid,
                 worlddef_guid: self.worlddef_guid, 
+                zone: self.zone.as_deref(),
                 parent_zone_guid: None, 
                 zone_type: self.zone_type, 
                 server: self.server.as_deref(), 
@@ -307,6 +311,7 @@ pub(crate) mod zone_graphql {
     pub struct ZoneFilter<'a> {
         pub guid: Option<Uuid>,
         pub worlddef_guid: Option<Uuid>,
+        pub zone: Option<&'a str>,
         pub parent_zone_guid: Option<Uuid>,
         pub zone_type: Option<ZoneType>,
         pub server: Option<&'a str>,
