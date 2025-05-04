@@ -165,24 +165,24 @@ fn init_health(
 }
 
 fn store_health(
-    mut query: Query<(&mut GameObjectData, &Health), Changed<Health>>,
+    mut query: Query<(&GameObjectData, &mut Health), Changed<GameObjectData>>,
 ) {
-    for (mut obj, health) in query.iter_mut() {
-        obj.set_named("hpCur", health.current);
-        obj.set_named("hpMax", health.max);
-        obj.set_named("hpMin", health.min);
-        obj.set_named("alive", health.alive);
+    for (obj, mut health) in query.iter_mut() {
+        health.current = *obj.get_named("hpCur").unwrap();
+        health.max = *obj.get_named("hpMax").unwrap();
+        health.min = *obj.get_named("hpMin").unwrap();
+        health.alive = *obj.get_named("alive").unwrap();
     }
 }
 
 #[allow(clippy::type_complexity)]
 fn process_health_events(
     mut events: EventReader<HealthUpdateEvent>,
-    mut target: Query<(&AvatarInfo, &mut Health), Or<(With<PlayerTag>, With<NpcBaseTag>)>>,
+    mut target: Query<(&AvatarInfo, &mut Health, &mut GameObjectData), Or<(With<PlayerTag>, With<NpcBaseTag>)>>,
     receivers: Query<(&PlayerController, &Interests)>,
 ) {
     for event in events.read() {
-        if let Ok((avatar, mut health)) = target.get_mut(event.entity) {
+        if let Ok((avatar, mut health, mut obj)) = target.get_mut(event.entity) {
             // Apply update
             match event.update {
                 HealthUpdateType::Damage(amount) => {
@@ -210,6 +210,11 @@ fn process_health_events(
                     }
                 },
             }
+
+            obj.set_named("hpCur", health.current);
+            obj.set_named("hpMax", health.max);
+            obj.set_named("hpMin", health.min);
+            obj.set_named("alive", health.alive);
 
             let pkt = oaPkt_Combat_HpUpdate {
                 avatar_id: avatar.id,
