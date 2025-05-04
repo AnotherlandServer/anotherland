@@ -13,14 +13,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PreUpdate}, prelude::{Added, App, Commands, Component, Entity, Query}};
+use bevy::{app::{Plugin, PreUpdate}, ecs::{system::In, world::World}, prelude::{Added, App, Commands, Component, Entity, Query}};
+use mlua::{Lua, Table};
 use obj_params::{tags::NonClientBaseTag, GameObjectData, NonClientBase};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use anyhow::anyhow;
+
+use crate::error::WorldResult;
 
 pub struct QuestsPlugin;
 
 impl Plugin for QuestsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, init_quest_entities);
+
+        insert_questlog_api(app.world_mut()).unwrap();
     }
 }
 
@@ -95,4 +102,81 @@ fn init_quest_entities(
                 .insert(quest_entity);
         }
     }
+}
+
+
+#[allow(clippy::type_complexity)]
+pub fn insert_questlog_api(
+    world: &mut World,
+) -> ScriptResult<()> {
+    let runtime = world.get_resource::<LuaRuntime>().unwrap();
+    let lua: Lua = runtime.vm().clone();
+    let object_api = lua.create_table().unwrap();
+    runtime.register_native("questlog", object_api.clone()).unwrap();
+
+    object_api.set("MarkQuestAvailable", lua.create_bevy_function(world, |
+        In((owner, quest_id)): In<(Table, i32)>,
+        mut query: Query<&mut QuestLog>,
+    | -> WorldResult<()> {
+        if let Ok(mut log) = query.get_mut(owner.entity()?) {
+            log.available.push(quest_id);
+            log.completed.retain(|&id| id != quest_id);
+            log.finished.retain(|&id| id != quest_id);
+            log.in_progress.retain(|&id| id != quest_id);
+
+            Ok(())
+        } else {
+            Err(anyhow!("QuestLog not found").into())
+        }
+    })?)?;
+
+    object_api.set("MarkQuestCompleted", lua.create_bevy_function(world, |
+        In((owner, quest_id)): In<(Table, i32)>,
+        mut query: Query<&mut QuestLog>,
+    | -> WorldResult<()> {
+        if let Ok(mut log) = query.get_mut(owner.entity()?) {
+            log.available.retain(|&id| id != quest_id);
+            log.completed.push(quest_id);
+            log.finished.retain(|&id| id != quest_id);
+            log.in_progress.retain(|&id| id != quest_id);
+
+            Ok(())
+        } else {
+            Err(anyhow!("QuestLog not found").into())
+        }
+    })?)?;
+
+    object_api.set("MarkQuestFinished", lua.create_bevy_function(world, |
+        In((owner, quest_id)): In<(Table, i32)>,
+        mut query: Query<&mut QuestLog>,
+    | -> WorldResult<()> {
+        if let Ok(mut log) = query.get_mut(owner.entity()?) {
+            log.available.retain(|&id| id != quest_id);
+            log.completed.retain(|&id| id != quest_id);
+            log.finished.push(quest_id);
+            log.in_progress.retain(|&id| id != quest_id);
+
+            Ok(())
+        } else {
+            Err(anyhow!("QuestLog not found").into())
+        }
+    })?)?;
+
+    object_api.set("MarkQuestInProgress", lua.create_bevy_function(world, |
+        In((owner, quest_id)): In<(Table, i32)>,
+        mut query: Query<&mut QuestLog>,
+    | -> WorldResult<()> {
+        if let Ok(mut log) = query.get_mut(owner.entity()?) {
+            log.available.retain(|&id| id != quest_id);
+            log.completed.retain(|&id| id != quest_id);
+            log.finished.retain(|&id| id != quest_id);
+            log.in_progress.push(quest_id);
+
+            Ok(())
+        } else {
+            Err(anyhow!("QuestLog not found").into())
+        }
+    })?)?;
+
+    Ok(())
 }
