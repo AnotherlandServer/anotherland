@@ -92,7 +92,7 @@ impl LuaRuntimeBuilder {
 
                 if let Some(loader_data) = loader_data.as_string() {
                     let paths = lua.named_registry_value::<Table>("_MODULE_PATHS")?;
-                    let loaded = lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
+                    let loaded = lua.named_registry_value::<Table>("_LOADED")?;
 
                     if loader_data != ":preload:" {
                         let path = loader_data.to_str()?.parse::<PathBuf>().unwrap().canonicalize().unwrap();
@@ -164,7 +164,7 @@ impl LuaRuntime {
     }
 
     pub fn load_script(&mut self, name: &str) -> ScriptResult<Table> {
-        let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
+        let loaded = self.lua.named_registry_value::<Table>("_LOADED")?;
         if let Ok(script) = loaded.get::<Table>(name) {
             return Ok(script);
         }
@@ -202,7 +202,7 @@ impl LuaRuntime {
                         base = indirect_base;
                     }
 
-                    let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
+                    let loaded = self.lua.named_registry_value::<Table>("_LOADED")?;
                     loaded.set(name, &base)?;
 
                     // Register the metatable
@@ -216,7 +216,7 @@ impl LuaRuntime {
                     // have all the references ready.
                     warn!("{:?}", res.err().unwrap());
 
-                    let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
+                    let loaded = self.lua.named_registry_value::<Table>("_LOADED")?;
                     let base = if let Ok(base) = loaded.get(name) {
                         base
                     } else {
@@ -237,7 +237,7 @@ impl LuaRuntime {
 
     fn hot_reload_script(&mut self, path: &Path) -> ScriptResult<()> {
         let paths = self.lua.named_registry_value::<Table>("_MODULE_PATHS")?;
-        let loaded = self.lua.named_registry_value::<Table>(LUA_LOADED_TABLE)?;
+        let loaded = self.lua.named_registry_value::<Table>("_LOADED")?;
 
         if 
             let Ok(module_name) = paths.get::<String>(path.display().to_string()) &&
@@ -271,7 +271,7 @@ impl LuaRuntime {
     where
         F: Fn(&Lua, mlua::String) -> mlua::Result<Table> + mlua::MaybeSend + 'static,
     {
-        let preload = self.lua.named_registry_value::<Table>(LUA_PRELOAD_TABLE)?;
+        let preload = self.lua.named_registry_value::<Table>("__PRELOAD")?;
         preload.set(name, self.lua.create_function(func)?)?;
         Ok(())
     }
@@ -370,7 +370,7 @@ pub(crate) fn hot_reload(
         }
 
         // Remove hot reload markers
-        let loaded = runtime.lua.named_registry_value::<Table>(LUA_LOADED_TABLE).unwrap();
+        let loaded = runtime.lua.named_registry_value::<Table>("_LOADED").unwrap();
         let _ = loaded.for_each(|_: Value, module: Value| {
             if let Some(module) = module.as_table() {
                 module.raw_remove("__hot_reload")?;
