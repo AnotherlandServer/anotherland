@@ -204,6 +204,9 @@ fn process_health_events(
                     health.alive = false;
                 },
                 HealthUpdateType::Revive(hitpoints) => {
+                    // Force value update after revive, by setting it explicitly to false here
+                    obj.set_named("alive", false);
+
                     if !health.alive {
                         health.current = hitpoints.unwrap_or(health.max).clamp(health.min + 1, health.max);
                         health.alive = true;
