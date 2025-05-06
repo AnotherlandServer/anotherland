@@ -18,7 +18,7 @@ use std::{fs, path::{Path, PathBuf}, sync::mpsc::Receiver, time::Duration};
 use bevy::prelude::{Commands, Entity, NonSendMut, Query, ResMut, Resource, World};
 use derive_builder::Builder;
 use log::{debug, error, info, trace, warn};
-use mlua::{ffi::{LUA_LOADED_TABLE, LUA_PRELOAD_TABLE}, Function, IntoLua, Lua, LuaOptions, StdLib, Table, Value};
+use mlua::{Function, IntoLua, Lua, LuaOptions, StdLib, Table, Value};
 use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
 use toolkit::init_vector_api;
