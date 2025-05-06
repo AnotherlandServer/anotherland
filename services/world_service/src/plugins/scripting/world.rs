@@ -19,7 +19,7 @@ use scripting::{LuaExt, LuaRuntime, ScriptObject, ScriptResult};
 use toolkit::types::AvatarId;
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, instance::WorldController, plugins::{AvatarIdManager, AvatarInfo, ContentInfo}};
+use crate::{error::WorldResult, instance::WorldController, plugins::{AvatarIdManager, AvatarInfo, ContentInfo, InstanceManager}};
 
 pub fn insert_world_api(
     world: &mut World,
@@ -38,7 +38,7 @@ pub fn insert_world_api(
         Ok(obj.object().clone())
     })?)?;
 
-    object_api.set("GetEntityById", lua.create_bevy_function(world, |
+    object_api.set("GetEntityByAvatarId", lua.create_bevy_function(world, |
         In(id): In<AvatarId>,
         runtime: Res<LuaRuntime>,
         avatar_manager: Res<AvatarIdManager>,
@@ -46,6 +46,22 @@ pub fn insert_world_api(
     | -> WorldResult<Value> {
         if 
             let Some(entity_id) = avatar_manager.entity_from_avatar_id(id) &&
+            let Ok(obj) = query.get(entity_id)
+        {
+            Ok(obj.object().clone().into_lua(runtime.vm())?)
+        } else {
+            Ok(Value::Nil)
+        }
+    })?)?;
+
+    object_api.set("GetEntityById", lua.create_bevy_function(world, |
+        In(id): In<String>,
+        runtime: Res<LuaRuntime>,
+        instance_manager: Res<InstanceManager>,
+        query: Query<&ScriptObject>,
+    | -> WorldResult<Value> {
+        if 
+            let Some(entity_id) = instance_manager.find_instance(id.parse()?) &&
             let Ok(obj) = query.get(entity_id)
         {
             Ok(obj.object().clone().into_lua(runtime.vm())?)
@@ -68,7 +84,7 @@ pub fn insert_world_api(
         Ok(Value::Nil)
     })?)?;
 
-    object_api.set("FindAvatarsByTemplateId", lua.create_bevy_function(world, |
+    object_api.set("FindEntitiesByTemplateId", lua.create_bevy_function(world, |
         In(template_id): In<String>,
         runtime: Res<LuaRuntime>,
         query: Query<(&ContentInfo, &ScriptObject)>,
@@ -78,6 +94,23 @@ pub fn insert_world_api(
 
         for (info, obj) in query.iter() {
             if info.template.id == template_id {
+                result.push(obj.object().clone())?;
+            }
+        }
+
+        Ok(result)
+    })?)?;
+
+    object_api.set("FindEntitiesByClass", lua.create_bevy_function(world, |
+        In(class): In<String>,
+        runtime: Res<LuaRuntime>,
+        query: Query<(&ContentInfo, &ScriptObject)>,
+    | -> WorldResult<Table> {
+        let result: Table = runtime.vm().create_table()?;
+        let class = class.parse()?;
+
+        for (info, obj) in query.iter() {
+            if info.template.class == class {
                 result.push(obj.object().clone())?;
             }
         }

@@ -15,7 +15,7 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use bevy::{app::{First, Last, Plugin, Update}, ecs::{change_detection::DetectChangesMut, component::Component, event::EventWriter, query::Without, removal_detection::RemovedComponents, system::{Resource, SystemId}, world::World}, hierarchy::DespawnRecursiveExt, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}, utils::HashMap};
+use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, query::Without, removal_detection::RemovedComponents, system::{Resource, SystemId}, world::World}, hierarchy::DespawnRecursiveExt, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}, utils::HashMap};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all, TryStreamExt};
 use log::{debug, error, trace, warn};
@@ -328,7 +328,6 @@ impl Plugin for PlayerPlugin {
 
         app.register_command("instantKill", cmd_instant_kill);
 
-        app.register_string_behavior(Class::Player, "respawnnow", behavior_respawnnow);
         app.register_string_behavior(Class::Player, "FlightTube", 
             |
                 In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
@@ -772,32 +771,6 @@ fn cmd_instant_kill(
 }
 
 #[allow(clippy::type_complexity)]
-fn behavior_respawnnow(
-    In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
-    mut query: Query<(&PlayerController, &mut Movement), (With<PlayerTag>, Without<PortalTag>)>,
-    portals: Query<&Movement, (With<PortalTag>, Without<PlayerTag>)>,
-    mut event: EventWriter<HealthUpdateEvent>
-) {
-    let mode = behavior.args.first();
-
-    match mode.map(|s| s.as_str()) {
-        Some("NearestPortal") => {
-            if let Ok((controller, _)) = query.get_mut(ent) {
-                event.send(HealthUpdateEvent::revive(ent, None));
-
-                if let Some(pos) = portals.iter().next() {
-                    controller.send_packet(
-                        ServerAction::LocalPortal(controller.avatar_id(), pos.clone()).into_pkt()
-                    );
-                }
-            }
-        },
-        Some(m) => warn!("Unknown respawn mode: {m}"),
-        None => (),
-    }
-}
-
-#[allow(clippy::type_complexity)]
 fn update_skillbook(
     mut query: Query<(&mut GameObjectData, &Skillbook), Changed<Skillbook>>,
 ) {
@@ -873,8 +846,10 @@ fn travel_to_portal(
 
                 if *instance.zone.guid() == portal.zone_guid {
                     let exit_point = if let Ok(Some(exit_point)) = &exit_point {
+                        debug!("Exit point found: {}", exit_point.id);
                         exit_point
                     } else {
+                        warn!("Portal has no exit point, using portal position");
                         &portal
                     };
 

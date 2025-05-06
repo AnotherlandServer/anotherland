@@ -508,6 +508,8 @@ function Vector.New(x, y, z) end
 function __engine.inventory:GetItem(id)
 end
 
+---@class AvatarId
+
 ---@class log
 Log = {}
 function Log.Trace(...) end
