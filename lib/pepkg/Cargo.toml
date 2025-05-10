@@ -1,0 +1,18 @@
+[package]
+name = "pepkg"
+version = "0.1.0"
+edition = "2024"
+publish = false
+rust-version.workspace = true
+
+[profile.dev]
+opt-level = 2
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+nom.workspace = true
+quick-xml = "0.37.5"
+serde.workspace = true
+serde-xml-rs = "0.8.0"
+thiserror.workspace = true

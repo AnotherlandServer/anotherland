@@ -16,7 +16,7 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, Update}, ecs::{event::Event, system::Resource}, prelude::{in_state, App, Changed, Commands, Entity, IntoSystemConfigs, Query, Res, ResMut, Trigger}, tasks::futures_lite::StreamExt, utils::hashbrown::{HashMap, HashSet}};
+use bevy::{app::{Plugin, Update}, ecs::{event::Event, resource::Resource, schedule::IntoScheduleConfigs}, platform::collections::{HashMap, HashSet}, prelude::{in_state, App, Changed, Commands, Entity, Query, Res, ResMut, Trigger}, tasks::futures_lite::StreamExt};
 use chrono::NaiveDate;
 use obj_params::{Class, CommonConfig};
 use realm_api::RealmApi;

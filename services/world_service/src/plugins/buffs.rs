@@ -16,7 +16,7 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, entity::Entity, query::{Added, Changed, With, Without}, schedule::IntoSystemConfigs, system::{Commands, In, Query, Res, Resource, SystemId}, world::World}, hierarchy::{BuildChildren, Children, DespawnRecursiveExt, HierarchyQueryExt, Parent}, time::{Real, Stopwatch, Time, Virtual}};
+use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, entity::Entity, hierarchy::{ChildOf, Children}, query::{Added, Changed, With, Without}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res, SystemId}, world::World}, time::{Real, Stopwatch, Time, Virtual}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::{debug, warn};
 use mlua::{Lua, Table};
@@ -226,9 +226,9 @@ fn insert_buff(
                 ContentInfo {
                     placement_id: instance_id,
                     template,
-                }
-            ))
-            .set_parent(ent);
+                },
+                ChildOf(ent),
+            ));
     } else {
         warn!("Buff template not found for entity {ent:?}");
     }
@@ -248,11 +248,11 @@ pub struct BuffExpired;
 
 #[allow(clippy::type_complexity)]
 fn send_buff_update(
-    query: Query<(&ContentInfo, &GameObjectData, &Parent), (With<Buff>, Changed<GameObjectData>)>,
+    query: Query<(&ContentInfo, &GameObjectData, &ChildOf), (With<Buff>, Changed<GameObjectData>)>,
     avatar_query: Query<&AvatarInfo>,
     players: Query<(Entity, &Interests, &PlayerController)>,
 ) {
-    for (content, obj, owner) in query.iter() {
+    for (content, obj, child_of) in query.iter() {
         let mut param_buffer = Vec::new();
         let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
@@ -261,13 +261,13 @@ fn send_buff_update(
             .write_to_client(&mut writer)
             .expect("failed to serialize params");
 
-        if let Ok(avatar) = avatar_query.get(owner.get()) {
-            debug!("Buff update for {:?}", owner.get());
+        if let Ok(avatar) = avatar_query.get(child_of.parent()) {
+            debug!("Buff update for {:?}", child_of.parent());
 
             for (ent, interests, controller) in players.iter() {
                 debug!("Checking interests for {ent:?}");
 
-                if owner.get() == ent || interests.contains_key(&owner.get()) {
+                if child_of.parent() == ent || interests.contains_key(&child_of.parent()) {
                     debug!("Sending buff update to {ent:?}");
 
                     controller.send_packet(CPktBuffUpdate {
@@ -287,13 +287,13 @@ fn send_buff_update(
 
 #[allow(clippy::type_complexity)]
 fn insert_buff_info(
-    query: Query<(&Buff, &Parent, &ScriptObject), (With<Buff>, Added<ScriptObject>)>,
+    query: Query<(&Buff, &ChildOf, &ScriptObject), (With<Buff>, Added<ScriptObject>)>,
     objects: Query<&ScriptObject>,
 ) {
-    for (buff, owner, script) in query.iter() {
+    for (buff, child_of, script) in query.iter() {
         debug!("Add buff");
 
-        if let Ok(target_obj) = objects.get(owner.get()) {
+        if let Ok(target_obj) = objects.get(child_of.parent()) {
             script.object().set("target", target_obj.object()).unwrap();
         }
 
@@ -301,7 +301,7 @@ fn insert_buff_info(
             if let Ok(target_obj) = objects.get(instigator) {
                 script.object().set("instigator", target_obj.object()).unwrap();
             }
-        } else if let Ok(target_obj) = objects.get(owner.get()) {
+        } else if let Ok(target_obj) = objects.get(child_of.parent()) {
             script.object().set("target", target_obj.object()).unwrap();
         }
     }
@@ -344,23 +344,23 @@ fn update_buffs(
 
 #[allow(clippy::type_complexity)]
 fn remove_buffs(
-    query: Query<(Entity, &ContentInfo, &Parent), (With<Buff>, With<BuffExpired>)>,
+    query: Query<(Entity, &ContentInfo, &ChildOf), (With<Buff>, With<BuffExpired>)>,
     players: Query<(Entity, &Interests, &PlayerController)>,
     avatar_query: Query<&AvatarInfo>,
     mut commands: Commands,
 ) {
-    for (ent, content, owner) in query.iter() {
+    for (ent, content, child_of) in query.iter() {
         commands
             .entity(ent)
             .call_named_lua_method("Detach", ());
         
         commands
             .entity(ent)
-            .despawn_recursive();
+            .despawn();
 
-        if let Ok(avatar) = avatar_query.get(owner.get()) {
+        if let Ok(avatar) = avatar_query.get(child_of.parent()) {
             for (ent, interests, controller) in players.iter() {
-                if owner.get() == ent || interests.contains_key(&owner.get()) {
+                if child_of.parent() == ent || interests.contains_key(&child_of.parent()) {
                     controller.send_packet(CPktBuffRequest {
                         avatar_id: avatar.id,
                         instance_id: content.placement_id,

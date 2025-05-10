@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::prelude::{Entity, EntityCommand, EntityCommands, World};
+use bevy::{ecs::world::EntityWorldMut, prelude::{Entity, EntityCommand, EntityCommands, World}};
 use log::{debug, error};
 use mlua::{Function, IntoLua, IntoLuaMulti, Value};
 
@@ -73,50 +73,48 @@ struct LuaMethodCall<T: IntoLuaMulti + Send> {
 }
 
 impl <T: IntoLuaMulti + Send + 'static> EntityCommand for LuaMethodCall<T> {
-    fn apply(self, entity: Entity, world: &mut World) {
-        let lua = world.get_resource::<LuaRuntime>()
+    fn apply(self, mut entity_world: EntityWorldMut<'_>) {
+        let lua = entity_world.world().get_resource::<LuaRuntime>()
             .expect("lua runtime not created")
             .vm().clone();
 
         if let Err(e) = lua.scope(|scope| {
-            // Entity might've been despawned in a previously queued command. 
-            // So we ignore missing entities here.
-            if let Ok(ent) = world.get_entity(entity) {
-                let obj = ent
-                    .get::<ScriptObject>().ok_or(anyhow!("not a script object"))?.object.clone();
+            let obj = entity_world
+                .get::<ScriptObject>().ok_or(anyhow!("not a script object"))?.object.clone();
 
-                // We have to borrow the world to the lua vm,
-                // so it can be accessed within api functions.
-                lua.set_named_registry_value(REG_WORLD,
-                    scope.create_any_userdata_ref_mut(world)?
-                )?;
+            let world = entity_world.into_world_mut();
 
-                if let Some((method, mut args)) = match self.method {
-                    MethodRef::Name(name) => {
-                        if let Ok(method) = obj.get::<Function>(name.as_str()) {
-                            Some((method, self.args.into_lua_multi(&lua)?))
-                        } else {
-                            debug!("Method '{name}' not found!");
-                            None
-                        }
-                    },
-                    MethodRef::Function(function) => Some((function, self.args.into_lua_multi(&lua)?)),
-                    MethodRef::Event(event) => {
-                        if let Ok(method) = obj.get::<Function>("Emit") {
-                            let mut args = self.args.into_lua_multi(&lua)?;
-                            args.push_front(event.into_lua(&lua)?);
+            // We have to borrow the world to the lua vm,
+            // so it can be accessed within api functions.
+            lua.set_named_registry_value(REG_WORLD,
+                scope.create_any_userdata_ref_mut(world)?
+            )?;
 
-                            Some((method, args))
-                        } else {
-                            debug!("Method 'Emit' not found!");
-                            None
-                        }
-                    },
-                } {
-                    args.push_front(mlua::Value::Table(obj));
+            if let Some((method, mut args)) = match self.method {
+                MethodRef::Name(name) => {
+                    if let Ok(method) = obj.get::<Function>(name.as_str()) {
+                        Some((method, self.args.into_lua_multi(&lua)?))
+                    } else {
+                        debug!("Method '{name}' not found!");
+                        None
+                    }
+                },
+                MethodRef::Function(function) => Some((function, self.args.into_lua_multi(&lua)?)),
+                MethodRef::Event(event) => {
+                    if let Ok(method) = obj.get::<Function>("Emit") {
+                        let mut args = self.args.into_lua_multi(&lua)?;
+                        args.push_front(event.into_lua(&lua)?);
 
-                    let _ = method.call::<Value>(args)?;
-                }
+                        Some((method, args))
+                    } else {
+                        debug!("Method 'Emit' not found!");
+                        None
+                    }
+                },
+            } {
+                args.push_front(mlua::Value::Table(obj));
+
+                let _ = method.call::<Value>(args)?;
             }
 
             Ok(())

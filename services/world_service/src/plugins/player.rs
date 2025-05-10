@@ -15,7 +15,7 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, query::Without, removal_detection::RemovedComponents, system::{Resource, SystemId}, world::World}, hierarchy::DespawnRecursiveExt, math::{Quat, Vec3}, prelude::{in_state, Added, Changed, Commands, Entity, In, IntoSystemConfigs, Or, Query, Res, ResMut, With}, utils::HashMap};
+use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, removal_detection::RemovedComponents, resource::Resource, schedule::IntoScheduleConfigs, system::SystemId, world::World}, math::{Quat, Vec3}, platform::collections::HashMap, prelude::{in_state, Added, Changed, Commands, Entity, In, Or, Query, Res, ResMut, With}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all, TryStreamExt};
 use log::{debug, error, trace, warn};
@@ -690,7 +690,7 @@ fn save_player_data(
     for (controller, obj) in query.iter() {
         let id = *controller.state().character();
         let volatile_diff = obj.changes()
-        .filter(|(attr, _)| !attr.has_flag(&ParamFlag::Persistent))
+            .filter(|(attr, _)| !attr.has_flag(&ParamFlag::Persistent))
             .collect::<Box<dyn GenericParamSet>>();
         let realm_api = instance.realm_api.clone();
 
@@ -767,7 +767,7 @@ fn cmd_instant_kill(
     In((ent, _)): In<(Entity, Vec<NativeParam>)>,
     mut event: EventWriter<HealthUpdateEvent>
 ) {
-    event.send(HealthUpdateEvent::kill(ent));
+    event.write(HealthUpdateEvent::kill(ent));
 }
 
 #[allow(clippy::type_complexity)]
@@ -828,7 +828,7 @@ fn apply_class_item_result(
             error!("Failed to apply class item: {e:?}");
             commands
                 .entity(ent)
-                .despawn_recursive();
+                .despawn();
         }
     }
 }

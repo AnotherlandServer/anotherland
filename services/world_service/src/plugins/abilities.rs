@@ -15,7 +15,7 @@
 
 use std::{sync::Arc, time::{Duration, Instant}};
 
-use bevy::{app::{App, Plugin, PostUpdate}, ecs::{component::Component, query::Changed, system::{Commands, Res}, world::World}, prelude::{Entity, In, Query}, utils::HashMap};
+use bevy::{app::{App, Plugin, PostUpdate}, ecs::{component::Component, query::Changed, system::{Commands, Res}, world::World}, platform::collections::HashMap, prelude::{Entity, In, Query}};
 use mlua::{Lua, Table};
 use obj_params::Class;
 use protocol::{oaPktAbilityRequest, oaPktAbilityUse, oaPktCooldownUpdate, AbilityEffect, CooldownEntry, CooldownUpdate, OaPktAbilityUseAbilityType};

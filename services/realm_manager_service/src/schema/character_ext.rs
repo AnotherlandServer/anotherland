@@ -15,12 +15,12 @@
 
 use async_graphql::{futures_util::TryStreamExt, Context, Error, InputObject, Json, Object};
 use database::DatabaseRecord;
-use log::{debug, error};
+use log::error;
 use mongodb::{bson::doc, Database};
-use obj_params::{ClassItem, EdnaFunction, EdnaModule, GameObjectData, GenericParamSet, ParamFlag, ParamSet, Player};
+use obj_params::{ClassItem, EdnaFunction, EdnaModule, GameObjectData, GenericParamSet, ParamSet, Player};
 use serde::Deserialize;
 use serde_json::Value;
-use toolkit::{anyhow::anyhow, env_logger::DEFAULT_FILTER_ENV, types::Uuid};
+use toolkit::{anyhow::anyhow, types::Uuid};
 
 use crate::{db::{self, Character, CharacterOutput, ItemStorage, ObjectTemplate, Skillbook, State}, item_storage_session::ItemStorageSession};
 

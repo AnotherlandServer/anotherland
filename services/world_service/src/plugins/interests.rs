@@ -15,7 +15,7 @@
 
 use std::{ops::Deref, time::Duration};
 
-use bevy::{app::{App, Plugin, Update}, ecs::{system::{In, Res}, world::World}, prelude::{Changed, Commands, Component, Entity, IntoSystemConfigs, Or, Query, With, Without}, time::common_conditions::on_timer, utils::HashMap};
+use bevy::{app::{App, Plugin, Update}, ecs::{schedule::IntoScheduleConfigs, system::{In, Res}, world::World}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
 use mlua::{Lua, Table};

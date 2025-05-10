@@ -15,7 +15,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use bevy::{prelude::Component, utils::hashbrown::HashMap};
+use bevy::{platform::collections::HashMap, prelude::Component};
 use serde::{Deserialize, Serialize};
 
 use crate::{Attribute, AttributeInfo, Class, GenericParamSet, ParamError, ParamFlag, ParamResult, ParamSet, ParamWriter, Value};

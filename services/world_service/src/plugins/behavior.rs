@@ -15,7 +15,7 @@
 
 use std::{collections::VecDeque, str::FromStr};
 
-use bevy::{app::Plugin, ecs::system::{Resource, SystemId}, prelude::{App, Commands, Entity, In, IntoSystem, Query, Res}, utils::hashbrown::HashMap};
+use bevy::{app::Plugin, ecs::{resource::Resource, system::SystemId}, platform::collections::HashMap, prelude::{App, Commands, Entity, In, IntoSystem, Query, Res}};
 use log::{debug, warn};
 use mlua::{Function, IntoLua, MultiValue, Table};
 use obj_params::{Class, GameObjectData};
@@ -137,7 +137,7 @@ fn handle_avatar_tell_behavior(
             .get(&target.class())
             .and_then(|m| m.get(&behavior.name))
         {
-            commands.run_system_with_input(*system, (instigator_ent, target_ent, behavior));
+            commands.run_system_with(*system, (instigator_ent, target_ent, behavior));
         } else if 
             let Some(instigator) = instigator_script &&
             let Some(target_script) = target_script &&
@@ -186,7 +186,7 @@ fn handle_avatar_tell_behavior_binary(
             .get(&target.class())
             .and_then(|m| m.get(&behavior.name))
         {
-            commands.run_system_with_input(*system, (instigator_ent, target_ent, behavior));
+            commands.run_system_with(*system, (instigator_ent, target_ent, behavior));
         } else if 
             let Some(instigator_script) = instigator_script &&
             let Some(target_script) = target_script &&
@@ -239,7 +239,7 @@ fn handle_avatar_request_behavior(
             .get(&target.class())
             .and_then(|m| m.get(&behavior.name))
         {
-            commands.run_system_with_input(*system, (instigator_ent, target_ent, behavior));
+            commands.run_system_with(*system, (instigator_ent, target_ent, behavior));
         } else if 
             let Some(instigator) = instigator_script &&
             let Some(target_script) = target_script &&

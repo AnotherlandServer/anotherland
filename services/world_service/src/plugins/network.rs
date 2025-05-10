@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::{component::Component, system::Resource}, prelude::{in_state, Commands, DespawnRecursiveExt, Entity, In, IntoSystem, IntoSystemConfigs, Query, RemovedComponents, Res, ResMut, With}, utils::HashMap};
+use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::{component::Component, resource::Resource, schedule::IntoScheduleConfigs}, platform::collections::HashMap, prelude::{in_state, Commands, Entity, In, IntoSystem, Query, RemovedComponents, Res, ResMut, With}};
 use core_api::Session;
 use log::{debug, error, warn};
 use obj_params::{GameObjectData, Player};
@@ -103,9 +103,9 @@ fn cleanup_player_controllers(
     mut commands: Commands,
 ) {
     while let Ok(ControllerRemoved(ent)) = removed.try_recv() {
-        if let Some(ent) = commands.get_entity(ent) {
+        if let Ok(mut ent) = commands.get_entity(ent) {
             debug!("Despawn player character...");
-            ent.despawn_recursive();
+            ent.despawn();
         }
     }
 
@@ -113,8 +113,8 @@ fn cleanup_player_controllers(
         debug!("Committing travel of peer: {}", controller.id);
 
         let _ = controller.sender.send(WorldEvent::TravelCommited { controller: controller.id });
-        if let Some(ent) = commands.get_entity(ent) {
-            ent.despawn_recursive();
+        if let Ok(mut ent) = commands.get_entity(ent) {
+            ent.despawn();
         }
     }
 }
@@ -149,7 +149,7 @@ fn handle_controller_events(
             ControllerEvent::Packet(pkt) => {
                 if let Some(handler) = message_handlers.0.get(&pkt.get_id()) {
                     handler(&mut commands, ent, pkt)
-                    //commands.run_system_with_input(*handler, (ent, pkt));
+                    //commands.run_system_with(*handler, (ent, pkt));
                 } else {
                     warn!("Unknown pkt: {:#02x}:{:#02x}", pkt.get_id().0, pkt.get_id().1);
                 }
@@ -171,7 +171,7 @@ impl NetworkExtPriv for App {
             .0
             .insert(P::id(), Box::new(move |cmds: &mut Commands, ent: Entity, pkt: CPkt| {
                 let pkt = pkt.into();
-                cmds.run_system_with_input(system, (ent, pkt));
+                cmds.run_system_with(system, (ent, pkt));
             }));
     }
 
@@ -183,7 +183,7 @@ impl NetworkExtPriv for App {
             .0
             .insert(C::id(), Box::new(move |cmds: &mut Commands, ent: Entity, data: NativeParam| {
                 let message = C::from_native_param(data)?;
-                cmds.run_system_with_input(system, (ent, message));
+                cmds.run_system_with(system, (ent, message));
 
                 Ok(())
             }));
@@ -197,7 +197,7 @@ impl NetworkExtPriv for App {
             .0
             .insert(C::id(), Box::new(move |cmds: &mut Commands, ent: Entity, data: NativeParam| {
                 let message = C::from_native_param(data)?;
-                cmds.run_system_with_input(system, (ent, message));
+                cmds.run_system_with(system, (ent, message));
 
                 Ok(())
             }));

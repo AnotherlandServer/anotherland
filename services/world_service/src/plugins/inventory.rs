@@ -16,7 +16,7 @@
 use std::{ops::Deref, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, query::Without, system::{ResMut, Resource, SystemId}, world::World}, prelude::{Added, App, BuildChildren, Changed, Commands, DetectChangesMut, Entity, In, IntoSystemConfigs, Or, Parent, Query, Res, With}, time::common_conditions::on_timer, utils::hashbrown::{HashMap, HashSet}};
+use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::{Component, HookContext}, hierarchy::ChildOf, query::Without, resource::Resource, schedule::IntoScheduleConfigs, system::{ResMut, SystemId}, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::future::join_all;
 use log::{debug, error, warn};
@@ -180,13 +180,13 @@ impl Plugin for InventoryPlugin {
         app.register_message_handler(handle_shop_cart_buy_request);
 
         app.world_mut().register_component_hooks::<Inventory>()
-            .on_add(|mut world, entity, _| {  
+            .on_add(|mut world, HookContext { entity, .. }| {  
                 let storage_id = world.get_entity(entity).unwrap().get::<Inventory>().unwrap().id;
                 let mut registry = world.get_resource_mut::<StorageRegistry>().unwrap();
 
                 registry.0.insert(storage_id, entity);
             })
-            .on_remove(|mut world, entity, _| {
+            .on_remove(|mut world, HookContext { entity, .. }| {
                 let storage_id = world.get_entity(entity).unwrap().get::<Inventory>().unwrap().id;
                 let mut registry = world.get_resource_mut::<StorageRegistry>().unwrap();
 
@@ -500,8 +500,8 @@ fn insert_item_storage(
                         },
                         ItemAbilities(abilities),
                         instance,
+                        ChildOf(ent),
                     ))
-                    .set_parent(ent)
                     .id();
 
                     debug!("Inserting item {}: {}", item.id, item_ent);
@@ -777,7 +777,7 @@ fn apply_equipment_result(
         }
 
         for storage_result in result.storage_results {
-            commands.run_system_with_input(systems.apply_storage_result, (instigator, storage_result));
+            commands.run_system_with(systems.apply_storage_result, (instigator, storage_result));
         }
 
         commands.entity(instigator)
@@ -865,8 +865,8 @@ fn apply_storage_result(
                         },
                         instance,
                         ItemAbilities(abilities),
+                        ChildOf(storage_ent),
                     ))
-                    .set_parent(storage_ent)
                     .id();
 
                     storage.items.insert(item.id, item_ent);
@@ -966,11 +966,11 @@ fn send_initial_items(
 
 #[allow(clippy::type_complexity)]
 fn send_item_updates(
-    item_updates: Query<(&GameObjectData, &ContentInfo, &Parent), Or<((Changed<GameObjectData>, With<ItemBaseTag>), Added<ItemBaseTag>)>>,
+    item_updates: Query<(&GameObjectData, &ContentInfo, &ChildOf), Or<((Changed<GameObjectData>, With<ItemBaseTag>), Added<ItemBaseTag>)>>,
     players: Query<&PlayerController, Without<InitialInventoryTransfer>>,
 ) {
-    for (item, content, player) in item_updates.iter() {
-        if let Ok(ctrl) = players.get(player.get()) {
+    for (item, content, child_of) in item_updates.iter() {
+        if let Ok(ctrl) = players.get(child_of.parent()) {
             let mut params = Vec::new();
             let mut writer = ByteWriter::endian(&mut params, LittleEndian);
             item.write_to_client(&mut writer).unwrap();
@@ -1050,18 +1050,18 @@ fn handle_purchase_result(
         });
     }
 
-    commands.run_system_with_input(systems.apply_storage_result, (instigator, result));
+    commands.run_system_with(systems.apply_storage_result, (instigator, result));
 }
 
 #[allow(clippy::type_complexity)]
 fn insert_item_info(
-    query: Query<(&Parent, &ScriptObject), (With<ItemBaseTag>, Added<ScriptObject>)>,
+    query: Query<(&ChildOf, &ScriptObject), (With<ItemBaseTag>, Added<ScriptObject>)>,
     objects: Query<&ScriptObject>,
 ) {
-    for (owner, script) in query.iter() {
+    for (child_of, script) in query.iter() {
         debug!("Inserting item info");
 
-        if let Ok(owner) = objects.get(owner.get()) {
+        if let Ok(owner) = objects.get(child_of.parent()) {
             script.object().set("owner", owner.object()).unwrap();
         }
     }

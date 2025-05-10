@@ -33,7 +33,7 @@ pub fn insert_world_api(
         In(()): In<()>,
         query: Query<&ScriptObject, With<WorldController>>,
     | -> WorldResult<Table> {
-        let obj = query.get_single()
+        let obj = query.single()
             .map_err(|_| anyhow!("No world controller found"))?;
         Ok(obj.object().clone())
     })?)?;

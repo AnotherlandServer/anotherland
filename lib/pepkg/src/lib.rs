@@ -13,18 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Plugin, PreStartup}, ecs::schedule::IntoScheduleConfigs, prelude::{resource_exists, App}};
+mod pepkg;
+mod error;
+mod tokenized_xml;
+mod federation_xml;
+mod mesh_xml;
 
-use crate::{create_script_object_hooks, hot_reload, prepare_hot_reload, HotReloadEnabled};
-
-pub struct ScriptingPlugin;
-
-impl Plugin for ScriptingPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(PreStartup, prepare_hot_reload);
-        app.add_systems(First, hot_reload.run_if(resource_exists::<HotReloadEnabled>));
-
-        create_script_object_hooks(app);
-    }
-}
-
+pub use pepkg::*;
+pub use error::*;
+pub use tokenized_xml::*;
+pub use federation_xml::*;
+pub use mesh_xml::*;

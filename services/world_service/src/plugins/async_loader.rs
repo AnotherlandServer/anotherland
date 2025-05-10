@@ -13,19 +13,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Plugin}, ecs::{component::Component, entity::Entity, system::{Commands, In, Query, SystemId}}, prelude::App, tasks::{block_on, futures_lite::future}, utils::synccell::SyncCell};
+use std::pin::Pin;
+
+use bevy::{app::{First, Plugin}, ecs::{component::Component, entity::Entity, system::{Command, Commands, In, Query, Res, SystemId}}, prelude::App, tasks::futures_lite::future, utils::synccell::SyncCell};
+use futures::executor::block_on;
+use tokio::task::JoinHandle;
+
+use crate::instance::ZoneInstance;
 
 #[derive(Component)]
 #[allow(clippy::type_complexity)]
 pub struct FutureTaskComponent(SyncCell<Box<dyn FnMut(&mut Commands) -> bool + Send>>);
 
 impl FutureTaskComponent {
-    pub fn new<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static, system: SystemId<In<T>>) -> Self {
-        let mut future = Box::pin(future);
-
+    pub fn new<T: Send + 'static>(mut task: JoinHandle<T>, system: SystemId<In<T>>) -> Self {
         Self(SyncCell::new(Box::new(move |commands| {
-            if let Some(res) = block_on(future::poll_once(&mut future)) {
-                commands.run_system_with_input(system, res);
+            if let Some(res) = block_on(future::poll_once(&mut task)) {
+                commands.run_system_with(system, res.unwrap());
                 true
             } else {
                 false
@@ -53,12 +57,33 @@ fn run_futures(
     }
 }
 
+struct FutureCommand<T: Send + 'static> {
+    future: Pin<Box<dyn Future<Output = T> + Send + 'static>>,
+    system: SystemId<In<T>>,
+}
+
+impl <T: Send + 'static> Command for FutureCommand<T> {
+    fn apply(self, world: &mut bevy::ecs::world::World) -> () {
+        let instance = world.get_resource::<ZoneInstance>().unwrap();
+
+        let join_handle = instance.spawn_task(async move {
+            self.future.await
+        });
+
+        world.spawn(FutureTaskComponent::new(join_handle, self.system));
+    }
+}
+
 pub trait FutureCommands {
-    fn run_system_async<T: Send + 'static>(&mut self, future: impl Future<Output = T> + Send + 'static, system: SystemId<In<T>>);
+    fn run_system_async<T: Send + 'static>(&mut self, task: impl Future<Output = T> + Send + 'static, system: SystemId<In<T>>);
 }
 
 impl FutureCommands for Commands<'_, '_> {
-    fn run_system_async<T: Send + 'static>(&mut self, future: impl Future<Output = T> + Send + 'static, system: SystemId<In<T>>) {        
-        self.spawn(FutureTaskComponent::new(future, system));
+    fn run_system_async<T: Send + 'static>(&mut self, future: impl Future<Output = T> + Send + 'static, system: SystemId<In<T>>) { 
+        self.queue(FutureCommand {
+            future: Box::pin(future),
+            system,
+        });
+        //self.spawn(FutureTaskComponent::new(, system));
     }
 }

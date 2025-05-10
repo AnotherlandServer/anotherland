@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{App, Plugin}, ecs::system::{Resource, SystemId}, prelude::{Commands, Entity, In, IntoSystem, Res}, utils::HashMap};
+use bevy::{app::{App, Plugin}, ecs::{resource::Resource, system::SystemId}, platform::collections::HashMap, prelude::{Commands, Entity, In, IntoSystem, Res}};
 use log::warn;
 use protocol::oaPktCheatingClusterNode;
 use toolkit::NativeParam;
@@ -64,7 +64,7 @@ fn handle_command_request(
             let Some(NativeParam::String(cmd)) = iter.next()
         {
             if let Some(system) = cmd_handlers.0.get(&cmd) {
-                commands.run_system_with_input(*system, (ent, iter.collect()));
+                commands.run_system_with(*system, (ent, iter.collect()));
             } else {
                 warn!("Unknown command: {cmd}");
             }

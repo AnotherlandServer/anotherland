@@ -15,7 +15,7 @@
 
 use std::{sync::Arc, time::Instant};
 
-use bevy::{app::{First, Plugin, PreUpdate}, ecs::{component::Component, event::EventWriter, query::{Or, With}, schedule::IntoSystemConfigs, system::{In, Resource}}, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, utils::HashMap};
+use bevy::{app::{First, Plugin, PreUpdate}, ecs::{component::{Component, HookContext}, event::EventWriter, query::{Or, With}, resource::Resource, schedule::IntoScheduleConfigs, system::In}, platform::collections::HashMap, prelude::{Added, Commands, Entity, NextState, Query, ResMut}};
 use futures_util::TryStreamExt;
 use log::{debug, info, trace, warn};
 use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, StructureBaseTag}, ContentRefList, GameObjectData, NonClientBase};
@@ -51,14 +51,14 @@ impl Plugin for LoaderPlugin {
         //app.insert_resource(ForeignResource(content_receiver));
         app.insert_resource(InstanceManager::default());
         app.world_mut().register_component_hooks::<ContentInfo>()
-            .on_insert(|mut world, entity, _| {
+            .on_insert(|mut world, HookContext { entity, .. }| {
                 let id = world.get_entity(entity).unwrap()
                     .get::<ContentInfo>().unwrap().placement_id;
                 let mut manager = world.get_resource_mut::<InstanceManager>().unwrap();
 
                 manager.0.insert(id, entity);
             })
-            .on_remove(|mut world, entity, _| {
+            .on_remove(|mut world, HookContext { entity, .. }| {
                 let id = world.get_entity(entity).unwrap()
                     .get::<ContentInfo>().unwrap().placement_id;
                 let mut manager = world.get_resource_mut::<InstanceManager>().unwrap();
@@ -78,7 +78,7 @@ impl Plugin for LoaderPlugin {
         let object_cache = instance.object_cache.clone();
 
         let init_task = FutureTaskComponent::new(
-            async move {
+            instance.spawn_task(async move {
                 // Query
                 let mut query = realm_api.query_object_placements()
                     .zone_guid(*zone.guid())
@@ -96,7 +96,7 @@ impl Plugin for LoaderPlugin {
         
                 info!("Instance {} load completed.", zone.guid());
                 content
-            }, 
+            }), 
             app.world_mut().register_system(ingest_content)
         );
 
@@ -197,7 +197,7 @@ pub fn update_spawn_state(
                     debug!("Respawning entity {ent}");
 
                     state.mark_alive();
-                    health_events.send(HealthUpdateEvent::revive(ent, None));
+                    health_events.write(HealthUpdateEvent::revive(ent, None));
                     commands.entity(ent).insert(Active);
                 }
             },

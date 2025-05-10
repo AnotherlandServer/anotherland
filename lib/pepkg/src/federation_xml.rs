@@ -13,18 +13,35 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Plugin, PreStartup}, ecs::schedule::IntoScheduleConfigs, prelude::{resource_exists, App}};
+use serde::{Deserialize, Serialize};
 
-use crate::{create_script_object_hooks, hot_reload, prepare_hot_reload, HotReloadEnabled};
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename = "federation")]
+pub struct Federation {
+    #[serde(rename = "@majorRelease")]
+    pub major_release: u32,
 
-pub struct ScriptingPlugin;
+    #[serde(rename = "@minorRelease")]
+    pub minor_release: u32,
 
-impl Plugin for ScriptingPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(PreStartup, prepare_hot_reload);
-        app.add_systems(First, hot_reload.run_if(resource_exists::<HotReloadEnabled>));
+    #[serde(rename = "@startX")]
+    pub start_x: i32,
 
-        create_script_object_hooks(app);
-    }
+    #[serde(rename = "@startY")]
+    pub start_y: i32,
+
+    #[serde(rename = "@width")]
+    pub width: i32,
+
+    #[serde(rename = "@height")]
+    pub height: i32,
+
+    #[serde(rename = "@tileSize")]
+    pub tile_size: i32,
+
+    #[serde(rename = "@overlap")]
+    pub overlap: i32,
+
+    #[serde(rename = "@translatesBySectionID")]
+    pub translates_by_section_id: bool,
 }
-

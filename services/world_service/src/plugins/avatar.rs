@@ -13,9 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::hash::BuildHasherDefault;
-
-use bevy::{app::Plugin, prelude::{App, Component, Entity, Resource}, utils::{hashbrown::{hash_map::Entry, HashMap}, AHasher}};
+use bevy::{app::Plugin, ecs::component::HookContext, platform::{collections::{hash_map::Entry, HashMap}, hash::FixedHasher}, prelude::{App, Component, Entity, Resource}};
 use rand::{thread_rng, Rng};
 use toolkit::types::{AvatarId, AvatarType};
 
@@ -31,7 +29,7 @@ impl Plugin for AvatarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AvatarIdManager>();
         app.world_mut().register_component_hooks::<AvatarInfo>()
-            .on_insert(|mut world, entity, _| {
+            .on_insert(|mut world, HookContext { entity, .. }| {
                 let id = world.get_entity(entity).unwrap()
                     .get::<AvatarInfo>().unwrap().id;
                 let mut manager = world.get_resource_mut::<AvatarIdManager>().unwrap();
@@ -39,7 +37,7 @@ impl Plugin for AvatarPlugin {
 
                 manager.avatar_entry(id).or_insert(entity);
             })
-            .on_remove(|mut world, entity, _| {
+            .on_remove(|mut world, HookContext { entity, .. }| {
                 let id = world.get_entity(entity).unwrap()
                     .get::<AvatarInfo>().unwrap().id;
                 let mut manager = world.get_resource_mut::<AvatarIdManager>().unwrap();
@@ -55,7 +53,7 @@ pub struct AvatarIdManager {
 }
 
 impl AvatarIdManager {
-    pub fn new_avatar_entry(&mut self) -> Entry<'_, AvatarId, Entity, BuildHasherDefault<AHasher>> {
+    pub fn new_avatar_entry(&mut self) -> Entry<'_, AvatarId, Entity, FixedHasher> {
         let mut rng = thread_rng();
         let id = loop {
             let id = AvatarId::new(rng.gen_range(1..1<<56) << 0xF, AvatarType::Npc);
@@ -67,7 +65,7 @@ impl AvatarIdManager {
         self.entities.entry(id)
     }
 
-    pub fn avatar_entry(&mut self, id: AvatarId) -> Entry<'_, AvatarId, Entity, BuildHasherDefault<AHasher>> {
+    pub fn avatar_entry(&mut self, id: AvatarId) -> Entry<'_, AvatarId, Entity, FixedHasher> {
         self.entities.entry(id)
     }
 

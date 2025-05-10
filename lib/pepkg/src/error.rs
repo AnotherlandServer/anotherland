@@ -13,18 +13,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Plugin, PreStartup}, ecs::schedule::IntoScheduleConfigs, prelude::{resource_exists, App}};
+use nom::error::VerboseError;
+use thiserror::Error;
 
-use crate::{create_script_object_hooks, hot_reload, prepare_hot_reload, HotReloadEnabled};
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
 
-pub struct ScriptingPlugin;
+    #[error(transparent)]
+    Utf8Error(#[from] std::string::FromUtf8Error),
 
-impl Plugin for ScriptingPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(PreStartup, prepare_hot_reload);
-        app.add_systems(First, hot_reload.run_if(resource_exists::<HotReloadEnabled>));
+    #[error(transparent)]
+    XmlError(#[from] serde_xml_rs::Error),
 
-        create_script_object_hooks(app);
-    }
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
-

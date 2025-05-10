@@ -13,14 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::App, prelude::Component};
+use bevy::{app::App, ecs::component::HookContext, prelude::Component};
 use mlua::{Lua, Table};
 
 use crate::{LuaRuntime, ScriptResult};
 
 pub(crate) fn create_script_object_hooks(app: &mut App) {
     app.world_mut().register_component_hooks::<ScriptObject>()
-        .on_add(|world, entity, _| {
+        .on_add(|world, HookContext { entity, .. }| {
             let script = world.entity(entity).get::<ScriptObject>().unwrap();
             script.object.raw_set("__ent", script.lua.create_any_userdata(entity).unwrap())
                 .expect("failed to attach entity to script object");

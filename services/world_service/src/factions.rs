@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use bevy::utils::HashMap;
+use bevy::platform::collections::HashMap;
 use futures::TryStreamExt;
 use obj_params::Class;
 use realm_api::RealmApi;

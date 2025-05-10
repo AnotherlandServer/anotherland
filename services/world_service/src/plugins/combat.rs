@@ -15,7 +15,7 @@
 
 use std::{sync::atomic::AtomicI32, time::Duration};
 
-use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, EventWriter}, world::World}, prelude::{Added, App, Changed, Commands, Component, Entity, In, IntoSystemConfigs, Mut, Or, Query, With}, time::common_conditions::on_timer};
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, EventWriter}, schedule::IntoScheduleConfigs, world::World}, prelude::{Added, App, Changed, Commands, Component, Entity, In, Mut, Or, Query, With}, time::common_conditions::on_timer};
 use mlua::{Integer, Lua, Table};
 use obj_params::{tags::{EdnaContainerTag, EdnaReceptorTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, SpawnerTag, StructureTag, VehicleBaseTag}, GameObjectData, Player};
 use protocol::{oaPkt_Combat_HpUpdate, CPktTargetRequest};
@@ -108,7 +108,7 @@ impl HealthUpdateEvent {
     #[allow(dead_code)]
     pub fn send(self, writer: &mut EventWriter<Self>) -> i32 {
         let id = self.id;
-        writer.send(self);
+        writer.write(self);
         id
     }
 }

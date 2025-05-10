@@ -15,11 +15,11 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use bevy::{app::SubApp, log::trace};
+use bevy::app::SubApp;
 use chrono::{DateTime, Utc};
 use core_api::CoreApi;
 use futures_util::TryStreamExt;
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use obj_params::OaZoneConfig;
 use realm_api::{proto::{InstanceKey, RealmClient, RealmRequest}, RealmApi, WorldDef, Zone};
 use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, oneshot, Mutex}};
@@ -254,7 +254,7 @@ impl InstanceManager {
             let _ = s.event_sender.send(InstanceEvent::WorldShutdown);
         } else {
             for label in s.instances.iter() {
-                trace!("Announcing instace shutdown {:?}", label);
+                trace!("Announcing instace shutdown {label:?}");
                 let _ = s.realm_client.send(RealmRequest::InstanceShutdownNotification(
                     InstanceKey::new(label.id(), label.instance())
                 )).await;

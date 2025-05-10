@@ -43,7 +43,7 @@ impl LuaExt for Lua {
             self.create_function(move |lua: &Lua, args: In::Inner<'static>| {
                 lua.named_registry_value::<AnyUserData>(REG_WORLD)?
                     .borrow_mut_scoped(move |world: &mut World| {
-                        world.run_system_with_input(system, args).unwrap()
+                        world.run_system_with(system, args).unwrap()
                             .map_err(|e| mlua::Error::external(e))
                     })?
             })?

@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration, future::Future};
 
-use bevy::{app::{First, Last, Main, MainSchedulePlugin, PanicHandlerPlugin, PreStartup, SubApp}, core::{FrameCountPlugin, TaskPoolPlugin, TypeRegistrationPlugin}, ecs::{component::Component, entity::Entity, event::{event_update_condition, event_update_system, EventRegistry, EventUpdates}, schedule::ScheduleLabel, system::{Commands, Resource}}, prelude::{AppExtStates, AppTypeRegistry, HierarchyPlugin, IntoSystemConfigs, NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, state::States}, tasks::futures_lite::StreamExt, time::{common_conditions::on_timer, TimePlugin}};
+use bevy::{app::{First, Last, Main, MainSchedulePlugin, PanicHandlerPlugin, PreStartup, SubApp, TaskPoolPlugin}, diagnostic::FrameCountPlugin, ecs::{component::Component, entity::Entity, event::{event_update_condition, event_update_system, EventRegistry, EventUpdates}, resource::Resource, schedule::{IntoScheduleConfigs, ScheduleLabel}, system::Commands}, prelude::{AppExtStates, AppTypeRegistry,NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, state::States}, tasks::futures_lite::StreamExt, time::{common_conditions::on_timer, TimePlugin}};
 use core_api::CoreApi;
 use derive_builder::Builder;
 use log::{debug, trace, error};
@@ -24,7 +24,7 @@ use obj_params::{Class, OaZoneConfig};
 use realm_api::{proto::RealmClient, Category, RealmApi, WorldDef, Zone};
 use scripting::{LuaRuntime, LuaRuntimeBuilder, ScriptObject, ScriptingPlugin};
 use serde_json::Value;
-use tokio::runtime::Handle;
+use tokio::{runtime::Handle, task::JoinHandle};
 use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
@@ -128,9 +128,9 @@ pub struct ZoneInstance {
 }
 
 impl ZoneInstance {
-    pub fn spawn_task(&self, task: impl Future<Output: Send + 'static> + Send + 'static)
+    pub fn spawn_task<F: Send + 'static>(&self, task: impl Future<Output = F> + Send + 'static) -> JoinHandle<F>
     {
-        self.task_tracker.spawn_on(task, &self.handle);
+        self.task_tracker.spawn_on(task, &self.handle)
     }
 
     pub fn task_tracker(&self) -> TaskTracker {
@@ -189,13 +189,11 @@ impl ZoneInstanceBuilder {
 
         app.update_schedule = Some(Main.intern());
         app.add_plugins(TaskPoolPlugin::default());
-        app.add_plugins(TypeRegistrationPlugin);
         app.add_plugins(FrameCountPlugin);
         app.add_plugins(TimePlugin);
         app.add_plugins(MainSchedulePlugin);
         app.add_plugins(StatesPlugin);
         app.add_plugins(PanicHandlerPlugin);
-        app.add_plugins(HierarchyPlugin);
 
         app.add_systems(
             First,

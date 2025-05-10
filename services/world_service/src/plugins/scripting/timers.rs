@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{ecs::{component::Component, entity::Entity, system::{Commands, In, Query, Res}, world::World}, hierarchy::{BuildChildren, DespawnRecursiveExt}, time::{Stopwatch, Time, Virtual}};
+use bevy::{ecs::{component::Component, entity::Entity, hierarchy::ChildOf, system::{Commands, In, Query, Res}, world::World}, time::{Stopwatch, Time, Virtual}};
 use mlua::{Function, Lua, Table};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 
@@ -70,8 +70,8 @@ pub fn insert_timer_api(
                     stopwatch: Stopwatch::new(),
                     callback: callback.clone(),
                 },
-            ))
-            .set_parent(owner_ent);
+                ChildOf(owner_ent),
+            ));
 
         Ok(table)
     })?)?;
@@ -84,7 +84,7 @@ pub fn insert_timer_api(
 
         commands
             .entity(ent)
-            .despawn_recursive();
+            .despawn();
 
         Ok(())
     })?)?;
