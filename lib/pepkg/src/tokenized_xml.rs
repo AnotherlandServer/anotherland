@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{array, borrow::Cow, collections::VecDeque};
+use std::{borrow::Cow, collections::VecDeque};
 
-use log::{trace, warn};
-use nom::{bytes::complete::tag, error::VerboseError, number::complete::{le_i16, le_i32, le_i8, le_u16, le_u32, le_u8}, sequence::{pair, preceded, tuple}, FindSubstring, InputIter, InputLength, InputTake};
+use log::warn;
+use nom::{error::VerboseError, number::complete::{le_i16, le_i32, le_i8, le_u16, le_u32, le_u8}, sequence::{pair, preceded}};
 use quick_xml::{events::{attributes::Attribute, BytesText, Event}, name::QName, Writer};
 use nom::{bytes::complete::{take_until, take}, combinator::{map, verify}, multi::many_till, sequence::terminated};
 
@@ -92,6 +92,7 @@ pub fn parse_tokenized_xml<'a, W: std::io::Write>(input: &'a [u8], writer: &mut 
     )(input)?;
  
     // Helper function to parse a string value
+    #[allow(clippy::type_complexity)]
     fn parse_string(input: &[u8]) -> Result<(&[u8], String), nom::Err<VerboseError<&[u8]>>> {
         map(
             terminated(take_until(&[0][..]), take(1usize)),

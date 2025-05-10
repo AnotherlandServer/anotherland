@@ -15,7 +15,7 @@
 
 use std::pin::Pin;
 
-use bevy::{app::{First, Plugin}, ecs::{component::Component, entity::Entity, system::{Command, Commands, In, Query, Res, SystemId}}, prelude::App, tasks::futures_lite::future, utils::synccell::SyncCell};
+use bevy::{app::{First, Plugin}, ecs::{component::Component, entity::Entity, system::{Command, Commands, In, Query, SystemId}}, prelude::App, tasks::futures_lite::future, utils::synccell::SyncCell};
 use futures::executor::block_on;
 use tokio::task::JoinHandle;
 
@@ -63,12 +63,10 @@ struct FutureCommand<T: Send + 'static> {
 }
 
 impl <T: Send + 'static> Command for FutureCommand<T> {
-    fn apply(self, world: &mut bevy::ecs::world::World) -> () {
+    fn apply(self, world: &mut bevy::ecs::world::World) {
         let instance = world.get_resource::<ZoneInstance>().unwrap();
 
-        let join_handle = instance.spawn_task(async move {
-            self.future.await
-        });
+        let join_handle = instance.spawn_task(self.future);
 
         world.spawn(FutureTaskComponent::new(join_handle, self.system));
     }

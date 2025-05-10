@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{ecs::world::EntityWorldMut, prelude::{Entity, EntityCommand, EntityCommands, World}};
+use bevy::{ecs::world::EntityWorldMut, prelude::{EntityCommand, EntityCommands}};
 use log::{debug, error};
 use mlua::{Function, IntoLua, IntoLuaMulti, Value};
 
@@ -73,7 +73,7 @@ struct LuaMethodCall<T: IntoLuaMulti + Send> {
 }
 
 impl <T: IntoLuaMulti + Send + 'static> EntityCommand for LuaMethodCall<T> {
-    fn apply(self, mut entity_world: EntityWorldMut<'_>) {
+    fn apply(self, entity_world: EntityWorldMut<'_>) {
         let lua = entity_world.world().get_resource::<LuaRuntime>()
             .expect("lua runtime not created")
             .vm().clone();

@@ -15,7 +15,7 @@
 
 use std::{fs::File, io::{Cursor, Read, Seek}, path::Path};
 use log::trace;
-use nom::{combinator::map, error::VerboseError, number::complete::{le_i32, le_u32}, sequence::tuple, IResult};
+use nom::{combinator::map, error::VerboseError, number::complete::{le_i32, le_u32}, sequence::tuple};
 use anyhow::anyhow;
 use quick_xml::Writer;
 
@@ -44,7 +44,7 @@ impl PePkg {
         let mut header_buffer = [0u8; 36];
         f.read_exact(&mut header_buffer)?;
 
-        let (_, (_, header_ext_offset, _, file_table_entries, file_table_size, federation_def_offset, file_table_offset, _, _)) = tuple((
+        let (_, (_, _header_ext_offset, _, file_table_entries, file_table_size, federation_def_offset, file_table_offset, _, _)) = tuple((
             le_i32, // _0
             le_i32, // header_ext_0_offset
             le_i32, // _1
