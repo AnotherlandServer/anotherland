@@ -6,9 +6,6 @@ publish = false
 rust-version.workspace = true
 license = "AGPL-3.0-or-later"
 
-[profile.dev]
-opt-level = 2
-
 [dependencies]
 anyhow.workspace = true
 log.workspace = true

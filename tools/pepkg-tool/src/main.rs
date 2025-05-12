@@ -1,8 +1,9 @@
-use std::{fs, ops::{Deref, DerefMut}, path::Path};
+use std::{collections::{HashMap, HashSet}, fs, ops::{Deref, DerefMut}};
 
-use bevy_full::{asset::RenderAssetUsages, color::palettes::css::WHITE, input::mouse::MouseMotion, pbr::wireframe::{WireframeConfig, WireframePlugin}, prelude::*, render::{mesh::Indices, settings::{WgpuFeatures, WgpuSettings}, RenderPlugin}, window::CursorGrabMode};
+use bevy_full::{asset::RenderAssetUsages, color::palettes::css::WHITE, input::mouse::MouseMotion, log::tracing_subscriber::field::debug, pbr::wireframe::{WireframeConfig, WireframePlugin}, prelude::*, render::{mesh::{Indices, PrimitiveTopology}, settings::{WgpuFeatures, WgpuSettings}, RenderPlugin}, window::CursorGrabMode};
 use clap::{Parser, Subcommand};
 use log::{error, info};
+use lyon::{geom::point, path::{builder::NoAttributes, traits::PathBuilder, BuilderImpl, Path}, tessellation::{BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator, StrokeVertex, VertexBuffers}};
 use pepkg::PePkg;
 
 #[derive(Parser)]
@@ -41,9 +42,9 @@ fn main() {
 
             info!("Extracting {pepkg_path} to {output_path}");
 
-            if Path::new(&pepkg_path).exists() {
+            if std::path::Path::new(&pepkg_path).exists() {
                 let mut pepkg = PePkg::open(&pepkg_path).expect("Failed to open pepkg file");
-                let output_path = Path::new(&output_path);
+                let output_path = std::path::Path::new(&output_path);
                 if !output_path.exists() {
                     std::fs::create_dir_all(output_path).expect("Failed to create output directory");
                 }
@@ -73,7 +74,7 @@ fn main() {
         Some(Commands::Display { pepkg_path }) => {
             info!("Displaying {pepkg_path}");
 
-            if Path::new(&pepkg_path).exists() {
+            if std::path::Path::new(&pepkg_path).exists() {
                 let pepkg = PePkg::open(&pepkg_path).expect("Failed to open pepkg file");
                 display(pepkg);
             } else {
@@ -175,7 +176,11 @@ fn setup_display(
     // Track the bounding box of all meshes
     let mut min_bounds = Vec3::splat(f32::MAX);
     let mut max_bounds = Vec3::splat(f32::MIN);
+
+    let mut world_mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);
     
+    let mut builder = Path::builder();
+
     // Spawn all tiles and calculate bounds
     for i in 0..pepkg.tile_count() {
         let (mesh, _, _) = pepkg.read_tile(i).unwrap();
@@ -193,27 +198,92 @@ fn setup_display(
             max_bounds = max_bounds.max(Vec3::new(x, y, z));
         }
 
-        let tile_mesh = meshes.add(load_pe_mesh(&mesh));
+        let mut tile_mesh = load_3d_mesh(&mesh);
+        tile_mesh.translate_by(Vec3::new(tile_x, 0.0, tile_z));
 
-        // Generate a unique color based on tile index
-        let tile_color = generate_tile_color(i);
-        
-        commands.spawn((
-            Mesh3d(tile_mesh),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: tile_color,
-                double_sided: true,
-                cull_mode: None,
-                perceptual_roughness: 0.8,
-                reflectance: 0.1,
-                
+        if world_mesh.indices().is_none() {
+            world_mesh = tile_mesh;
+        } else {
+            world_mesh.merge(&tile_mesh).unwrap();
+        }
 
+        load_2d_mesh(&mut builder, Vec2::new(tile_x, tile_z), &mesh);
 
-                ..Default::default()
-            })),
-            Transform::from_xyz(tile_x, 0.0, tile_z),
-        ));
+        let meshes_2d = load_2d_meshes(&mesh);
+        for (i, mesh) in meshes_2d.into_iter().enumerate() {
+            let tile_mesh = meshes.add(mesh);
+            commands.spawn((
+                Mesh3d(tile_mesh),
+                MeshMaterial3d(materials.add(StandardMaterial {
+                    base_color: generate_tile_color(i),
+                    double_sided: true,
+                    cull_mode: None,
+                    perceptual_roughness: 0.8,
+                    reflectance: 0.1,
+                    ..Default::default()
+                })),
+                Transform::from_translation(Vec3::new(tile_x, 0.0, tile_z)),
+            ));
+        }
     }
+
+    let tile_mesh = meshes.add(normalize_mesh(world_mesh));
+
+    commands.spawn((
+        Mesh3d(tile_mesh),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.8, 0.8, 0.8),
+            double_sided: true,
+            cull_mode: None,
+            perceptual_roughness: 0.8,
+            reflectance: 0.1,
+            ..Default::default()
+        })),
+    ));
+
+    let path = builder.build();
+
+    let mut geometry = VertexBuffers::<Vec3, u32>::new();
+    /*let mut tesselator = FillTessellator::new();
+
+    tesselator.tessellate_path(
+        &path, 
+        &FillOptions::default(), 
+        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+            Vec3::new(vertex.position().x, 0.0, vertex.position().y)
+        })
+    ).unwrap();*/
+
+    let mut tesselator = StrokeTessellator::new();
+    tesselator.tessellate_path(
+        &path, 
+        &StrokeOptions::default().with_tolerance(0.1).with_line_width(10.0), 
+        &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
+            Vec3::new(vertex.position().x, 0.0, vertex.position().y)
+        })
+    ).unwrap();
+
+    let mut nav_mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, geometry.vertices)
+    .with_inserted_indices(Indices::U32(geometry.indices));
+
+    nav_mesh.compute_normals();
+
+    /*commands.spawn((
+        Mesh3d(meshes.add(nav_mesh)),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.3, 0.3, 0.8),
+            double_sided: true,
+            cull_mode: None,
+            perceptual_roughness: 0.8,
+            reflectance: 0.1,
+            ..Default::default()
+        })),
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+    ));*/
     
     // Calculate camera position based on bounds
     let center = (min_bounds + max_bounds) * 0.5;
@@ -365,7 +435,85 @@ fn toggle_cursor_grab(
     }
 }
 
-fn load_pe_mesh(mesh: &pepkg::Mesh) -> Mesh {
+fn normalize_mesh(mesh: Mesh) -> Mesh {
+    let mut duplicated_vecs = HashMap::new();
+
+    let mut positions: Vec<(usize, [f32; 3])> = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap().as_float3().unwrap()
+        .iter()
+        .cloned()
+        .enumerate()
+        .collect();
+
+    positions.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+    debug!("Normalizing mesh with {} vertices", positions.len());
+
+    // Find duplicated vertices
+    for i in 1..positions.len() {
+        if positions[i].1 == positions[i-1].1 {
+            duplicated_vecs.insert(positions[i].0, positions[i-1].0);
+        }
+    }
+
+    let mut index_map = HashMap::new();
+
+    let mut new_index = 0;
+    let positions = positions
+        .into_iter()
+        .filter_map(|(original_index, vert)| {
+            if let Some(&replaced_index) = duplicated_vecs.get(&original_index) {
+                let replaced_index = index_map.get(&replaced_index)
+                    .cloned()
+                    .unwrap();
+
+                index_map.insert(original_index, replaced_index);
+                None
+            } else {
+                index_map.insert(original_index, new_index);
+                new_index += 1;
+                Some(vert)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    debug!("Found {} duplicated vertices", duplicated_vecs.len());
+    debug!("New vertex count: {}", positions.len());
+
+    let mut indices = mesh.indices().unwrap()
+        .iter()
+        .map(|index| {
+            if let Some(&new_index) = index_map.get(&index) {
+                new_index as u32
+            } else {
+                index as u32
+            }
+        })
+        .collect::<Vec<_>>()
+        .chunks(3)
+        .map(|chunk| {
+            [chunk[0], chunk[1], chunk[2]]
+        })
+        .collect::<Vec<_>>();
+
+    indices.dedup();
+
+    let indices = indices
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+
+    debug!("Normalized mesh");
+
+    let mut mesh = Mesh::new(mesh.primitive_topology(), mesh.asset_usage)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_indices(Indices::U32(indices));
+    
+    mesh.compute_normals();
+
+    mesh
+}
+
+fn load_3d_mesh(mesh: &pepkg::Mesh) -> Mesh {
     // Convert vertices first to have them available for normal calculation
     let mut positions: Vec<[f32; 3]> = mesh.mesh_3d.verts.verts
         .iter()
@@ -407,83 +555,98 @@ fn load_pe_mesh(mesh: &pepkg::Mesh) -> Mesh {
         })
         .collect();
     
-    // Calculate normals
-    let mut normals = vec![[0.0, 0.0, 0.0]; positions.len()];
-    let mut counts = vec![0; positions.len()];
-    
-    // Process each triangle
-    for chunk in indices.chunks(3) {
-        if chunk.len() == 3 {
-            let i0 = chunk[0] as usize;
-            let i1 = chunk[1] as usize;
-            let i2 = chunk[2] as usize;
-            
-            // Get vertices of this triangle
-            if i0 >= positions.len() || i1 >= positions.len() || i2 >= positions.len() {
-                continue; // Skip invalid indices
-            }
-            
-            let v0 = Vec3::from(positions[i0]);
-            let v1 = Vec3::from(positions[i1]);
-            let v2 = Vec3::from(positions[i2]);
-            
-            // Calculate triangle edges
-            let edge1 = v1 - v0;
-            let edge2 = v2 - v0;
-            
-            // Calculate face normal using cross product
-            let normal = edge1.cross(edge2).normalize();
-            
-            // Add this normal to all vertices of this face
-            normals[i0][0] += normal.x;
-            normals[i0][1] += normal.y;
-            normals[i0][2] += normal.z;
-            counts[i0] += 1;
-            
-            normals[i1][0] += normal.x;
-            normals[i1][1] += normal.y;
-            normals[i1][2] += normal.z;
-            counts[i1] += 1;
-            
-            normals[i2][0] += normal.x;
-            normals[i2][1] += normal.y;
-            normals[i2][2] += normal.z;
-            counts[i2] += 1;
-        }
-    }
-    
-    // Average and normalize all vertex normals
-    for i in 0..normals.len() {
-        if counts[i] > 0 {
-            normals[i][0] /= counts[i] as f32;
-            normals[i][1] /= counts[i] as f32;
-            normals[i][2] /= counts[i] as f32;
-            
-            // Normalize
-            let length = (normals[i][0] * normals[i][0] + 
-                          normals[i][1] * normals[i][1] + 
-                          normals[i][2] * normals[i][2]).sqrt();
-            if length > 0.0 {
-                normals[i][0] /= length;
-                normals[i][1] /= length;
-                normals[i][2] /= length;
-            } else {
-                // Default normal if calculation failed
-                normals[i] = [0.0, 1.0, 0.0];
-            }
-        } else {
-            // Default normal for vertices not used in any triangle
-            normals[i] = [0.0, 1.0, 0.0];
-        }
-    }
-    
     // Create the mesh with positions, normals, and indices
-    Mesh::new(
-        bevy_full::render::mesh::PrimitiveTopology::TriangleList,
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
         RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_indices(Indices::U32(indices))
+    .with_inserted_indices(Indices::U32(indices));
+
+    mesh.compute_normals();
+    
+    mesh
 }
 
+fn load_2d_mesh(builder: &mut NoAttributes<BuilderImpl>, pos: Vec2, mesh: &pepkg::Mesh) {
+    let mut result_mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD
+    );
+
+    let verts = mesh.mesh_3d.verts.verts.as_slice();
+    let poligons = mesh.mapping_to_2d.polys.as_slice();
+
+
+    for polygon in poligons {
+        if 
+            let Some(edge) = polygon.edges.first() &&
+            let Some(vert) = verts.get(edge.start_vert as usize)
+        {
+            builder.begin(point(vert.x as f32 + pos.x, vert.y as f32 + pos.y));
+        } else {
+            break;
+        }
+
+        for edge in polygon.edges.iter().skip(1) {
+            if let Some(vert) = verts.get(edge.start_vert as usize) {
+                builder.line_to(point(vert.x as f32 + pos.x, vert.y as f32 + pos.y));
+            }
+        }
+
+        builder.close();
+    }
+}
+
+fn load_2d_meshes(mesh: &pepkg::Mesh) -> Vec<Mesh> {
+    let mut meshes = Vec::new();
+
+    let verts = mesh.mesh_3d.verts.verts.as_slice();
+    let poligons = mesh.mapping_to_2d.polys.as_slice();
+
+
+    for polygon in poligons {
+        let mut builder = Path::builder();
+
+        if 
+            let Some(edge) = polygon.edges.first() &&
+            let Some(vert) = verts.get(edge.start_vert as usize)
+        {
+            builder.begin(point(vert.x as f32, vert.y as f32));
+        } else {
+            break;
+        }
+
+        for edge in polygon.edges.iter().skip(1) {
+            if let Some(vert) = verts.get(edge.start_vert as usize) {
+                builder.line_to(point(vert.x as f32, vert.y as f32));
+            }
+        }
+
+        builder.end(true);
+
+        let mut geometry = VertexBuffers::<Vec3, u32>::new();
+    
+        let mut tesselator = StrokeTessellator::new();
+        tesselator.tessellate_path(
+            &builder.build(), 
+            &StrokeOptions::default().with_tolerance(0.1).with_line_width(10.0), 
+            &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
+                Vec3::new(vertex.position().x, 0.0, vertex.position().y)
+            })
+        ).unwrap();
+
+        let mut result_mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, geometry.vertices)
+        .with_inserted_indices(Indices::U32(geometry.indices));
+
+        result_mesh.compute_normals();
+
+        meshes.push(result_mesh);
+    }
+
+    meshes
+}

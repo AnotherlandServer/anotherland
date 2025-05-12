@@ -143,7 +143,7 @@ pub struct Tri {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Poly {
     #[serde(rename = "edge")]
-    edges: Vec<Edge>,
+    pub edges: Vec<Edge>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

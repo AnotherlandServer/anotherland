@@ -5,14 +5,12 @@ edition = "2024"
 rust-version.workspace = true
 license = "AGPL-3.0-or-later"
 
-[profile.dev]
-opt-level = 2
-
 [dependencies]
 bevy_ecs = "0.16.0"
 bevy_full = { version = "0.16.0", package = "bevy" }
 clap.workspace = true
 env_logger.workspace = true
 log.workspace = true
+lyon = "1.0.1"
 pepkg = { version = "0.1.0", path = "../../lib/pepkg" }
 serde.workspace = true
