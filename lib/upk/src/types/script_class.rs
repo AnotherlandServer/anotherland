@@ -35,19 +35,26 @@ impl ScriptClass {
 
 #[async_trait]
 impl DeserializeUnrealObject for ScriptClass {
-    async fn deserialize(object: &ObjectRef, container: &Container, i: &[u8]) -> UPKResult<Self> {
+    async fn deserialize<'a>(object: &ObjectRef, container: &Container, i: &'a [u8]) -> UPKResult<(&'a [u8], Self)> {
         let mut attributes = HashMap::new();
 
         if object.flags().contains(Flags::HAS_STACK) {
             unimplemented!();
         }
 
-        let (i, _) = le_u64::<_, Error<_>>(i)?;
-        let (_, super_struct) = map(le_u64::<_, Error<_>>, |idx| LocalObjectIndexRef::from_idx(idx as i32))(i)?;
+        let (i, super_struct) = if i.is_empty() {
+            (i, CLASS.clone())
+        } else {
+            let (i, _) = le_u64::<_, Error<_>>(i)?;
+            let (i, super_struct) = map(le_u64::<_, Error<_>>, |idx| LocalObjectIndexRef::from_idx(idx as i32))(i)?;
 
-        let super_struct = container
-            .resolve_object(object.package().unwrap(), super_struct)
-            .unwrap_or(CLASS.clone());
+            (
+                i,
+                container
+                    .resolve_object(object.package().unwrap(), super_struct)
+                    .unwrap_or(CLASS.clone())
+            )
+        };
 
         // recursively parse structs for super structs, if required
         if !super_struct.has_data() {
@@ -70,8 +77,11 @@ impl DeserializeUnrealObject for ScriptClass {
             attributes.insert(child.fname().clone(), child.clone());
         }
 
-        Ok(ScriptClass {
-            attributes
-        })
+        Ok((
+            i, 
+            ScriptClass {
+                attributes
+            }
+        ))
     }
 }

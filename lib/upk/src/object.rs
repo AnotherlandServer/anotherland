@@ -13,15 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::Weak;
 use std::{any::Any, cell::RefCell, ops::Deref, sync::Arc};
 use std::fmt::Debug;
 use bitflags::bitflags;
 
+use crate::Container;
 use crate::{types::Intrinsic, ExportRef, FName, PackageFile, CLASS};
 
 enum ObjectSource {
     Export(Arc<PackageFile>, ExportRef),
-    Intrinsic(String),
+    Intrinsic(FName),
 }
 
 bitflags! {
@@ -56,10 +58,71 @@ bitflags! {
     }
 }
 
+pub struct ObjectBuilder<'a> {
+    class: Option<ObjectRef>,
+    container: &'a Container,
+    fqn: Option<String>,
+    children: Vec<ObjectRef>,
+    data: Option<Box<dyn Any + 'static>>,
+}
+
+impl <'a>ObjectBuilder<'a> {
+    pub fn new(container: &'a Container) -> Self {
+        Self {
+            class: None,
+            container,
+            fqn: None,
+            children: Vec::new(),
+            data: None,
+        }
+    }
+
+    pub fn with_name(mut self, name: impl ToString) -> Self {
+        self.fqn = Some(name.to_string());
+        self
+    }
+
+    pub fn with_class(mut self, class: &str) -> Self {
+        self.class = self.container.lookup_object(&format!("Class:{class}"));
+        self
+    }
+
+    pub fn with_class_ref(mut self, class: ObjectRef) -> Self {
+        self.class = Some(class);
+        self
+    }
+
+    pub fn with_data(mut self, data: impl Any + 'static) -> Self {
+        self.data = Some(Box::new(data));
+        self
+    }
+
+    pub fn add_child(mut self, child: ObjectRef) -> Self {
+        self.children.push(child);
+        self
+    }
+
+    pub fn build(self) -> ObjectRef {
+        Object {
+            source: ObjectSource::Intrinsic(FName::new(self.fqn.as_ref().unwrap().clone(), 0)),
+            fqn: if let Some(class) = &self.class {
+                format!("{}:{}", class.name(), self.fqn.unwrap())
+            } else {
+                format!("Class:{}", self.fqn.unwrap())
+            },
+            parent: None,
+            class: self.class,
+            children: RefCell::new(self.children),
+            object_data: RefCell::new(self.data),
+            flags: Flags::empty(),
+        }.into_ref()
+    }
+}
+
 pub struct Object {
     source: ObjectSource,
     fqn: String,
-    parent: Option<ObjectRef>,
+    parent: Option<WeakObjectRef>,
     class: Option<ObjectRef>,
     children: RefCell<Vec<ObjectRef>>,
     object_data: RefCell<Option<Box<dyn Any>>>,
@@ -74,7 +137,7 @@ impl Object {
         Self {
             source: ObjectSource::Export(file.clone(), export.clone()),
             fqn,
-            parent,
+            parent: parent.map(WeakObjectRef::from),
             class: Some(class),
             children: RefCell::new(Vec::new()),
             object_data: RefCell::new(None),
@@ -85,7 +148,7 @@ impl Object {
     pub fn new_class(file: Arc<PackageFile>, export: ExportRef) -> Self {
         Self {
             source: ObjectSource::Export(file.clone(), export.clone()),
-            fqn: export.name().to_owned(), //format!("Core/{}", export.name()),
+            fqn: format!("Class:{}", export.name()), //format!("Core/{}", export.name()),
             parent: None,
             class: None,
             children: RefCell::new(Vec::new()),
@@ -96,9 +159,9 @@ impl Object {
 
     pub fn new_intrinsic<T: Send + Sync + Any + 'static>(name: &str, fqn: &str, class: ObjectRef, parent: Option<ObjectRef>, data: T) -> Self {
         Self {
-            source: ObjectSource::Intrinsic(name.to_owned()),
-            fqn: fqn.to_owned(),
-            parent,
+            source: ObjectSource::Intrinsic(FName::new(name.to_owned(), 0)),
+            fqn: format!("{}:{fqn}", class.name()),
+            parent: parent.map(WeakObjectRef::from),
             class: Some(class),
             children: RefCell::new(Vec::new()),
             object_data: RefCell::new(Some(Box::new(data))),
@@ -108,8 +171,8 @@ impl Object {
 
     pub fn new_intrinsic_class(name: &str, intrinsic: Intrinsic) -> Self {
         Self {
-            source: ObjectSource::Intrinsic(name.to_owned()),
-            fqn: name.to_owned(), //Self::build_fqn(None, None, name, None),
+            source: ObjectSource::Intrinsic(FName::new(name.to_owned(), 0)),
+            fqn: format!("Class:{name}"), //Self::build_fqn(None, None, name, None),
             parent: None,
             class: None,
             children: RefCell::new(Vec::new()),
@@ -127,7 +190,9 @@ impl Object {
     }
 
     pub fn parent(&self) -> Option<ObjectRef> {
-        self.parent.clone()
+        self.parent
+            .clone()
+            .map(ObjectRef::from)
     }
 
     pub fn name(&self) -> &str {
@@ -140,7 +205,7 @@ impl Object {
     pub(crate) fn fname(&self) -> &FName {
         match &self.source {
             ObjectSource::Export(_, export) => export.fname(),
-            ObjectSource::Intrinsic(_) => panic!("itrinsics don't have fnames!"),
+            ObjectSource::Intrinsic(name) => name,
         }
     }
 
@@ -195,7 +260,7 @@ impl Object {
     }
 
     pub fn set_data<T: Any + 'static>(&self, data: T) {
-        if self.has_data() { panic!("object already constains data") }
+        if self.has_data() { panic!("object {} already constains data", self.fqn) }
         self.object_data.replace(Some(Box::new(data)));
     }
 
@@ -215,6 +280,27 @@ impl Deref for ObjectRef {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl From<WeakObjectRef> for ObjectRef {
+    fn from(weak: WeakObjectRef) -> Self {
+        Self(
+            weak.0.upgrade()
+                .expect("Tried to dereference dropped Object!")
+        )
+    }
+}
+
+#[derive(Clone)]
+pub struct WeakObjectRef(Weak<Object>);
+
+unsafe impl Send for WeakObjectRef {}
+unsafe impl Sync for WeakObjectRef {}
+
+impl From<ObjectRef> for WeakObjectRef {
+    fn from(obj: ObjectRef) -> Self {
+        Self(Arc::downgrade(&obj.0))
     }
 }
 

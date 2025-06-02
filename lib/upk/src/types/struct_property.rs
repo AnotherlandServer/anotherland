@@ -24,21 +24,24 @@ pub struct StructProperty {
 }
 
 impl StructProperty {
-    pub fn class(&self) -> &ObjectRef {
-        &self.class
+    pub fn class(&self) -> ObjectRef {
+        self.class.clone()
     }
 }
 
 #[async_trait]
 impl DeserializeUnrealObject for StructProperty {
-    async fn deserialize(object: &ObjectRef, container: &Container, i: &[u8]) -> UPKResult<Self> {
+    async fn deserialize<'a>(object: &ObjectRef, container: &Container, i: &'a [u8]) -> UPKResult<(&'a [u8], Self)> {
         let (i, _) = take::<usize, _, Error<_>>(i.len() - 4)(i)?;
-        let (_, struct_ref) = le_i32::<_, Error<_>>(i)?;
+        let (i, struct_ref) = le_i32::<_, Error<_>>(i)?;
 
         let class = container.resolve_object(object.package().unwrap(), LocalObjectIndexRef::from_idx(struct_ref)).unwrap();
 
-        Ok(Self {
-            class
-        })
+        Ok((
+            i,
+                Self {
+                class
+            }
+        ))
     }
 }

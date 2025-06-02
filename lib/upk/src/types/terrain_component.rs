@@ -13,37 +13,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub enum Intrinsic {
-    Class,
-    Package,
-    ArrayProperty,
-    BoolProperty,
-    ByteProperty,
-    ClassProperty,
-    ComponentProperty,
-    Const,
-    DelegateProperty,
-    Enum,
-    FloatProperty,
-    Function,
-    InterfaceProperty,
-    IntProperty,
-    MapProperty,
-    MetaData,
-    Model, 
-    NameProperty,
-    ObjectProperty,
-    ScriptStruct,
-    State,
-    StrProperty,
-    StructProperty,
-    ShaderCache,
-    FracturedStaticMesh,
-    Level,
-    LightMapTexture2D,
-    Polys,
-    World,
-    ShadowMap1D,
-    Plane,
-    Matrix,
+use async_trait::async_trait;
+use glam::Vec3;
+
+use crate::{Container, DeserializeUnrealObject, ObjectRef, UPKResult};
+
+use super::{parse_array, parse_vec3};
+
+#[derive(Debug, Clone)]
+pub struct TerrainComponent {
+    pub collision_vertices: Vec<Vec3>,
+}
+
+#[async_trait]
+impl DeserializeUnrealObject for TerrainComponent {
+    async fn deserialize<'a>(_object: &ObjectRef, _container: &Container, i: &'a [u8]) -> UPKResult<(&'a [u8], Self)> {
+        let (i, collision_vertices) = parse_array(parse_vec3)(i)?;
+
+        Ok((i, Self {
+            collision_vertices
+        }))
+    }
 }

@@ -8,9 +8,12 @@ publish = false
 [dependencies]
 async-trait = "0.1.83"
 bitflags = "2.6.0"
+derive_builder.workspace = true
 futures = { workspace = true }
+glam.workspace = true
 log = { workspace = true }
 nom = { workspace = true }
 once_cell = { workspace = true }
+thiserror.workspace = true
 tokio = { workspace = true }
 uuid = { workspace = true }

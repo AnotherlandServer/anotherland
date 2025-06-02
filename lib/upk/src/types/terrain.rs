@@ -13,37 +13,26 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub enum Intrinsic {
-    Class,
-    Package,
-    ArrayProperty,
-    BoolProperty,
-    ByteProperty,
-    ClassProperty,
-    ComponentProperty,
-    Const,
-    DelegateProperty,
-    Enum,
-    FloatProperty,
-    Function,
-    InterfaceProperty,
-    IntProperty,
-    MapProperty,
-    MetaData,
-    Model, 
-    NameProperty,
-    ObjectProperty,
-    ScriptStruct,
-    State,
-    StrProperty,
-    StructProperty,
-    ShaderCache,
-    FracturedStaticMesh,
-    Level,
-    LightMapTexture2D,
-    Polys,
-    World,
-    ShadowMap1D,
-    Plane,
-    Matrix,
+use async_trait::async_trait;
+use nom::number::complete::le_u16;
+
+use crate::{types::parse_array, Container, DeserializeUnrealObject, ObjectRef, UPKResult};
+
+#[derive(Debug, Clone)]
+pub struct Terrain {
+    pub heights: Vec<u16>,
+    pub info_data: Vec<u16>,
+}
+
+#[async_trait]
+impl DeserializeUnrealObject for Terrain {
+    async fn deserialize<'a>(_object: &ObjectRef, _container: &Container, i: &'a [u8]) -> UPKResult<(&'a [u8], Self)> {
+        let (i, heights) = parse_array(|i| le_u16(i))(i)?;
+        let (i, info_data) = parse_array(|i| le_u16(i))(i)?;
+
+        Ok((i, Self {
+            heights,
+            info_data,
+        }))
+    }
 }
