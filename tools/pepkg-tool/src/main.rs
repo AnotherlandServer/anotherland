@@ -209,7 +209,7 @@ fn setup_display(
 
         load_2d_mesh(&mut builder, Vec2::new(tile_x, tile_z), &mesh);
 
-        let meshes_2d = load_2d_meshes(&mesh);
+        /*let meshes_2d = load_2d_meshes(&mesh);
         for (i, mesh) in meshes_2d.into_iter().enumerate() {
             let tile_mesh = meshes.add(mesh);
             commands.spawn((
@@ -224,7 +224,7 @@ fn setup_display(
                 })),
                 Transform::from_translation(Vec3::new(tile_x, 0.0, tile_z)),
             ));
-        }
+        }*/
     }
 
     let tile_mesh = meshes.add(normalize_mesh(world_mesh));
@@ -244,24 +244,25 @@ fn setup_display(
     let path = builder.build();
 
     let mut geometry = VertexBuffers::<Vec3, u32>::new();
-    /*let mut tesselator = FillTessellator::new();
+    let mut tesselator = FillTessellator::new();
 
     tesselator.tessellate_path(
         &path, 
-        &FillOptions::default(), 
+        &FillOptions::default()
+            .with_intersections(true),
         &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
             Vec3::new(vertex.position().x, 0.0, vertex.position().y)
         })
-    ).unwrap();*/
+    ).unwrap();
 
-    let mut tesselator = StrokeTessellator::new();
+    /*let mut tesselator = StrokeTessellator::new();
     tesselator.tessellate_path(
         &path, 
         &StrokeOptions::default().with_tolerance(0.1).with_line_width(10.0), 
         &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
             Vec3::new(vertex.position().x, 0.0, vertex.position().y)
         })
-    ).unwrap();
+    ).unwrap();*/
 
     let mut nav_mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -272,7 +273,7 @@ fn setup_display(
 
     nav_mesh.compute_normals();
 
-    /*commands.spawn((
+    commands.spawn((
         Mesh3d(meshes.add(nav_mesh)),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.3, 0.3, 0.8),
@@ -283,7 +284,7 @@ fn setup_display(
             ..Default::default()
         })),
         Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-    ));*/
+    ));
     
     // Calculate camera position based on bounds
     let center = (min_bounds + max_bounds) * 0.5;
@@ -569,14 +570,8 @@ fn load_3d_mesh(mesh: &pepkg::Mesh) -> Mesh {
 }
 
 fn load_2d_mesh(builder: &mut NoAttributes<BuilderImpl>, pos: Vec2, mesh: &pepkg::Mesh) {
-    let mut result_mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD
-    );
-
     let verts = mesh.mesh_3d.verts.verts.as_slice();
     let poligons = mesh.mapping_to_2d.polys.as_slice();
-
 
     for polygon in poligons {
         if 

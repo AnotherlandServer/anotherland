@@ -63,7 +63,7 @@ async fn main() {
     let outdir = PathBuf::from_str(&cli.output_dir).unwrap();
     fs::create_dir_all(&outdir).expect("failed to create output dir");
     
-    if let Some(level) = container.lookup_object("TheWorld/PersistentLevel") {
+    if let Some(level) = container.lookup_object("Level:TheWorld/PersistentLevel") {
         for seq in level.children().iter().filter(|p| p.class().name() == "Sequence") {
             println!("Analyzing: {}", seq.name());
 
