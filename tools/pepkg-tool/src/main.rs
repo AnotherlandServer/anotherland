@@ -1,9 +1,9 @@
-use std::{collections::{HashMap, HashSet}, fs, ops::{Deref, DerefMut}};
+use std::{collections::HashMap, fs, ops::{Deref, DerefMut}};
 
-use bevy_full::{asset::RenderAssetUsages, color::palettes::css::WHITE, input::mouse::MouseMotion, log::tracing_subscriber::field::debug, pbr::wireframe::{WireframeConfig, WireframePlugin}, prelude::*, render::{mesh::{Indices, PrimitiveTopology}, settings::{WgpuFeatures, WgpuSettings}, RenderPlugin}, window::CursorGrabMode};
+use bevy_full::{asset::RenderAssetUsages, color::palettes::css::WHITE, input::mouse::MouseMotion, pbr::wireframe::{WireframeConfig, WireframePlugin}, prelude::*, render::{mesh::{Indices, PrimitiveTopology}, settings::{WgpuFeatures, WgpuSettings}, RenderPlugin}, window::CursorGrabMode};
 use clap::{Parser, Subcommand};
 use log::{error, info};
-use lyon::{geom::point, path::{builder::NoAttributes, traits::PathBuilder, BuilderImpl, Path}, tessellation::{BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator, StrokeVertex, VertexBuffers}};
+use lyon::{geom::point, path::{builder::NoAttributes, BuilderImpl, Path}, tessellation::{BuffersBuilder, FillOptions, FillTessellator, FillVertex, StrokeOptions, StrokeTessellator, StrokeVertex, VertexBuffers}};
 use pepkg::PePkg;
 
 #[derive(Parser)]
@@ -208,23 +208,6 @@ fn setup_display(
         }
 
         load_2d_mesh(&mut builder, Vec2::new(tile_x, tile_z), &mesh);
-
-        /*let meshes_2d = load_2d_meshes(&mesh);
-        for (i, mesh) in meshes_2d.into_iter().enumerate() {
-            let tile_mesh = meshes.add(mesh);
-            commands.spawn((
-                Mesh3d(tile_mesh),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: generate_tile_color(i),
-                    double_sided: true,
-                    cull_mode: None,
-                    perceptual_roughness: 0.8,
-                    reflectance: 0.1,
-                    ..Default::default()
-                })),
-                Transform::from_translation(Vec3::new(tile_x, 0.0, tile_z)),
-            ));
-        }*/
     }
 
     let tile_mesh = meshes.add(normalize_mesh(world_mesh));
@@ -254,15 +237,6 @@ fn setup_display(
             Vec3::new(vertex.position().x, 0.0, vertex.position().y)
         })
     ).unwrap();
-
-    /*let mut tesselator = StrokeTessellator::new();
-    tesselator.tessellate_path(
-        &path, 
-        &StrokeOptions::default().with_tolerance(0.1).with_line_width(10.0), 
-        &mut BuffersBuilder::new(&mut geometry, |vertex: StrokeVertex| {
-            Vec3::new(vertex.position().x, 0.0, vertex.position().y)
-        })
-    ).unwrap();*/
 
     let mut nav_mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -313,7 +287,7 @@ fn setup_display(
     ));
 }
 
-/// Generates a visually distinct color based on an index
+#[allow(dead_code)]
 fn generate_tile_color(index: usize) -> Color {
     // Using golden ratio for good distribution
     const GOLDEN_RATIO_CONJUGATE: f32 = 0.618_034;
@@ -593,6 +567,7 @@ fn load_2d_mesh(builder: &mut NoAttributes<BuilderImpl>, pos: Vec2, mesh: &pepkg
     }
 }
 
+#[allow(dead_code)]
 fn load_2d_meshes(mesh: &pepkg::Mesh) -> Vec<Mesh> {
     let mut meshes = Vec::new();
 

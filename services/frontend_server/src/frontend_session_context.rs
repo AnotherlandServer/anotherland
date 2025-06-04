@@ -51,16 +51,18 @@ impl FrontendSessionContext {
         tokio::spawn(async move {
             while let Ok(buf) = context.socket.recv().await {
                 if let Ok((_, pkt)) = CPkt::from_bytes(&buf) {
-                    if session.is_none() {
-                        if let Err(e) = context.handle_unauthenticated(&pkt, &mut session).await {
-                            error!("Message handler error: {e:?}");
-                        }
+                    if 
+                        session.is_none() && 
+                        let Err(e) = context.handle_unauthenticated(&pkt, &mut session).await 
+                    {
+                        error!("Message handler error: {e:?}");
                     }
 
-                    if let Some(session) = session.as_ref() {
-                        if let Err(e) = context.handle(pkt, session).await {
-                            error!("Message handler error: {e:?}");
-                        }
+                    if 
+                        let Some(session) = session.as_ref() &&
+                        let Err(e) = context.handle(pkt, session).await 
+                    {
+                        error!("Message handler error: {e:?}");
                     }
                 }
             }
