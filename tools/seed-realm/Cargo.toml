@@ -13,7 +13,7 @@ obj_params = { workspace = true }
 once_cell = { workspace = true }
 realm_api = { workspace = true }
 reqwest = { workspace = true }
-sqlite = "0.36.1"
+sqlite.workspace = true
 thiserror = { workspace = true }
 tokio = { workspace = true }
 toolkit = { workspace = true }

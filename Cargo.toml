@@ -20,8 +20,12 @@ members = [
     "services/realm_manager_service", 
     "services/world_service",
     "tools/kismet-plotter",
-    "tools/seed-realm"
-, "lib/content", "lib/pepkg", "tools/pepkg-tool"]
+    "tools/seed-realm", 
+    "lib/content", 
+    "lib/pepkg", 
+    "tools/pepkg-tool", 
+    "tools/navmesh_builder"
+]
 package.rust-version = "1.88"
 
 [workspace.dependencies]
@@ -85,3 +89,4 @@ scripting = { version = "0.1.0", path = "lib/scripting" }
 mlua = { version = "0.10.2", features = ["lua54", "async", "send", "vendored", "anyhow", "serialize"] }
 saphyr = "0.0.3"
 tokio-util = { version = "0.7.13", features = ["rt"] }
+sqlite = "0.37.0"
