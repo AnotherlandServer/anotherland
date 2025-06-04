@@ -55,6 +55,8 @@ pub struct QueryRoot(
     pub db::ItemStorageQueryRoot,
     pub db::SkillbookQueryRoot,
     pub db::AbilityBarQueryRoot,
+    pub db::NavmeshQueryRoot,
+    pub db::NavmeshTileQueryRoot,
 );
 
 #[derive(MergedObject, Default)]
@@ -77,4 +79,6 @@ pub struct MutationRoot(
     pub ItemStorageExtMutationRoot,
     pub SkillbookExtMutationRoot,
     pub AbilityBarExtMutationRoot,
+    pub db::NavmeshMutationRoot,
+    pub db::NavmeshTileMutationRoot,
 );

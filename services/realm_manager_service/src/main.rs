@@ -47,6 +47,8 @@ use tokio::sync::{mpsc::Receiver, Mutex};
 use tokio::time;
 use toolkit::print_banner;
 
+use crate::db::{Navmesh, NavmeshTile};
+
 mod schema;
 mod db;
 mod proto;
@@ -128,6 +130,8 @@ async fn main() -> RealmResult<()> {
     db.init_collection::<CashShopItem>().await;
     db.init_collection::<CashShopVendor>().await;
     db.init_collection::<ItemStorage>().await;
+    db.init_collection::<Navmesh>().await;
+    db.init_collection::<NavmeshTile>().await;
 
     // Read content
     LazyLock::force(&EQUIPMENT_SLOTS);

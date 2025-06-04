@@ -26,6 +26,8 @@ mod cash_shop_vendor;
 mod item_storage;
 mod skillbook;
 mod ability_bar;
+mod navmesh;
+mod navmesh_tile;
 
 pub use character::*;
 pub use premium_currency::*;
@@ -40,3 +42,5 @@ pub use cash_shop_vendor::*;
 pub use item_storage::*;
 pub use skillbook::*;
 pub use ability_bar::*;
+pub use navmesh::*;
+pub use navmesh_tile::*;
