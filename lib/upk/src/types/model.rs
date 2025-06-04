@@ -15,7 +15,6 @@
 
 use async_trait::async_trait;
 use glam::Vec3;
-use log::{debug, info};
 use nom::{error::VerboseError, number::complete::le_f32, IResult};
 
 use crate::{types::{parse_bulk_array, skip_bulk_array}, Container, DeserializeUnrealObject, ObjectRef, UPKResult};
@@ -31,13 +30,8 @@ pub struct Model {
 impl DeserializeUnrealObject for Model {
     async fn deserialize<'a>(_object: &ObjectRef, _container: &Container, i: &'a [u8]) -> UPKResult<(&'a [u8], Self)> {
         let (i, bounds) = parse_bounds(i)?;
-        debug!("Model bounds: {:?}", bounds);
-
-        let (i, vectors) = parse_bulk_array(parse_vec3)(i)?;
-        info!("Model vectors: {:?}", vectors);
-
-        let (i, points) = parse_bulk_array(parse_vec3)(i)?;
-        info!("Model points: {:?}", points);
+        let (i, _vectors) = parse_bulk_array(parse_vec3)(i)?;
+        let (i, _points) = parse_bulk_array(parse_vec3)(i)?;
 
         let (i, _) = skip_bulk_array(i)?; // Nodes
 
