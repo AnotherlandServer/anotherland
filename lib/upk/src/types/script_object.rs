@@ -414,6 +414,11 @@ fn parse_struct<'ctx>(file: Arc<PackageFile>, container: &'ctx Container, object
                     container.lookup_object("ScriptStruct:LevelStreaming/LevelFixedBounds").unwrap()
                 )
             },
+            "MapViewData" => {
+                StructClass::Class(
+                    container.lookup_object("ScriptStruct:LevelStreaming/MapViewData").unwrap()
+                )
+            },
             _ => {
                 // lookup struct property class
                 StructClass::Class(
