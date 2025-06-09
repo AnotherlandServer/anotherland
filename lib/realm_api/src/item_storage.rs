@@ -413,6 +413,7 @@ pub(crate) mod item_storage_graphql {
     }
 
     #[derive(cynic::QueryVariables, Debug)]
+    #[allow(dead_code)]
     pub struct StorageSellItemVariables {
         pub id: Uuid,
         pub item_id: Uuid,
@@ -436,6 +437,7 @@ pub(crate) mod item_storage_graphql {
     }
 
     #[derive(cynic::QueryVariables, Debug)]
+    #[allow(dead_code)]
     pub struct StorageTransferItemVariables {
         pub id: Uuid,
         pub item_id: Uuid,
@@ -452,6 +454,7 @@ pub(crate) mod item_storage_graphql {
     }
 
     #[derive(cynic::QueryVariables, Debug)]
+    #[allow(dead_code)]
     pub struct StorageDepositBlingVariables {
         pub amount: i32,
         pub id: Uuid,

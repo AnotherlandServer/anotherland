@@ -130,7 +130,7 @@ impl GameObjectData {
         {
             Ok(value)
         } else if self.instance.class().get_attribute(attr).is_none() {
-            return Err(ParamError::UnknownAttributeName)
+            Err(ParamError::UnknownAttributeName)
         } else {
             Ok(default)
         }

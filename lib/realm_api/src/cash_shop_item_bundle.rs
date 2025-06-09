@@ -45,7 +45,7 @@ impl RecordQuery for CashShopItemBundleQuery {
                 at_end: !cash_shop_item_bundles.page_info.has_next_page,
                 last_cursor: cash_shop_item_bundles.page_info.end_cursor,
                 records: cash_shop_item_bundles.nodes.into_iter()
-                    .map(|zone| zone.try_into())
+                    .map(|bundle| CashShopItemBundle::from_graphql(&self.api_base, bundle))
                     .collect::<Result<Vec<_>, Self::Error>>()?,
             })
         } else if let Some(errors) = response.errors {
@@ -65,6 +65,9 @@ impl CashShopItemBundleQueryBuilder {
 #[derive(Builder)]
 #[builder(pattern = "owned")]
 pub struct CashShopItemBundle {
+    #[builder(setter(skip))]
+    api_base: Option<RealmApi>,
+
     pub id: Uuid,
     pub display_name: String,
     pub description: String,
@@ -84,31 +87,53 @@ pub struct CashShopItemBundle {
     pub date_end: Option<NaiveDate>
 }
 
-impl TryFrom<cash_shop_item_bundle_graphql::CashShopItemBundle> for CashShopItemBundle {
-    type Error = RealmApiError;
+impl CashShopItemBundle {
+    pub async fn delete(&self) -> RealmApiResult<()> {
+        if let Some(api_base) = &self.api_base {
+            let response = api_base.0.client
+                .post(api_base.0.base_url.clone())
+                .run_graphql(cash_shop_item_bundle_graphql::DeleteCashShopItemBundle::build(
+                    cash_shop_item_bundle_graphql::DeleteCashShopItemBundleVariables { 
+                        id: self.id 
+                    }
+                )).await?;
 
-    fn try_from(value: cash_shop_item_bundle_graphql::CashShopItemBundle) -> Result<Self, Self::Error> {
+            if let Some(cash_shop_item_bundle_graphql::DeleteCashShopItemBundle { .. }) = response.data {
+                Ok(())
+            } else if let Some(errors) = response.errors {
+                Err(RealmApiError::GraphQl(errors))
+            } else {
+                unreachable!()
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    fn from_graphql(api: &RealmApi, other: cash_shop_item_bundle_graphql::CashShopItemBundle) -> RealmApiResult<Self> {
         Ok(Self {
-            id: value.id,
-            display_name: value.display_name,
-            description: value.description,
-            cash_price: value.cash_price,
-            icon: value.icon,
-            item_list_and_count: value.item_list_and_count,
-            is_in_stock: value.is_in_stock,
-            is_hot: value.is_hot,
-            is_new: value.is_new,
-            version: value.version,
-            is_visible: value.is_visible,
-            is_tradable: value.is_tradable,
-            is_featured: value.is_featured,
-            quantity: value.quantity,
-            discount: value.discount,
-            date_start: value.date_start,
-            date_end: value.date_end,
+            api_base: Some(api.clone()),
+            id: other.id,
+            display_name: other.display_name,
+            description: other.description,
+            cash_price: other.cash_price,
+            icon: other.icon,
+            item_list_and_count: other.item_list_and_count,
+            is_in_stock: other.is_in_stock,
+            is_hot: other.is_hot,
+            is_new: other.is_new,
+            version: other.version,
+            is_visible: other.is_visible,
+            is_tradable: other.is_tradable,
+            is_featured: other.is_featured,
+            quantity: other.quantity,
+            discount: other.discount,
+            date_start: other.date_start,
+            date_end: other.date_end,
         })
     }
 }
+
 
 impl <'a> TryFrom<&'a CashShopItemBundle> for cash_shop_item_bundle_graphql::CashShopItemBundleInput<'a> {
     type Error = RealmApiError;
@@ -146,7 +171,7 @@ impl RealmApi {
 
         if let Some(GetCashShopItemBundle { cash_shop_item_bundle }) = response.data {
             if let Some(cash_shop_item_bundle) = cash_shop_item_bundle {
-                Ok(Some(cash_shop_item_bundle.try_into()?))
+                Ok(Some(CashShopItemBundle::from_graphql(self, cash_shop_item_bundle)?))
             } else {
                 Ok(None)
             }
@@ -170,7 +195,7 @@ impl RealmApi {
             })).await?;
 
         if let Some(CreateCashShopItemBundle { create_cash_shop_item_bundle }) = response.data {
-            create_cash_shop_item_bundle.try_into()
+            CashShopItemBundle::from_graphql(self, create_cash_shop_item_bundle)
         } else if let Some(errors) = response.errors {
             Err(RealmApiError::GraphQl(errors))
         } else {

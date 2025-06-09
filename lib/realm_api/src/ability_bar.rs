@@ -50,7 +50,7 @@ impl AbilityBar {
         })
     }
 
-    fn as_graphql(&self) -> AbilityBarInput {
+    fn as_graphql<'a>(&'a self) -> AbilityBarInput<'a> {
         AbilityBarInput {
             character_id: self.character_id,
             single_slot: AbilitySlotInput {

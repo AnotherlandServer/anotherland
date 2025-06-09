@@ -44,7 +44,7 @@ impl RecordQuery for CashShopVendorQuery {
                 at_end: !cash_shop_vendors.page_info.has_next_page,
                 last_cursor: cash_shop_vendors.page_info.end_cursor,
                 records: cash_shop_vendors.nodes.into_iter()
-                    .map(|zone| zone.try_into())
+                    .map(|vendor| CashShopVendor::from_graphql(&self.api_base, vendor))
                     .collect::<Result<Vec<_>, Self::Error>>()?,
             })
         } else if let Some(errors) = response.errors {
@@ -58,6 +58,9 @@ impl RecordQuery for CashShopVendorQuery {
 #[derive(Builder)]
 #[builder(pattern = "owned")]
 pub struct CashShopVendor {
+    #[builder(setter(skip))]
+    api_base: Option<RealmApi>,
+
     pub id: Uuid,
     pub vendor_name: String,
     pub sku_list: Vec<Uuid>,
@@ -65,16 +68,37 @@ pub struct CashShopVendor {
     pub version: i32,
 }
 
-impl TryFrom<cash_shop_vendor_graphql::CashShopVendor> for CashShopVendor {
-    type Error = RealmApiError;
+impl CashShopVendor {
+    pub async fn delete(&self) -> RealmApiResult<()> {
+        if let Some(api_base) = &self.api_base {
+            let response = api_base.0.client
+                .post(api_base.0.base_url.clone())
+                .run_graphql(cash_shop_vendor_graphql::DeleteCashShopVendor::build(
+                    cash_shop_vendor_graphql::DeleteCashShopVendorVariables { 
+                        id: self.id 
+                    }
+                )).await?;
 
-    fn try_from(value: cash_shop_vendor_graphql::CashShopVendor) -> Result<Self, Self::Error> {
+            if let Some(cash_shop_vendor_graphql::DeleteCashShopVendor { .. }) = response.data {
+                Ok(())
+            } else if let Some(errors) = response.errors {
+                Err(RealmApiError::GraphQl(errors))
+            } else {
+                unreachable!()
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    fn from_graphql(api: &RealmApi, other: cash_shop_vendor_graphql::CashShopVendor) -> RealmApiResult<Self> {
         Ok(Self {
-            id: value.id,
-            vendor_name: value.vendor_name,
-            sku_list: value.sku_list,
-            bundle_list: value.bundle_list,
-            version: value.version,
+            api_base: Some(api.clone()),
+            id: other.id,
+            vendor_name: other.vendor_name,
+            sku_list: other.sku_list,
+            bundle_list: other.bundle_list,
+            version: other.version,
         })
     }
 }
@@ -109,7 +133,7 @@ impl RealmApi {
 
         if let Some(GetCashShopVendor { cash_shop_vendor }) = response.data {
             if let Some(cash_shop_vendor) = cash_shop_vendor {
-                Ok(Some(cash_shop_vendor.try_into()?))
+                Ok(Some(CashShopVendor::from_graphql(self, cash_shop_vendor)?))
             } else {
                 Ok(None)
             }
@@ -133,7 +157,7 @@ impl RealmApi {
             })).await?;
 
         if let Some(CreateCashShopVendor { create_cash_shop_vendor }) = response.data {
-            create_cash_shop_vendor.try_into()
+            CashShopVendor::from_graphql(self, create_cash_shop_vendor)
         } else if let Some(errors) = response.errors {
             Err(RealmApiError::GraphQl(errors))
         } else {

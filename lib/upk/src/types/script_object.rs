@@ -29,7 +29,7 @@ pub struct ScriptObject {
 }
 
 impl ScriptObject {
-    pub fn attribs(&self) -> Iter<FName, ObjectProperty> {
+    pub fn attribs(&self) -> Iter<'_, FName, ObjectProperty> {
         self.attributes.iter()
     }
 

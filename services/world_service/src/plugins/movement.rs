@@ -154,6 +154,7 @@ pub fn setup_non_client_movement(
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub fn send_position_updates(
     positions: Query<(Entity, &AvatarInfo, &Movement), Changed<Movement>>,
     players: Query<(&Interests, &PlayerController)>,

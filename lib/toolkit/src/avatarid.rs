@@ -121,7 +121,7 @@ impl Serialize for AvatarId {
 }
 
 impl ToValue for AvatarId {
-    fn to_value(&self) -> Value {
+    fn to_value(&self) -> Value<'_> {
         Value::from_display(self)
     }
 }

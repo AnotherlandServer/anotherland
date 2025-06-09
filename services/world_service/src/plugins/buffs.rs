@@ -122,21 +122,22 @@ pub fn insert_buff_api(
         let owner = owner.entity()?;
 
         for child in children.iter_descendants(owner) {
-            if let Ok((ent, content)) = buffs.get(child) {
-                if match reference_type.as_str() {
+            if 
+                let Ok((ent, content)) = buffs.get(child) &&
+                match reference_type.as_str() {
                     "Template" => Some(content.template.id) == uuid,
                     "Instance" => Some(content.placement_id) == uuid,
                     "Name" => content.template.name == id,
                     _ => return Err(anyhow!("Invalid reference type: {}", reference_type).into()),
-                } {
-                    debug!("Removing buff {}:{} from {ent:?}", content.placement_id, content.template.id);
-
-                    commands
-                        .entity(ent)
-                        .insert(BuffExpired);
-
-                    return Ok(true);
                 }
+            {
+                debug!("Removing buff {}:{} from {ent:?}", content.placement_id, content.template.id);
+
+                commands
+                    .entity(ent)
+                    .insert(BuffExpired);
+
+                return Ok(true);
             }
         }
 
@@ -152,15 +153,16 @@ pub fn insert_buff_api(
         let owner = owner.entity()?;
 
         for child in children.iter_descendants(owner) {
-            if let Ok(content) = buffs.get(child) {
-                if match reference_type.as_str() {
+            if 
+                let Ok(content) = buffs.get(child) &&
+                match reference_type.as_str() {
                     "Template" => Some(content.template.id) == uuid,
                     "Instance" => Some(content.placement_id) == uuid,
                     "Name" => content.template.name == id,
                     _ => return Err(anyhow!("Invalid reference type: {}", reference_type).into()),
-                } {
-                    return Ok(true);
                 }
+            {
+                return Ok(true);
             }
         }
 
@@ -332,12 +334,13 @@ fn update_buffs(
                 .call_named_lua_method("Tick", ());
         }
         
-        if let Some(duration) = buff.duration {
-            if buff.added.elapsed() >= duration {
-                commands
-                    .entity(ent)
-                    .insert(BuffExpired);
-            }
+        if 
+            let Some(duration) = buff.duration &&
+            buff.added.elapsed() >= duration 
+        {
+            commands
+                .entity(ent)
+                .insert(BuffExpired);
         }
     }
 }

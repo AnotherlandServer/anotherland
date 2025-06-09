@@ -181,11 +181,11 @@ impl PackageFile {
         &self.id
     }
 
-    pub fn iter_exports(&self) -> Iter<ExportRef> {
+    pub fn iter_exports(&self) -> Iter<'_, ExportRef> {
         self.exports.iter()
     }
 
-    pub fn iter_imports(&self) -> Iter<ImportRef> {
+    pub fn iter_imports(&self) -> Iter<'_, ImportRef> {
         self.imports.iter()
     }
     

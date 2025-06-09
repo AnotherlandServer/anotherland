@@ -45,6 +45,7 @@ pub trait CommandMessage: Send + Sync + Sized {
 pub struct CommunityCommandMessageHandler(HashMap<i32, CommandMessageHandler>);
 
 #[derive(Resource)]
+#[allow(dead_code)]
 pub struct CommunicationCommandMessageHandler(HashMap<i32, CommandMessageHandler>);
 
 pub trait NetworkExtPriv {

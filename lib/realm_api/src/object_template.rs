@@ -139,7 +139,7 @@ impl ObjectTemplate {
         })
     }
 
-    fn as_graphql(&self) -> ObjectTemplateInput {
+    fn as_graphql<'a>(&'a self) -> ObjectTemplateInput<'a> {
         ObjectTemplateInput {
             id: self.id,
             numeric_id: self.numeric_id,
