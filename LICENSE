@@ -665,11 +665,16 @@ For more information on this, and how to apply and follow the GNU AGPL, see
 Additional Permission Under GNU AGPL version 3 Section 7
 
 As a special exception to the GNU Affero General Public License version 3 (AGPL-3.0),
-you are permitted to link or combine this program with the `ring` crate (or
-with modified versions of it that use the same license as the `ring` crate),
-and to distribute the combined work. The terms of this program's license still
-apply to our code, but not to the `ring` crate solely because of its combination
-with this program.
+you are permitted to link or combine this program with the following libraries
+and to distribute the combined work:
+
+1. The `ring` crate (or with modified versions of it that use the same license 
+   as the `ring` crate)
+2. Intel Math Kernel Library (Intel MKL) through the `intel-mkl-src` crate or 
+   any crates that depend on it (including but not limited to the `theon` crate)
+
+The terms of this program's license still apply to our code, but not to the 
+above-mentioned libraries solely because of their combination with this program.
 
 This exception does not however invalidate any other reasons why the executable
 file might be covered by the GNU Affero General Public License.
