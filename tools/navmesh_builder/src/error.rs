@@ -21,7 +21,7 @@ pub enum NavMeshBuilderError {
     UPKError(#[from] upk::UPKError),
 
     #[error(transparent)]
-    RecastnavigationError(#[from] recastnavigation_rs::XError),
+    RecastnavigationError(#[from] recastnavigation_rs::RNError),
 
     #[error(transparent)]
     GraphError(#[from] plexus::graph::GraphError),
@@ -34,6 +34,9 @@ pub enum NavMeshBuilderError {
 
     #[error("RealmAPI error: {0}")]
     RealmAPIError(#[from] realm_api::RealmApiError),
+
+    #[error(transparent)]
+    PepkgError(#[from] pepkg::Error),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),

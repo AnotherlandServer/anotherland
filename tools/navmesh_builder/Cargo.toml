@@ -18,10 +18,11 @@ indicatif = { version = "0.17.11", features = ["tokio"] }
 log.workspace = true
 nom.workspace = true
 once_cell.workspace = true
+pepkg = { version = "0.1.0", path = "../../lib/pepkg" }
 plexus = { git = "https://github.com/olson-sean-k/plexus", version = "0.0.11", features = ["geometry-glam"] }
 rayon = "1.10.0"
 realm_api = { version = "0.1.0", path = "../../lib/realm_api" }
-recastnavigation-rs = "0.1.0"
+recastnavigation-rs = { workspace = true }
 sqlite = "0.37.0"
 theon = { version = "0.1.0", features = ["glam"] }
 thiserror.workspace = true

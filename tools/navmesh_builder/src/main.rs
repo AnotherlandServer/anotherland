@@ -13,6 +13,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#![feature(int_roundings)]
+
 use std::{collections::{HashMap, VecDeque}, path::{Path, PathBuf}, str::FromStr, sync::Arc, time::Duration};
 
 use base64::{prelude::BASE64_STANDARD, Engine};
@@ -23,9 +25,10 @@ use futures::TryStreamExt;
 use glam::{EulerRot, Mat4, Vec3};
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use once_cell::sync::Lazy;
+use pepkg::PePkg;
 use plexus::{buffer::{FromRawBuffers, MeshBuffer, MeshBuffer3}, index::{CollectWithIndexer, LruIndexer}, primitive::{cube, decompose::Triangulate, generate::{Generator, Position}, sphere, MapVertices, Trigon}};
 use realm_api::{NavmeshBuilder, NavmeshTileBuilder, RealmApi};
-use recastnavigation_rs::{detour::{dt_create_nav_mesh_data, DtBuf, DtNavMeshCreateParams}, recast::{rc_build_compact_heightfield, rc_build_contours, rc_build_distance_field, rc_build_poly_mesh, rc_build_poly_mesh_detail, rc_build_regions, rc_calc_bounds, rc_calc_grid_size, rc_create_heightfield, rc_erode_walkable_area, rc_filter_ledge_spans, rc_filter_low_hanging_walkable_obstacles, rc_filter_walkable_low_height_spans, rc_mark_walkable_triangles, rc_rasterize_triangles_1, RcBuildContoursFlags, RcCompactHeightfield, RcConfig, RcContext, RcContourSet, RcHeightfield, RcPolyMesh, RcPolyMeshDetail}};
+use recastnavigation_rs::{detour::{dt_create_nav_mesh_data, DtBuf, DtNavMeshCreateParams}, recast::{rc_build_compact_heightfield, rc_build_contours, rc_build_distance_field, rc_build_poly_mesh, rc_build_poly_mesh_detail, rc_build_regions, rc_calc_bounds, rc_calc_grid_size, rc_create_heightfield, rc_erode_walkable_area, rc_filter_ledge_spans, rc_filter_low_hanging_walkable_obstacles, rc_filter_walkable_low_height_spans, rc_mark_walkable_triangles, rc_rasterize_triangles_1, RcBuildContoursFlags, RcCompactHeightfield, RcConfig, RcContext, RcContourSet, RcHeightfield, RcPolyMesh, RcPolyMeshDetail, RC_WALKABLE_AREA}};
 use theon::{adjunct::Map, query::Aabb};
 use tokio::{fs, runtime::Handle, sync::Mutex};
 use toolkit::{types::Uuid};
@@ -63,8 +66,8 @@ const fn meter_to_uu(meters: f32) -> f32 {
 }
 
 const CH: f32 = meter_to_uu(0.075);
-const CS: f32 = meter_to_uu(0.15);
-const TS: i32 = meter_to_uu(32.0) as i32;
+const CS: f32 = meter_to_uu(0.1);
+const TS: i32 = 2048i32;
 
 #[tokio::main]
 async fn main() -> NavMeshBuilderResult<()> {
@@ -125,6 +128,12 @@ async fn main() -> NavMeshBuilderResult<()> {
                     continue;
                 }
 
+                let mut pepkg = PePkg::open(
+                    game_path.join(format!("Atlas/data/otherlandgame/WorldData/{level}/{level}.pepkg"))
+                )?;
+
+                let federation_mesh = pepkg.read_federation_file()?;
+
                 let world_mesh = build_level_mesh(&multiprogress, &cli.game_folder, level).await?;
 
                 let verts = world_mesh.as_vertex_slice()
@@ -133,12 +142,13 @@ async fn main() -> NavMeshBuilderResult<()> {
                     .collect::<Vec<_>>();
 
                 let (min_bounds, max_bounds) = rc_calc_bounds(&verts);
+                let (grid_width, grid_height) = rc_calc_grid_size(&min_bounds, &max_bounds, CS);
                 let (width, height) = rc_calc_grid_size(&min_bounds, &max_bounds, CS);
 
                 drop(verts);
 
-                let tw = ((width + TS - 1) / TS).max(1);
-                let th = ((height + TS - 1) / TS).max(1);
+                let tw = grid_width.div_ceil(TS);
+                let th = grid_height.div_ceil(TS);
                 let tcs = TS as f32 * CS;
 
                 let tile_count = tw * th;
@@ -156,8 +166,13 @@ async fn main() -> NavMeshBuilderResult<()> {
                             .id(Uuid::new())
                             .world_id(*id as i32)
                             .world_guid(*guid)
-                            .tile_width(width)
-                            .tile_height(height)
+                            .origin([min_bounds[0] as f64, min_bounds[1] as f64, min_bounds[2] as f64])
+                            .tile_width(tcs.into())
+                            .tile_height(tcs.into())
+                            .pathengine_start_x(federation_mesh.start_x)
+                            .pathengine_start_y(federation_mesh.start_y)
+                            .pathengine_tile_size(federation_mesh.tile_size)
+                            .pathengine_tile_pitch(federation_mesh.width.div_ceil(federation_mesh.tile_size))
                             .build()
                             .unwrap()
                     ).await?
@@ -173,7 +188,6 @@ async fn main() -> NavMeshBuilderResult<()> {
                 let handle = Handle::current();
 
                 thread_pool.scope(|s| {
-
                     (0..th)
                         .flat_map(|y| {
                             (0..tw).map(move |x| (x, y))
@@ -184,7 +198,7 @@ async fn main() -> NavMeshBuilderResult<()> {
                             let world_mesh = world_mesh.clone();
                             let realm = realm.clone();
                             let handle = handle.clone();
-
+                            
                             s.spawn(move |_| {
                                 let tile_bounds = Aabb {
                                     origin: Vec3::new(
@@ -203,11 +217,11 @@ async fn main() -> NavMeshBuilderResult<()> {
                                     ch: CH,
                                     cs: CS,
                                     walkable_height: (meter_to_uu(2.0) / CH).ceil() as i32,
-                                    walkable_radius: (meter_to_uu(0.4) / CS).ceil() as i32,
-                                    walkable_climb: (meter_to_uu(0.4) / CH).ceil() as i32,
+                                    walkable_radius: (meter_to_uu(1.0) / CS).ceil() as i32,
+                                    walkable_climb: (meter_to_uu(0.3) / CH).ceil() as i32,
                                     walkable_slope_angle: 45.0,
-                                    width,
-                                    height,
+                                    width: grid_width,
+                                    height: grid_height,
                                     border_size: (meter_to_uu(0.1) / CS).ceil() as i32 * 3,
                                     ..Default::default()
                                 };
@@ -245,7 +259,7 @@ async fn main() -> NavMeshBuilderResult<()> {
                                 }
 
                                 let buf = build_tile(
-                                    multiprogress.clone(), 
+                                    multiprogress.clone(),
                                     progress.clone(), 
                                     &config, 
                                     &world_mesh, 
@@ -255,7 +269,7 @@ async fn main() -> NavMeshBuilderResult<()> {
                                 ).expect("Failed to build tile");
 
                                 if let Some(res) = buf {
-                                    let buf = res.as_ref().to_vec();
+                                    let buf = res.as_slice().to_vec();
                                     drop(res);
 
                                     let _guard = handle.enter();
@@ -343,9 +357,9 @@ fn build_tile(_multiprogress: MultiProgress, progress: ProgressBar, config: &RcC
         .iter()
         .map(|&i| {
             [
-                i.0[0] as i32,
+                i.0[2] as i32,
                 i.0[1] as i32,
-                i.0[2] as i32
+                i.0[0] as i32
             ]
         })
         .collect::<Vec<_>>();
@@ -477,6 +491,15 @@ fn build_tile(_multiprogress: MultiProgress, progress: ProgressBar, config: &RcC
         &mut detail_mesh
     )?;
 
+    // Update polygon flags
+    for i in 0..mesh.npolys() {
+        if mesh.areas()[i] == RC_WALKABLE_AREA {
+            mesh.flags_mut()[i] = 1;
+        } else {
+            mesh.flags_mut()[i] = 0;
+        }
+    }
+
     progress.set_message("Building navmesh...");
     let mut params = DtNavMeshCreateParams {
         // Polygon mesh attributes
@@ -504,7 +527,7 @@ fn build_tile(_multiprogress: MultiProgress, progress: ProgressBar, config: &RcC
         tile_y: ty,
         bmin: [min_bounds[0], min_bounds[1], min_bounds[2]],
         bmax: [max_bounds[0], max_bounds[1], max_bounds[2]],
-
+        
         ..Default::default()
     };
 
@@ -857,7 +880,7 @@ async fn build_level_mesh(mp: &MultiProgress, game_path: &str, level: &str) -> N
 
     // Convert scale
     world_mesh = world_mesh
-        .map_vertices(|Vec3 { x, y, z }| Vec3::new(y, z, -x));
+        .map_vertices(|Vec3 { x, y, z }| Vec3::new(y, z, x));
 
     Ok(world_mesh)
 }
@@ -1171,7 +1194,7 @@ async fn write_obj(
     
     // Write vertices
     for vertex in mesh.as_vertex_slice() {
-        buffer.push_str(&format!("v {} {} {}\n", vertex.y, vertex.z, -vertex.x));
+        buffer.push_str(&format!("v {} {} {}\n", vertex.x, vertex.y, vertex.z));
     }
     
     buffer.push('\n');
