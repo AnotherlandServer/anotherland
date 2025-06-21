@@ -15,13 +15,13 @@
 
 use std::{ops::Deref, sync::Arc};
 
-use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, removal_detection::RemovedComponents, resource::Resource, schedule::IntoScheduleConfigs, system::SystemId, world::World}, math::{Quat, Vec3}, platform::collections::HashMap, prelude::{in_state, Added, Changed, Commands, Entity, In, Or, Query, Res, ResMut, With}};
+use bevy::{app::{First, Last, Plugin, Update}, ecs::{component::Component, event::EventWriter, removal_detection::RemovedComponents, resource::Resource, schedule::IntoScheduleConfigs, system::SystemId, world::World}, math::{Quat, Vec3}, platform::collections::HashMap, prelude::{in_state, Added, Changed, Commands, Entity, In, Or, Query, Res, ResMut, With}, time::{Time, Virtual}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all, TryStreamExt};
 use log::{debug, error, trace, warn};
 use mlua::{FromLua, Function, IntoLua, Lua, Table, UserData};
 use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, AttributeInfo, Class, ContentRefList, EdnaAbility, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Portal, Value};
-use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktConfirmTravel, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
+use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktConfirmTravel, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, CPktServerNotify, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
 use realm_api::{AbilitySlot, Character, EquipmentResult, ObjectPlacement, RealmApi, RealmApiResult, State};
 use regex::Regex;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
@@ -29,7 +29,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource, MessageType}, proto::TravelMode, OBJECT_CACHE};
+use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource, MessageType, Navmesh}, proto::TravelMode, OBJECT_CACHE};
 
 use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, Factions, FutureCommands, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
 
@@ -477,7 +477,7 @@ fn request_player_characters(
     }
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn insert_player_characters(
     mut receiver: ResMut<ForeignResource<Receiver<(Entity, Character, Cooldowns, Skillbook)>>>,
     controller: Query<&PlayerController>,
@@ -485,13 +485,18 @@ fn insert_player_characters(
     portals: Query<(&ContentInfo, &GameObjectData), With<PortalTag>>,
     exit_nodes: Query<(&ContentInfo, &GameObjectData), With<SpawnNodeTag>>,
     instance: Res<ZoneInstance>,
+    navmesh: Res<Navmesh>,
     mut commands: Commands,
 ) {
     while let Ok((entity, mut character, cooldowns, skillbook)) = receiver.try_recv() {
         if let Ok(controller) = controller.get(entity) {
+            let collision_extent;
+
             // Update zone info in character data
             {
                 let obj: &mut GameObjectData = character.data_mut();
+
+                collision_extent = *obj.get::<_, Vec3>(Player::CollisionExtent).unwrap();
 
                 // First time spawn setup
                 if *obj.get(Player::FirstTimeSpawn).unwrap() {
@@ -557,6 +562,18 @@ fn insert_player_characters(
                     }
                 }
 
+                // Snap to floor
+                {
+                    let mut pos = obj.get::<_, (u32, Vec3)>(Player::Pos).unwrap().1;
+                    pos.y = navmesh.get_floor_height(pos)
+                        .unwrap_or_else(|| {
+                            error!("Failed to get floor height for player at position {pos}");
+                            pos.y
+                        }) + collision_extent.y;
+
+                    obj.set(Player::Pos, (0u32, pos));
+                }
+
                 // Update stance data
                 obj.set(Player::ClassData, oaPlayerClassData {
                     class_hash: 0x9D35021A,
@@ -610,6 +627,7 @@ fn insert_player_characters(
 
 pub fn begin_loading_sequence(
     query: Query<(Entity, &PlayerController, &AvatarInfo, &GameObjectData, &Movement), Added<GameObjectData>>,
+    time: Res<Time<Virtual>>,
     mut commands: Commands,
 ) {
     for (ent, controller, avatar, obj, movement) in query.iter() {
@@ -621,6 +639,12 @@ pub fn begin_loading_sequence(
         // Send character to client, so it begins loading the level
         if matches!(controller.travel_mode(), TravelMode::Login) {
             obj.write_to_privileged_client(&mut writer).unwrap();
+
+            controller.send_packet(CPktServerNotify {
+                notify_type: protocol::CpktServerNotifyNotifyType::SyncGameClock,
+                game_clock: Some(time.elapsed_secs_f64()),
+                ..Default::default()
+            });
 
             controller.send_packet(CPktBlob {
                 avatar_id: controller.avatar_id(),

@@ -171,6 +171,8 @@ fn transmit_entities_to_players(
                         version: movement.version,
                         mover_type: movement.mover_type,
                         mover_replication_policy: movement.mover_replication_policy,
+                        mover_key: movement.mover_key,
+                        seconds: movement.seconds,
                         ..Default::default()
                     }.to_bytes().into()),
                     ..Default::default()

@@ -54,6 +54,12 @@ pub enum WorldError {
     UuidError(#[from] bson::uuid::Error),
 
     #[error(transparent)]
+    RecastnavError(#[from] recastnavigation_rs::RNError),
+
+    #[error(transparent)]
+    BsonBinaryError(#[from] bson::binary::Error),
+
+    #[error(transparent)]
     Other(#[from] anyhow::Error)
 }
 

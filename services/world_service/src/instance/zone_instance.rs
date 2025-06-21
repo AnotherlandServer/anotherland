@@ -28,7 +28,7 @@ use tokio::{runtime::Handle, task::JoinHandle};
 use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NetworkPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
+use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin}, ARGS};
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct InstanceShutdown;
@@ -230,31 +230,37 @@ impl ZoneInstanceBuilder {
 
         // Game logic plugins
         app.add_plugins((
-                AvatarPlugin,
-                BehaviorPlugin,
-                InterestsPlugin,
-                LoaderPlugin,
-                MovementPlugin,
-                PlayerPlugin,
-                ServerActionPlugin,
-                SocialPlugin,
-                CashShopPlugin,
-                ClientSyncPlugin,
-                TravelPlugin,
-                FactionsPlugin,
-                DialoguePlugin,
-                CombatStylesPlugin,
-                InventoryPlugin,
-            ));
+            AvatarPlugin,
+            BehaviorPlugin,
+            InterestsPlugin,
+            LoaderPlugin,
+            MovementPlugin,
+            PlayerPlugin,
+            ServerActionPlugin,
+            SocialPlugin,
+            CashShopPlugin,
+            ClientSyncPlugin,
+            TravelPlugin,
+            FactionsPlugin,
+            DialoguePlugin,
+            CombatStylesPlugin,
+            InventoryPlugin,
+        ));
 
-            app.add_plugins((
-                SpecialEventsPlugin::new(object_cache.clone(), realm_api.clone(), world_def.name()).await?,
-                QuestsPlugin,
-                ChatPlugin,
-                AbilitiesPlugin,
-                CombatPlugin,
-                BuffsPlugin,
-            ));
+        app.add_plugins((
+            SpecialEventsPlugin::new(object_cache.clone(), realm_api.clone(), world_def.name()).await?,
+            QuestsPlugin,
+            ChatPlugin,
+            AbilitiesPlugin,
+            CombatPlugin,
+            BuffsPlugin,
+            NavigationPlugin,
+        ));
+
+        app.insert_resource(Navmesh::load(
+            realm_api.clone(),
+            world_def.as_ref()
+        ).await?);
 
         app.add_systems(PreStartup, spawn_world_controller);
 

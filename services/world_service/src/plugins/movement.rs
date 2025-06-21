@@ -13,16 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{change_detection::DetectChangesMut, component::Component, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time}};
-use log::debug;
+use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{change_detection::DetectChangesMut, component::Component, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
+use log::{debug, error};
 use mlua::{Lua, Table};
-use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase, Player};
+use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, Player};
 use protocol::{oaPktMoveManagerPosUpdate, oaPktMoveManagerStateChanged, Physics, PhysicsState};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{OtherlandQuatExt, QuatWrapper, Vec3Wrapper};
 use anyhow::anyhow;
 
-use crate::error::WorldResult;
+use crate::{error::WorldResult, plugins::{Navmesh}};
 
 use super::{AvatarInfo, Interests, NetworkExtPriv, PlayerController};
 
@@ -31,7 +31,7 @@ pub struct MovementPlugin;
 impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, setup_non_client_movement);
-        app.add_systems(Update, update_position);
+        app.add_systems(Update, extrapolate_player_positions);
         app.add_systems(PostUpdate, send_position_updates);
 
         app.register_message_handler(handle_move_manager_state_changed);
@@ -112,6 +112,7 @@ pub fn handle_move_manager_pos_update(
         obj.set(Player::Pos, (0u32, movement.position));
         obj.set(Player::Rot, movement.rotation.as_unit_vector());
 
+        debug!("Avatar ID: {}", pkt.avatar_id);
         debug!("New Pos: {}", movement.position);
         debug!("New Rot: {:?} / {} / {}", pkt.rot, movement.rotation, movement.rotation.as_unit_vector());
         debug!("New Vel: {}", movement.velocity);
@@ -134,20 +135,39 @@ pub fn handle_move_manager_state_changed(
 }
 
 pub fn setup_non_client_movement(
-    query: Query<(Entity, &GameObjectData), Added<NonClientBaseTag>>,
+    mut query: Query<(Entity, &mut GameObjectData), Added<NonClientBaseTag>>,
+    res: Res<Time<Virtual>>,
+    navmesh: Res<Navmesh>,
     mut commands: Commands,
 ) {
-    for (ent, obj) in query.iter() {
+    for (ent, mut obj) in query.iter_mut() {
+        let mut pos = *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap();
+        let collision_extent = *obj.get::<_, Vec3>(NonClientBase::CollisionExtent).unwrap();
+
+        if obj.class() == Class::NpcOtherland {
+            pos.y = navmesh.get_floor_height(pos)
+                .unwrap_or_else(|| {
+                    error!("Failed to get floor height for NPC at position {pos}");
+                    pos.y
+                }) + collision_extent.y;
+            
+            obj.set(NonClientBase::Pos, pos);
+
+            true
+        } else {
+            false
+        };
+
         let movement = Movement {
             position: *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap(),
             rotation: Quat::from_unit_vector(*obj.get::<_, Vec3>(NonClientBase::Rot).unwrap()),
             velocity: Vec3::ZERO,
             mode: PhysicsState::Walking,
-            mover_type: 1,
+            mover_type: 0,
             mover_replication_policy: 7,
-            version: 1,
-            seconds: 0.0,
-            mover_key: 0,
+            version: 0,
+            seconds: res.elapsed_secs_f64(),
+            mover_key: 1,
         };
 
         commands.entity(ent).insert(movement);
@@ -156,7 +176,7 @@ pub fn setup_non_client_movement(
 
 #[allow(clippy::type_complexity)]
 pub fn send_position_updates(
-    positions: Query<(Entity, &AvatarInfo, &Movement), Changed<Movement>>,
+    positions: Query<(Entity, &AvatarInfo, &Movement), (Changed<Movement>, With<PlayerTag>)>,
     players: Query<(&Interests, &PlayerController)>,
 ) {
     for (entity, avatar, pos) in positions.iter() {
@@ -180,13 +200,15 @@ pub fn send_position_updates(
     }
 }
 
-pub fn update_position(
-    mut positions: Query<&mut Movement>,
+pub fn extrapolate_player_positions(
+    mut positions: Query<&mut Movement, With<PlayerTag>>,
     time: Res<Time<Real>>,
 ) {
-    for mut pos in positions.iter_mut() {
-        let vel = pos.velocity;
+    for mut mov in positions.iter_mut() {
+        if mov.velocity != Vec3::ZERO {
+            let vel = mov.velocity;
 
-        pos.bypass_change_detection().position += vel * time.delta_secs();
+            mov.bypass_change_detection().position += vel * time.delta_secs();
+        }
     }
 }
