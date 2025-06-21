@@ -419,6 +419,11 @@ fn parse_struct<'ctx>(file: Arc<PackageFile>, container: &'ctx Container, object
                     container.lookup_object("ScriptStruct:LevelStreaming/MapViewData").unwrap()
                 )
             },
+            "LightmassPrimitiveSettings" => {
+                StructClass::Class(
+                    container.lookup_object("ScriptStruct:EngineTypes/LightmassPrimitiveSettings").unwrap()
+                )
+            },
             _ => {
                 // lookup struct property class
                 StructClass::Class(
