@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{change_detection::DetectChangesMut, component::Component, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
+use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
 use log::{debug, error};
 use mlua::{Lua, Table};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, Player};
@@ -84,6 +84,9 @@ fn insert_movement_api(
     Ok(())
 }
 
+#[derive(Component)]
+pub struct ForceSyncPositionUpdate;
+
 #[derive(Component, Clone, Debug)]
 pub struct Movement {
     pub position: Vec3,
@@ -100,6 +103,7 @@ pub struct Movement {
 pub fn handle_move_manager_pos_update(
     In((ent, pkt)): In<(Entity, oaPktMoveManagerPosUpdate)>,
     mut query: Query<(&mut GameObjectData, &mut Movement), With<PlayerTag>>,
+    mut commands: Commands,
 ) {
     if let Ok((mut obj, mut movement)) = query.get_mut(ent) {
         movement.mode = pkt.physics.state;
@@ -117,12 +121,17 @@ pub fn handle_move_manager_pos_update(
         debug!("New Rot: {:?} / {} / {}", pkt.rot, movement.rotation, movement.rotation.as_unit_vector());
         debug!("New Vel: {}", movement.velocity);
         debug!("New key: {}", movement.mover_key);
+
+        commands
+            .entity(ent)
+            .insert(ForceSyncPositionUpdate);
     }
 }
 
 pub fn handle_move_manager_state_changed(
     In((ent, pkt)): In<(Entity, oaPktMoveManagerStateChanged)>,
     mut query: Query<&mut Movement>,
+    mut commands: Commands,
 ) {
     if let Ok(mut movement) = query.get_mut(ent) {
         movement.mover_type = pkt.mover_type;
@@ -131,6 +140,10 @@ pub fn handle_move_manager_state_changed(
         movement.mover_key = pkt.mover_key;
 
         debug!("Player mover init: {movement:#?}");
+
+        commands
+            .entity(ent)
+            .insert(ForceSyncPositionUpdate);
     }
 }
 
@@ -176,8 +189,9 @@ pub fn setup_non_client_movement(
 
 #[allow(clippy::type_complexity)]
 pub fn send_position_updates(
-    positions: Query<(Entity, &AvatarInfo, &Movement), (Changed<Movement>, With<PlayerTag>)>,
+    positions: Query<(Entity, &AvatarInfo, &Movement), (Changed<Movement>, With<PlayerTag>, With<ForceSyncPositionUpdate>)>,
     players: Query<(&Interests, &PlayerController)>,
+    mut commands: Commands,
 ) {
     for (entity, avatar, pos) in positions.iter() {
         // check player interest list to dispatch updates
@@ -197,6 +211,10 @@ pub fn send_position_updates(
                 });
             }
         }
+
+        commands
+            .entity(entity)
+            .remove::<ForceSyncPositionUpdate>();
     }
 }
 
@@ -208,7 +226,7 @@ pub fn extrapolate_player_positions(
         if mov.velocity != Vec3::ZERO {
             let vel = mov.velocity;
 
-            mov.bypass_change_detection().position += vel * time.delta_secs();
+            mov.position += vel * time.delta_secs();
         }
     }
 }

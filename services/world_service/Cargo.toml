@@ -45,3 +45,5 @@ regex = "1.11.1"
 pepkg = { version = "0.1.0", path = "../../lib/pepkg" }
 recastnavigation-rs = { workspace = true }
 crc16 = "0.4.0"
+bonsai-bt = "0.10.0"
+spart = "0.1.3"

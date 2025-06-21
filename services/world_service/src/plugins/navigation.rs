@@ -16,7 +16,7 @@
 use std::{ops::Div, sync::Mutex};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, Update}, ecs::{change_detection::{DetectChangesMut}, component::Component, entity::Entity, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::Vec3, time::{Time, Virtual}};
+use bevy::{app::{Plugin, Update}, ecs::{component::Component, entity::Entity, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::{bounding::Aabb3d, Vec3, Vec3A}, time::{Time, Virtual}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use futures::{TryStreamExt};
 use log::{debug, error};
@@ -110,7 +110,7 @@ impl std::ops::DerefMut for SendDtNavMeshQuery {
 }
 
 struct RecastNav {
-    _mesh: SendDtNavMesh,
+    mesh: SendDtNavMesh,
     query: SendDtNavMeshQuery,
 }
 
@@ -193,7 +193,7 @@ impl Navmesh {
 
         Ok(Self {
             recast: Mutex::new(RecastNav {
-                _mesh: SendDtNavMesh(mesh),
+                mesh: SendDtNavMesh(mesh),
                 query: SendDtNavMeshQuery(query),
             }),
             federation: navmesh,
@@ -202,6 +202,27 @@ impl Navmesh {
                 ..Default::default()
             },
         })
+    }
+
+    pub fn bounds(&self) -> Aabb3d {
+        let recast = self.recast.lock().unwrap();
+        let mut bounds = Aabb3d::new(Vec3A::default(), Vec3A::default());
+        
+        for tile in 0..recast.mesh.max_tiles() {
+            if 
+                let Some(tile) = recast.mesh.get_tile(tile) &&
+                let Some(header) = tile.header()
+            {
+                bounds.min.x = bounds.min.x.min(header.bmin[0]);
+                bounds.min.y = bounds.min.y.min(header.bmin[1]);
+                bounds.min.z = bounds.min.z.min(header.bmin[2]);
+                bounds.max.x = bounds.max.x.max(header.bmax[0]);
+                bounds.max.y = bounds.max.y.max(header.bmax[1]);
+                bounds.max.z = bounds.max.z.max(header.bmax[2]);
+            }
+        }
+
+        bounds
     }
 }
 
@@ -256,8 +277,7 @@ fn update(
 
                 lerp.elapsed = (lerp.elapsed + time.delta_secs()).clamp(0.0, lerp.duration);
 
-                movement.bypass_change_detection()
-                    .position = lerp.start.lerp(lerp.end, lerp.elapsed / lerp.duration);
+                movement.position = lerp.start.lerp(lerp.end, lerp.elapsed / lerp.duration);
 
                 if lerp.elapsed >= lerp.duration {
                     debug!("Reached end of path segment for entity {ent}");

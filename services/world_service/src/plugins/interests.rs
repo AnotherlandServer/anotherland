@@ -15,17 +15,17 @@
 
 use std::{ops::Deref, time::Duration};
 
-use bevy::{app::{App, Plugin, Update}, ecs::{schedule::IntoScheduleConfigs, system::{In, Res}, world::World}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
+use bevy::{app::{App, Plugin, PreUpdate, Update}, ecs::{query::Added, schedule::IntoScheduleConfigs, system::{In, Res}, world::World}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
 use mlua::{Lua, Table};
-use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase, ParamWriter, Player};
+use obj_params::{tags::{NonClientBaseTag, NpcOtherlandTag, PlayerTag}, Class, GameObjectData, NonClientBase, ParamWriter, Player};
 use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, Physics};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptObject, ScriptResult};
 use toolkit::types::{AvatarId, UUID_NIL};
 use anyhow::anyhow;
 
-use crate::error::WorldResult;
+use crate::{error::WorldResult, plugins::WorldSpace};
 
 use super::{Active, AvatarInfo, ConnectionState, CurrentState, Movement, PlayerController, QuestEntity, QuestLog};
 
@@ -33,6 +33,8 @@ pub struct InterestsPlugin;
 
 impl Plugin for InterestsPlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(PreUpdate, enable_npc_interest_building);
+
         app.add_systems(Update, 
             (
                 (
@@ -60,12 +62,12 @@ fn insert_interests_api(
 
     skillbook_api.set("GetInterests", lua.create_bevy_function(world, 
         |
-            In(player): In<Table>,
+            In(ent): In<Table>,
             query: Query<&Interests>,
             objects: Query<&ScriptObject>,
             runtime: Res<LuaRuntime>,
         | -> WorldResult<Table> {
-            let interests = query.get(player.entity()?)
+            let interests = query.get(ent.entity()?)
                 .map_err(|_| anyhow!("player not found"))?;
 
             let result = runtime.vm().create_table()?;
@@ -103,18 +105,29 @@ impl Deref for Interests {
     }
 }
 
-#[derive(Component)]
-pub struct BuildInterestList;
-
 #[allow(clippy::type_complexity)]
 fn enable_player_interest_building(
-    players: Query<(Entity, &CurrentState), (Changed<CurrentState>, Without<BuildInterestList>)>,
+    players: Query<(Entity, &CurrentState), (Changed<CurrentState>, Without<Interests>)>,
     mut commands: Commands,
 ) {
     for (player_ent, state) in players.iter() {
         if matches!(state.state, ConnectionState::WaitingForInitialInterests) {
             commands.entity(player_ent).insert((
-                BuildInterestList,
+                Interests {
+                    interests: HashMap::new(),
+                },
+            ));
+        }
+    }
+}
+
+fn enable_npc_interest_building(
+    npcs: Query<(Entity, &GameObjectData), Added<NpcOtherlandTag>>,
+    mut commands: Commands,
+) {
+    for (ent, obj) in npcs.iter() {
+        if *obj.get::<_, bool>(NonClientBase::GenerateInterestList).unwrap_or(&false) {
+            commands.entity(ent).insert((
                 Interests {
                     interests: HashMap::new(),
                 },
@@ -196,32 +209,41 @@ fn transmit_entities_to_players(
 
 #[allow(clippy::type_complexity)]
 fn update_interest_list(
-    mut players: Query<(Entity, &GameObjectData, &Movement, &mut Interests, &PlayerController, &QuestLog), (With<PlayerTag>, With<BuildInterestList>)>,
-    potential_interests: Query<(Entity, &Movement, &GameObjectData, Option<&QuestEntity>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
+    world_space: Res<WorldSpace>,
+    mut players: Query<(Entity, &GameObjectData, &Movement, &mut Interests, Option<&PlayerController>, Option<&QuestLog>), With<Interests>>,
+    potential_interests: Query<(&GameObjectData, Option<&QuestEntity>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
     avatar_info: Query<&AvatarInfo>,
 ) {
-    for (player_ent, player, player_pos, mut interests, controller, quest_log) in players.iter_mut() {
-        let aware_range: f32 = *player.get(Player::AwareRange).unwrap();
-        let mut found_interests = vec![];
+    for (current_ent, current_obj, current_pos, mut interests, controller, quest_log) in players.iter_mut() {
+        let aware_range: f32 = 
+            if current_obj.class() == Class::Player {
+                *current_obj.get(Player::AwareRange).unwrap()
+            } else {
+                *current_obj.get(NonClientBase::AwareRange).unwrap()
+            };
 
-        // determine interests
-        for (interest_ent, interest_pos, interest_obj, quest_ent) in potential_interests.iter() {
-            // skip over self
-            if interest_ent == player_ent { continue; }
-
-            let distance = interest_pos.position.distance(player_pos.position);
-            if 
-                (
-                    distance < aware_range ||
-                    *interest_obj.get::<_, bool>(NonClientBase::AlwaysVisibleToPlayers).unwrap_or(&false)
-                ) &&
-                !interest_obj.get::<_, bool>(NonClientBase::HiddenFromClients).unwrap_or(&false) &&
-                (quest_ent.is_none() || quest_ent.unwrap().is_visible(quest_log))
-            {
-                found_interests.push(interest_ent);
-                
-            }
-        }
+        let found_interests = world_space
+            .find_in_range(current_pos.position, aware_range)
+            .into_iter()
+            .filter(|&ent| {
+                if
+                    ent != current_ent &&
+                    let Ok((interest_obj, quest_ent)) = potential_interests.get(ent) 
+                {
+                    if let Some(quest_log) = quest_log {
+                        !interest_obj.get::<_, bool>(NonClientBase::HiddenFromClients).unwrap_or(&false) &&
+                        (
+                            *interest_obj.get::<_, bool>(NonClientBase::AlwaysVisibleToPlayers).unwrap_or(&false) ||
+                            (quest_ent.is_none() || quest_ent.unwrap().is_visible(quest_log))
+                        )
+                    } else {
+                        true
+                    }
+                } else {
+                    false
+                }
+            })
+            .collect::<Vec<_>>();
 
         // update interests
         for ent in &found_interests {
@@ -236,6 +258,7 @@ fn update_interest_list(
         // remove interests that are no longer in range
         for ent in interests.interests.keys().cloned().collect::<Vec<_>>() {
             if 
+                let Some(controller) = controller &&
                 !found_interests.contains(&ent) &&
                 let Some((avatar, state)) = interests.interests.remove(&ent) &&
                 matches!(state, InterestState::Transmitted)
