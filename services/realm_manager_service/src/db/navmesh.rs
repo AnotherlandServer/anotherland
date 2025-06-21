@@ -26,8 +26,13 @@ pub struct Navmesh {
     pub world_id: u16,
     #[graphql_crud(filter)]
     pub world_guid: Uuid,
-    pub tile_width: i32,
-    pub tile_height: i32,
+    pub origin: [f32; 3],
+    pub tile_width: f32,
+    pub tile_height: f32,
+    pub pathengine_start_x: i32,
+    pub pathengine_start_y: i32,
+    pub pathengine_tile_size: i32,
+    pub pathengine_tile_pitch: i32,
 }
 
 impl DatabaseRecord for Navmesh {

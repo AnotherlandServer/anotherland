@@ -90,8 +90,13 @@ pub struct Navmesh {
     pub id: Uuid,
     pub world_id: i32,
     pub world_guid: Uuid,
-    pub tile_width: i32,
-    pub tile_height: i32,
+    pub origin: [f64; 3],
+    pub tile_width: f64,
+    pub tile_height: f64,
+    pub pathengine_start_x: i32,
+    pub pathengine_start_y: i32,
+    pub pathengine_tile_size: i32,
+    pub pathengine_tile_pitch: i32,
 }
 
 impl Navmesh {
@@ -121,8 +126,13 @@ impl Navmesh {
             id: other.id,
             world_id: other.world_id,
             world_guid: other.world_guid,
+            origin: [other.origin[0], other.origin[1], other.origin[2]],
             tile_width: other.tile_width,
             tile_height: other.tile_height,
+            pathengine_start_x: other.pathengine_start_x,
+            pathengine_start_y: other.pathengine_start_y,
+            pathengine_tile_size: other.pathengine_tile_size,
+            pathengine_tile_pitch: other.pathengine_tile_pitch,
         })
     }
 
@@ -131,8 +141,13 @@ impl Navmesh {
             id: self.id,
             world_id: self.world_id,
             world_guid: self.world_guid,
+            origin: self.origin.to_vec(),
             tile_width: self.tile_width,
             tile_height: self.tile_height,
+            pathengine_start_x: self.pathengine_start_x,
+            pathengine_start_y: self.pathengine_start_y,
+            pathengine_tile_size: self.pathengine_tile_size,
+            pathengine_tile_pitch: self.pathengine_tile_pitch,
         }
     }
 }
@@ -279,8 +294,13 @@ pub(crate) mod navmesh_graphql {
         pub id: Uuid,
         pub world_id: i32,
         pub world_guid: Uuid,
-        pub tile_width: i32,
-        pub tile_height: i32,
+        pub origin: Vec<f64>,
+        pub tile_width: f64,
+        pub tile_height: f64,
+        pub pathengine_start_x: i32,
+        pub pathengine_start_y: i32,
+        pub pathengine_tile_size: i32,
+        pub pathengine_tile_pitch: i32,
     }
     
     #[derive(cynic::QueryFragment, Debug)]
@@ -297,8 +317,13 @@ pub(crate) mod navmesh_graphql {
         pub id: Uuid,
         pub world_id: i32,
         pub world_guid: Uuid,
-        pub tile_width: i32,
-        pub tile_height: i32,
+        pub origin: Vec<f64>,
+        pub tile_width: f64,
+        pub tile_height: f64,
+        pub pathengine_start_x: i32,
+        pub pathengine_start_y: i32,
+        pub pathengine_tile_size: i32,
+        pub pathengine_tile_pitch: i32,
     }
 
     #[derive(cynic::InputObject, Debug)]
