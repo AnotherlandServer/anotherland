@@ -105,9 +105,6 @@ fn main() {
                 let tiles_horizontal = (federation.width as f32 / federation.tile_size as f32).ceil() as u32;
                 let mut vertices = Vec::new();
                 let mut indices = Vec::new();
-
-                let start_x = federation.start_x as f32;
-                let start_y = federation.start_y as f32;
                 
                 for i in 0..pepkg.tile_count() {
                     let (mesh, _, _) = pepkg.read_tile(i).unwrap();
@@ -174,7 +171,7 @@ fn write_obj(
     }
 
     fs::write(path, buffer.as_bytes())
-        .map_err(|e| pepkg::Error::IoError(e))?;
+        .map_err(pepkg::Error::IoError)?;
 
     Ok(())
 }
@@ -271,9 +268,7 @@ fn setup_display(
     let mut min_bounds = Vec3::splat(f32::MAX);
     let mut max_bounds = Vec3::splat(f32::MIN);
 
-    let mut world_mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);
-    
-    let mut builder = Path::builder();
+    let builder = Path::builder();
 
     // Spawn all tiles and calculate bounds
     for i in 0..pepkg.tile_count() {
@@ -293,15 +288,6 @@ fn setup_display(
         }
 
         let tile_mesh = load_3d_mesh(&mesh);
-        /*tile_mesh.translate_by(Vec3::new(tile_x, 0.0, tile_z));
-
-        if world_mesh.indices().is_none() {
-            world_mesh = tile_mesh;
-        } else {
-            world_mesh.merge(&tile_mesh).unwrap();
-        }
-
-        load_2d_mesh(&mut builder, Vec2::new(tile_x, tile_z), &mesh);*/
 
         commands.spawn((
             Mesh3d(meshes.add(tile_mesh)),
@@ -331,20 +317,6 @@ fn setup_display(
         ));
     }
 
-    /*let tile_mesh = meshes.add(normalize_mesh(world_mesh));
-
-    commands.spawn((
-        Mesh3d(tile_mesh),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.8, 0.8),
-            double_sided: true,
-            cull_mode: None,
-            perceptual_roughness: 0.8,
-            reflectance: 0.1,
-            ..Default::default()
-        })),
-    ));*/
-
     let path = builder.build();
 
     let mut geometry = VertexBuffers::<Vec3, u32>::new();
@@ -367,19 +339,6 @@ fn setup_display(
     .with_inserted_indices(Indices::U32(geometry.indices));
 
     nav_mesh.compute_normals();
-
-    /*commands.spawn((
-        Mesh3d(meshes.add(nav_mesh)),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.3, 0.3, 0.8),
-            double_sided: true,
-            cull_mode: None,
-            perceptual_roughness: 0.8,
-            reflectance: 0.1,
-            ..Default::default()
-        })),
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-    ));*/
     
     // Calculate camera position based on bounds
     let center = (min_bounds + max_bounds) * 0.5;
@@ -531,6 +490,7 @@ fn toggle_cursor_grab(
     }
 }
 
+#[allow(dead_code)]
 fn normalize_mesh(mesh: Mesh) -> Mesh {
     let mut duplicated_vecs = HashMap::new();
 
@@ -664,6 +624,8 @@ fn load_3d_mesh(mesh: &pepkg::Mesh) -> Mesh {
     mesh
 }
 
+
+#[allow(dead_code)]
 fn load_2d_mesh(builder: &mut NoAttributes<BuilderImpl>, pos: Vec2, mesh: &pepkg::Mesh) {
     let verts = mesh.mesh_3d.verts.verts.as_slice();
     let poligons = mesh.mapping_to_2d.polys.as_slice();
