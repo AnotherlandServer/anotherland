@@ -188,29 +188,45 @@ impl GameObjectData {
     }
 
     fn write<W: bitstream_io::ByteWrite>(&self,  writer: &mut W, filter: fn(&dyn AttributeInfo, &Value) -> bool) -> Result<(), std::io::Error> {
-        let mut params: HashMap<&dyn AttributeInfo, &Value> = HashMap::new();
+        let mut parents = vec![];
 
-        if let Some(parent) = self.parent.as_ref() {
-            parent.as_set()
+        let mut current = self.parent.clone();
+        while let Some(parent) = current {
+            parents.push(parent.clone());
+            current = parent.parent.clone();
+        }
+
+        parents.reverse();
+
+        {
+            let mut params: HashMap<&dyn AttributeInfo, &Value> = HashMap::new();
+
+            for parent in &parents {
+                parent.as_set()
+                    .values()
+                    .filter(|&(a,v)| filter(a, v))
+                    .for_each(|(a,v)| { params.insert(a, v); });
+            }
+
+            self.instance
                 .values()
                 .filter(|&(a,v)| filter(a, v))
                 .for_each(|(a,v)| { params.insert(a, v); });
-        }
 
-        self.instance
-            .values()
-            .filter(|&(a,v)| filter(a, v))
-            .for_each(|(a,v)| { params.insert(a, v); });
+            writer.write(1u8)?;
+            writer.write(params.len() as u16)?;
 
-        writer.write(1u8)?;
-        writer.write(params.len() as u16)?;
-
-        for (attr, value) in params {
-            writer.write(attr.id())?;
-            value.write(writer)?;
+            for (attr, value) in params {
+                writer.write(attr.id())?;
+                value.write(writer)?;
+            }
         }
 
         Ok(())
+    }
+
+    pub fn parent(&self) -> Option<Arc<GameObjectData>> {
+        self.parent.clone()
     }
 }
 

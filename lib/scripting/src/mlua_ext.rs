@@ -60,3 +60,21 @@ impl LuaTableExt for Table {
         Ok(*self.get::<UserDataRef<Entity>>("__ent")?)
     }
 }
+
+pub trait LuaFunctionExt {
+    fn call_with_world<R: FromLuaMulti>(&self, lua: &mlua::Lua, world: &mut World, args: impl IntoLuaMulti) -> mlua::Result<R>;
+}
+
+impl LuaFunctionExt for Function {
+    fn call_with_world<R: FromLuaMulti>(&self, lua: &mlua::Lua, world: &mut World, args: impl IntoLuaMulti) -> mlua::Result<R> {
+        lua.scope(|scope| {
+            // We have to borrow the world to the lua vm,
+            // so it can be accessed within api functions.
+            lua.set_named_registry_value(REG_WORLD,
+                scope.create_any_userdata_ref_mut(world)?
+            )?;
+
+            self.call::<R>(args.into_lua_multi(lua)?)
+        })
+    }
+}

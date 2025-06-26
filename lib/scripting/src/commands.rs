@@ -18,7 +18,7 @@ use bevy::{ecs::world::EntityWorldMut, prelude::{EntityCommand, EntityCommands}}
 use log::{debug, error};
 use mlua::{Function, IntoLua, IntoLuaMulti, Value};
 
-use crate::{LuaRuntime, ScriptObject, REG_WORLD};
+use crate::{LuaFunctionExt, LuaRuntime, ScriptError, ScriptObject, REG_WORLD};
 
 pub trait IntoLuaApiName {
     fn name(&self) -> &str;
@@ -78,17 +78,11 @@ impl <T: IntoLuaMulti + Send + 'static> EntityCommand for LuaMethodCall<T> {
             .expect("lua runtime not created")
             .vm().clone();
 
-        if let Err(e) = lua.scope(|scope| {
+        if let Err(e) = (move || {
             let obj = entity_world
                 .get::<ScriptObject>().ok_or(anyhow!("not a script object"))?.object.clone();
 
             let world = entity_world.into_world_mut();
-
-            // We have to borrow the world to the lua vm,
-            // so it can be accessed within api functions.
-            lua.set_named_registry_value(REG_WORLD,
-                scope.create_any_userdata_ref_mut(world)?
-            )?;
 
             if let Some((method, mut args)) = match self.method {
                 MethodRef::Name(name) => {
@@ -114,11 +108,11 @@ impl <T: IntoLuaMulti + Send + 'static> EntityCommand for LuaMethodCall<T> {
             } {
                 args.push_front(mlua::Value::Table(obj));
 
-                let _ = method.call::<Value>(args)?;
+                let _ = method.call_with_world::<Value>(&lua, world, args)?;
             }
 
-            Ok(())
-        }) {
+            Ok::<_, ScriptError>(())
+        })() {
             error!("Script error: {e}");
         }
     }
