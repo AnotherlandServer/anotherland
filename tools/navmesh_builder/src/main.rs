@@ -66,7 +66,7 @@ const fn meter_to_uu(meters: f32) -> f32 {
 }
 
 const CH: f32 = meter_to_uu(0.075);
-const CS: f32 = meter_to_uu(0.1);
+const CS: f32 = meter_to_uu(0.075);
 const TS: i32 = 2048i32;
 
 #[tokio::main]
@@ -123,7 +123,10 @@ async fn main() -> NavMeshBuilderResult<()> {
             for (idx, (id, guid, level)) in worlds.iter().enumerate() {
                 let _ = multiprogress.println(format!("[{}/{}] Building mesh for level: {level}", idx + 1, worlds.len()));
 
-                if !game_path.join("UnrealEngine3/AmunGame/CookedPCConsole").join(format!("{level}.upk")).exists() {
+                if 
+                    !game_path.join("UnrealEngine3/AmunGame/CookedPCConsole").join(format!("{level}.upk")).exists() ||
+                    !game_path.join("Atlas/data/otherlandgame/WorldData").join(format!("{level}/{level}.pepkg")).exists()
+                {
                     warn!("Skipping level {level}. No level data found!");
                     continue;
                 }
@@ -179,7 +182,7 @@ async fn main() -> NavMeshBuilderResult<()> {
                 };
 
                 let thread_pool = ThreadPoolBuilder::new()
-                    .num_threads(4)
+                    .num_threads(1)
                     .build()
                     .expect("Failed to build thread pool");
 
@@ -217,7 +220,7 @@ async fn main() -> NavMeshBuilderResult<()> {
                                     ch: CH,
                                     cs: CS,
                                     walkable_height: (meter_to_uu(2.0) / CH).ceil() as i32,
-                                    walkable_radius: (meter_to_uu(1.0) / CS).ceil() as i32,
+                                    walkable_radius: (meter_to_uu(0.5) / CS).ceil() as i32,
                                     walkable_climb: (meter_to_uu(0.3) / CH).ceil() as i32,
                                     walkable_slope_angle: 45.0,
                                     width: grid_width,
@@ -246,7 +249,7 @@ async fn main() -> NavMeshBuilderResult<()> {
                                             .await?;
 
                                         if res.try_next().await?.is_some() {
-                                            Ok::<_, NavMeshBuilderError>(false)
+                                            Ok::<_, NavMeshBuilderError>(true)
                                         } else {
                                             Ok(false)
                                         }
