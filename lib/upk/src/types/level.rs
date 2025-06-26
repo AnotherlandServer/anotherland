@@ -120,7 +120,7 @@ where
     }
 }
 
-fn parse_string(i: &[u8]) -> IResult<&[u8], String, VerboseError<&[u8]>> {
+pub fn parse_string(i: &[u8]) -> IResult<&[u8], String, VerboseError<&[u8]>> {
     let (i, len) = le_i32(i)?;
 
     let (len, is_unicode) = if len >= 0 {

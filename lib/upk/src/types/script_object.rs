@@ -16,7 +16,7 @@
 use std::{collections::{hash_map::Iter, HashMap}, sync::Arc};
 use glam::{Mat4, Vec4};
 use log::debug;
-use nom::{bytes::complete::take, combinator::{fail, map, map_res}, error::{context, VerboseError}, multi::{count, many_till}, number::complete::{le_f32, le_i32, le_u16, le_u32, le_u64, le_u8}, sequence::tuple, IResult};
+use nom::{bytes::complete::take, combinator::{fail, map, map_res}, error::{context, ErrorKind, FromExternalError, VerboseError}, multi::{count, many_till}, number::complete::{le_f32, le_i32, le_u16, le_u32, le_u64, le_u8}, sequence::tuple, IResult};
 use async_trait::async_trait;
 use uuid::Uuid;
 use crate::{types::StructProperty, Container, DeserializeUnrealObject, FName, LocalObjectIndexRef, ObjectRef, PackageFile, UPKError, UPKResult};
@@ -298,7 +298,8 @@ fn parse_struct_attribute<'ctx>(file: Arc<PackageFile>, container: &'ctx Contain
             .unwrap()
             .attrib(&name)
             .cloned()
-            .unwrap_or_else(|| panic!("Failed to find attribute {name} in class {}", object.name()));
+            .ok_or_else(|| format!("Failed to find attribute {name} in class {}", object.name()))
+            .map_err(|e| nom::Err::Error(VerboseError::from_external_error(i, ErrorKind::MapRes, e)))?;
 
         let (i, datatype) = context("datatype name", map_res(tuple((le_u32, le_u32)), |(idx, _)| {
             file.try_lookup_name(idx as usize)
@@ -308,7 +309,9 @@ fn parse_struct_attribute<'ctx>(file: Arc<PackageFile>, container: &'ctx Contain
         // attribute data size
         let (i, _) = le_u64(i)?;
 
-        let attribute_class = container.lookup_object(&format!("Class:{datatype}")).unwrap();
+        let attribute_class = container.lookup_object(&format!("Class:{datatype}"))
+            .ok_or(UPKError::Custom(format!("Failed to lookup class {datatype}")))
+            .map_err(|e| nom::Err::Error(VerboseError::from_external_error(i, ErrorKind::MapRes, e)))?;
         let (i, attribute) = context("attribute",
             parse_attribute(file.clone(), container, object.clone(), attribute_def, Some(attribute_class), false)
         )(i)?;
@@ -424,6 +427,11 @@ fn parse_struct<'ctx>(file: Arc<PackageFile>, container: &'ctx Container, object
                     container.lookup_object("ScriptStruct:EngineTypes/LightmassPrimitiveSettings").unwrap()
                 )
             },
+            "TextureAddress" => {
+                 StructClass::Class(
+                    container.lookup_object("ScriptStruct:Texture/TextureAddress").unwrap()
+                )
+            },
             _ => {
                 // lookup struct property class
                 StructClass::Class(
@@ -503,13 +511,20 @@ impl DeserializeUnrealObject for ScriptObject {
         let file = object.package().unwrap();
         let script_class = object.class().clone();
 
-        // Skip until we read the first valid name
+        let (data, netindex) = le_i32::<_, VerboseError<_>>(data)?;
+
+        debug!("Deserialize object: {}", object.fully_qualified_name());
+        debug!("NetIndex: {}", netindex);
+        debug!("Class: {}", script_class.fully_qualified_name());
+        debug!("Flags: {:?}", object.flags());
+
+        // Skip until we read an attribute successfully 
         let mut offset = 0;
         while offset < data.len() {
-            let (_, name) = le_u64(&data[offset..])
-                .map_err(|e: nom::Err<VerboseError<_>>| UPKError::NomErr(e.to_string()))?;
-
-            if file.try_lookup_name(name as usize).is_some() {
+            if 
+                tag_struct_end(file.clone())(&data[offset..]).is_ok() || 
+                parse_struct_attribute(file.clone(), container, script_class.clone())(&data[offset..]).is_ok() 
+            {
                 break;
             }
 
@@ -517,10 +532,6 @@ impl DeserializeUnrealObject for ScriptObject {
         }
 
         debug!("Skipping {} bytes", offset);
-
-        debug!("Deserialize object: {}", object.fully_qualified_name());
-        debug!("Class: {}", script_class.fully_qualified_name());
-        debug!("Flags: {:?}", object.flags());
 
         let (data, res) = map(many_till(parse_struct_attribute(file.clone(), container, script_class), tag_struct_end(file.clone())), |(properties, _)| {
             Self {
