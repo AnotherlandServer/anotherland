@@ -29,6 +29,8 @@ pub fn insert_world_api(
     let object_api = lua.create_table().unwrap();
     runtime.register_native("world", object_api.clone()).unwrap();
 
+    lua.globals().set("NULL_AVATAR_ID", AvatarId::default())?;
+
     object_api.set("GetWorld", lua.create_bevy_function(world, |
         In(()): In<()>,
         query: Query<&ScriptObject, With<WorldController>>,

@@ -261,7 +261,7 @@ fn insert_object_info(entity: EntityWorldMut<'_>) {
     let content_info = entity.get::<ContentInfo>();
 
     if let Some(avatar_info) = entity.get::<AvatarInfo>() {
-        script.object().raw_set("avatar_id", avatar_info.id.as_u64()).unwrap();
+        script.object().raw_set("avatar_id", avatar_info.id).unwrap();
         script.object().raw_set("name", avatar_info.name.clone()).unwrap();
     } else if let Some(content_info) = content_info {
         script.object().raw_set("name", content_info.template.name.clone()).unwrap();
