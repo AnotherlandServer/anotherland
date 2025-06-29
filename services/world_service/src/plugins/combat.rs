@@ -19,7 +19,7 @@ use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, E
 use mlua::{Integer, Lua, Table};
 use obj_params::{tags::{EdnaContainerTag, EdnaReceptorTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, SpawnerTag, StructureTag, VehicleBaseTag}, GameObjectData, Player};
 use protocol::{oaPkt_Combat_HpUpdate, CPktTargetRequest};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 
 use crate::error::WorldResult;
@@ -49,6 +49,7 @@ static LAST_HEALTH_UPDATE_ID: AtomicI32 = AtomicI32::new(0);
 #[derive(Event)]
 pub struct HealthUpdateEvent {
     entity: Entity,
+    source: Option<Entity>,
     id: i32,
     update: HealthUpdateType,
 }
@@ -72,34 +73,38 @@ impl HealthUpdateEvent {
     }
 
     #[allow(dead_code)]
-    pub fn damage(entity: Entity, amount: i32) -> Self {
+    pub fn damage(entity: Entity, source: Option<Entity>, amount: i32) -> Self {
         Self { 
             entity, 
+            source,
             id: Self::next_id(), 
             update: HealthUpdateType::Damage(amount.max(0)),
         }
     }
 
     #[allow(dead_code)]
-    pub fn heal(entity: Entity, amount: i32) -> Self {
+    pub fn heal(entity: Entity, source: Option<Entity>, amount: i32) -> Self {
         Self { 
             entity, 
+            source,
             id: Self::next_id(), 
             update: HealthUpdateType::Heal(amount.max(0)),
         }
     }
 
-    pub fn kill(entity: Entity) -> Self {
+    pub fn kill(entity: Entity, source: Option<Entity>) -> Self {
         Self { 
             entity, 
+            source,
             id: Self::next_id(), 
             update: HealthUpdateType::Kill,
         }
     }
 
-    pub fn revive(entity: Entity, hitpoints: Option<i32>) -> Self {
+    pub fn revive(entity: Entity, source: Option<Entity>, hitpoints: Option<i32>) -> Self {
         Self { 
             entity, 
+            source,
             id: Self::next_id(), 
             update: HealthUpdateType::Revive(hitpoints),
         }
@@ -179,7 +184,9 @@ fn store_health(
 fn process_health_events(
     mut events: EventReader<HealthUpdateEvent>,
     mut target: Query<(&AvatarInfo, &mut Health, &mut GameObjectData), Or<(With<PlayerTag>, With<NpcBaseTag>)>>,
+    script_objects: Query<&ScriptObject>,
     receivers: Query<(&PlayerController, &Interests)>,
+    mut commands: Commands,
 ) {
     for event in events.read() {
         if let Ok((avatar, mut health, mut obj)) = target.get_mut(event.entity) {
@@ -192,11 +199,23 @@ fn process_health_events(
                     if health.current <= health.min {
                         health.alive = false;
                     }
+
+                    if let Some(source) = event.source.and_then(|s| script_objects.get(s).ok()) {
+                        commands
+                            .entity(event.entity)
+                            .fire_lua_event("OnDamage", (amount, source.object().clone()));
+                    }
                 },
                 HealthUpdateType::Heal(amount) => {
                     if health.alive {
                         health.current = (health.current + amount)
                             .clamp(health.min, health.max);
+                    }
+
+                    if let Some(source) = event.source.and_then(|s| script_objects.get(s).ok()) {
+                        commands
+                            .entity(event.entity)
+                            .fire_lua_event("OnHeal", (amount, source.object().clone()));
                     }
                 },
                 HealthUpdateType::Kill => {
@@ -210,6 +229,12 @@ fn process_health_events(
                     if !health.alive {
                         health.current = hitpoints.unwrap_or(health.max).clamp(health.min + 1, health.max);
                         health.alive = true;
+                    }
+
+                    if let Some(source) = event.source.and_then(|s| script_objects.get(s).ok()) {
+                        commands
+                            .entity(event.entity)
+                            .fire_lua_event("OnRevive", source.object().clone());
                     }
                 },
             }
@@ -273,28 +298,28 @@ fn insert_combat_api(
 
     combat_api.set("Damage", lua.create_bevy_function(world, 
         |
-            In((target, amount)): In<(Table, Integer)>,
+            In((target, source, amount)): In<(Table, Option<Table>, Integer)>,
             mut health_events: EventWriter<HealthUpdateEvent>,
         | -> WorldResult<i32> {
             let ent = target.entity()
                 .map_err(|_| anyhow!("entity not found"))?;
 
             Ok(
-                HealthUpdateEvent::damage(ent, amount as i32)
+                HealthUpdateEvent::damage(ent, source.and_then(|t| t.entity().ok()), amount as i32)
                     .send(&mut health_events)
             )
         })?)?;
 
     combat_api.set("Heal", lua.create_bevy_function(world, 
         |
-            In((target, amount)): In<(Table, Integer)>,
+            In((target, source, amount)): In<(Table, Option<Table>, Integer)>,
             mut health_events: EventWriter<HealthUpdateEvent>,
         | -> WorldResult<i32> {
             let ent = target.entity()
                 .map_err(|_| anyhow!("entity not found"))?;
 
             Ok(
-                HealthUpdateEvent::heal(ent, amount as i32)
+                HealthUpdateEvent::heal(ent, source.and_then(|t| t.entity().ok()), amount as i32)
                     .send(&mut health_events)
             )
         })?)?;
