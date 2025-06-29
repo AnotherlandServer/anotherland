@@ -791,7 +791,7 @@ fn cmd_instant_kill(
     In((ent, _)): In<(Entity, Vec<NativeParam>)>,
     mut event: EventWriter<HealthUpdateEvent>
 ) {
-    event.write(HealthUpdateEvent::kill(ent));
+    event.write(HealthUpdateEvent::kill(ent, None));
 }
 
 #[allow(clippy::type_complexity)]
