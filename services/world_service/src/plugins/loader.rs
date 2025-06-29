@@ -15,14 +15,16 @@
 
 use std::{sync::Arc, time::Instant};
 
-use bevy::{app::{First, Plugin, PreUpdate}, ecs::{component::{Component, HookContext}, event::EventWriter, query::{Or, With}, resource::Resource, schedule::IntoScheduleConfigs, system::In}, platform::collections::HashMap, prelude::{Added, Commands, Entity, NextState, Query, ResMut}};
+use bevy::{app::{First, Plugin, PreUpdate}, ecs::{component::{Component, HookContext}, event::EventWriter, query::{Or, With}, resource::Resource, schedule::IntoScheduleConfigs, system::In}, math::Vec3, platform::collections::HashMap, prelude::{Added, Commands, Entity, NextState, Query, ResMut}};
 use futures_util::TryStreamExt;
 use log::{debug, info, trace, warn};
 use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, StructureBaseTag}, ContentRefList, GameObjectData, NonClientBase};
+use protocol::PhysicsState;
 use realm_api::ObjectPlacement;
+use scripting::ScriptCommandsExt;
 use toolkit::types::Uuid;
 
-use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry};
+use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::Movement};
 
 use super::{AvatarIdManager, AvatarInfo, Factions, FutureTaskComponent, HealthUpdateEvent, PlayerLocalSets};
 
@@ -135,6 +137,8 @@ fn ingest_content(
             Factions::default()
         };
 
+        let instance = GameObjectData::instantiate(&Arc::new(placement.data));
+
         let entity = commands.spawn((
             AvatarInfo {
                 id: *entry.key(),
@@ -144,7 +148,7 @@ fn ingest_content(
                 placement_id: placement.id,
                 template,
             },
-            placement.data,
+            instance,
             Active,
             SpawnState::default(),
             PlayerLocalSets::default(),
@@ -168,16 +172,22 @@ pub fn init_gameobjects(
 
 #[allow(clippy::type_complexity)]
 pub fn update_spawn_state(
-    mut entities: Query<(Entity, &GameObjectData, &mut SpawnState), Or<(With<NpcBaseTag>, With<StructureBaseTag>)>>,
+    mut entities: Query<(Entity, &GameObjectData, &mut SpawnState, &mut Movement), Or<(With<NpcBaseTag>, With<StructureBaseTag>)>>,
     mut health_events: EventWriter<HealthUpdateEvent>,
     mut commands: Commands,
 ) {
-    for (ent, obj, mut state) in entities.iter_mut() {
+    for (ent, obj, mut state, mut movement) in entities.iter_mut() {
         match *state {
             SpawnState::Alive => {
                 if !*obj.get_named::<bool>("alive").unwrap() {
                     debug!("Entity {ent} is dead");
                     state.mark_killed();
+
+                    // This should be handled as event
+                    movement.velocity = Vec3::ZERO;
+
+                    commands.entity(ent)
+                        .fire_lua_event("Killed", ());
                 }
             }
             SpawnState::Killed(instant) => {
@@ -187,7 +197,9 @@ pub fn update_spawn_state(
                     debug!("Despawning entity {ent}");
 
                     state.mark_despawned();
-                    commands.entity(ent).remove::<Active>();
+                    commands.entity(ent)
+                        .fire_lua_event("Despawned", ())
+                        .remove::<Active>();
                 }
             },
             SpawnState::Despawned(instant) => {
@@ -196,9 +208,17 @@ pub fn update_spawn_state(
                 if instant.elapsed().as_secs_f32() >= despawn_delay {
                     debug!("Respawning entity {ent}");
 
+                    let obj = GameObjectData::instantiate(&obj.parent().unwrap());
+
+                    // This should be handled as event
+                    movement.position = *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap();
+
                     state.mark_alive();
-                    health_events.write(HealthUpdateEvent::revive(ent, None));
-                    commands.entity(ent).insert(Active);
+                    health_events.write(HealthUpdateEvent::revive(ent, None, None));
+                    commands.entity(ent)
+                        .insert(obj)
+                        .insert(Active)
+                        .fire_lua_event("Spawned", ());
                 }
             },
         }
@@ -207,9 +227,10 @@ pub fn update_spawn_state(
 
 #[allow(clippy::type_complexity)]
 pub fn spawn_init_entity(
-    mut entities: Query<&mut GameObjectData, Or<(Added<NpcBaseTag>, Added<StructureBaseTag>)>>,
+    mut entities: Query<(Entity, &mut GameObjectData), Or<(Added<NpcBaseTag>, Added<StructureBaseTag>)>>,
+    mut commands: Commands,
 ) {
-    for mut obj in entities.iter_mut() {
+    for (ent, mut obj) in entities.iter_mut() {
         let hp_mod = *obj.get_named::<f32>("HpMod").unwrap_or(&1.0);
         let hp_max = *obj.get_named::<i32>("hpMax").unwrap();
         let bonus_hp = *obj.get_named::<f32>("BonusHP").unwrap_or(&0.0);
@@ -217,6 +238,9 @@ pub fn spawn_init_entity(
         obj.set_named("alive", true);
         obj.set_named("hpMax", (hp_max as f32 * hp_mod + bonus_hp).round() as i32);
         obj.set_named("hpCur", (hp_max as f32 * hp_mod + bonus_hp).round() as i32);
+
+        commands.entity(ent)
+                .fire_lua_event("Spawned", ());
     }
 }
 

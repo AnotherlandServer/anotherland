@@ -40,6 +40,7 @@ mod abilities;
 mod async_loader;
 mod buffs;
 mod navigation;
+mod npc_ai;
 mod partitioning;
 
 pub use network::*;
@@ -69,4 +70,5 @@ pub use abilities::*;
 pub use async_loader::*;
 pub use buffs::*;
 pub use navigation::*;
+pub use npc_ai::*;
 pub use partitioning::*;
