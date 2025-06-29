@@ -60,6 +60,9 @@ pub enum WorldError {
     BsonBinaryError(#[from] bson::binary::Error),
 
     #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error(transparent)]
     Other(#[from] anyhow::Error)
 }
 

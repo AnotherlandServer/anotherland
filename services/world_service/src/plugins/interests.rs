@@ -15,13 +15,13 @@
 
 use std::{ops::Deref, time::Duration};
 
-use bevy::{app::{App, Plugin, PreUpdate, Update}, ecs::{query::Added, schedule::IntoScheduleConfigs, system::{In, Res}, world::World}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
+use bevy::{app::{App, Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, EventWriter}, query::Added, schedule::IntoScheduleConfigs, system::{In, Res}, world::World}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
 use mlua::{Lua, Table};
 use obj_params::{tags::{NonClientBaseTag, NpcOtherlandTag, PlayerTag}, Class, GameObjectData, NonClientBase, ParamWriter, Player};
 use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, Physics};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use toolkit::types::{AvatarId, UUID_NIL};
 use anyhow::anyhow;
 
@@ -33,13 +33,16 @@ pub struct InterestsPlugin;
 
 impl Plugin for InterestsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreUpdate, enable_npc_interest_building);
+        app.add_event::<InterestAdded>();
+        app.add_event::<InterestRemoved>();
 
+        app.add_systems(PreUpdate, enable_npc_interest_building);
         app.add_systems(Update, 
             (
                 (
                     enable_player_interest_building,
-                    update_interest_list
+                    update_interest_list,
+                    (notify_interest_added, notify_interest_removed)
                 )
                 .chain()
                 .run_if(on_timer(Duration::from_millis(250))),
@@ -104,6 +107,12 @@ impl Deref for Interests {
         &self.interests
     }
 }
+
+#[derive(Event)]
+pub struct InterestAdded(pub Entity, pub Entity);
+
+#[derive(Event)]
+pub struct InterestRemoved(pub Entity, pub Entity);
 
 #[allow(clippy::type_complexity)]
 fn enable_player_interest_building(
@@ -213,6 +222,8 @@ fn update_interest_list(
     mut players: Query<(Entity, &GameObjectData, &Movement, &mut Interests, Option<&PlayerController>, Option<&QuestLog>), With<Interests>>,
     potential_interests: Query<(&GameObjectData, Option<&QuestEntity>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
     avatar_info: Query<&AvatarInfo>,
+    mut interest_added_event: EventWriter<InterestAdded>,
+    mut interest_removed_event: EventWriter<InterestRemoved>,
 ) {
     for (current_ent, current_obj, current_pos, mut interests, controller, quest_log) in players.iter_mut() {
         let aware_range: f32 = 
@@ -252,6 +263,8 @@ fn update_interest_list(
                     avatar_info.get(*ent).unwrap().id, 
                     InterestState::Initial
                 ));
+
+                interest_added_event.write(InterestAdded(current_ent, *ent));
             }
         }
 
@@ -268,6 +281,42 @@ fn update_interest_list(
                     ..Default::default()
                 });
             }
+
+            interest_removed_event.write(InterestRemoved(current_ent, ent));
+        }
+    }
+}
+
+fn notify_interest_added(
+    mut events: EventReader<InterestAdded>,
+    query: Query<&ScriptObject>,
+    mut commands: Commands,
+) {
+    for InterestAdded(target, ent) in events.read() {
+        if 
+            let Ok(_) = query.get(*target) &&
+            let Ok(interest) = query.get(*ent)
+        {
+            commands
+                .entity(*target)
+                .fire_lua_event("InterestAdded", interest.object().clone());
+        }
+    }
+}
+
+fn notify_interest_removed(
+    mut events: EventReader<InterestRemoved>,
+    query: Query<&ScriptObject>,
+    mut commands: Commands,
+) {
+    for InterestRemoved(target, ent) in events.read() {
+        if 
+            let Ok(_) = query.get(*target) &&
+            let Ok(interest) = query.get(*ent)
+        {
+            commands
+                .entity(*target)
+                .fire_lua_event("InterestRemoved", interest.object().clone());
         }
     }
 }

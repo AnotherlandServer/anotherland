@@ -593,6 +593,7 @@ fn insert_player_characters(
                 position: character.data().get::<_, (u32, Vec3)>(Player::Pos).unwrap().1,
                 rotation: Quat::from_unit_vector(*character.data().get::<_, Vec3>(Player::Rot).unwrap()),
                 velocity: Vec3::ZERO,
+                radius: collision_extent.x.max(collision_extent.z),
                 mode: PhysicsState::Walking,
                 mover_type: 1,
                 mover_replication_policy: 7,

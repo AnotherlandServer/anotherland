@@ -16,7 +16,7 @@
 use std::{ops::Div, sync::Mutex};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, Update}, ecs::{component::Component, entity::Entity, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::{bounding::Aabb3d, Vec3, Vec3A}, time::{Time, Virtual}};
+use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{component::Component, entity::Entity, event::EventReader, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::{bounding::Aabb3d, Vec3, Vec3A}, time::{Time, Virtual}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use futures::{TryStreamExt};
 use log::{debug, error};
@@ -28,7 +28,7 @@ use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshParams, DtNavMeshQ
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{bson, Vec3Wrapper};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{AvatarInfo, Interests, Movement, PlayerController}};
+use crate::{error::{WorldError, WorldResult}, plugins::{AvatarInfo, InterestAdded, Interests, Movement, PlayerController, WorldSpace}};
 
 pub struct NavigationPlugin;
 
@@ -38,9 +38,13 @@ impl Plugin for NavigationPlugin {
         app.add_systems(Update, (
                 set_agent_targets,
                 update,
-                replicate_path_on_clients,
             ).chain()
         );
+
+        app.add_systems(PostUpdate, (
+            replicate_paths_on_clients,
+            replicate_changed_paths_on_clients,
+        ));
 
         insert_navigation_api(app.world_mut()).unwrap();
     }
@@ -54,16 +58,35 @@ fn insert_navigation_api(
     let navigation_api = lua.create_table().unwrap();
     runtime.register_native("navigation", navigation_api.clone()).unwrap();
 
-    navigation_api.set("SetTargetLocation", lua.create_bevy_function(world, 
+    navigation_api.set("MoveToTarget", lua.create_bevy_function(world, 
         |
-            In((obj, location)): In<(Table, Vec3Wrapper)>,
+            In((obj, location, speed, callback)): In<(Table, Vec3Wrapper, f32, mlua::Function)>,
             mut commands: Commands,
         | -> WorldResult<()> {
             let obj = obj.entity()?;
 
             commands
                 .entity(obj)
-                .insert(NavTarget(location.0));
+                .insert(NavTarget {
+                    pos: location.0,
+                    speed,
+                    callback: Some(callback),
+                });
+
+            Ok(())
+        })?)?;
+
+    navigation_api.set("CancelMovement", lua.create_bevy_function(world, 
+        |
+            In((obj)): In<Table>,
+            mut query: Query<(&Movement, &mut NavTarget)>,
+            mut commands: Commands,
+        | -> WorldResult<()> {
+            let obj = obj.entity()?;
+
+            if let Ok((movement, mut target)) = query.get_mut(obj) {
+                target.pos = movement.position; // Set target position to current position
+            }
 
             Ok(())
         })?)?;
@@ -243,12 +266,12 @@ struct PathSegment {
 fn update(
     navmesh: Res<Navmesh>,
     time: Res<Time<Virtual>>,
-    mut query: Query<(Entity, &mut Movement, &GameObjectData, &mut PathCorridor), With<PathCorridor>>,
+    mut query: Query<(Entity, &mut Movement, &GameObjectData, &NavTarget, &mut PathCorridor), With<PathCorridor>>,
     mut commands: Commands,
 ) {
     let mut recast = navmesh.recast.lock().unwrap();
 
-    for (ent, mut movement, data, mut corridor) in query.iter_mut() {
+    for (ent, mut movement, data, target, mut corridor) in query.iter_mut() {
         match corridor.segment.as_mut() {
             Some(lerp) => {
                 // Send pathing update to the client
@@ -283,14 +306,23 @@ fn update(
                     debug!("Reached end of path segment for entity {ent}");
                     corridor.segment = None; 
                 }
+
+                if let Some(callback) = &target.callback {
+                    let _ = callback.call::<()>(("PATH_SEGMENT_COMPLETE", Vec3Wrapper(movement.position)));
+                }
             },
             None => {
                 debug!("Update path position for entity {ent} at position: {}", movement.position);
 
                 if !corridor.corridor.move_position(&movement.position.to_array(), &mut recast.query, &navmesh.filter) {
+                    if let Some(callback) = &target.callback {
+                        let _ = callback.call::<()>(("INVALID_POSITION", Vec3Wrapper(target.pos)));
+                    }
+
                     debug!("Failed to move position for entity {ent}, removing PathCorridor");
                     commands.entity(ent)
-                        .remove::<PathCorridor>();
+                        .remove::<PathCorridor>()
+                        .remove::<NavTarget>();
                     continue;
                 }
 
@@ -312,16 +344,19 @@ fn update(
                     let start = Vec3::from_slice(corridor.corridor.pos());
                     let next = Vec3::from_slice(next);
                     let end = Vec3::from_slice(corridor.corridor.target());
+                    let duration = start.distance(next) / target.speed;
 
-                    let speed = *data.get::<_, f32>(NpcOtherland::RunSpeed).unwrap();
-                    let duration = start.distance(next) / speed;
-
-                    debug!("Entity {ent} path corridor updated: Start: {start:?}, Next: {next:?} End: {end:?}, Duration: {duration}, Speed: {speed}");
+                    debug!("Entity {ent} path corridor updated: Start: {start:?}, Next: {next:?} End: {end:?}, Duration: {duration}, Speed: {}", target.speed);
 
                     if start.with_y(0.0).distance(end.with_y(0.0)) < 15.0 && *corner_polys.last().unwrap() == DtPolyRef(0) {
+                        if let Some(callback) = &target.callback {
+                            let _ = callback.call::<()>(("FINISHED", Vec3Wrapper(target.pos)));
+                        }
+
                         debug!("Start and end positions are too close for entity {ent}, removing PathCorridor");
                         commands.entity(ent)
-                            .remove::<PathCorridor>();
+                            .remove::<PathCorridor>()
+                            .remove::<NavTarget>();
                         continue;
                     }
 
@@ -330,12 +365,17 @@ fn update(
                         end: next, 
                         duration,
                         elapsed: 0.0,
-                        speed
+                        speed: target.speed,
                     });
                 } else {
+                    if let Some(callback) = &target.callback {
+                        let _ = callback.call::<()>(("FINISHED", Vec3Wrapper(target.pos)));
+                    }
+
                     debug!("No corners found for entity {ent}, removing PathCorridor");
                     commands.entity(ent)
-                        .remove::<PathCorridor>();
+                        .remove::<PathCorridor>()
+                        .remove::<NavTarget>();
                     continue;
                 }
             }
@@ -345,22 +385,34 @@ fn update(
 }
 
 #[derive(Component)]
-pub struct NavTarget(Vec3);
+pub struct NavTarget {
+    pos: Vec3,
+    speed: f32,
+    callback: Option<mlua::Function>,
+}
 
 const MAX_CORNERS: usize = 2;
 
+#[allow(clippy::type_complexity)]
 fn set_agent_targets(
-    query: Query<(Entity, &GameObjectData, &Movement, &NavTarget), Changed<NavTarget>>,
+    mut query: Query<(Entity, &GameObjectData, &Movement, &NavTarget, Option<&mut PathCorridor>), Changed<NavTarget>>,
     navmesh: Res<Navmesh>,
     mut commands: Commands,
 ) {
-    let recast = navmesh.recast.lock().unwrap();
+    let mut recast = navmesh.recast.lock().unwrap();
 
-    for (ent, _obj, movement, target) in query.iter() {
+    for (ent, _obj, movement, target, mut corridor) in query.iter_mut() {
         let start_pos = movement.position.to_array();
-        let target_pos = target.0.to_array();
+        let target_pos = target.pos.to_array();
 
         debug!("Target pos: {target_pos:?}");
+
+        if 
+            let Some(mut corridor) = corridor &&
+            corridor.corridor.move_target_position(&target_pos, &mut recast.query, &navmesh.filter)
+        {
+            continue;
+        }
 
         //let mut path = vec![DtPolyRef::default(); 256];
         let mut corridor = DtPathCorridor::default();
@@ -389,13 +441,23 @@ fn set_agent_targets(
                             corridor,
                             segment: None,
                         });
+
+                    if let Some(callback) = &target.callback {
+                        let _ = callback.call::<()>(("FOUND_CORRIDOR", Vec3Wrapper(target.pos)));
+                    }
                 },
                 Err(e) => {
                     error!("Failed to find path from {start_pos:?} to {target_pos:?} for entity: {ent} Error: {e}");
+                    if let Some(callback) = &target.callback {
+                        let _ = callback.call::<()>(("PATHFINDING_FAILED", Vec3Wrapper(target.pos)));
+                    }
                 }
             }
         } else {
-            error!("Failed to find nearest poly for target: {:?}", target.0);
+            error!("Failed to find nearest poly for target: {:?}", target.pos);
+            if let Some(callback) = &target.callback {
+                let _ = callback.call::<()>(("TARGET_NOT_FOUND", Vec3Wrapper(target.pos)));
+            }
         }
     }
 }
@@ -418,6 +480,39 @@ pub struct Pathing {
     pub target_tile: Option<i32>,
     pub while_obstructed: Option<bool>,
     pub mover_key: u16,
+}
+
+impl Pathing {
+    fn to_bytes(&self) -> WorldResult<Vec<u8>> {
+        let mut data = Vec::new();
+        let mut writer = ByteWriter::endian(&mut data, LittleEndian);
+
+        writer.write(1u16)?;
+
+        writer.write(0xE7AB83B2u32)?; // PathEngineMove
+
+        // Parameters
+        writer.write(self.backward.unwrap_or_default() as u8)?; // backward
+        writer.write(self.face_target.unwrap_or_default() as u8)?; // faceTarget
+        writer.write_bytes(&self.anchor_pos.to_bytes())?; // anchorPos
+        writer.write_bytes(&self.start_pos.to_bytes())?; // startingPos
+        writer.write(self.keep_z_value.unwrap_or_default() as u8)?; // keepZValue
+        writer.write(self.force_find_path.unwrap_or_default() as u8)?; // ForceFindPath
+        writer.write(self.is_abort_early.unwrap_or_default() as u8)?; // isAbortEarly
+        writer.write(self.traverse_costs.unwrap_or(0))?; // traverseCosts
+        writer.write(self.start_time)?; // startTime
+        writer.write(self.speed)?; // speed
+        writer.write(self.acceleration)?; // accel
+        writer.write(self.client_dont_care.unwrap_or_default() as u8)?; // clientDontCare
+        writer.write(self.forced_movement_mode.unwrap_or_default())?; // forcedMovementMode
+        writer.write(self.target_tile.unwrap_or(0))?; // targetTile
+        writer.write(self.while_obstructed.unwrap_or_default() as u8)?; // whileObstructed
+        writer.write(self.mover_key)?; // moverKey
+
+        writer.write(0i32)?; // Unknown
+
+        Ok(data)
+    }
 }
 
 #[allow(dead_code)]
@@ -477,46 +572,48 @@ fn factory_name_hash(input: &[u8]) -> u32 {
     (crc_buffers[0] as u32) << 16 | (crc_buffers[1] as u32)
 }
 
-fn replicate_path_on_clients(
+fn replicate_changed_paths_on_clients(
     agents: Query<(Entity, &AvatarInfo, &Pathing), Changed<Pathing>>,
     clients: Query<(&Interests, &PlayerController)>,
 ) {
     for (ent, info, pathing) in agents.iter() {
-        let mut data = Vec::new();
-        let mut writer = ByteWriter::endian(&mut data, LittleEndian);
-
-        writer.write(1u16).unwrap();
-
-        writer.write(0xE7AB83B2u32).unwrap(); // PathEngineMove
-
-        // Parameters
-        writer.write(pathing.backward.unwrap_or_default() as u8).unwrap(); // backward
-        writer.write(pathing.face_target.unwrap_or_default() as u8).unwrap(); // faceTarget
-        writer.write_bytes(&pathing.anchor_pos.to_bytes()).unwrap(); // anchorPos
-        writer.write_bytes(&pathing.start_pos.to_bytes()).unwrap(); // startingPos
-        writer.write(pathing.keep_z_value.unwrap_or_default() as u8).unwrap(); // keepZValue
-        writer.write(pathing.force_find_path.unwrap_or_default() as u8).unwrap(); // ForceFindPath
-        writer.write(pathing.is_abort_early.unwrap_or_default() as u8).unwrap(); // isAbortEarly
-        writer.write(pathing.traverse_costs.unwrap_or(0)).unwrap(); // traverseCosts
-        writer.write(pathing.start_time).unwrap(); // startTime
-        writer.write(pathing.speed).unwrap(); // speed
-        writer.write(pathing.acceleration).unwrap(); // accel
-        writer.write(pathing.client_dont_care.unwrap_or_default() as u8).unwrap(); // clientDontCare
-        writer.write(pathing.forced_movement_mode.unwrap_or_default()).unwrap(); // forcedMovementMode
-        writer.write(pathing.target_tile.unwrap_or(0)).unwrap(); // targetTile
-        writer.write(pathing.while_obstructed.unwrap_or_default() as u8).unwrap(); // whileObstructed
-        writer.write(pathing.mover_key).unwrap(); // moverKey
-
-        writer.write(0i32).unwrap(); // Unknown
+        let data = pathing.to_bytes()
+            .expect("Failed to serialize Pathing data");
 
         for (interests, controller) in clients.iter() {
             if interests.contains_key(&ent) {
+                debug!("Replicating pathing data for agent {} to client {}", info.id, controller.avatar_id());
+
                 controller.send_packet(CPktAvatarBehaviors {
                     field_1: info.id,
                     field_2: data.clone().into(),
                     ..Default::default()
                 });
             }
+        }
+    }
+}
+
+fn replicate_paths_on_clients(
+    mut added_interests: EventReader<InterestAdded>,
+    agents: Query<(&AvatarInfo, &Pathing)>,
+    clients: Query<&PlayerController>,
+) {
+    for InterestAdded(target, ent) in added_interests.read() {
+        if 
+            let Ok(controller) = clients.get(*target) &&
+            let Ok((info, pathing)) = agents.get(*ent)
+        {
+            debug!("Replicating pathing data for newly added agent {} to client {}", info.id, controller.avatar_id());
+
+            let data = pathing.to_bytes()
+                .expect("Failed to serialize Pathing data");
+
+            controller.send_packet(CPktAvatarBehaviors {
+                field_1: info.id,
+                field_2: data.into(),
+                ..Default::default()
+            });
         }
     }
 }

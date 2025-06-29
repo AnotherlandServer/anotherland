@@ -2,6 +2,9 @@
 
 __engine = {}
 
+---@type AvatarId
+NULL_AVATAR_ID = nil
+
 ----
 __engine.gameobject = {}
 
