@@ -1,0 +1,36 @@
+version: 2
+updates:
+- package-ecosystem: "cargo"
+  directories: 
+    - "/"
+    - "/lib/cluster"
+    - "/lib/config"
+    - "/lib/content"
+    - "/lib/core_api"
+    - "/lib/database"
+    - "/lib/macros"
+    - "/lib/obj_params"
+    - "/lib/pepkg"
+    - "/lib/protocol"
+    - "/lib/raknet"
+    - "/lib/realm_api"
+    - "/lib/scripting"
+    - "/lib/toolkit"
+    - "/lib/upk"
+    - "/services/cluster_server"
+    - "/services/core_service"
+    - "/services/frontend_server"
+    - "/services/login_server"
+    - "/services/realm_manager_service"
+    - "/services/world_service"
+    - "/tools/kismet-plotter"
+    - "/tools/navmesh_builder"
+    - "/tools/pepkg-tool"
+    - "/tools/seed-realm"
+  schedule:
+    interval: "weekly"
+- package-ecosystem: "package-ecosystem"
+  directories: 
+    - "/
+  schedule:
+    interval: "weekly"
