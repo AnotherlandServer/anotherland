@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v5
-    - uses: EmbarkStudios/cargo-deny-action@v1
+    - uses: EmbarkStudios/cargo-deny-action@v2
       with:
         rust-version: "nightly"
         command: check bans licenses sources
