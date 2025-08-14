@@ -29,7 +29,7 @@ updates:
     - "/tools/seed-realm"
   schedule:
     interval: "weekly"
-- package-ecosystem: "package-ecosystem"
+- package-ecosystem: "github-actions"
   directory: "/"
   schedule:
     interval: "weekly"
