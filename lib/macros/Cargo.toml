@@ -9,7 +9,7 @@ publish = false
 proc-macro = true
 
 [dependencies]
-darling = "0.20.10"
+darling = "0.21.1"
 proc-macro2 = "1.0.92"
 quote = "1.0.37"
 syn = { version = "2.0.90", features = ["full", "extra-traits"] }
