@@ -30,7 +30,6 @@ updates:
   schedule:
     interval: "weekly"
 - package-ecosystem: "package-ecosystem"
-  directories: 
-    - "/
+  directory: "/"
   schedule:
     interval: "weekly"
