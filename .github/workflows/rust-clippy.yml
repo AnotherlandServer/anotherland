@@ -38,6 +38,21 @@ jobs:
           components: clippy
           override: true
 
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y libasound2-dev libudev-dev
+
+      - name: Checkout game files
+        run: |
+          mkdir -p ~/.ssh && \
+          echo "$PRIVATE_BUILD_REPO_KEY" > ~/.ssh/id_rsa && \
+          echo "" >> ~/.ssh/id_rsa && \
+          chmod 0600 ~/.ssh/id_rsa && \
+          touch ~/.ssh/known_hosts && \
+          ssh-keyscan github.com >> ~/.ssh/known_hosts && \
+          git clone git@github.com:AnotherlandServer/private-build-files.git /tmp/build-files
+        env:
+          PRIVATE_BUILD_REPO_KEY: ${{ secrets.PRIVATE_BUILD_REPO_KEY }}
+
       - name: Install required cargo
         run: cargo install clippy-sarif sarif-fmt
 
@@ -46,7 +61,10 @@ jobs:
           cargo clippy
           --all-features
           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        env:
+          OTHERLAND_CLIENT_PATH: /tmp/build-files/client_files/
         continue-on-error: true
+
 
       - name: Upload analysis results to GitHub
         uses: github/codeql-action/upload-sarif@v3
