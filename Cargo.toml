@@ -92,3 +92,4 @@ tokio-util = { version = "0.7.13", features = ["rt"] }
 sqlite = "0.37.0"
 recastnavigation-rs = { version = "0.1.0", git = "https://github.com/AnotherlandServer/recastnavigation-rs.git", rev = "c4659c6abb829d1256a16aff10256bf5be53f444" }
 notify = { version = "8.2.0" }
+indicatif = { version = "0.17.11", features = ["tokio"] }
