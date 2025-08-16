@@ -7,7 +7,7 @@ Welcome to the **Anotherland Server Emulator** project, a community-driven initi
 
 ## Prerequisites
 Before you begin, ensure you have the following installed:
-- **Rust 1.88.0-nightly**
+- **Rust 1.89.0-nightly** (use rustup to automatically install the correct toolchain)
 - A legally acquired copy of the game (*Otherland Next*)
 - **MongoDB** (You need to configure a replica set for transactions to work)
 
@@ -15,6 +15,12 @@ Before you begin, ensure you have the following installed:
 Clone the repository to your local machine:
 ```bash
 git clone https://github.com/AnotherlandServer/anotherland.git
+```
+
+Checkout all submodules:
+```bash
+cd anotherland
+git submodule update --init
 ```
 
 Set the environment variable `OTHERLAND_CLIENT_PATH` to the path of your game client installation.
