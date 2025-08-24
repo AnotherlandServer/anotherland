@@ -59,8 +59,8 @@ The server is divided into multiple services that can be run across distributed 
 2. Use the `createRealm` mutation to create your first realm.
 3. Start the `realm_manager_service` with the `--realm-id` parameter, specifying the ID of the realm you just created, to begin setting up the realm.
 4. Once the service is fully started, use the `seed-realm` tool to seed the realm database by extracting content from the *Otherland* client files.
-
-5. After completing these steps, start the remaining services and connect to your realm.
+5. After seeding the realm, you need to build navmeshes using `navmesh_builder generate-mesh`. 
+6. After completing these steps, start the remaining services and connect to your realm.
 
 ### General Notes
 - Use the `--help` argument with each process to view available options and their default values.  
