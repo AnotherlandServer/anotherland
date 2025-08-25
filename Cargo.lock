@@ -6646,7 +6646,7 @@ dependencies = [
  "bson",
  "convert_case 0.6.0",
  "glam",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "nom",
  "prettyplease",
@@ -8807,7 +8807,7 @@ name = "update-bindings"
 version = "0.1.0"
 dependencies = [
  "convert_case 0.6.0",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "nom",
  "prettyplease",
  "proc-macro2",
