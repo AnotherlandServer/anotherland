@@ -24,7 +24,8 @@ members = [
     "lib/content", 
     "lib/pepkg", 
     "tools/pepkg-tool", 
-    "tools/navmesh_builder"
+    "tools/navmesh_builder", 
+    "tools/update-bindings"
 ]
 package.rust-version = "1.90"
 

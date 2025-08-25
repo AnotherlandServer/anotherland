@@ -8,7 +8,6 @@ Welcome to the **Anotherland Server Emulator** project, a community-driven initi
 ## Prerequisites
 Before you begin, ensure you have the following installed:
 - **Rust 1.89.0-nightly** (use rustup to automatically install the correct toolchain)
-- A legally acquired copy of the game (*Otherland Next*)
 - **MongoDB** (You need to configure a replica set for transactions to work)
 
 ## Compilation
@@ -22,8 +21,6 @@ Checkout all submodules:
 cd anotherland
 git submodule update --init
 ```
-
-Set the environment variable `OTHERLAND_CLIENT_PATH` to the path of your game client installation.
 
 Build the project using Cargo:
 ```bash

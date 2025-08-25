@@ -753,76 +753,100 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
             }
         };
 
-        quote!{
-            #[derive(PartialEq, Eq, Hash, Clone, Copy)]
-            pub enum #enum_name {
-                #(#enum_entries),*
-            }
+        (
+            class.name.to_case(Case::Snake),
+            quote!{
+                #![allow(unused_imports)]
 
-            static #enum_lookup_name: phf::Map<&'static str, #enum_name> = phf_map! {
-                #(#static_lookup)*
-            };
+                use std::str::FromStr;
+                use std::collections::HashMap;
+                use std::collections::HashSet;
+                use once_cell::sync::Lazy;
+                use phf::phf_map;
+                use toolkit::types::AvatarId;
+                use toolkit::types::Uuid;
+                use toolkit::types::UUID_NIL;
+                use glam::Vec3;
+                use serde_json::Value as JsonValue;
+                use crate::Attribute;
+                use crate::AttributeInfo;
+                use crate::Class;
+                use crate::ContentRefList;
+                use crate::ParamType;
+                use crate::ParamFlag;
+                use crate::ParamError;
+                use crate::Value;
 
-            static #enum_lookup_id_name: phf::Map<u16, #enum_name> = phf_map! {
-                #(#static_id_lookup)*
-            };
-
-            impl Attribute for #enum_name {
-                fn class() -> Class { Class::#class_name }
-
-                fn static_info(&self) -> &'static dyn AttributeInfo {
-                    #info_match
-                }
-            }
-
-            impl AttributeInfo for #enum_name {
-                fn class(&self) -> Class {
-                    <Self as Attribute>::class()
-                }
-
-                fn id(&self) -> u16 { 
-                    #id_match
+                #[derive(PartialEq, Eq, Hash, Clone, Copy)]
+                pub enum #enum_name {
+                    #(#enum_entries),*
                 }
 
-                fn name(&self) -> &'static str { 
-                    #name_match
+                pub(crate) static #enum_lookup_name: phf::Map<&'static str, #enum_name> = phf_map! {
+                    #(#static_lookup)*
+                };
+
+                pub(crate) static #enum_lookup_id_name: phf::Map<u16, #enum_name> = phf_map! {
+                    #(#static_id_lookup)*
+                };
+
+                impl Attribute for #enum_name {
+                    fn class() -> Class { Class::#class_name }
+
+                    fn static_info(&self) -> &'static dyn AttributeInfo {
+                        #info_match
+                    }
                 }
 
-                fn datatype(&self) -> ParamType { 
-                    #datatype_match
+                impl AttributeInfo for #enum_name {
+                    fn class(&self) -> Class {
+                        <Self as Attribute>::class()
+                    }
+
+                    fn id(&self) -> u16 { 
+                        #id_match
+                    }
+
+                    fn name(&self) -> &'static str { 
+                        #name_match
+                    }
+
+                    fn datatype(&self) -> ParamType { 
+                        #datatype_match
+                    }
+
+                    fn default(&self) -> &'static Value { 
+                        #(#static_defaults)*
+                        #default_match
+                    }
+
+                    fn flags(&self) -> &[ParamFlag] {
+                        #flags_match
+                    }
                 }
 
-                fn default(&self) -> &'static Value { 
-                    #(#static_defaults)*
-                    #default_match
+                impl FromStr for #enum_name {
+                    type Err = ParamError;
+
+                    fn from_str(s: &str) -> Result<Self, Self::Err> {
+                        #enum_lookup_name.get(s)
+                            .map(|v| *v)
+                            .ok_or(ParamError::UnknownAttributeName)
+                    }
                 }
 
-                fn flags(&self) -> &[ParamFlag] {
-                    #flags_match
-                }
-            }
+                impl TryFrom<u16> for #enum_name {
+                    type Error = ParamError;
 
-            impl FromStr for #enum_name {
-                type Err = ParamError;
-
-                fn from_str(s: &str) -> Result<Self, Self::Err> {
-                    #enum_lookup_name.get(s)
-                        .map(|v| *v)
-                        .ok_or(ParamError::UnknownAttributeName)
-                }
-            }
-
-            impl TryFrom<u16> for #enum_name {
-                type Error = ParamError;
-
-                fn try_from(val: u16) -> Result<Self, Self::Error> {
-                    match val {
-                        #(#enum_from_u16)*
-                        _ => Err(ParamError::UnknownAttributeId),
+                    fn try_from(val: u16) -> Result<Self, Self::Error> {
+                        match val {
+                            #(#enum_from_u16)*
+                            _ => Err(ParamError::UnknownAttributeId),
+                        }
                     }
                 }
             }
-        }
+        )
     }).collect();
 
     let param_class_enum: Vec<_> = paramlist.classes.iter().map(|v| {
@@ -919,7 +943,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
             let component_name = format_ident!("{}Tag", parent_class_ref.borrow().name.to_case(Case::UpperCamel));
 
-            components.push(quote!( tags::#component_name ));
+            components.push(quote!( #component_name ));
         }
 
         if components.len() == 1 {
@@ -941,32 +965,17 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         }
     }).collect();
 
-    write_source("generated_params.rs", quote! {
-        use glam::Vec3;
-        use std::collections::HashSet;
-        use std::collections::HashMap;
-        use serde_json::Value as JsonValue;
-        use std::str::FromStr;
+    write_source("class.rs", quote! {
         use serde::Serialize;
         use serde::Deserialize;
-        use once_cell::sync::Lazy;
-        use phf::phf_map;
-        use bevy::prelude::*;
-        use toolkit::types::AvatarId;
-        use toolkit::types::Uuid;
-        use toolkit::types::UUID_NIL;
+        use std::str::FromStr;
         use crate::Attribute;
         use crate::AttributeInfo;
-        use crate::ParamType;
-        use crate::ParamFlag;
         use crate::ParamSet;
         use crate::ParamError;
         use crate::Value;
-        use crate::GameObjectData;
         use crate::GenericParamSet;
-        use crate::ContentRefList;
-
-        #(#param_name_enums)*
+        use crate::generated::*;
 
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
         pub enum Class {
@@ -1028,17 +1037,41 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                 }
             }
         }
+    })?;
 
-        pub mod tags {
-            use bevy::prelude::*;
+    write_source("tags.rs", quote! {
+        use bevy::prelude::*;
+        use crate::Class;
+        use crate::GameObjectData;
 
-            #(#class_tag_components)*
-        }
+        #(#class_tag_components)*
 
         pub fn tag_gameobject_entity(data: &GameObjectData, commands: &mut EntityCommands<'_>) {
             match data.class() {
                 #(#class_tag_bundles),*
             }
         }
+    })?;
+
+    let mut mods = vec![];
+    let mut uses = vec![];
+
+    for (class_name, source) in param_name_enums {
+        let class_name_ident = format_ident!("{}", class_name);
+
+        mods.push(quote! { mod #class_name_ident; });
+        uses.push(quote! { pub use #class_name_ident::*; });
+
+        write_source(&format!("{}.rs", class_name), source)?;
+    }
+
+    write_source("mod.rs", quote! {
+        pub mod tags;
+        mod class;
+        #(#mods)*
+
+        pub use tags::tag_gameobject_entity;
+        pub use class::*;
+        #(#uses)*
     })
 }

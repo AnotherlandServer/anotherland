@@ -3,11 +3,10 @@
 
 FROM rust:1 as builder
 
-
 # Mount the secret as /root/.ssh/id_rsa
 RUN mkdir -p /root/.ssh
-RUN --mount=type=secret,id=private_build_repo_key \
-  cat /run/secrets/private_build_repo_key > /root/.ssh/id_rsa && \
+RUN --mount=type=secret,id=client_files_secret \
+  cat /run/secrets/client_files_secret > /root/.ssh/id_rsa && \
   echo "" >> /root/.ssh/id_rsa
 
 # Setup ssh access
@@ -19,12 +18,7 @@ RUN chmod 0600 /root/.ssh/id_rsa && \
 WORKDIR /usr/src/anotherland
 COPY . .
 
-# clone private files required for build
-RUN git clone git@github.com:AnotherlandServer/private-build-files.git
-
-
 # build
-ENV OTHERLAND_CLIENT_PATH /usr/src/anotherland/private-build-files/client_files/
 RUN cargo install core_service --path services/core_service
 RUN cargo install frontend_server --path services/frontend_server
 RUN cargo install login_server --path services/login_server

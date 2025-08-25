@@ -52,8 +52,6 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         platforms: linux/amd64
-        secrets: |
-          "private_build_repo_key=${{ secrets.PRIVATE_BUILD_REPO_KEY }}"
 
     #- uses: actions-hub/kubectl@master
     #  env:
