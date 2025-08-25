@@ -7,7 +7,7 @@ publish = false
 
 [build-dependencies]
 convert_case = "0.6.0"
-itertools = "0.13.0"
+itertools = "0.14.0"
 prettyplease = "0.2.37"
 proc-macro2 = "1.0.92"
 quote = "1.0.37"
