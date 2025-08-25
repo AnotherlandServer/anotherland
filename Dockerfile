@@ -3,17 +3,6 @@
 
 FROM rust:1 as builder
 
-# Mount the secret as /root/.ssh/id_rsa
-RUN mkdir -p /root/.ssh
-RUN --mount=type=secret,id=client_files_secret \
-  cat /run/secrets/client_files_secret > /root/.ssh/id_rsa && \
-  echo "" >> /root/.ssh/id_rsa
-
-# Setup ssh access
-RUN chmod 0600 /root/.ssh/id_rsa && \
-    touch /root/.ssh/known_hosts && \
-    ssh-keyscan github.com >> /root/.ssh/known_hosts
-
 # setup workdir
 WORKDIR /usr/src/anotherland
 COPY . .
