@@ -63,7 +63,7 @@ realm_api = { version = "0.1.0", path = "lib/realm_api" }
 bson = { version = "2.13.0", features = ["uuid-1"] }
 aes = "0.8.4"
 portable-atomic = "1.10.0"
-rand = "0.8.5"
+rand = "0.9.2"
 rsa = { version = "0.9.7", features = ["hazmat"] }
 sha1 = "0.10.6"
 uuid = { version = "1.11.0", features = ["v1", "v4"] }
