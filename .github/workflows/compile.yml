@@ -1,0 +1,37 @@
+name: PR Docker Build (compile only)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+env:
+  DOCKER_BUILDKIT: 1
+
+jobs:
+  build-docker:
+    name: Build Docker image (no push)
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (compile test)
+        uses: docker/build-push-action@55146d969b0dff1a5c12630229609757af5b1081
+        with:
+          context: .
+          push: false
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ghcr.io/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
+
