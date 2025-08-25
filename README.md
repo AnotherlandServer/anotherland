@@ -7,8 +7,7 @@ Welcome to the **Anotherland Server Emulator** project, a community-driven initi
 
 ## Prerequisites
 Before you begin, ensure you have the following installed:
-- **Rust 1.88.0-nightly**
-- A legally acquired copy of the game (*Otherland Next*)
+- **Rust 1.89.0-nightly** (use rustup to automatically install the correct toolchain)
 - **MongoDB** (You need to configure a replica set for transactions to work)
 
 ## Compilation
@@ -17,7 +16,11 @@ Clone the repository to your local machine:
 git clone https://github.com/AnotherlandServer/anotherland.git
 ```
 
-Set the environment variable `OTHERLAND_CLIENT_PATH` to the path of your game client installation.
+Checkout all submodules:
+```bash
+cd anotherland
+git submodule update --init
+```
 
 Build the project using Cargo:
 ```bash
@@ -53,8 +56,8 @@ The server is divided into multiple services that can be run across distributed 
 2. Use the `createRealm` mutation to create your first realm.
 3. Start the `realm_manager_service` with the `--realm-id` parameter, specifying the ID of the realm you just created, to begin setting up the realm.
 4. Once the service is fully started, use the `seed-realm` tool to seed the realm database by extracting content from the *Otherland* client files.
-
-5. After completing these steps, start the remaining services and connect to your realm.
+5. After seeding the realm, you need to build navmeshes using `navmesh_builder generate-mesh`. 
+6. After completing these steps, start the remaining services and connect to your realm.
 
 ### General Notes
 - Use the `--help` argument with each process to view available options and their default values.  

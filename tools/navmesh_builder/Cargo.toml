@@ -10,11 +10,11 @@ anyhow.workspace = true
 async-trait = "0.1.88"
 base64.workspace = true
 clap.workspace = true
-console = "0.15.11"
+console = "0.16.0"
 env_logger.workspace = true
 futures.workspace = true
 glam.workspace = true
-indicatif = { version = "0.17.11", features = ["tokio"] }
+indicatif.workspace = true
 log.workspace = true
 nom.workspace = true
 once_cell.workspace = true
