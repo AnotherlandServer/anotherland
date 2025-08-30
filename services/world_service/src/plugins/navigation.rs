@@ -16,7 +16,7 @@
 use std::{ops::Div, sync::Mutex};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{component::Component, entity::Entity, event::EventReader, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::{bounding::Aabb3d, Vec3, Vec3A}, time::{Time, Virtual}};
+use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{component::Component, entity::Entity, event::EventReader, query::{Changed, With}, removal_detection::RemovedComponents, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::{bounding::Aabb3d, Quat, Vec3, Vec3A}, time::{Time, Virtual}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use futures::{TryStreamExt};
 use log::{debug, error};
@@ -26,9 +26,9 @@ use protocol::{CPktAvatarBehaviors, NetworkVec3};
 use realm_api::{RealmApi, WorldDef};
 use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshParams, DtNavMeshQuery, DtPolyRef, DtQueryFilter, DtTileRef}, detour_crowd::DtPathCorridor};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
-use toolkit::{bson, Vec3Wrapper};
+use toolkit::{bson, OtherlandQuatExt, Vec3Wrapper};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{AvatarInfo, InterestAdded, Interests, Movement, PlayerController, WorldSpace}};
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, AvatarInfo, ForceSyncPositionUpdate, InterestAdded, InterestTransmitted, Interests, Movement, PlayerController, WorldSpace}};
 
 pub struct NavigationPlugin;
 
@@ -44,6 +44,7 @@ impl Plugin for NavigationPlugin {
         app.add_systems(PostUpdate, (
             replicate_paths_on_clients,
             replicate_changed_paths_on_clients,
+            cleanup_targets,
         ));
 
         insert_navigation_api(app.world_mut()).unwrap();
@@ -58,7 +59,7 @@ fn insert_navigation_api(
     let navigation_api = lua.create_table().unwrap();
     runtime.register_native("navigation", navigation_api.clone()).unwrap();
 
-    navigation_api.set("MoveToTarget", lua.create_bevy_function(world, 
+    navigation_api.set("MoveToPosition", lua.create_bevy_function(world, 
         |
             In((obj, location, speed, callback)): In<(Table, Vec3Wrapper, f32, mlua::Function)>,
             mut commands: Commands,
@@ -78,14 +79,25 @@ fn insert_navigation_api(
 
     navigation_api.set("CancelMovement", lua.create_bevy_function(world, 
         |
-            In((obj)): In<Table>,
-            mut query: Query<(&Movement, &mut NavTarget)>,
+            In(obj): In<Table>,
+            query: Query<&Movement, With<NavTarget>>,
             mut commands: Commands,
+            time: Res<Time<Virtual>>,
         | -> WorldResult<()> {
             let obj = obj.entity()?;
 
-            if let Ok((movement, mut target)) = query.get_mut(obj) {
-                target.pos = movement.position; // Set target position to current position
+            if let Ok(movement) = query.get(obj) {
+                commands
+                    .entity(obj)
+                    .remove::<NavTarget>()
+                    .remove::<PathCorridor>()
+                    .insert(Pathing {
+                        start_pos: movement.position.into(),
+                        start_time: time.elapsed_secs(),
+                        anchor_pos: movement.position.into(),
+                        is_abort_early: Some(true),
+                        ..Default::default()
+                    });
             }
 
             Ok(())
@@ -263,7 +275,7 @@ struct PathSegment {
     speed: f32,
 }
 
-fn update(
+pub fn update(
     navmesh: Res<Navmesh>,
     time: Res<Time<Virtual>>,
     mut query: Query<(Entity, &mut Movement, &GameObjectData, &NavTarget, &mut PathCorridor), With<PathCorridor>>,
@@ -281,7 +293,7 @@ fn update(
                             start_time: time.elapsed_secs(),
                             start_pos: lerp.start.into(),
                             anchor_pos: lerp.end.into(),
-                            force_find_path: Some(true),
+                            force_find_path: Some(false),
                             speed: lerp.speed,
                             acceleration: lerp.speed,
                             mover_key: movement.mover_key,
@@ -289,9 +301,9 @@ fn update(
                             traverse_costs: Some(1),
                             client_dont_care: Some(false),
                             backward: Some(false),
-                            face_target: Some(false),
+                            face_target: Some(true),
                             target_tile: Some(navmesh.get_pathengine_tile_for_pos(lerp.end)),
-                            is_abort_early: Some(false),
+                            is_abort_early: Some(true),
                             keep_z_value: Some(false),
                             while_obstructed: Some(true),
                             ..Default::default()
@@ -301,6 +313,8 @@ fn update(
                 lerp.elapsed = (lerp.elapsed + time.delta_secs()).clamp(0.0, lerp.duration);
 
                 movement.position = lerp.start.lerp(lerp.end, lerp.elapsed / lerp.duration);
+                movement.rotation = Quat::from_unit_vector((lerp.end.with_y(0.0) - lerp.start.with_y(0.0)).normalize());
+                movement.seconds = time.elapsed_secs_f64();
 
                 if lerp.elapsed >= lerp.duration {
                     debug!("Reached end of path segment for entity {ent}");
@@ -401,7 +415,7 @@ fn set_agent_targets(
 ) {
     let mut recast = navmesh.recast.lock().unwrap();
 
-    for (ent, _obj, movement, target, mut corridor) in query.iter_mut() {
+    for (ent, _obj, movement, target, corridor) in query.iter_mut() {
         let start_pos = movement.position.to_array();
         let target_pos = target.pos.to_array();
 
@@ -411,7 +425,13 @@ fn set_agent_targets(
             let Some(mut corridor) = corridor &&
             corridor.corridor.move_target_position(&target_pos, &mut recast.query, &navmesh.filter)
         {
-            continue;
+            let new_pos = Vec3::from_slice(corridor.corridor.target());
+
+            // New position is within the corridor
+            if new_pos.distance(target.pos) < 10.0 {
+                corridor.segment = None; // Clear segment to update path
+                continue;
+            }
         }
 
         //let mut path = vec![DtPolyRef::default(); 256];
@@ -462,7 +482,7 @@ fn set_agent_targets(
     }
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Clone, Default)]
 pub struct Pathing {
     pub start_time: f32,
     pub backward: Option<bool>,
@@ -595,16 +615,21 @@ fn replicate_changed_paths_on_clients(
 }
 
 fn replicate_paths_on_clients(
-    mut added_interests: EventReader<InterestAdded>,
-    agents: Query<(&AvatarInfo, &Pathing)>,
+    mut transmitted_interests: EventReader<InterestTransmitted>,
+    agents: Query<(&AvatarInfo, &Pathing, &Movement)>,
     clients: Query<&PlayerController>,
+    time: Res<Time<Virtual>>,
 ) {
-    for InterestAdded(target, ent) in added_interests.read() {
+    for InterestTransmitted(target, ent) in transmitted_interests.read() {
         if 
             let Ok(controller) = clients.get(*target) &&
-            let Ok((info, pathing)) = agents.get(*ent)
+            let Ok((info, pathing, movement)) = agents.get(*ent)
         {
             debug!("Replicating pathing data for newly added agent {} to client {}", info.id, controller.avatar_id());
+
+            //let mut pathing = pathing.clone();
+            //pathing.start_time = time.elapsed_secs();
+            //pathing.start_pos = movement.position.into();
 
             let data = pathing.to_bytes()
                 .expect("Failed to serialize Pathing data");
@@ -615,5 +640,17 @@ fn replicate_paths_on_clients(
                 ..Default::default()
             });
         }
+    }
+}
+
+fn cleanup_targets(
+    mut inactive: RemovedComponents<Active>,
+    mut commands: Commands,
+) {
+    for ent in inactive.read() {
+        commands.entity(ent)
+            .remove::<NavTarget>()
+            .remove::<PathCorridor>()
+            .remove::<Pathing>();
     }
 }

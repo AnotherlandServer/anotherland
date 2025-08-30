@@ -181,7 +181,7 @@ fn store_health(
 }
 
 #[allow(clippy::type_complexity)]
-fn process_health_events(
+pub fn process_health_events(
     mut events: EventReader<HealthUpdateEvent>,
     mut target: Query<(&AvatarInfo, &mut Health, &mut GameObjectData), Or<(With<PlayerTag>, With<NpcBaseTag>)>>,
     script_objects: Query<&ScriptObject>,

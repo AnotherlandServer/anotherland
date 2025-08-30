@@ -92,7 +92,6 @@ impl StorageResult {
                         if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
                             let mut ability_cache = vec![];
                             
-                            // Cache abilities for later use
                             if 
                                 let Ok(abilities) = base_item.data.get::<_, Value>(ItemEdna::Abilities) &&
                                 let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
@@ -130,16 +129,16 @@ impl StorageResult {
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(transparent, default)]
-pub struct ItemEdnaAbilities(Vec<ItemEdnaAbility>);
+pub struct ItemEdnaAbilities(pub Vec<ItemEdnaAbility>);
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemEdnaAbility {
-    ability_name: String,
-    auto_switch_group: i32,
-    ability_info: String,
-    target_ability_info: String,
-    display_name: String,
+    pub ability_name: String,
+    pub auto_switch_group: i32,
+    pub ability_info: String,
+    pub target_ability_info: String,
+    pub display_name: String,
 }
 
 #[derive(Resource, Default)]
@@ -363,7 +362,7 @@ struct CharacterPreset {
     qboost: Vec<Arc<CacheEntry>>,
 } 
 
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct Inventory {
     pub id: Uuid,
     pub name: String,
@@ -394,7 +393,7 @@ impl Inventory {
 }
 
 #[derive(Clone, Debug)]
-pub struct CachedObject(Arc<CacheEntry>);
+pub struct CachedObject(pub Arc<CacheEntry>);
 
 impl Deref for CachedObject {
     type Target = Arc<CacheEntry>;
@@ -436,7 +435,7 @@ impl CachedObject {
         table.set_metatable(Some(metatable));
         table.set("__item_ability", self.clone())?;
 
-        table.set("id", self.id.to_string())?;
+        table.set("template_guid", self.id.to_string())?;
         table.set("name", self.name.clone())?;
         table.set("class", self.class.name().to_string())?;
 
@@ -445,7 +444,7 @@ impl CachedObject {
 }
 
 #[derive(Component)]
-pub struct ItemAbilities(Vec<CachedObject>);
+pub struct ItemAbilities(pub Vec<CachedObject>);
 
 impl Deref for ItemAbilities {
     type Target = Vec<CachedObject>;

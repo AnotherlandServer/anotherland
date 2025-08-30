@@ -395,9 +395,11 @@ impl UserData for QuatWrapper {
             }
         });
 
-        methods.add_meta_method(MetaMethod::Mul, |_, this, other: Value| {
+        methods.add_meta_method(MetaMethod::Mul, |lua, this, other: Value| {
             if let Some(val) = other.as_userdata().and_then(|v| v.borrow::<QuatWrapper>().ok()) {
-                Ok(QuatWrapper(this.0 * val.0))
+                QuatWrapper(this.0 * val.0).into_lua(lua)
+            } else if let Some(val) = other.as_userdata().and_then(|v| v.borrow::<Vec3Wrapper>().ok()) {
+                Vec3Wrapper(this.0.mul_vec3(val.0)).into_lua(lua)
             } else {
                 Err(mlua::Error::RuntimeError("unsupported operand type".to_string()))
             }
