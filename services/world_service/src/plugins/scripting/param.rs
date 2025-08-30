@@ -206,7 +206,7 @@ impl IntoLua for ParamValue {
                 Vec3Wrapper(vec3)
             )),
             obj_params::Value::ContentRef(val) => if let Some(ContentRef { class, id }) = val {
-                let tbl = lua.create_table_with_capacity(2, 0)?;
+                let tbl = lua.create_table_with_capacity(0, 2)?;
                 tbl.set("class", class.name().into_lua(lua)?)?;
                 tbl.set("id", id.to_string().into_lua(lua)?)?;
 
