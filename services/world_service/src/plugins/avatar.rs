@@ -53,10 +53,10 @@ pub struct AvatarIdManager {
 }
 
 impl AvatarIdManager {
-    pub fn new_avatar_entry(&mut self) -> Entry<'_, AvatarId, Entity, FixedHasher> {
+    pub fn new_avatar_entry(&mut self, avatar_type: AvatarType) -> Entry<'_, AvatarId, Entity, FixedHasher> {
         let mut rng = thread_rng();
         let id = loop {
-            let id = AvatarId::new(rng.gen_range(1..1<<56) << 0xF, AvatarType::Npc);
+            let id = AvatarId::new(rng.gen_range(1..1<<56) << 0xF, avatar_type);
             if !self.entities.contains_key(&id) {
                 break id;
             }

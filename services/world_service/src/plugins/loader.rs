@@ -15,16 +15,17 @@
 
 use std::{sync::Arc, time::Instant};
 
-use bevy::{app::{First, Plugin, PreUpdate}, ecs::{component::{Component, HookContext}, event::EventWriter, query::{Or, With}, resource::Resource, schedule::IntoScheduleConfigs, system::In}, math::Vec3, platform::collections::HashMap, prelude::{Added, Commands, Entity, NextState, Query, ResMut}};
-use futures_util::TryStreamExt;
+use bevy::{app::{First, Plugin, PreUpdate, Update}, ecs::{component::{Component, HookContext}, event::EventWriter, hierarchy::ChildOf, query::{Changed, Or, With, Without}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res}}, math::{Quat, Vec3, VectorSpace}, platform::collections::HashMap, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, time::{Time, Virtual}};
+use futures_util::{future::join_all, TryStreamExt};
 use log::{debug, info, trace, warn};
-use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, StructureBaseTag}, ContentRefList, GameObjectData, NonClientBase};
+use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, StructureBaseTag}, Class, ContentRef, ContentRefList, CooldownGroup, EdnaFunction, GameObjectData, ItemEdna, NonClientBase, NpcOtherland, Player};
 use protocol::PhysicsState;
 use realm_api::ObjectPlacement;
 use scripting::ScriptCommandsExt;
-use toolkit::types::Uuid;
+use toolkit::types::{AvatarId, AvatarType, Uuid, UUID_NIL};
+use anyhow::anyhow;
 
-use crate::{instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::Movement};
+use crate::{error::WorldError, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{navigation, CachedObject, CooldownGroups, Cooldowns, ForceSyncPositionUpdate, Inventory, ItemAbilities, ItemEdnaAbilities, Movement, NpcAbilities}, OBJECT_CACHE};
 
 use super::{AvatarIdManager, AvatarInfo, Factions, FutureTaskComponent, HealthUpdateEvent, PlayerLocalSets};
 
@@ -74,6 +75,8 @@ impl Plugin for LoaderPlugin {
             spawn_init_entity
         ).chain());
 
+        app.add_systems(Update, sync_debug_pos.after(navigation::update));
+
         let instance = app.world().get_resource::<ZoneInstance>().unwrap();
         let realm_api = instance.realm_api.clone();
         let zone = instance.zone.clone();
@@ -88,9 +91,91 @@ impl Plugin for LoaderPlugin {
         
                 let mut content = vec![];
                 
-                while let Some(placement) = query.try_next().await.unwrap() {
+                while let Some(mut placement) = query.try_next().await.unwrap() {
                     if let Some(template) = object_cache.get_object_by_guid(placement.content_guid).await.unwrap() {
-                        content.push((placement, template));
+                        placement.data.set_parent(Some(template.data.clone()));
+            
+                        let mut items = vec![];
+
+                        if let Ok(weapons) = placement.data.get::<_, ContentRefList>(NpcOtherland::DefaultWeapon) {
+                            items.extend_from_slice(weapons);
+                        }
+
+                        if let Ok(def_items) = placement.data.get::<_, ContentRefList>(NpcOtherland::DefaultItems) {
+                            items.extend_from_slice(def_items);
+                        }
+
+                        let items = join_all(
+                            items.into_iter()
+                                .map(async |weapon| {
+                                    let item = object_cache.get_object_by_guid(weapon.id).await?
+                                        .ok_or(WorldError::Other(anyhow!("Item with GUID {} not found", weapon.id)))?;
+                                    
+                                    let mut item_abilities = vec![];
+
+                                    if 
+                                        let Ok(abilities) = item.data.get::<_, serde_json::Value>(ItemEdna::Abilities) &&
+                                        let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
+                                    {
+                                        for ability in abilities.0 {
+                                            if let Some(ability) = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await? {
+                                                item_abilities.push(ability);
+                                            }
+                                        }
+                                    }
+
+                                    if 
+                                        let Ok(skills) = item.data.get::<_, ContentRefList>(EdnaFunction::DefaultSkills)
+                                    {
+                                        for skill in skills.iter() {
+                                            if let Some(ability) = OBJECT_CACHE.wait().get_object_by_guid(skill.id).await? {
+                                                item_abilities.push(ability);
+                                            }
+                                        }
+                                    }
+
+                                    Ok::<_, WorldError>(Item {
+                                        item,
+                                        abilities: item_abilities,
+                                    })
+                                })
+                            ).await
+                            .into_iter()
+                            .filter_map(|result| {
+                                match result {
+                                    Ok(item) => Some(item),
+                                    Err(e) => {
+                                        warn!("Failed to fetch item: {e}");
+                                        None
+                                    }
+                                }
+                            })
+                            .collect();
+
+                        // Collect ability GUIDs from the placement data
+                        let ability_guids = placement.data.get::<_, ContentRefList>(NpcOtherland::Abilities)
+                            .map(|abilities| {
+                                abilities
+                                    .iter()
+                                    .map(|content_ref| content_ref.id)
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or(vec![]);
+
+                        // Fetch all abilities concurrently
+                        let ability_futures = ability_guids.iter().map(|guid| {
+                            object_cache.get_object_by_guid(*guid)
+                        });
+
+                        let ability_results = join_all(ability_futures).await;
+                        
+                        // Filter out failed lookups and collect successful ones
+                        let abilities: Vec<Arc<CacheEntry>> = ability_results
+                            .into_iter()
+                            .filter_map(|result| result.unwrap_or(None))
+                            .collect();
+                        
+                        content.push((placement, template, Abilities(abilities), Items(items)));
                     } else {
                         warn!("Template '{}' not found for placement '{}'", placement.content_guid, placement.id);
                     }
@@ -106,15 +191,17 @@ impl Plugin for LoaderPlugin {
     }
 }
 
+#[derive(Component)]
+pub struct DebugPlayer;
+
 fn ingest_content(
-    In(content): In<Vec<(ObjectPlacement, Arc<CacheEntry>)>>,
+    In(content): In<Vec<(ObjectPlacement, Arc<CacheEntry>, Abilities, Items)>>,
     mut next_state: ResMut<NextState<InstanceState>>,
     mut avatar_manager: ResMut<AvatarIdManager>,
+    cooldown_groups: Res<CooldownGroups>,
     mut commands: Commands,
 ) {
-    for (mut placement, template) in content {
-        placement.data.set_parent(Some(template.data.clone()));
-            
+    for (placement, template, abilities, items) in content {
         // Skip disabled objects
         if !*placement.data.get::<_, bool>(NonClientBase::EnableInGame).unwrap_or(&false) {
             trace!("Skipping {}", placement.id);
@@ -123,7 +210,7 @@ fn ingest_content(
             trace!("Spawning {}", placement.id);
         }
 
-        let entry = avatar_manager.new_avatar_entry();
+        let entry = avatar_manager.new_avatar_entry(AvatarType::Npc);
 
         let factions = if let Ok(faction) = placement.data.get_named::<ContentRefList>("Faction") {
             let mut factions = Factions::default();
@@ -142,20 +229,58 @@ fn ingest_content(
         let entity = commands.spawn((
             AvatarInfo {
                 id: *entry.key(),
-                name: placement.editor_name,
+                name: placement.editor_name.clone(),
             },
             ContentInfo {
                 placement_id: placement.id,
-                template,
+                template: template.clone(),
             },
             instance,
             Active,
             SpawnState::default(),
             PlayerLocalSets::default(),
-            factions
+            factions,
         )).id();
 
         entry.insert(entity);
+
+        if template.class == Class::NpcOtherland {
+            let mut inventory = Inventory::default();
+
+            items.0.into_iter()
+                .for_each(|item| {
+                    let instance = GameObjectData::instantiate(&item.item.data);
+
+                    let ent = commands
+                        .spawn((
+                            ContentInfo {
+                                placement_id: item.item.id,
+                                template: item.item.clone(),
+                            },
+                            ItemAbilities(
+                                item.abilities.into_iter()
+                                    .map(CachedObject)
+                                    .collect()
+                            ),
+                            instance,
+                            ChildOf(entity),
+                        ))
+                        .id(); 
+
+                    inventory.items.insert(item.item.id, ent);
+                });
+
+            commands.entity(entity)
+                .insert((
+                    NpcAbilities(
+                        abilities.0.into_iter()
+                            .map(|entry| (GameObjectData::instantiate(&entry.data), entry))
+                            .collect()
+                    ),
+                    cooldown_groups.create_cooldowns(),
+                    inventory,
+                ));
+        }
     }
 
     next_state.set(InstanceState::Initializing);
@@ -244,6 +369,13 @@ pub fn spawn_init_entity(
     }
 }
 
+struct Abilities(Vec<Arc<CacheEntry>>);
+struct Item {
+    item: Arc<CacheEntry>,
+    abilities: Vec<Arc<CacheEntry>>,
+}
+struct Items(Vec<Item>);
+
 #[derive(Component)]
 pub struct Active;
 
@@ -266,5 +398,29 @@ impl SpawnState {
 
     pub fn mark_alive(&mut self) {
         *self = SpawnState::Alive;
+    }
+}
+
+fn sync_debug_pos(
+    query: Query<&Movement, (Changed<Movement>, With<NpcOtherlandTag>, Without<DebugPlayer>)>,
+    mut debug_pos: Query<(Entity, &mut Movement, &ChildOf), (With<DebugPlayer>, Without<NpcOtherlandTag>)>,
+    mut commands: Commands,
+    time: Res<Time<Virtual>>,
+) {
+    for (ent, mut debug_pos, child_of) in debug_pos.iter_mut() {
+        if let Ok(pos) = query.get(child_of.parent()) {
+            debug_pos.position = pos.position;
+            debug_pos.rotation = pos.rotation;
+            debug_pos.velocity = pos.velocity;
+            debug_pos.radius = pos.radius;
+            debug_pos.mode = pos.mode;
+            //debug_pos.mover_type = pos.mover_type;
+            //debug_pos.mover_replication_policy = pos.mover_replication_policy;
+            //debug_pos.version = pos.version;
+            //debug_pos.mover_key = pos.mover_key;
+            debug_pos.seconds = time.elapsed_secs_f64();
+
+            commands.entity(ent).insert(ForceSyncPositionUpdate);
+        }
     }
 }

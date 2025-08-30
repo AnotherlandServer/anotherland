@@ -506,9 +506,10 @@ function Vector.New(x, y, z) end
 ---@field class string
 ---@field id string
 
+---@param ent Entity
 ---@param id string
 ---@return EdnaFunction
-function __engine.inventory:GetItem(id)
+function __engine.inventory.GetItem(ent, id)
 end
 
 ---@class AvatarId

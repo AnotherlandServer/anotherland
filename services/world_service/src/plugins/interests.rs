@@ -25,7 +25,7 @@ use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject
 use toolkit::types::{AvatarId, UUID_NIL};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, plugins::WorldSpace};
+use crate::{error::WorldResult, plugins::{DebugPlayer, WorldSpace}};
 
 use super::{Active, AvatarInfo, ConnectionState, CurrentState, Movement, PlayerController, QuestEntity, QuestLog};
 
@@ -34,6 +34,7 @@ pub struct InterestsPlugin;
 impl Plugin for InterestsPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<InterestAdded>();
+        app.add_event::<InterestTransmitted>();
         app.add_event::<InterestRemoved>();
 
         app.add_systems(PreUpdate, enable_npc_interest_building);
@@ -112,6 +113,9 @@ impl Deref for Interests {
 pub struct InterestAdded(pub Entity, pub Entity);
 
 #[derive(Event)]
+pub struct InterestTransmitted(pub Entity, pub Entity);
+
+#[derive(Event)]
 pub struct InterestRemoved(pub Entity, pub Entity);
 
 #[allow(clippy::type_complexity)]
@@ -146,10 +150,11 @@ fn enable_npc_interest_building(
 }
 
 fn transmit_entities_to_players(
-    mut players: Query<(&PlayerController, &mut Interests, &mut CurrentState)>,
+    mut players: Query<(Entity, &PlayerController, &mut Interests, &mut CurrentState)>,
     objects: Query<(&AvatarInfo, &Movement, &GameObjectData), With<Active>>,
+    mut interest_transmitted_event: EventWriter<InterestTransmitted>,
 ) {
-    for (controller, mut interests, mut state) in players.iter_mut() {
+    for (player_ent, controller, mut interests, mut state) in players.iter_mut() {
         let mut transmit_order = vec![];
 
         for (ent, state) in interests.interests.iter() {
@@ -201,6 +206,7 @@ fn transmit_entities_to_players(
                 });
 
                 interests.interests.insert(*ent, (avatar.id, InterestState::Transmitted));
+                interest_transmitted_event.write(InterestTransmitted(player_ent, *ent));
             }
         }
 
@@ -220,7 +226,7 @@ fn transmit_entities_to_players(
 fn update_interest_list(
     world_space: Res<WorldSpace>,
     mut players: Query<(Entity, &GameObjectData, &Movement, &mut Interests, Option<&PlayerController>, Option<&QuestLog>), With<Interests>>,
-    potential_interests: Query<(&GameObjectData, Option<&QuestEntity>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
+    potential_interests: Query<(&GameObjectData, Option<&QuestEntity>, Option<&DebugPlayer>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
     avatar_info: Query<&AvatarInfo>,
     mut interest_added_event: EventWriter<InterestAdded>,
     mut interest_removed_event: EventWriter<InterestRemoved>,
@@ -239,7 +245,8 @@ fn update_interest_list(
             .filter(|&ent| {
                 if
                     ent != current_ent &&
-                    let Ok((interest_obj, quest_ent)) = potential_interests.get(ent) 
+                    let Ok((interest_obj, quest_ent, debug)) = potential_interests.get(ent) &&
+                    (debug.is_none() || controller.is_some())
                 {
                     if let Some(quest_log) = quest_log {
                         !interest_obj.get::<_, bool>(NonClientBase::HiddenFromClients).unwrap_or(&false) &&
@@ -272,17 +279,20 @@ fn update_interest_list(
         for ent in interests.interests.keys().cloned().collect::<Vec<_>>() {
             if 
                 let Some(controller) = controller &&
-                !found_interests.contains(&ent) &&
-                let Some((avatar, state)) = interests.interests.remove(&ent) &&
-                matches!(state, InterestState::Transmitted)
+                !found_interests.contains(&ent)
             {
-                controller.send_packet(CPktAvatarClientNotify {
-                    avatar_id: avatar,
-                    ..Default::default()
-                });
-            }
+                interest_removed_event.write(InterestRemoved(current_ent, ent));
 
-            interest_removed_event.write(InterestRemoved(current_ent, ent));
+                if 
+                    let Some((avatar, state)) = interests.interests.remove(&ent) &&
+                    matches!(state, InterestState::Transmitted)
+                {
+                    controller.send_packet(CPktAvatarClientNotify {
+                        avatar_id: avatar,
+                        ..Default::default()
+                    });
+                }
+            }
         }
     }
 }

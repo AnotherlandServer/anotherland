@@ -20,9 +20,10 @@ use bevy::{app::{App, Plugin, Update}, ecs::{component::{Component, HookContext}
 use bonsai_bt::{Behavior, Event, Status, UpdateArgs, BT};
 use log::error;
 use mlua::{Lua, Table};
+use obj_params::GameObjectData;
 use scripting::{LuaExt, LuaFunctionExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 
-use crate::{error::{WorldError, WorldResult}, plugins::Active};
+use crate::{error::{WorldError, WorldResult}, plugins::{process_health_events, Active}};
 
 pub struct NpcAiPlugin;
 
@@ -30,7 +31,10 @@ impl Plugin for NpcAiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AiStates>();
 
-        app.add_systems(Update, ai_tick.run_if(on_timer(Duration::from_millis(100))));
+        app.add_systems(Update, ai_tick
+                .run_if(on_timer(Duration::from_millis(100)))
+                .before(process_health_events)
+            );
         app
             .world_mut()
             .register_component_hooks::<AiAgent>()
@@ -191,7 +195,12 @@ fn ai_tick(world: &mut World) {
         for (ent, state) in states.0.iter_mut() {
             let update_event: Event = UpdateArgs { dt: 0.1 }.into();
             
-            if let Some(obj) = world.entity(*ent).get::<ScriptObject>() {
+            if 
+                let Some(obj) = world.entity(*ent).get::<ScriptObject>() &&
+                let Some(data) = world.entity(*ent).get::<GameObjectData>() &&
+                world.entity(*ent).get::<Active>().is_some() &&
+                *data.get_named::<bool>("alive").unwrap_or(&false)
+            {
                 let obj = obj.object().clone();
 
                 let status = state.tick(&update_event, &mut |args, _blackboard| {

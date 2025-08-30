@@ -15,16 +15,18 @@
 
 use std::{sync::Arc, time::{Duration, Instant}};
 
-use bevy::{app::{App, Plugin, PostUpdate}, ecs::{component::Component, query::Changed, system::{Commands, Res}, world::World}, platform::collections::HashMap, prelude::{Entity, In, Query}};
-use mlua::{Lua, Table};
-use obj_params::Class;
+use bevy::{app::{App, Plugin, PostUpdate}, ecs::{component::Component, query::Changed, resource::Resource, system::{Commands, Res}, world::World}, platform::collections::HashMap, prelude::{Entity, In, Query}};
+use futures::TryStreamExt;
+use mlua::{IntoLua, Lua, Table, Value};
+use obj_params::{Class, GameObjectData};
 use protocol::{oaPktAbilityRequest, oaPktAbilityUse, oaPktCooldownUpdate, AbilityEffect, CooldownEntry, CooldownUpdate, OaPktAbilityUseAbilityType};
+use realm_api::RealmApi;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::{AvatarId, Uuid}, QuatWrapper, Vec3Wrapper};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, object_cache::CacheEntry, plugins::ConnectionState};
+use crate::{error::WorldResult, object_cache::CacheEntry, plugins::{ConnectionState, ParamValue}, OBJECT_CACHE};
 
 use super::{AvatarIdManager, AvatarInfo, CachedObject, ContentInfo, CurrentState, Interests, NetworkExtPriv, PlayerController, SkillbookEntry};
 
@@ -55,8 +57,7 @@ pub enum EffectType {
 }
 
 #[derive(Component)]
-#[allow(unused)]
-pub struct Abilities(Vec<Arc<CacheEntry>>);
+pub struct NpcAbilities(pub Vec<(GameObjectData, Arc<CacheEntry>)>);
 
 enum CooldownState {
     Ready,
@@ -64,7 +65,39 @@ enum CooldownState {
     Cooldown(Instant, Duration),
 }
 
-#[derive(Component, Default)]
+#[derive(Resource)]
+pub struct CooldownGroups(Vec<Arc<CacheEntry>>);
+
+impl CooldownGroups {
+    pub async fn load(realm_api: &RealmApi) -> WorldResult<Self> {
+        let realm_api = realm_api.clone();
+        let mut groups = vec![];
+
+        let mut cursor = realm_api.query_object_templates()
+            .class(Class::CooldownGroupExternal)
+            .query().await?;
+        
+        while let Some(cooldown) = cursor.try_next().await.unwrap() {
+            let cooldown = OBJECT_CACHE.wait()
+                .get_object_by_guid(cooldown.id).await.unwrap()
+                .unwrap();
+
+            groups.push(cooldown);
+        }
+
+        Ok(Self(groups))
+    }
+
+    pub fn create_cooldowns(&self) -> Cooldowns {
+        Cooldowns(
+            self.0.iter()
+                .map(|group| (group.id, (group.clone(), CooldownState::Ready)))
+                .collect()
+        )
+    }
+}
+
+#[derive(Component)]
 pub struct Cooldowns(HashMap<Uuid, (Arc<CacheEntry>, CooldownState)>);
 
 impl Cooldowns {
@@ -140,11 +173,11 @@ fn insert_cooldown_api(
 
     cooldown_api.set("Consume", lua.create_bevy_function(world, 
         |
-            In((player, groups)): In<(Table, Vec<String>)>,
+            In((obj, groups)): In<(Table, Vec<String>)>,
             mut query: Query<&mut Cooldowns>,
         | -> WorldResult<bool> {
-            let mut cooldowns = query.get_mut(player.entity()?)
-                .map_err(|_| anyhow!("player not found"))?;
+            let mut cooldowns = query.get_mut(obj.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
 
             let groups = groups.into_iter()
                 .map(|s| s.parse::<Uuid>())
@@ -155,11 +188,11 @@ fn insert_cooldown_api(
 
     cooldown_api.set("Emit", lua.create_bevy_function(world, 
         |
-            In((player, groups, duration)): In<(Table, Vec<String>, f32)>,
+            In((obj, groups, duration)): In<(Table, Vec<String>, f32)>,
             mut query: Query<&mut Cooldowns>,
         | -> WorldResult<bool> {
-            let mut cooldowns = query.get_mut(player.entity()?)
-                .map_err(|_| anyhow!("player not found"))?;
+            let mut cooldowns = query.get_mut(obj.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
 
             let groups = groups.into_iter()
                 .map(|s| s.parse::<Uuid>())
@@ -304,10 +337,108 @@ fn insert_ability_api(
     let ability_api = lua.create_table().unwrap();
     runtime.register_native("ability", ability_api.clone()).unwrap();
 
+    ability_api.set("GetNpcAbilityCount", lua.create_bevy_function(world, 
+        |
+            In(obj): In<Table>,
+            abilities: Query<&NpcAbilities>,
+        | -> WorldResult<i32> {
+            let abilities = abilities.get(obj.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+
+            Ok(abilities.0.len() as i32)
+        })?)?;
+
+    ability_api.set("GetNpcAbilityInfo", lua.create_bevy_function(world, 
+        |
+            In((obj, idx)): In<(Table, i32)>,
+            abilities: Query<&NpcAbilities>,
+            runtime: Res<LuaRuntime>,
+        | -> WorldResult<Table> {
+            let abilities = abilities.get(obj.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+
+            let (_, ability) = abilities.0.get(idx as usize)
+                .ok_or_else(|| anyhow!("ability index out of bounds"))?;
+
+            let table = runtime.vm().create_table()?;
+
+            table.set("template_guid", ability.id.to_string())?;
+            table.set("name", ability.name.clone())?;
+            table.set("class", ability.class.name().to_string())?;
+
+            Ok(table)
+        })?)?;
+
+    ability_api.set("GetNpcAbilityValue", lua.create_bevy_function(world, 
+        |
+            In((obj, idx, name)): In<(Table, i32, String)>,
+            abilities: Query<&NpcAbilities>,
+            runtime: Res<LuaRuntime>,
+        | -> WorldResult<Value> {
+            let abilities = abilities.get(obj.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+
+            let (ability, _) = abilities.0.get(idx as usize)
+                .ok_or_else(|| anyhow!("ability index out of bounds"))?;
+
+            let val = ability.get_named::<obj_params::Value>(&name)
+                .map_err(mlua::Error::external)?;
+
+            Ok(ParamValue::new(val.clone())
+                .into_lua(runtime.vm())?)
+        })?)?;
+
+    ability_api.set("SetNpcAbilityValue", lua.create_bevy_function(world, 
+        |
+            In((obj, idx, name, value)): In<(Table, i32, String, Value)>,
+            mut abilities: Query<&mut NpcAbilities>,
+            runtime: Res<LuaRuntime>,
+        | -> WorldResult<Value> {
+            let mut abilities = abilities.get_mut(obj.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+
+            let (ability, _) = abilities.0.get_mut(idx as usize)
+                .ok_or_else(|| anyhow!("ability index out of bounds"))?;
+            
+            let attr = ability.class().get_attribute(&name)
+                .ok_or(mlua::Error::runtime("attribute not found"))?;
+
+            let value = ParamValue::from_lua(attr, value, runtime.vm())?;
+
+            if let Some(prev_val) = ability.set_named(&name, value) {
+                Ok(ParamValue::new(prev_val).into_lua(runtime.vm())?)
+            } else {
+                Ok(ParamValue::new(attr.default().clone()).into_lua(runtime.vm())?)
+            }
+        })?)?;
+
+    ability_api.set("ResetNpcAbilityValue", lua.create_bevy_function(world, 
+        |
+            In((obj, idx, name)): In<(Table, i32, String)>,
+            mut abilities: Query<&mut NpcAbilities>,
+            runtime: Res<LuaRuntime>,
+        | -> WorldResult<Value> {
+            let mut abilities = abilities.get_mut(obj.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+
+            let (ability, _) = abilities.0.get_mut(idx as usize)
+                .ok_or_else(|| anyhow!("ability index out of bounds"))?;
+            
+            let attr = ability.class().get_attribute(&name)
+                .ok_or(mlua::Error::runtime("attribute not found"))?;
+
+            if let Some(prev_val) = ability.set_named(&name, attr.default().clone()) {
+                Ok(ParamValue::new(prev_val).into_lua(runtime.vm())?)
+            } else {
+                Ok(ParamValue::new(attr.default().clone()).into_lua(runtime.vm())?)
+            }
+        })?)?;
+
     ability_api.set("FireEvent", lua.create_bevy_function(world, 
         |
             In(params): In<Table>,
             players: Query<(Entity, &PlayerController, &Interests)>,
+            npc_abilities: Query<&NpcAbilities>,
             content: Query<&ContentInfo>,
             targets: Query<&AvatarInfo>,
         | -> WorldResult<()> {
@@ -316,6 +447,16 @@ fn insert_ability_api(
                     Some(skill.ability.clone())
                 } else if let Ok(ability) = ability.get::<CachedObject>("__item_ability") {
                     Some((*ability).clone())
+                } else if 
+                    let Ok(npc) = ability.get::<Table>("__npc") &&
+                    let Ok(abilities) = npc_abilities.get(npc.entity()?) &&
+                    let Some(idx) = ability.get::<i32>("__npc_ability_idx").ok()
+                {
+                    if let Some((_, ability)) = abilities.0.get(idx as usize) {
+                        Some((*ability).clone())
+                    } else {
+                        return Err(anyhow!("npc ability index out of bounds").into());
+                    }
                 } else {
                     return Err(anyhow!("ability not found").into());
                 }
@@ -349,7 +490,7 @@ fn insert_ability_api(
                     } else {
                         return Err(anyhow!("effect_source ent not found").into());
                     }
-                } else if let Ok(id) = source.get::<String>("id") {
+                } else if let Ok(id) = source.get::<String>("template_guid") {
                     if let Ok(id) = id.parse::<Uuid>() {
                         (id, OaPktAbilityUseAbilityType::Skill)
                     } else {
@@ -419,10 +560,14 @@ fn insert_ability_api(
                 .collect::<WorldResult<Vec<AbilityEffect>>>()?;
 
             for (ent, controller, interests) in players.iter() {
-                if ent == source_ent {
+                if 
+                    ent == source_ent ||
+                    interests.contains_key(&source_ent) ||
+                    target_ent.map(|t| interests.contains_key(&t)).unwrap_or(false)
+                {
                     controller.send_packet(oaPktAbilityUse {
-                        player: controller.avatar_id(),
-                        source_avatar: source.id,
+                        player: source.id,
+                        source_avatar: source.id, //controller.avatar_id()
                         skill_id,
                         source_id,
                         event_type: event_type.try_into()
@@ -439,23 +584,6 @@ fn insert_ability_api(
                         effects: effects.clone(),
                         prediction_id,
                         combo_stage_id,
-                        ..Default::default()
-                    });
-                } else if interests.contains_key(&source_ent) {
-                    controller.send_packet(oaPktAbilityUse {
-                        player: controller.avatar_id(),
-                        source_avatar: source.id,
-                        skill_id,
-                        source_id,
-                        event_type: event_type.try_into()
-                            .map_err(|_| anyhow!("invalid event type"))?,
-                        ability_invoke_location: ability_invoke_location.into(),
-                        ability_type,
-                        server_event_duration: event_duration,
-                        flag: if rotation.is_some() { 2 } else { 0 },
-                        rotation: rotation.map(|v| v.into()),
-                        effect_count: effects.len() as _,
-                        effects: effects.clone(),
                         ..Default::default()
                     });
                 }

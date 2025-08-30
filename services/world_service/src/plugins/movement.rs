@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
+use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, query::Or, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
 use log::{debug, error};
 use mlua::{Lua, Table};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, Player};
@@ -81,6 +81,28 @@ fn insert_movement_api(
             Ok(Vec3Wrapper(movement.velocity))
         })?)?;
 
+    api.set("SetMoverKey", lua.create_bevy_function(world, |
+            In((object, mover_key)): In<(Table, u16)>,
+            mut query: Query<&mut Movement>,
+        | -> WorldResult<()> {
+            let mut movement = query.get_mut(object.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+            
+            movement.mover_key = mover_key;
+            Ok(())
+        })?)?;
+
+    api.set("SetMoverType", lua.create_bevy_function(world, |
+            In((object, mover_type)): In<(Table, u8)>,
+            mut query: Query<&mut Movement>,
+        | -> WorldResult<()> {
+            let mut movement = query.get_mut(object.entity()?)
+                .map_err(|_| anyhow!("object not found"))?;
+            
+            movement.mover_type = mover_type;
+            Ok(())
+        })?)?;  
+
     Ok(())
 }
 
@@ -122,6 +144,7 @@ pub fn handle_move_manager_pos_update(
         debug!("New Rot: {:?} / {} / {}", pkt.rot, movement.rotation, movement.rotation.as_unit_vector());
         debug!("New Vel: {}", movement.velocity);
         debug!("New key: {}", movement.mover_key);
+        debug!("New physics: {:?}", pkt.physics.state);
 
         commands
             .entity(ent)
@@ -178,11 +201,11 @@ pub fn setup_non_client_movement(
             velocity: Vec3::ZERO,
             radius: collision_extent.x.max(collision_extent.z),
             mode: PhysicsState::Walking,
-            mover_type: 0,
-            mover_replication_policy: 7,
-            version: 0,
+            mover_type: 1,
+            mover_replication_policy: 9,
+            version: 1,
             seconds: res.elapsed_secs_f64(),
-            mover_key: 1,
+            mover_key: 0,
         };
 
         commands.entity(ent).insert(movement);
@@ -191,7 +214,7 @@ pub fn setup_non_client_movement(
 
 #[allow(clippy::type_complexity)]
 pub fn send_position_updates(
-    positions: Query<(Entity, &AvatarInfo, &Movement), (Changed<Movement>, With<PlayerTag>, With<ForceSyncPositionUpdate>)>,
+    positions: Query<(Entity, &AvatarInfo, &Movement), (Changed<Movement>, With<ForceSyncPositionUpdate>)>,
     players: Query<(&Interests, &PlayerController)>,
     mut commands: Commands,
 ) {
