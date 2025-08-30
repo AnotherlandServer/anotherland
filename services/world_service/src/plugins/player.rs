@@ -29,7 +29,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, ForeignResource, MessageType, Navmesh}, proto::TravelMode, OBJECT_CACHE};
+use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{Active, CooldownGroups, ForeignResource, MessageType, Navmesh}, proto::TravelMode, OBJECT_CACHE};
 
 use super::{clear_obj_changes, init_gameobjects, load_class_script, AvatarInfo, BehaviorExt, CombatStyle, CommandExtPriv, ConnectionState, ContentInfo, Cooldowns, CurrentState, Factions, FutureCommands, HealthUpdateEvent, InitialInventoryTransfer, Movement, NetworkExtPriv, ParamValue, PlayerController, QuestLog, ServerAction, StringBehavior};
 
@@ -86,7 +86,8 @@ impl SkillbookEntry {
         table.set_metatable(Some(metatable));
         table.set("__skill", self.clone())?;
 
-        table.set("id", self.id.to_string())?;
+        table.set("instance_guid", self.id.to_string())?;
+        table.set("template_guid", self.ability.id.to_string())?;
         table.set("name", self.ability.name.clone())?;
         table.set("class", self.ability.class.name().to_string())?;
 
@@ -299,7 +300,7 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        let (character_sender, character_receiver) = mpsc::channel::<(Entity, Character, Cooldowns, Skillbook)>(10);
+        let (character_sender, character_receiver) = mpsc::channel::<(Entity, Character, Skillbook)>(10);
 
         let player_systems = PlayerSystems {
             apply_class_item_result: app.register_system(apply_class_item_result),
@@ -381,7 +382,7 @@ impl Plugin for PlayerPlugin {
 fn request_player_characters(
     query: Query<(Entity, &PlayerController), Added<PlayerController>>,
     instance: Res<ZoneInstance>,
-    sender: Res<ForeignResource<Sender<(Entity, Character, Cooldowns, Skillbook)>>>,
+    sender: Res<ForeignResource<Sender<(Entity, Character, Skillbook)>>>,
 ) {
     for (entity, controller) in query.iter() {
         let realm_api = instance.realm_api.clone();
@@ -428,24 +429,6 @@ fn request_player_characters(
                 .into_iter()
                 .flatten()
                 .collect();
-                
-
-                let mut cooldowns = Cooldowns::default();
-
-                // TODO: This is incredibly ugly. Cache cooldows on world start and copy them here or 
-                // probably during player spawn.
-                if let Ok(mut cursor) = realm_api.query_object_templates()
-                    .class(Class::CooldownGroupExternal)
-                    .query().await {
-                    
-                    while let Some(cooldown) = cursor.try_next().await.unwrap() {
-                        let cooldown = OBJECT_CACHE.wait()
-                            .get_object_by_guid(cooldown.id).await.unwrap()
-                            .unwrap();
-
-                        cooldowns.insert(cooldown);
-                    }
-                }
 
                 let main_skill_bar = [()]
                     .repeat(7)
@@ -471,7 +454,7 @@ fn request_player_characters(
                     },
                 }.to_bytes());
 
-                let _ = sender.send((entity, character, cooldowns, Skillbook(skills))).await;
+                let _ = sender.send((entity, character, Skillbook(skills))).await;
             }
         });
     }
@@ -479,16 +462,17 @@ fn request_player_characters(
 
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn insert_player_characters(
-    mut receiver: ResMut<ForeignResource<Receiver<(Entity, Character, Cooldowns, Skillbook)>>>,
+    mut receiver: ResMut<ForeignResource<Receiver<(Entity, Character, Skillbook)>>>,
     controller: Query<&PlayerController>,
     starting_points: Query<&GameObjectData, With<StartingPointTag>>,
     portals: Query<(&ContentInfo, &GameObjectData), With<PortalTag>>,
     exit_nodes: Query<(&ContentInfo, &GameObjectData), With<SpawnNodeTag>>,
     instance: Res<ZoneInstance>,
     navmesh: Res<Navmesh>,
+    cooldown_groups: Res<CooldownGroups>,
     mut commands: Commands,
 ) {
-    while let Ok((entity, mut character, cooldowns, skillbook)) = receiver.try_recv() {
+    while let Ok((entity, mut character, skillbook)) = receiver.try_recv() {
         if let Ok(controller) = controller.get(entity) {
             let collision_extent;
 
@@ -618,7 +602,7 @@ fn insert_player_characters(
                     character.take_data(),
                     movement,
                     QuestLog::default(),
-                    cooldowns,
+                    cooldown_groups.create_cooldowns(),
                     skillbook,
                     factions
                 ));
