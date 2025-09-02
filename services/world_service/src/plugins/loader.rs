@@ -15,19 +15,18 @@
 
 use std::{sync::Arc, time::Instant};
 
-use bevy::{app::{First, Plugin, PreUpdate, Update}, ecs::{component::{Component, HookContext}, event::EventWriter, hierarchy::ChildOf, query::{Changed, Or, With, Without}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res}}, math::{Quat, Vec3, VectorSpace}, platform::collections::HashMap, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, time::{Time, Virtual}};
+use bevy::{app::{First, Plugin, PreUpdate, Update}, ecs::{component::{Component, HookContext}, event::EventWriter, hierarchy::ChildOf, query::{Changed, Or, With, Without}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res}}, math::Vec3, platform::collections::HashMap, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, time::{Time, Virtual}};
 use futures_util::{future::join_all, TryStreamExt};
 use log::{debug, info, trace, warn};
-use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, StructureBaseTag}, Class, ContentRef, ContentRefList, CooldownGroup, EdnaFunction, GameObjectData, ItemEdna, NonClientBase, NpcOtherland, Player};
-use protocol::PhysicsState;
+use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, PlayerTag, StructureBaseTag}, Class, ContentRefList, EdnaFunction, GameObjectData, ItemEdna, NonClientBase, NpcOtherland, Player};
 use realm_api::ObjectPlacement;
 use scripting::EntityScriptCommandsExt;
-use toolkit::types::{AvatarId, AvatarType, Uuid, UUID_NIL};
+use toolkit::{types::{AvatarId, AvatarType, Uuid}, NativeParam};
 use anyhow::anyhow;
 
-use crate::{error::WorldError, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{navigation, CachedObject, CooldownGroups, Cooldowns, ForceSyncPositionUpdate, Inventory, ItemAbilities, ItemEdnaAbilities, Movement, NpcAbilities}, OBJECT_CACHE};
+use crate::{error::WorldError, instance::{InstanceState, ZoneInstance}, object_cache::CacheEntry, plugins::{navigation, CachedObject, CommandExtPriv, CooldownGroups, ForceSyncPositionUpdate, Inventory, ItemAbilities, ItemEdnaAbilities, Movement, NpcAbilities, PlayerController}, OBJECT_CACHE};
 
-use super::{AvatarIdManager, AvatarInfo, Factions, FutureTaskComponent, HealthUpdateEvent, PlayerLocalSets};
+use super::{AvatarIdManager, AvatarInfo, Factions, FutureTaskComponent, HealthUpdateEvent, MessageType, PlayerLocalSets};
 
 #[derive(Component)]
 pub struct ContentInfo {
@@ -76,6 +75,8 @@ impl Plugin for LoaderPlugin {
         ).chain());
 
         app.add_systems(Update, sync_debug_pos.after(navigation::update));
+
+        app.register_command("get_avatar_info", command_get_avatar_info);
 
         let instance = app.world().get_resource::<ZoneInstance>().unwrap();
         let realm_api = instance.realm_api.clone();
@@ -423,4 +424,36 @@ fn sync_debug_pos(
             commands.entity(ent).insert(ForceSyncPositionUpdate);
         }
     }
+}
+
+fn command_get_avatar_info(
+    In((ent, args)): In<(Entity, Vec<NativeParam>)>,
+    player: Query<(&GameObjectData, &PlayerController), With<PlayerTag>>,
+    avatars: Query<(&AvatarInfo, &ContentInfo)>,
+    avatar_manager: Res<AvatarIdManager>,
+) {
+    let Ok((player_data, controller)) = player.get(ent) else {
+        return;
+    };
+
+    let Ok(&target) = player_data.get::<_, AvatarId>(Player::Target) else {
+        return;
+    };
+
+    let Some(target_ent) = avatar_manager.entity_from_avatar_id(target) else {
+        return;
+    };
+
+    let Ok((avatar_info, content_info)) = avatars.get(target_ent) else {
+        return;
+    };
+
+    controller.send_message(MessageType::Normal, format!(
+        "Avatar Info:\nID: {} ({})\nName: {}\nTemplate: {} ({})",
+        avatar_info.id,
+        content_info.placement_id,
+        avatar_info.name,
+        content_info.template.name,
+        content_info.template.id,
+    ));
 }

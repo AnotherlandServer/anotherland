@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![feature(exclusive_wrapper)]
+#![feature(try_blocks)]
 
 use factions::FactionManager;
 use instance::{InstanceLabel, ZoneSubApp};

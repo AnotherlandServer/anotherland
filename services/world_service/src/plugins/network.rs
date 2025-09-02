@@ -372,7 +372,7 @@ impl PlayerController {
         });
     }
     
-    fn close(&self) {
+    pub fn close(&self) {
         let _ = self.sender.send(WorldEvent::Close { controller: self.id });
     }
 }

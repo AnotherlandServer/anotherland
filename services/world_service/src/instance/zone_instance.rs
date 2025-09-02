@@ -250,7 +250,7 @@ impl ZoneInstanceBuilder {
 
         app.add_plugins((
             SpecialEventsPlugin::new(object_cache.clone(), realm_api.clone(), world_def.name()).await?,
-            QuestsPlugin,
+            QuestsPlugin::new(content_path.join("lua").join("quests")),
             ChatPlugin,
             AbilitiesPlugin,
             CombatPlugin,

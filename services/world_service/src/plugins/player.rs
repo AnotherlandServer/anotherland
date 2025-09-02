@@ -601,7 +601,6 @@ fn insert_player_characters(
                     },
                     character.take_data(),
                     movement,
-                    QuestLog::default(),
                     cooldown_groups.create_cooldowns(),
                     skillbook,
                     factions
