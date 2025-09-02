@@ -32,6 +32,7 @@ mod ability_bar;
 mod skillbook;
 mod navmesh;
 mod navmesh_tile;
+mod queststate;
 
 pub use base::*;
 pub use error::*;
@@ -51,6 +52,7 @@ pub use ability_bar::*;
 pub use skillbook::*;
 pub use navmesh::*;
 pub use navmesh_tile::*;
+pub use queststate::*;
 
 // reexport
 pub use realm_manager_service::proto;

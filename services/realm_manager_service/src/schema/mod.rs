@@ -57,6 +57,7 @@ pub struct QueryRoot(
     pub db::AbilityBarQueryRoot,
     pub db::NavmeshQueryRoot,
     pub db::NavmeshTileQueryRoot,
+    pub db::QuestStateQueryRoot,
 );
 
 #[derive(MergedObject, Default)]
@@ -81,4 +82,5 @@ pub struct MutationRoot(
     pub AbilityBarExtMutationRoot,
     pub db::NavmeshMutationRoot,
     pub db::NavmeshTileMutationRoot,
+    pub db::QuestStateMutationRoot,
 );

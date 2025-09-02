@@ -28,6 +28,7 @@ mod skillbook;
 mod ability_bar;
 mod navmesh;
 mod navmesh_tile;
+mod queststate;
 
 pub use character::*;
 pub use premium_currency::*;
@@ -44,3 +45,4 @@ pub use skillbook::*;
 pub use ability_bar::*;
 pub use navmesh::*;
 pub use navmesh_tile::*;
+pub use queststate::*;
