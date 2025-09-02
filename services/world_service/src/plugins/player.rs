@@ -24,7 +24,7 @@ use obj_params::{tags::{PlayerTag, PortalTag, SpawnNodeTag, StartingPointTag}, A
 use protocol::{oaAbilityBarReferences, oaAbilityDataPlayer, oaAbilityDataPlayerArray, oaPktConfirmTravel, oaPktS2XConnectionState, oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit, oaPlayerClassData, AbilityBarReference, CPktAvatarUpdate, CPktBlob, CPktServerNotify, MoveManagerInit, OaPktS2xconnectionStateState, Physics, PhysicsState};
 use realm_api::{AbilitySlot, Character, EquipmentResult, ObjectPlacement, RealmApi, RealmApiResult, State};
 use regex::Regex;
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use toolkit::{types::Uuid, NativeParam, OtherlandQuatExt};
 use anyhow::anyhow;

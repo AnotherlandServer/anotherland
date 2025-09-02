@@ -21,7 +21,7 @@ use mlua::{IntoLua, Lua, Table, Value};
 use obj_params::{Class, GameObjectData};
 use protocol::{oaPktAbilityRequest, oaPktAbilityUse, oaPktCooldownUpdate, AbilityEffect, CooldownEntry, CooldownUpdate, OaPktAbilityUseAbilityType};
 use realm_api::RealmApi;
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::{AvatarId, Uuid}, QuatWrapper, Vec3Wrapper};
 use anyhow::anyhow;

@@ -21,7 +21,7 @@ use bonsai_bt::{Behavior, Event, Status, UpdateArgs, BT};
 use log::error;
 use mlua::{Lua, Table};
 use obj_params::GameObjectData;
-use scripting::{LuaExt, LuaFunctionExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaFunctionExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 
 use crate::{error::{WorldError, WorldResult}, plugins::{process_health_events, Active}};
 

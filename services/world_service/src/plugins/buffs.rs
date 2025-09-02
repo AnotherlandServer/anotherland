@@ -22,7 +22,7 @@ use log::{debug, warn};
 use mlua::{Lua, Table};
 use obj_params::{GameObjectData, OaBuff2, ParamWriter};
 use protocol::{CPktBuffRequest, CPktBuffUpdate};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use toolkit::types::Uuid;
 
 use crate::{error::WorldResult, object_cache::CacheEntry, plugins::FutureCommands, OBJECT_CACHE};

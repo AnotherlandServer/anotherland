@@ -18,7 +18,7 @@ use bevy::{app::{Plugin, PreStartup}, prelude::{App, Commands, Entity, In, Query
 use mlua::{Lua, Table};
 use obj_params::tags::PlayerTag;
 use protocol::{dialogStructure, oaDialogNode, oaPktDialogList, CPktStream_166_2};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject};
 use toolkit::types::AvatarId;
 
 use crate::error::WorldResult;

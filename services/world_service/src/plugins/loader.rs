@@ -21,7 +21,7 @@ use log::{debug, info, trace, warn};
 use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, StructureBaseTag}, Class, ContentRef, ContentRefList, CooldownGroup, EdnaFunction, GameObjectData, ItemEdna, NonClientBase, NpcOtherland, Player};
 use protocol::PhysicsState;
 use realm_api::ObjectPlacement;
-use scripting::ScriptCommandsExt;
+use scripting::EntityScriptCommandsExt;
 use toolkit::types::{AvatarId, AvatarType, Uuid, UUID_NIL};
 use anyhow::anyhow;
 

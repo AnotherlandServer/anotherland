@@ -21,7 +21,7 @@ use log::debug;
 use mlua::{Lua, Table};
 use obj_params::{tags::{NonClientBaseTag, NpcOtherlandTag, PlayerTag}, Class, GameObjectData, NonClientBase, ParamWriter, Player};
 use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, Physics};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use toolkit::types::{AvatarId, UUID_NIL};
 use anyhow::anyhow;
 

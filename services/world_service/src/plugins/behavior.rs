@@ -20,7 +20,7 @@ use log::{debug, warn};
 use mlua::{Function, IntoLua, MultiValue, Table};
 use obj_params::{Class, GameObjectData};
 use protocol::{oaPktAvatarTellBehavior, oaPktAvatarTellBehaviorBinary, CPktRequestAvatarBehaviors};
-use scripting::{ScriptCommandsExt, ScriptObject};
+use scripting::{EntityScriptCommandsExt, ScriptObject};
 use toolkit::NativeParam;
 
 use crate::error::WorldError;

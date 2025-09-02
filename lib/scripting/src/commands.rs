@@ -14,9 +14,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{ecs::world::EntityWorldMut, prelude::{EntityCommand, EntityCommands}};
+use bevy::{ecs::{system::{Command, Commands}, world::{EntityWorldMut, World}}, prelude::{EntityCommand, EntityCommands}};
 use log::{debug, error};
-use mlua::{Function, IntoLua, IntoLuaMulti, Value};
+use mlua::{Function, IntoLua, IntoLuaMulti, Table, Value};
 
 use crate::{LuaFunctionExt, LuaRuntime, ScriptError, ScriptObject, REG_WORLD};
 
@@ -24,13 +24,17 @@ pub trait IntoLuaApiName {
     fn name(&self) -> &str;
 }
 
-pub trait ScriptCommandsExt {
+pub trait EntityScriptCommandsExt {
     fn call_named_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, name: impl IntoLuaApiName, args: T) -> &mut Self;
     fn call_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, func: Function, args: T) -> &mut Self;
     fn fire_lua_event<T: IntoLuaMulti + Send + 'static>(&mut self, event: &'static str, args: T) -> &mut Self;
 }
 
-impl ScriptCommandsExt for EntityCommands<'_> {
+pub trait ScriptCommandsExt {
+    fn call_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, func: Function, args: T);
+}
+
+impl EntityScriptCommandsExt for EntityCommands<'_> {
     fn call_named_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, name: impl IntoLuaApiName, args: T) -> &mut Self {
         self.queue(LuaMethodCall {
             method: MethodRef::Name(name.name().to_string()),
@@ -48,6 +52,15 @@ impl ScriptCommandsExt for EntityCommands<'_> {
     fn fire_lua_event<T: IntoLuaMulti + Send + 'static>(&mut self, event: &'static str, args: T) -> &mut Self {
         self.queue(LuaMethodCall {
             method: MethodRef::Event(event),
+            args: Box::new(args),
+        })
+    }
+}
+
+impl ScriptCommandsExt for Commands<'_, '_> {
+    fn call_lua_method<T: IntoLuaMulti + Send + 'static>(&mut self, func: Function, args: T) {
+        self.queue(LuaMethodCall {
+            method: MethodRef::Function(func),
             args: Box::new(args),
         })
     }
@@ -108,6 +121,32 @@ impl <T: IntoLuaMulti + Send + 'static> EntityCommand for LuaMethodCall<T> {
             } {
                 args.push_front(mlua::Value::Table(obj));
 
+                let _ = method.call_with_world::<Value>(&lua, world, args)?;
+            }
+
+            Ok::<_, ScriptError>(())
+        })() {
+            error!("Script error: {e}");
+        }
+    }
+}
+
+impl <T: IntoLuaMulti + Send + 'static> Command for LuaMethodCall<T> {
+    fn apply(self, world: &mut World) {
+        let lua = world.get_resource::<LuaRuntime>()
+            .expect("lua runtime not created")
+            .vm().clone();
+
+        if let Err(e) = (move || {
+            if let Some((method, args)) = match self.method {
+                MethodRef::Name(_name) => {
+                    unimplemented!()
+                },
+                MethodRef::Function(function) => Some((function, self.args.into_lua_multi(&lua)?)),
+                MethodRef::Event(_event) => {
+                    unimplemented!()
+                },
+            } {
                 let _ = method.call_with_world::<Value>(&lua, world, args)?;
             }
 

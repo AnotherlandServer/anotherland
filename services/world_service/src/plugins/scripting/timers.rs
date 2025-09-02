@@ -15,7 +15,7 @@
 
 use bevy::{ecs::{component::Component, entity::Entity, hierarchy::ChildOf, system::{Commands, In, Query, Res}, world::World}, time::{Stopwatch, Time, Virtual}};
 use mlua::{Function, Lua, Table};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 
 use crate::error::WorldResult;
 

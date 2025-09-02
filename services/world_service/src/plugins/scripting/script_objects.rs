@@ -18,7 +18,7 @@ use convert_case::{Case, Casing};
 use log::{error, warn};
 use mlua::{IntoLua, Lua, Table};
 use obj_params::{Class, GameObjectData, GenericParamSet, GenericParamSetBoxExt, NonClientBase};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptApi, ScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptApi, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 
 use crate::{error::WorldResult, plugins::{AvatarInfo, ContentInfo, PlayerLocalSets}};

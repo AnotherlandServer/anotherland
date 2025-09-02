@@ -23,7 +23,7 @@ use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
 use toolkit::init_vector_api;
 
-use crate::{api_names::ScriptApi, ScriptCommandsExt, ScriptError, ScriptResult, ScriptObject};
+use crate::{api_names::ScriptApi, EntityScriptCommandsExt, ScriptError, ScriptResult, ScriptObject};
 
 pub(crate) const REG_WORLD: &str = "world";
 

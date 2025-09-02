@@ -19,7 +19,7 @@ use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, E
 use mlua::{Integer, Lua, Table};
 use obj_params::{tags::{EdnaContainerTag, EdnaReceptorTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, SpawnerTag, StructureTag, VehicleBaseTag}, GameObjectData, Player};
 use protocol::{oaPkt_Combat_HpUpdate, CPktTargetRequest};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 
 use crate::error::WorldResult;
