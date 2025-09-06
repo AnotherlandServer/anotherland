@@ -16,12 +16,12 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use bevy::{app::{App, Plugin, Update}, ecs::{component::{Component, HookContext}, entity::Entity, query::With, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res, ResMut}, world::World}, platform::collections::HashMap, time::{common_conditions::on_timer, Time, Virtual}};
+use bevy::{app::{App, Plugin, Update}, ecs::{component::{Component, HookContext}, entity::Entity, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ResMut}, world::World}, platform::collections::HashMap, time::common_conditions::on_timer};
 use bonsai_bt::{Behavior, Event, Status, UpdateArgs, BT};
 use log::error;
 use mlua::{Lua, Table};
 use obj_params::GameObjectData;
-use scripting::{LuaExt, LuaFunctionExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaFunctionExt, LuaRuntime, LuaTableExt, ScriptObject, ScriptResult};
 
 use crate::{error::{WorldError, WorldResult}, plugins::{process_health_events, Active}};
 

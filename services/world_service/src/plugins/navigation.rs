@@ -21,14 +21,14 @@ use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use futures::{TryStreamExt};
 use log::{debug, error};
 use mlua::{Lua, Table};
-use obj_params::{GameObjectData, NpcOtherland};
+use obj_params::GameObjectData;
 use protocol::{CPktAvatarBehaviors, NetworkVec3};
 use realm_api::{RealmApi, WorldDef};
 use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshParams, DtNavMeshQuery, DtPolyRef, DtQueryFilter, DtTileRef}, detour_crowd::DtPathCorridor};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{bson, OtherlandQuatExt, Vec3Wrapper};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{Active, AvatarInfo, ForceSyncPositionUpdate, InterestAdded, InterestTransmitted, Interests, Movement, PlayerController, WorldSpace}};
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, AvatarInfo, InterestTransmitted, Interests, Movement, PlayerController}};
 
 pub struct NavigationPlugin;
 

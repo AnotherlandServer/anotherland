@@ -261,4 +261,16 @@ impl InstanceManager {
             }
         }
     }
+
+    pub fn get_world_def(&self, id: &Uuid) -> Option<Arc<WorldDef>> {
+        let s = self.0.blocking_lock();
+        s.worlds.get(id).cloned()
+    }
+
+    pub fn get_world_def_by_name(&self, name: &str) -> Option<Arc<WorldDef>> {
+        let s = self.0.blocking_lock();
+        s.worlds.values()
+            .find(|w| w.name() == name)
+            .cloned()
+    }
 }

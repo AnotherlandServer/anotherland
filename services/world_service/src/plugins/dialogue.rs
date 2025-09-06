@@ -14,14 +14,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PreStartup}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
-use mlua::{Lua, Table};
-use obj_params::tags::PlayerTag;
-use protocol::{dialogStructure, oaDialogNode, oaPktDialogList, CPktStream_166_2};
+use bevy::{app::{Plugin, PreStartup, Update}, ecs::{component::Component, event::{Event, EventReader}}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
+use log::debug;
+use mlua::{FromLua, Lua, Table};
+use obj_params::{tags::{NpcOtherlandTag, PlayerTag}, NpcOtherland};
+use protocol::{oaDialogNode, oaDialogQuestPrototype, oaPktDialogChoice, oaPktDialogEnd, oaPktDialogList, CPktStream_166_2, DialogStructure};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject};
 use toolkit::types::AvatarId;
 
-use crate::error::WorldResult;
+use crate::{error::WorldResult, plugins::AvatarInfo};
 
 use super::{AvatarIdManager, NetworkExtPriv, PlayerController};
 
@@ -30,9 +31,106 @@ pub struct DialoguePlugin;
 impl Plugin for DialoguePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreStartup, insert_dialogue_api);
+        app.add_systems(Update, (send_dialogue_nodes, send_dialogue_end));
 
         app.register_message_handler(handle_dialogue_request);
+        app.register_message_handler(handle_dialogue_choice);
+
+        app.add_event::<DialogueNodeSelected>();
+        app.add_event::<DialogueEnd>();
     }
+}
+
+#[derive(Event)]
+pub struct DialogueNodeSelected {
+    pub player: Entity,
+    pub speaker: Entity,
+    pub id: i32,
+    pub index: usize,
+}
+
+#[derive(Event)]
+pub struct DialogueEnd {
+    pub player: Entity,
+}
+
+pub enum ChoiceEmote {
+    Close,
+    Approve,
+    Reject,
+    Next,
+    TellMore,
+}
+
+impl FromLua for ChoiceEmote {
+    fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<Self> {
+        let s: String = FromLua::from_lua(value, lua)?;
+        match s.as_str() {
+            "Close" => Ok(ChoiceEmote::Close),
+            "Approve" => Ok(ChoiceEmote::Approve),
+            "Reject" => Ok(ChoiceEmote::Reject),
+            "Next" => Ok(ChoiceEmote::Next),
+            "TellMore" => Ok(ChoiceEmote::TellMore),
+            _ => Err(mlua::Error::FromLuaConversionError {
+                from: "string",
+                to: "ChoiceEmote".to_string(),
+                message: Some(format!("invalid dialogue choice: {}", s)),
+            }),
+        }
+    }
+}
+
+pub struct DialogueChoice {
+    pub choice_emote: ChoiceEmote,
+    pub next_index: usize,
+}
+
+impl FromLua for DialogueChoice {
+    fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<Self> {
+        let table: Table = FromLua::from_lua(value, lua)?;
+        let choice_emote: ChoiceEmote = table.get("choice_emote")?;
+        let next_index: usize = table.get("next_index")?;
+        Ok(DialogueChoice {
+            choice_emote,
+            next_index,
+        })
+    }
+}
+
+pub struct DialogueNode {
+    pub content_id: u32,
+    pub quest_id: Option<i32>,
+    pub choices: Vec<DialogueChoice>,
+}
+
+impl FromLua for DialogueNode {
+    fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<Self> {
+        let table: Table = FromLua::from_lua(value, lua)?;
+
+        let content_id: u32 = table.get("content_id")?;
+        let quest_id: Option<i32> = table.get("quest_id").ok();
+        let choices_table: Table = table.get("choices")?;
+        let mut choices = Vec::new();
+        for pair in choices_table.pairs::<mlua::Value, mlua::Value>() {
+            let (_, choice_value) = pair?;
+            let choice: DialogueChoice = FromLua::from_lua(choice_value, lua)?;
+            choices.push(choice);
+        }
+
+        Ok(DialogueNode {
+            content_id,
+            quest_id,
+            choices,
+        })
+    }
+}
+
+#[derive(Component)]
+pub struct DialogueState {
+    pub id: i32,
+    pub speaker: Entity,
+    pub current_index: usize,
+    pub nodes: Vec<DialogueNode>,
 }
 
 fn insert_dialogue_api(
@@ -44,8 +142,8 @@ fn insert_dialogue_api(
     runtime.register_native("dialogue", dialogue_api.clone()).unwrap();
 
     dialogue_api.set("ShowTutorialMessage", lua.create_bevy_function(world, lua_show_tutorial_message).unwrap()).unwrap();
-    dialogue_api.set("StartDialogue", lua.create_function(lua_start_dialogue).unwrap()).unwrap();
-    dialogue_api.set("FinishDialogue", lua.create_function(lua_finish_dialogue).unwrap()).unwrap();
+    dialogue_api.set("ExecuteDialogue", lua.create_bevy_function(world, lua_exec_dialogue).unwrap()).unwrap();
+    dialogue_api.set("AbortDialogue", lua.create_bevy_function(world, lua_abort_dialogue).unwrap()).unwrap();
 
 }
 
@@ -57,7 +155,7 @@ fn lua_show_tutorial_message(
         .map_err(|_| anyhow!("player not found"))?;
 
     controller.send_packet(CPktStream_166_2 {
-        field_1: dialogStructure {
+        field_1: DialogStructure {
             npc_id: AvatarId::default(), // Tutorials never have a speaker avatar
             dialog_id: tutorial_id,
             dialog_node: oaDialogNode {
@@ -76,12 +174,47 @@ fn lua_show_tutorial_message(
     Ok(())
 }
 
-fn lua_start_dialogue(_lua: &Lua, (_player, _speaker, _dialogue): (Table, Table, i32)) -> mlua::Result<()> {
-    todo!()
+fn lua_exec_dialogue(
+    In((player, speaker, id, dialogue)): In<(Table, Table, i32, Table)>,
+    runtime: Res<LuaRuntime>,
+    mut commands: Commands,
+) -> mlua::Result<()> {
+    commands.entity(player.entity()?)
+        .insert(DialogueState {
+            current_index: 0,
+            id,
+            speaker: speaker.entity()?,
+            nodes: {
+                let mut nodes = Vec::new();
+                for pair in dialogue.pairs::<mlua::Value, mlua::Value>() {
+                    let (_, node_value) = pair?;
+                    let node: DialogueNode = FromLua::from_lua(node_value, runtime.vm())?;
+                    nodes.push(node);
+                }
+                nodes
+            },
+        });
+
+    commands.send_event(DialogueNodeSelected {
+        player: player.entity()?,
+        speaker: speaker.entity()?,
+        id,
+        index: 0,
+    });
+
+    Ok(())
 }
 
-fn lua_finish_dialogue(_lua: &Lua, _player: Table) -> mlua::Result<()> {
-    todo!()
+fn lua_abort_dialogue(
+    In(player): In<Table>,
+    //players: Query<(&DialogueState, &PlayerController)>,
+    mut commands: Commands,
+) -> mlua::Result<()> {
+    commands.send_event(DialogueEnd {
+        player: player.entity()?
+    });
+
+    Ok(())
 }
 
 fn handle_dialogue_request(
@@ -96,5 +229,121 @@ fn handle_dialogue_request(
     {
         commands.entity(target_ent)
             .call_named_lua_method("RequestDialogue", player.object().clone());
+    }
+}
+
+fn handle_dialogue_choice(
+    In((ent, pkt)): In<(Entity, oaPktDialogChoice)>,
+    avatar_id_manager: Res<AvatarIdManager>,
+    mut commands: Commands,
+) {
+    let Some(speaker) = avatar_id_manager.entity_from_avatar_id(pkt.target) else {
+        return;
+    };
+
+    if let Ok(index) = pkt.dialog_choice_serial.parse() {
+        commands.send_event(DialogueNodeSelected {
+            player: ent,
+            speaker,
+            id: pkt.dialog_id,
+            index,
+        });
+    } else {
+        commands.send_event(DialogueEnd {
+            player: ent
+        });
+    }
+}
+
+fn send_dialogue_nodes(
+    mut events: EventReader<DialogueNodeSelected>,
+    mut players: Query<(&mut DialogueState, &PlayerController)>,
+    speakers: Query<&AvatarInfo, With<NpcOtherlandTag>>,
+    mut commands: Commands,
+) {
+    for event in events.read() {
+        let Ok((mut state, controller)) = players.get_mut(event.player) else {
+            continue;
+        };
+
+        let Ok(speaker_info) = speakers.get(event.speaker) else {
+            commands.send_event(DialogueEnd {
+                player: event.player
+            });
+            continue;
+        };
+
+        state.current_index = event.index;
+        
+        if let Some(node) = state.nodes.get(state.current_index) {
+            let choices = node.choices.iter().map(|choice| {
+                protocol::oaDialogChoice {
+                    dialogue_serial_number: choice.next_index.to_string(),
+                    emote_index: match choice.choice_emote {
+                        ChoiceEmote::Close => protocol::OaDialogChoiceEmoteIndex::Close,
+                        ChoiceEmote::Approve => protocol::OaDialogChoiceEmoteIndex::Approve,
+                        ChoiceEmote::Reject => protocol::OaDialogChoiceEmoteIndex::Reject,
+                        ChoiceEmote::Next => protocol::OaDialogChoiceEmoteIndex::Next,
+                        ChoiceEmote::TellMore => protocol::OaDialogChoiceEmoteIndex::TellMore,
+                    },
+
+                    ..Default::default()
+                }
+            }).collect::<Vec<_>>();
+
+            let pkt = CPktStream_166_2 {
+                field_1: DialogStructure {
+                    npc_id: speaker_info.id,
+                    dialog_id: state.id,
+                    dialog_node: oaDialogNode {
+                        dialogue_id: state.id,
+                        dialog_content_id: node.content_id,
+                        ..Default::default()
+                    },
+                    choice_count: choices.len() as u32,
+                    choices,
+                    has_additional_component: node.quest_id.is_some(),
+                    component_factory_id: 0,
+                    quest_prototype: match node.quest_id {
+                        Some(id) => oaDialogQuestPrototype {
+                            quest_id: id as u32,
+                            ..Default::default()
+                        },
+                        None => oaDialogQuestPrototype::default(),
+                    }
+                },
+                ..Default::default()
+            };
+
+            debug!("Sending dialogue to player {}: {:#?}", controller.avatar_id(), pkt);
+
+            controller.send_packet(pkt);
+        } else {
+            // Node not found, end dialogue
+            commands.send_event(DialogueEnd {
+                player: event.player
+            });
+        }
+    }
+}
+
+fn send_dialogue_end(
+    mut events: EventReader<DialogueEnd>,
+    players: Query<(&DialogueState, &PlayerController)>,
+    mut commands: Commands,
+) {
+    for event in events.read() {
+        let Ok((state, controller)) = players.get(event.player) else {
+            continue;
+        };
+
+        controller.send_packet(oaPktDialogEnd {
+            player_id: controller.avatar_id(),
+            dialogue_id: state.id,
+            ..Default::default()
+        });
+
+        commands.entity(event.player)
+            .remove::<DialogueState>();
     }
 }

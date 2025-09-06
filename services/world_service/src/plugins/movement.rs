@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, query::Or, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
+use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
 use log::{debug, error};
 use mlua::{Lua, Table};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, Player};

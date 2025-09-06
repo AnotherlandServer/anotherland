@@ -141,13 +141,13 @@ impl From<QuestCondition> for queststate_graphql::QuestConditionInput {
     }
 }
 
-#[derive(Builder)]
+#[derive(Builder, Clone)]
 #[builder(pattern = "owned")]
 pub struct QuestState {
     #[builder(setter(skip))]
     api_base: Option<RealmApi>,
     #[builder(setter(skip), default)]
-    graphql_id: Option<Id>,
+    pub id: Option<Id>,
 
     pub character_id: Uuid,
     pub quest_id: i32,
@@ -159,7 +159,7 @@ impl QuestState {
     fn from_graphql(api: &RealmApi, other: queststate_graphql::QuestState) -> Self {
         Self {
             api_base: Some(api.clone()),
-            graphql_id: Some(other.id),
+            id: Some(other.id),
             character_id: other.character_id, 
 			quest_id: other.quest_id,
             state: other.state.into(),
@@ -173,7 +173,7 @@ impl QuestState {
 
     fn as_graphql(&self) -> queststate_graphql::QuestStateInput {
         queststate_graphql::QuestStateInput {
-            id: self.graphql_id.clone().unwrap_or_else(|| Id::new("".to_string())),
+            id: self.id.clone().unwrap_or_else(|| Id::new("".to_string())),
             character_id: self.character_id,
             quest_id: self.quest_id,
             state: self.state.into(),
@@ -184,7 +184,7 @@ impl QuestState {
     pub async fn save(&mut self) -> RealmApiResult<()> {
 		if 
 			let Some(api_base) = &self.api_base && 
-			let Some(graphql_id) = &self.graphql_id
+			let Some(graphql_id) = &self.id
 		{
 			let response = api_base
 				.0
@@ -216,7 +216,7 @@ impl QuestState {
     pub async fn delete(self) -> RealmApiResult<()> {
 		if 
 			let Some(api_base) = &self.api_base &&
-			let Some(graphql_id) = &self.graphql_id
+			let Some(graphql_id) = &self.id
 		{
 			let response = api_base
 				.0
@@ -245,7 +245,7 @@ impl RealmApi {
     ) -> QuestState {
         QuestState {
             api_base: Some(self.clone()),
-            graphql_id: None,
+            id: None,
 			character_id,
 			quest_id,
             state,
