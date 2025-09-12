@@ -190,21 +190,31 @@ impl InstanceManager {
 
     pub async fn provision_instance(&self, transaction_id: Uuid) {
         let mut s = self.0.lock().await;
+
+        let realm_api = s.realm_api.clone();
+        let core_api = s.core_api.clone();
+        let realm_client = s.realm_client.clone();
+        let object_cache = s.object_cache.clone();
+
         if let Some(req) = s.requests.remove(&transaction_id) {
+            drop(s); // Release lock before instantiation
+
             match ZoneInstanceBuilder::default()
                 .world_def(req.world_def.clone())
                 .zone(req.zone.clone())
-                .realm_api(s.realm_api.clone())
-                .core_api(s.core_api.clone())
-                .realm_client(s.realm_client.clone())
+                .realm_api(realm_api)
+                .core_api(core_api)
+                .realm_client(realm_client)
                 .handle(Handle::current())
                 .task_tracker(TaskTracker::new())
-                .object_cache(s.object_cache.clone())
+                .object_cache(object_cache)
                 .instance_id(req.key)
                 .manager(self.clone())
                 .instantiate().await
             {
                 Ok(instance) => {
+                    // Relock to update state
+                    let mut s = self.0.lock().await;
                     s.instances.push(instance.label());
                     
                     let _ = s.realm_client.send(RealmRequest::InstanceProvisioned { 
