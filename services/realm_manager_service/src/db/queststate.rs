@@ -38,7 +38,7 @@ pub struct QuestCondition {
 #[derive(Serialize, Deserialize, GraphqlCrud)]
 #[graphql_crud(name = "QuestState")]
 pub struct QuestState {
-    #[serde(rename = "_id", default)]
+    #[serde(rename = "_id", default, skip_serializing_if = "String::is_empty")]
     pub id: async_graphql::ID,
 
     #[graphql_crud(filter)]
