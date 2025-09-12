@@ -15,9 +15,9 @@
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate}, ecs::{event::{Event, EventReader, EventWriter}, hierarchy::{ChildOf, Children}, query::{Changed, Or, With}, removal_detection::{RemovedComponentReader, RemovedComponents}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res, SystemId}, world::World}, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, tasks::block_on};
+use bevy::{app::{Plugin, PostUpdate, PreUpdate}, ecs::{event::{Event, EventReader, EventWriter}, hierarchy::{ChildOf, Children}, query::{Changed, Or, With}, removal_detection::{RemovedComponentReader, RemovedComponents}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res, SystemId}, world::World}, log::tracing_subscriber::field::debug, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, tasks::block_on};
 use futures::TryStreamExt;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use mlua::{AsChunk, Function, IntoLua, Lua, Table};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase};
 use protocol::{oaPktQuestEvent, oaPktQuestGiverStatus, oaPktQuestRequest, oaQuestTemplate, CPktStream_165_2, CPktStream_165_7, OaPktQuestEventEvent, OaPktQuestRequestRequest};
@@ -40,7 +40,13 @@ impl QuestsPlugin {
 
 impl Plugin for QuestsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreUpdate, (init_quest_entities, load_questlogs_for_joined_players));
+        app.add_systems(PreUpdate, (
+            init_quest_entities, 
+            load_questlogs_for_joined_players,
+            quest_accepter,
+            quest_abandoner,
+            quest_returner,
+        ));
         app.add_systems(PostUpdate, (
             (sync_quest_state, update_available_quests).chain(),
             update_quest_markers,
@@ -352,6 +358,8 @@ fn sync_quest_state(
 
                 match state {
                     QuestProgressionState::Active => {
+                        debug!("Player {} accepted quest {}", player_controller.character_id(), quest_id);
+
                         player_controller.send_packet(oaPktQuestEvent {
                             field_1: player_controller.avatar_id(),
                             quest_id,
@@ -365,6 +373,8 @@ fn sync_quest_state(
                         quest_log.finished.remove(&quest_id);
                     },
                     QuestProgressionState::Failed => {
+                        debug!("Player {} failed quest {}", player_controller.character_id(), quest_id);
+
                         player_controller.send_packet(oaPktQuestEvent {
                             field_1: player_controller.avatar_id(),
                             quest_id,
@@ -378,6 +388,8 @@ fn sync_quest_state(
                         quest_log.finished.remove(&quest_id);
                     },
                     QuestProgressionState::Finished => {
+                        debug!("Player {} finished quest {}", player_controller.character_id(), quest_id);
+
                         player_controller.send_packet(oaPktQuestEvent {
                             field_1: player_controller.avatar_id(),
                             quest_id,
@@ -499,11 +511,11 @@ enum LuaQuestState {
 impl IntoLua for LuaQuestState {
     fn into_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
         match self {
-            LuaQuestState::Available => 0.into_lua(lua),
-            LuaQuestState::InProgress => 1.into_lua(lua),
-            LuaQuestState::Completed => 2.into_lua(lua),
-            LuaQuestState::Finished => 3.into_lua(lua),
-            LuaQuestState::Unavailable => 4.into_lua(lua),
+            LuaQuestState::Available => "AVAILABLE".into_lua(lua),
+            LuaQuestState::InProgress => "IN_PROGRESS".into_lua(lua),
+            LuaQuestState::Completed => "COMPLETED".into_lua(lua),
+            LuaQuestState::Finished => "FINISHED".into_lua(lua),
+            LuaQuestState::Unavailable => "UNAVAILABLE".into_lua(lua),
         }
     }
 }
@@ -743,7 +755,7 @@ fn update_available_quests(
 
             // Clear all available quests
             questlog.available.clear();
-            questlog.quests.retain(|_, q| q.state.is_none());
+            questlog.quests.retain(|_, q| q.state.is_some());
 
             // Check quest availability
             for (quest_id, quest) in quests.0.iter() {
@@ -925,6 +937,8 @@ fn handle_quest_request(
     quests: Res<QuestRegistry>,
     mut commands: Commands,
 ) {
+    debug!("Received quest request from player {}: {:?}", ent, pkt);
+
     match pkt.request {
         OaPktQuestRequestRequest::Request => {
             let Some(quest) = quests.0.get(&pkt.quest_id) else {
@@ -1045,6 +1059,8 @@ fn quest_accepter(
                 scope: QuestUpdateScope::Quest(quest_id),
                 state: QuestState::Progression(QuestProgressionState::Active),
             });
+        } else {
+            warn!("Player {} tried to accept unavailable quest {}", player, quest_id);
         }
     }
 }
