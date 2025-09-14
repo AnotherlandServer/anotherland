@@ -60,6 +60,8 @@ struct GraphqlCrudStructOps {
     name: String,
     #[darling(default)]
     validator: Option<String>,
+    #[darling(default)]
+    primary_key_type: Option<ExprPath>,
 }
 
 #[derive(FromField)]
@@ -203,7 +205,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 
             Some(quote!{ 
                 if let Some(val) = self.#ident {
-                    let val = to_bson(&#ty::from(val)).unwrap();
+                    let val = to_bson(&#ty::try_from(val)?).unwrap();
                     expressions.push(doc!{ #field_name: val }); 
                 }
             })
@@ -223,17 +225,23 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
                 }
 
                 impl #read_multiple_filter_ident {
-                    fn into_query(self) -> Document {
+                    fn into_query(self) -> Result<Document, async_graphql::Error> {
                         let mut expressions: Vec<Document> = vec![];
 
                         #(#filter_expressions)*
 
-                        doc!{ "$and": expressions }
+                        Ok(doc!{ "$and": expressions })
                     }
                 }
             }, 
             quote!(filter: Option<#read_multiple_filter_ident>,),
-            quote!(filter.map(#read_multiple_filter_ident::into_query))
+            quote! {
+                if let Some(filter) = filter {
+                    Some(filter.into_query()?)
+                } else {
+                    None
+                }
+            }
         )
     };
 
@@ -280,6 +288,12 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
         quote!(#[graphql(validator(custom = #validator))])
     } else {
         quote!()
+    };
+
+    let primary_key_type = if let Some(pk_type) = &opts.primary_key_type {
+        quote!(#pk_type)
+    } else {
+        quote!(<super::#struct_name as DatabaseRecord>::PrimaryKey)
     };
 
     let output: TokenStream = quote! {
@@ -334,11 +348,11 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
                 async fn #read_single_ident(
                     &self, 
                     ctx: &async_graphql::Context<'_>, 
-                    id: <super::#struct_name as DatabaseRecord>::PrimaryKey
+                    id: #primary_key_type
                 ) -> Result<Option<#struct_name>, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
                     Ok(
-                        match super::#struct_name::get(&db, &id).await? {
+                        match super::#struct_name::get(&db, &id.try_into()?).await? {
                             Some(record) => Some(record.try_into()?),
                             None => None,
                         }
@@ -371,10 +385,10 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
                 async fn #delete_single_ident(
                     &self, 
                     ctx: &async_graphql::Context<'_>, 
-                    id: <super::#struct_name as DatabaseRecord>::PrimaryKey
+                    id: #primary_key_type
                 ) -> Result<Option<#struct_name>, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
-                    if let Some(record) = super::#struct_name::get(&db, &id).await? {
+                    if let Some(record) = super::#struct_name::get(&db, &id.try_into()?).await? {
                         record.delete(&db).await?;
                         Ok(Some(record.try_into()?))
                     } else {
@@ -420,11 +434,11 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
                 async fn #update_single_ident(
                     &self, 
                     ctx: &async_graphql::Context<'_>, 
-                    id: <super::#struct_name as DatabaseRecord>::PrimaryKey,
+                    id: #primary_key_type,
                     #intput_validator input: #record_input_ident
                 ) -> Result<Option<#struct_name>, async_graphql::Error> {
                     let db = ctx.data::<mongodb::Database>()?.clone();
-                    if let Some(mut record) = super::#struct_name::get(&db, &id).await? {
+                    if let Some(mut record) = super::#struct_name::get(&db, &id.try_into()?).await? {
                         record = input.try_into()?;
                         record.save(&db).await?;
 

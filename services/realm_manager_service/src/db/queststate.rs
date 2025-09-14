@@ -17,7 +17,7 @@ use async_graphql::{Enum, InputObject, SimpleObject};
 use database::DatabaseRecord;
 use mongodb::{bson::doc, options::IndexOptions, IndexModel};
 use serde::{Deserialize, Serialize};
-use toolkit::{types::Uuid, GraphqlCrud};
+use toolkit::{types::Uuid, GraphqlCrud, ObjectId};
 
 #[derive(Enum, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum QuestProgressionState {
@@ -36,10 +36,14 @@ pub struct QuestCondition {
 }
 
 #[derive(Serialize, Deserialize, GraphqlCrud)]
-#[graphql_crud(name = "QuestState")]
+#[graphql_crud(name = "QuestState", primary_key_type = "async_graphql::types::ID")]
 pub struct QuestState {
-    #[serde(rename = "_id", default, skip_serializing_if = "String::is_empty")]
-    pub id: async_graphql::ID,
+    #[serde(
+        rename = "_id",
+        default,
+    )]
+    #[graphql_crud(serialize_as = "async_graphql::types::ID", readonly)]
+    pub id: ObjectId,
 
     #[graphql_crud(filter)]
     pub character_id: Uuid,
@@ -52,7 +56,7 @@ pub struct QuestState {
 }
 
 impl DatabaseRecord for QuestState {
-    type PrimaryKey = async_graphql::ID;
+    type PrimaryKey = ObjectId;
 
     fn key(&self) -> &Self::PrimaryKey {
         &self.id

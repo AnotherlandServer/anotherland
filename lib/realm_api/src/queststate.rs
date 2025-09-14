@@ -173,7 +173,6 @@ impl QuestState {
 
     fn as_graphql(&self) -> queststate_graphql::QuestStateInput {
         queststate_graphql::QuestStateInput {
-            id: self.id.clone().unwrap_or_else(|| Id::new("".to_string())),
             character_id: self.character_id,
             quest_id: self.quest_id,
             state: self.state.into(),
@@ -394,7 +393,6 @@ pub(crate) mod queststate_graphql {
     #[derive(cynic::InputObject, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct QuestStateInput {
-        pub id: ID,
         pub character_id: Uuid,
         pub quest_id: i32,
         pub state: QuestProgressionState,

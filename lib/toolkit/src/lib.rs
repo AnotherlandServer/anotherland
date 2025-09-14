@@ -21,12 +21,14 @@ mod nativeparam;
 mod banner;
 mod quat;
 mod vector;
+mod object_id;
 
 pub use nativeparam::*;
 pub use macros::*;
 pub use banner::*;
 pub use quat::*;
 pub use vector::*;
+pub use object_id::*;
 pub mod types;
 pub mod string_parsers;
 pub mod record_pagination;
