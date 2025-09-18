@@ -15,7 +15,7 @@
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate}, ecs::{event::{Event, EventReader, EventWriter}, hierarchy::{ChildOf, Children}, query::{Changed, Or, With}, removal_detection::{RemovedComponentReader, RemovedComponents}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res, SystemId}, world::World}, log::tracing_subscriber::field::debug, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, tasks::block_on};
+use bevy::{app::{Plugin, PostUpdate, PreStartup, PreUpdate, Startup}, ecs::{event::{Event, EventReader, EventWriter}, hierarchy::{ChildOf, Children}, query::{Changed, Or, With}, removal_detection::{RemovedComponentReader, RemovedComponents}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res, ResMut, SystemId}, world::World}, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}};
 use futures::TryStreamExt;
 use log::{debug, error, info, warn};
 use mlua::{AsChunk, Function, IntoLua, Lua, Table};
