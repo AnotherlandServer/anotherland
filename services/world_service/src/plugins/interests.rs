@@ -25,7 +25,7 @@ use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, Script
 use toolkit::types::{AvatarId, UUID_NIL};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, plugins::{DebugPlayer, WorldSpace}};
+use crate::{error::WorldResult, plugins::{ContentInfo, DebugPlayer, WorldSpace}};
 
 use super::{Active, AvatarInfo, ConnectionState, CurrentState, Movement, PlayerController, QuestEntity, QuestLog};
 
@@ -151,7 +151,7 @@ fn enable_npc_interest_building(
 
 fn transmit_entities_to_players(
     mut players: Query<(Entity, &PlayerController, &mut Interests, &mut CurrentState)>,
-    objects: Query<(&AvatarInfo, &Movement, &GameObjectData), With<Active>>,
+    objects: Query<(Option<&ContentInfo>, &AvatarInfo, &Movement, &GameObjectData), With<Active>>,
     mut interest_transmitted_event: EventWriter<InterestTransmitted>,
 ) {
     for (player_ent, controller, mut interests, mut state) in players.iter_mut() {
@@ -160,7 +160,7 @@ fn transmit_entities_to_players(
         for (ent, state) in interests.interests.iter() {
             if 
                 matches!(state.1, InterestState::Initial) &&
-                let Ok((_, _, obj)) = objects.get(*ent)
+                let Ok((_, _, _, obj)) = objects.get(*ent)
             {
                 let priority = *obj.get(NonClientBase::Priority).unwrap_or(&999.0);
                 transmit_order.push((*ent, priority));
@@ -171,7 +171,7 @@ fn transmit_entities_to_players(
         transmit_order.truncate(10);
 
         for (ent, _) in &transmit_order {
-            if let Ok((avatar, movement, object)) = objects.get(*ent) {
+            if let Ok((content_info, avatar, movement, object)) = objects.get(*ent) {
                 let mut data = Vec::new();
                 {
                     let mut writer = ByteWriter::endian(&mut data, LittleEndian);
@@ -179,31 +179,64 @@ fn transmit_entities_to_players(
                 }
 
                 // send avatar to client
-                controller.send_packet(CPktAvatarUpdate {
-                    full_update: true,
-                    avatar_id: Some(avatar.id),
-                    field_2: Some(false),
-                    name: Some(avatar.name.clone()),
-                    class_id: Some(object.class().id() as u32),
-                    field_6: Some(UUID_NIL),
-                    params: data.into(),
-                    update_source: 0,
-                    movement: Some(MoveManagerInit {
-                        pos: movement.position.into(),
-                        rot: movement.rotation.into(),
-                        vel: movement.velocity.into(),
-                        physics: Physics {
-                            state: movement.mode
-                        },
-                        version: movement.version,
-                        mover_type: movement.mover_type,
-                        mover_replication_policy: movement.mover_replication_policy,
-                        mover_key: movement.mover_key,
-                        seconds: movement.seconds,
+                if let Some(content_info) = content_info {
+                    // Non-client avatars
+                    controller.send_packet(CPktAvatarUpdate {
+                        full_update: true,
+                        avatar_id: Some(avatar.id),
+                        field_2: Some(false),
+                        name: Some(avatar.name.clone()),
+                        class_id: Some(object.class().id() as u32),
+                        field_6: Some(UUID_NIL),
+                        params: data.into(),
+                        update_source: 0,
+                        flags: Some(2 | 4),
+                        content_id: Some(content_info.template.id),
+                        instance_id: Some(content_info.placement_id),
+                        movement: Some(MoveManagerInit {
+                            pos: movement.position.into(),
+                            rot: movement.rotation.into(),
+                            vel: movement.velocity.into(),
+                            physics: Physics {
+                                state: movement.mode
+                            },
+                            version: movement.version,
+                            mover_type: movement.mover_type,
+                            mover_replication_policy: movement.mover_replication_policy,
+                            mover_key: movement.mover_key,
+                            seconds: movement.seconds,
+                            ..Default::default()
+                        }.to_bytes().into()),
                         ..Default::default()
-                    }.to_bytes().into()),
-                    ..Default::default()
-                });
+                    });
+                } else {
+                    // Other players
+                    controller.send_packet(CPktAvatarUpdate {
+                        full_update: true,
+                        avatar_id: Some(avatar.id),
+                        field_2: Some(false),
+                        name: Some(avatar.name.clone()),
+                        class_id: Some(object.class().id() as u32),
+                        field_6: Some(UUID_NIL),
+                        params: data.into(),
+                        update_source: 0,
+                        movement: Some(MoveManagerInit {
+                            pos: movement.position.into(),
+                            rot: movement.rotation.into(),
+                            vel: movement.velocity.into(),
+                            physics: Physics {
+                                state: movement.mode
+                            },
+                            version: movement.version,
+                            mover_type: movement.mover_type,
+                            mover_replication_policy: movement.mover_replication_policy,
+                            mover_key: movement.mover_key,
+                            seconds: movement.seconds,
+                            ..Default::default()
+                        }.to_bytes().into()),
+                        ..Default::default()
+                    });
+                }
 
                 interests.interests.insert(*ent, (avatar.id, InterestState::Transmitted));
                 interest_transmitted_event.write(InterestTransmitted(player_ent, *ent));
