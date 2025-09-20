@@ -41,7 +41,7 @@ tokio-util = { workspace = true }
 futures.workspace = true
 content = { version = "0.1.0", path = "../../lib/content" }
 convert_case = "0.8.0"
-regex = "1.11.1"
+regex = "1.11.2"
 pepkg = { version = "0.1.0", path = "../../lib/pepkg" }
 recastnavigation-rs = { workspace = true }
 crc16 = "0.4.0"
