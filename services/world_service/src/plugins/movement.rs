@@ -16,7 +16,7 @@
 use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
 use log::{debug, error};
 use mlua::{Lua, Table};
-use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, Player};
+use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, NpcOtherland, Player};
 use protocol::{oaPktMoveManagerPosUpdate, oaPktMoveManagerStateChanged, Physics, PhysicsState};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{OtherlandQuatExt, QuatWrapper, Vec3Wrapper};
@@ -181,7 +181,10 @@ pub fn setup_non_client_movement(
         let mut pos = *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap();
         let collision_extent = *obj.get::<_, Vec3>(NonClientBase::CollisionExtent).unwrap();
 
-        if obj.class() == Class::NpcOtherland {
+        if 
+            obj.class() == Class::NpcOtherland &&
+            obj.get::<_, f32>(NpcOtherland::MoveSpeed).copied().unwrap_or_default() > 0.0
+        {
             pos.y = navmesh.get_floor_height(pos)
                 .unwrap_or_else(|| {
                     error!("Failed to get floor height for NPC at position {pos}");
@@ -189,11 +192,7 @@ pub fn setup_non_client_movement(
                 }) + collision_extent.y;
             
             obj.set(NonClientBase::Pos, pos);
-
-            true
-        } else {
-            false
-        };
+        }
 
         let movement = Movement {
             position: *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap(),
