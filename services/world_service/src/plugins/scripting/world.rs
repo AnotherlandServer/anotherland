@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::ecs::{query::With, system::{In, Query, Res}, world::World};
+use bevy::{ecs::{query::With, system::{In, Query, Res}, world::World}, time::{Time, Virtual}};
 use mlua::{IntoLua, Lua, Table, Value};
 use scripting::{LuaExt, LuaRuntime, ScriptObject, ScriptResult};
 use toolkit::types::AvatarId;
@@ -120,5 +120,11 @@ pub fn insert_world_api(
         Ok(result)
     })?)?;
     
+    object_api.set("GetCurrentTime", lua.create_bevy_function(world, |
+        timer: Res<Time<Virtual>>,
+    | -> WorldResult<f32> {
+        Ok(timer.elapsed_secs())
+    })?)?;
+
     Ok(())
 }
