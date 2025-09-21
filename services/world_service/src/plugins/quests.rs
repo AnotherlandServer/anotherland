@@ -13,23 +13,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, ops::Deref, path::PathBuf, sync::Arc};
 
-use bevy::{app::{Plugin, PostUpdate, PreStartup, PreUpdate, Startup}, ecs::{event::{Event, EventReader, EventWriter}, hierarchy::{ChildOf, Children}, query::{Changed, Or, With}, removal_detection::{RemovedComponentReader, RemovedComponents}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res, ResMut, SystemId}, world::World}, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}};
+use bevy::{app::{Plugin, PostUpdate, PreStartup, PreUpdate, Startup, Update}, ecs::{event::{Event, EventReader, EventWriter}, hierarchy::{ChildOf, Children}, query::{Changed, Or, With}, removal_detection::{RemovedComponentReader, RemovedComponents}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res, ResMut, SystemId}, world::World}, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}};
+use bonsai_bt::Status::Running;
 use futures::TryStreamExt;
 use log::{debug, error, info, warn};
-use mlua::{AsChunk, Function, IntoLua, Lua, Table};
+use mlua::{AsChunk, FromLua, Function, IntoLua, Lua, Table};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase};
-use protocol::{oaPktQuestEvent, oaPktQuestGiverStatus, oaPktQuestRequest, oaQuestTemplate, CPktStream_165_2, CPktStream_165_7, OaPktQuestEventEvent, OaPktQuestRequestRequest};
+use protocol::{oaPktQuestEvent, oaPktQuestGiverStatus, oaPktQuestRequest, oaPktQuestUpdate, oaPktRequestQuestAction, oaQuestBeacon, oaQuestCondition, oaQuestTemplate, AvatarFilter, CPktStream_165_2, CPktStream_165_7, OaPktQuestEventEvent, OaPktQuestRequestRequest, OaQuestConditionKind};
 use realm_api::{QuestProgressionState, WorldDef};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{LuaExt, LuaRuntime, LuaScriptReloaded, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 use tokio::task::block_in_place;
-use toolkit::NativeParam;
+use toolkit::{types::AvatarId, NativeParam};
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AvatarInfo, CommandExtPriv, ContentInfo, FutureCommands, InterestAdded, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AvatarInfo, CommandExtPriv, ContentInfo, FutureCommands, InstanceManager, InterestAdded, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
 pub struct QuestsPlugin {
-    quests_path: PathBuf
+    quests_path: PathBuf,
 }
 
 impl QuestsPlugin {
@@ -38,15 +39,27 @@ impl QuestsPlugin {
     }
 }
 
+#[derive(Resource)]
+struct QuestSettings {
+    quests_path: PathBuf
+}
+
 impl Plugin for QuestsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, (
+            hot_reload_quests,
             init_quest_entities, 
             load_questlogs_for_joined_players,
             quest_accepter,
             quest_abandoner,
             quest_returner,
         ));
+
+        app.add_systems(Update, (
+            transmit_questlog,
+            handle_quest_state_changes
+        ));
+
         app.add_systems(PostUpdate, (
             (sync_quest_state, update_available_quests).chain(),
             update_quest_markers,
@@ -65,74 +78,125 @@ impl Plugin for QuestsPlugin {
         app.register_command("fail_quest", command_fail_quest);
 
         app.register_message_handler(handle_quest_request);
-
-        let mut quests = HashMap::new();
-        let instance_manager = app.world().get_resource::<ZoneInstance>().unwrap().manager.clone();
-        let world_def = app.world().get_resource::<ZoneInstance>().unwrap().world_def.clone();
-        let mut runtime = app.world_mut().get_resource_mut::<LuaRuntime>().unwrap();
-
-        // We probably shouldn't load all quests on a per-instance basis.
-        // Refactor to cache the majority of them once for the service and only load 
-        // those quests that are needed for the specific map.
-        info!("Loading quests from {:?}", self.quests_path);
-        match self.quests_path.read_dir() {
-            Ok(entries) => {
-                for entry in entries.flatten() {
-                    match runtime.load_script(&format!("quests.{}", entry.path().file_stem().unwrap().to_str().unwrap())) {
-                        Ok(quest) => {
-                            let info: Result<(i32, String), mlua::Error> = try {
-                                (
-                                    quest.get::<i32>("id")?,
-                                    quest.get::<String>("world")?,
-                                )
-                            };
-
-                            match info {
-                                Ok((id, world)) => {
-                                    if quests.contains_key(&id) {
-                                        error!("Duplicate quest id {} in file {:?}", id, entry.path());
-                                        continue;
-                                    }
-
-                                    let Some(world_def) = block_in_place(|| instance_manager.get_world_def_by_name(&world)) else {
-                                        error!("Quest in file {:?} references unknown world: {}", entry.path(), world);
-                                        continue;
-                                    };
-
-                                    quests.insert(id, Arc::new(Quest {
-                                        id,
-                                        table: quest,
-                                        owned: world == world_def.name(),
-                                        world_def,
-                                    }));
-                                },
-                                Err(err) => {
-                                    error!("Quest in file {:?} does not have a valid id: {:?}", entry.path(), err);
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            error!("Failed to load quest {:?}: {:?}", entry.path(), err);
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                error!("Failed to read quest directory: {:?}", err);
-            }
-        }
-
-        info!("Loaded {} quests", quests.len());
-
-        app.insert_resource(QuestRegistry(quests));
+        app.register_message_handler(handle_quest_action_request);
 
         let quest_systems = QuestSystems {
             insert_questlog_for_player: app.register_system(insert_questlog_for_player),
         };
 
         app.insert_resource(quest_systems);
+        app.insert_resource(QuestRegistry::default());
 
         insert_questlog_api(app.world_mut()).unwrap();
+
+        let quests_path = self.quests_path.clone();
+
+        app.add_systems(PreStartup, 
+            move |
+                instance: Res<ZoneInstance>,
+                mut runtime: ResMut<LuaRuntime>,
+                mut commands: Commands,
+            | {
+                let instance_manager = instance.manager.clone();
+                let world_def = instance.world_def.clone();
+
+                // We probably shouldn't load all quests on a per-instance basis.
+                // Refactor to cache the majority of them once for the service and only load 
+                // those quests that are needed for the specific map.
+                info!("Loading quests from {:?}", quests_path);
+                match quests_path.read_dir() {
+                    Ok(entries) => {
+                        for entry in entries.flatten() {
+                            match runtime.load_script(&format!("quests.{}", entry.path().file_stem().unwrap().to_str().unwrap())) {
+                                Ok(quest) => {
+                                    let Ok(init_fn) = quest.get::<Function>("Init") else {
+                                        continue;
+                                    };
+
+                                    commands.call_lua_method(init_fn, quest);
+                                }
+                                Err(err) => {
+                                    error!("Failed to load quest {:?}: {:?}", entry.path(), err);
+                                }
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        error!("Failed to read quest directory: {:?}", err);
+                    }
+                }
+            });
+    }
+}
+
+#[derive(Clone)]
+pub struct AvatarFilterLua(protocol::AvatarFilter);
+
+impl Deref for AvatarFilterLua {
+    type Target = protocol::AvatarFilter;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl FromLua for AvatarFilterLua {
+    fn from_lua(value: mlua::Value, _lua: &Lua) -> mlua::Result<Self> {
+        let table = match &value {
+            mlua::Value::Table(t) => t,
+            _ => return Err(mlua::Error::FromLuaConversionError {
+                from: value.type_name(),
+                to: "AvatarFilter".to_string(),
+                message: Some("expected a table".to_string()),
+            }),
+        };
+
+        let filter_type: String = table.get("type")?;
+        let filter_value: String = table.get("filter")?;
+
+        let kind = match filter_type.as_str() {
+            "Content" => 1,
+            "Instance" => 2,
+            "QuestTags" => 3,
+            "LootItem" => 4,
+            "Dialog" => 5,
+            _ => return Err(mlua::Error::FromLuaConversionError {
+                from: value.type_name(),
+                to: "AvatarFilter".to_string(),
+                message: Some(format!("unknown filter type: {}", filter_type)),
+            }),
+        };
+
+        Ok(AvatarFilterLua(AvatarFilter {
+            kind,
+            filter: filter_value,
+        }))
+    }
+}
+
+impl IntoLua for AvatarFilterLua {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
+        let table = lua.create_table()?;
+        table.set("type", match self.0.kind {
+            1 => "Content",
+            2 => "Instance",
+            3 => "QuestTags",
+            4 => "LootItem",
+            5 => "Dialog",
+            _ => return Err(mlua::Error::FromLuaConversionError {
+                from: "AvatarFilter",
+                to: "table".to_string(),
+                message: Some(format!("unknown filter kind: {}", self.0.kind)),
+            }),
+        })?;
+        table.set("filter", self.0.filter)?;
+        Ok(mlua::Value::Table(table))
+    }
+}
+
+impl From<AvatarFilterLua> for AvatarFilter {
+    fn from(value: AvatarFilterLua) -> Self {
+        value.0
     }
 }
 
@@ -238,7 +302,7 @@ impl QuestEntity {
 }
 
 pub struct QuestProgress {
-    quest: Arc<Quest>,
+    template: Arc<Quest>,
     state: Option<realm_api::QuestState>,
 }
 
@@ -251,6 +315,24 @@ pub struct QuestLog {
     in_progress: HashSet<i32>,
 
     quests: HashMap<i32, QuestProgress>,
+}
+
+fn hot_reload_quests(
+    mut events: EventReader<LuaScriptReloaded>,
+    quests: Res<QuestRegistry>,
+    mut commands: Commands,
+) {
+    for _ in events.read() {
+        for (_, quest) in quests.0.iter() {
+            if 
+                let Ok(true) = quest.table.get::<bool>("__hot_reload") &&
+                let Ok(func) = quest.table.get::<Function>("HotReload")
+            {
+                    commands
+                        .call_lua_method(func, quest.table.clone());
+                }
+            }
+    }
 }
 
 fn init_quest_entities(
@@ -284,8 +366,10 @@ fn init_quest_entities(
 fn sync_quest_state(
     mut events: EventReader<QuestStateUpdated>,
     mut players: Query<(&mut QuestLog, &PlayerController)>,
+    npcs: Query<&AvatarInfo, With<NonClientBaseTag>>,
     quests: Res<QuestRegistry>,
     instance: Res<ZoneInstance>,
+    avatars: Res<InstanceManager>,
     mut commands: Commands,
 ) {
     for &QuestStateUpdated { player, scope, state} in events.read() {
@@ -305,7 +389,7 @@ fn sync_quest_state(
         let quest =  quest_log.quests
             .entry(quest_id)
             .or_insert_with(|| QuestProgress {
-                quest: quest.clone(),
+                template: quest.clone(),
                 state: None,
             });
 
@@ -331,13 +415,19 @@ fn sync_quest_state(
             },
             QuestState::Abandoned => {
                 if let Some(quest_state_tracker) = quest.state.take() {
-                    let player_controller = player_controller.clone();
+                    let realm_api = instance.realm_api.clone();
 
                     instance.spawn_task(async move {
-                        if let Err(e) = quest_state_tracker.delete().await {
-                            error!("Failed to delete quest state: {}", e);
-                            player_controller.close();
+                        if let Some(quest_state) = realm_api.query_quest_states()
+                            .character_id(quest_state_tracker.character_id)
+                            .quest_id(quest_state_tracker.quest_id)
+                            .query().await?
+                            .try_next().await?
+                        {
+                            quest_state.delete().await?;
                         }
+
+                        Ok::<(), WorldError>(())
                     });
 
                     quest_log.available.remove(&quest_id);
@@ -405,10 +495,18 @@ fn sync_quest_state(
                     _ => (),
                 }
 
+                player_controller.send_packet(oaPktQuestUpdate {
+                    player: player_controller.avatar_id(),
+                    quest_id: quest_id as u32,
+                    entry_count: 0,
+                    quest_failed: matches!(state, QuestProgressionState::Failed),
+                    accepted_time: quest_state_tracker.accepted_time.timestamp_millis(),
+                    ..Default::default()
+                });
+
                 // Store quest state
                 let realm_api = instance.realm_api.clone();
                 let controller = player_controller.clone();
-                
 
                 instance.spawn_task(async move {
                     let res: Result<(), realm_api::RealmApiError> = try {
@@ -449,7 +547,7 @@ pub fn update_quest_markers(
             continue;
         };
 
-        for (_, QuestProgress { quest, .. }) in quest_log.quests.iter() {
+        for (_, QuestProgress { template: quest, .. }) in quest_log.quests.iter() {
             if !quest.owned {
                 continue;
             }
@@ -484,7 +582,7 @@ pub fn update_quest_markers(
             continue;
         };
 
-        for (_, QuestProgress { quest, .. }) in quest_log.quests.iter() {
+        for (_, QuestProgress { template: quest, .. }) in quest_log.quests.iter() {
             if !quest.owned {
                 continue;
             }
@@ -526,10 +624,10 @@ pub fn insert_questlog_api(
 ) -> ScriptResult<()> {
     let runtime = world.get_resource::<LuaRuntime>().unwrap();
     let lua: Lua = runtime.vm().clone();
-    let object_api = lua.create_table().unwrap();
-    runtime.register_native("questlog", object_api.clone()).unwrap();
+    let quest_api = lua.create_table().unwrap();
+    runtime.register_native("questlog", quest_api.clone()).unwrap();
 
-    object_api.set("MarkQuestAvailable", lua.create_bevy_function(world, |
+    quest_api.set("MarkQuestAvailable", lua.create_bevy_function(world, |
         In((owner, quest_id)): In<(Table, i32)>,
         mut events: EventWriter<QuestStateUpdated>,
     | -> WorldResult<()> {
@@ -542,7 +640,7 @@ pub fn insert_questlog_api(
         Ok(())
     })?)?;
 
-    object_api.set("MarkQuestCompleted", lua.create_bevy_function(world, |
+    quest_api.set("MarkQuestCompleted", lua.create_bevy_function(world, |
         In((owner, quest_id)): In<(Table, i32)>,
         mut events: EventWriter<QuestStateUpdated>,
     | -> WorldResult<()> {
@@ -555,7 +653,7 @@ pub fn insert_questlog_api(
         Ok(())
     })?)?;
 
-    object_api.set("MarkQuestFinished", lua.create_bevy_function(world, |
+    quest_api.set("MarkQuestFinished", lua.create_bevy_function(world, |
         In((owner, quest_id)): In<(Table, i32)>,
         mut events: EventWriter<QuestStateUpdated>,
     | -> WorldResult<()> {
@@ -568,7 +666,7 @@ pub fn insert_questlog_api(
         Ok(())
     })?)?;
 
-    object_api.set("MarkQuestInProgress", lua.create_bevy_function(world, |
+    quest_api.set("MarkQuestInProgress", lua.create_bevy_function(world, |
         In((owner, quest_id)): In<(Table, i32)>,
         mut events: EventWriter<QuestStateUpdated>,
     | -> WorldResult<()> {
@@ -581,7 +679,7 @@ pub fn insert_questlog_api(
         Ok(())
     })?)?;
 
-    object_api.set("MarkQuestFailed", lua.create_bevy_function(world, |
+    quest_api.set("MarkQuestFailed", lua.create_bevy_function(world, |
         In((owner, quest_id)): In<(Table, i32)>,
         mut events: EventWriter<QuestStateUpdated>,
     | -> WorldResult<()> {
@@ -594,7 +692,7 @@ pub fn insert_questlog_api(
         Ok(())
     })?)?;
 
-    object_api.set("GetQuestState", lua.create_bevy_function(world, |
+    quest_api.set("GetQuestState", lua.create_bevy_function(world, |
         In((owner, quest_id)): In<(Table, i32)>,
         questlog: Query<&QuestLog>,
     | -> WorldResult<LuaQuestState> {
@@ -614,10 +712,10 @@ pub fn insert_questlog_api(
         }
     })?)?;
 
-    object_api.set("UpdateQuestMarker", lua.create_bevy_function(world, |
+    quest_api.set("UpdateQuestMarker", lua.create_bevy_function(world, |
         In((player_tbl, target_tbl, quest, state)): In<(Table, Table, Table, i32)>,
         targets: Query<&Children, With<NonClientBaseTag>>,
-        markers: Query<&QuestPlayer, With<QuestMarker>>,
+        markers: Query<&QuestPlayer, With<AttachedQuest>>,
         mut commands: Commands,
     | -> WorldResult<()> {
         let target_entity = target_tbl.entity()?;
@@ -636,24 +734,30 @@ pub fn insert_questlog_api(
             });
 
         if state == 0 && let Some((entity, _)) = marker {
-            commands.entity(entity).remove::<QuestMarker>();
-        } else if state != 0 && marker.is_none() {
-            commands.spawn(
+            commands.entity(entity)
+                .remove::<(QuestAvailable, AttachedQuest)>();
+        } else {
+            let quest_ent = commands.spawn(
                 (
-                    QuestMarker { quest_id },
+                    AttachedQuest { quest_id },
                     QuestPlayer(player_tbl.entity()?),
                     ChildOf(target_entity)
                 )
-            );
+            ).id();
+
+            if state == 1 {
+                commands.entity(quest_ent)
+                    .insert(QuestAvailable);
+            }
         }
 
         Ok(())
     })?)?;
 
-    object_api.set("GetAttachedQuests", lua.create_bevy_function(world, |
+    quest_api.set("GetAttachedQuests", lua.create_bevy_function(world, |
         In((target, player)): In<(Table, Table)>,
         quest_target: Query<&Children, With<NonClientBaseTag>>,
-        markers: Query<(&QuestPlayer, &QuestMarker)>,
+        markers: Query<(&QuestPlayer, &AttachedQuest)>,
         quests: Res<QuestRegistry>,
     | -> WorldResult<Vec<Table>> {
         let children = quest_target.get(target.entity()?)
@@ -671,6 +775,56 @@ pub fn insert_questlog_api(
         }
 
         Ok(result)
+    })?)?;
+
+    quest_api.set("UpdateQuest", lua.create_bevy_function(world, |
+        In(quest): In<Table>,
+        mut players: Query<(&mut QuestLog, &PlayerController)>,
+        mut quests: ResMut<QuestRegistry>,
+        runtime: Res<LuaRuntime>,
+        zone: Res<ZoneInstance>,
+    | -> WorldResult<()> {
+        let info: Result<(i32, String), mlua::Error> = try {
+            (
+                quest.get::<i32>("id")?,
+                quest.get::<String>("world")?,
+            )
+        };
+
+        match info {
+            Ok((id, world)) => {
+                // Update global quest registry
+                let Some(world_def) = block_in_place(|| zone.manager.get_world_def_by_name(&world)) else {
+                    return Err(WorldError::Other(anyhow!("Quest references unknown world: {}", world)));
+                };
+
+                let template = Arc::new(Quest {
+                    id,
+                    table: quest,
+                    owned: world == world_def.name(),
+                    world_def,
+                });
+
+                quests.0.insert(id, template.clone());
+
+                // Update clients
+                for (mut quest_log, controller) in players.iter_mut() {
+                    if 
+                        let Some(progress) = quest_log.quests.get_mut(&id) &&
+                        progress.state.is_some()
+                    {
+                        progress.template = template.clone();
+
+                        send_quest(runtime.vm(), controller, &template);
+                    }
+                }
+            },
+            Err(err) => {
+                return Err(WorldError::Other(anyhow!("Quest does not have a valid id: {:?}", err)));
+            }
+        }
+
+        Ok(())
     })?)?;
 
     Ok(())
@@ -747,6 +901,7 @@ fn update_available_quests(
                 matches!(state, QuestState::Progression(QuestProgressionState::Finished)) ||
                 matches!(state, QuestState::Progression(QuestProgressionState::Completed)) ||
                 matches!(state, QuestState::Progression(QuestProgressionState::Active)) ||
+                matches!(state, QuestState::Abandoned) ||
                 matches!(state, QuestState::Initialized)
             ) &&
             let Ok((mut questlog, script_object)) = players.get_mut(player)
@@ -845,7 +1000,7 @@ fn insert_questlog_for_player(
                             let quest = quest_registry.0.get(&q.quest_id)?.clone();
 
                             Some((q.quest_id, QuestProgress {
-                                quest,
+                                template: quest,
                                 state: Some(q),
                             }))
                         })
@@ -861,12 +1016,31 @@ fn insert_questlog_for_player(
     }
 }
 
+fn transmit_questlog(
+    query: Query<(&QuestLog, &PlayerController), Added<QuestLog>>,
+) {
+    for (quest_log, controller) in query.iter() {
+        for (_, quest) in quest_log.quests.iter() {
+            if let Some(state) = &quest.state {
+                controller.send_packet(oaPktQuestUpdate {
+                    player: controller.avatar_id(),
+                    quest_id: quest.template.id as u32,
+                    entry_count: 0,
+                    quest_failed: matches!(state.state, QuestProgressionState::Failed),
+                    accepted_time: state.accepted_time.timestamp_millis(),
+                    ..Default::default()
+                });
+            }
+        }
+    }
+}
+
 fn sync_quest_markers(
-    changed_markers: Query<Entity, Changed<QuestMarker>>,
+    changed_markers: Query<Entity, Changed<QuestAvailable>>,
     avatars: Query<&AvatarInfo>,
     players: Query<&PlayerController>,
     markers: Query<(&ChildOf, &QuestPlayer)>,
-    mut removed_markers: RemovedComponents<QuestMarker>,
+    mut removed_markers: RemovedComponents<QuestAvailable>,
     mut commands: Commands,
 ) {
     let mut added_avatars = HashMap::new();
@@ -931,10 +1105,118 @@ fn sync_quest_markers(
     }
 }
 
+fn send_quest(_lua: &mlua::Lua, controller: &PlayerController, quest: &Quest) {
+    let mut conditions = quest.table.get::<Table>("conditions").ok()
+        .and_then(|table| {
+            let mut conditions = vec![];
+
+            for pair in table.pairs::<i32, Table>() {
+                let (_, condition_table) = pair.ok()?;
+
+                let kind = match condition_table.get::<String>("type").ok()?.as_str() {
+                        "loot" => OaQuestConditionKind::Loot,
+                        "interact" => OaQuestConditionKind::Interact,
+                        "dialog" => OaQuestConditionKind::Dialog,
+                        _ => {
+                            warn!("Unknown quest condition type: {}", condition_table.get::<String>("type").ok()?);
+                            continue;
+                        }
+                    };
+
+                let (filter1, filter2) = match kind {
+                    OaQuestConditionKind::Unk0 | 
+                    OaQuestConditionKind::Unk2 | 
+                    OaQuestConditionKind::Unk6 | 
+                    OaQuestConditionKind::Unk7 | 
+                    OaQuestConditionKind::Unk8 | 
+                    OaQuestConditionKind::Interact => {
+                        (
+                            condition_table.get::<AvatarFilterLua>("avatar_filter").ok()
+                            .map(|f| f.into())
+                            .unwrap_or_default(),
+                            AvatarFilter::default()
+                        )
+                    },
+                    OaQuestConditionKind::Dialog => {
+                        (
+                            AvatarFilter::default(),
+                            AvatarFilter {
+                                kind: condition_table.get::<i32>("dialog").unwrap_or(0),
+                                ..Default::default()
+                            }
+                        )
+                    },
+                    OaQuestConditionKind::Loot => {
+                        (
+                            AvatarFilter::default(),
+                            AvatarFilter {
+                                kind: 4,
+                                filter: condition_table.get::<String>("item").unwrap_or_default(),
+                            }
+                        )
+                    },
+                    OaQuestConditionKind::Unk5 => {
+                        (
+                            AvatarFilter::default(),
+                            condition_table.get::<AvatarFilterLua>("avatar_filter").ok()
+                            .map(|f| f.into())
+                            .unwrap_or_default()
+                        )
+                    },
+                    OaQuestConditionKind::Unk17 => {
+                        (
+                            AvatarFilter::default(),
+                            condition_table.get::<AvatarFilterLua>("avatar_filter").ok()
+                            .map(|f| f.into())
+                            .unwrap_or_default()
+                        )
+                    },
+                };
+
+                let condition = oaQuestCondition {
+                    quest_id: quest.id,
+                    condition_id: condition_table.get::<i32>("id").ok()?,
+                    kind,
+                    filter1,
+                    filter2,
+                    greater_than_one: 2,
+                    required_count: condition_table.get::<i32>("required_count").ok()?,
+                    ..Default::default()
+                };
+
+                conditions.push(condition);
+            }
+
+            Some(conditions)
+        })
+        .unwrap_or_default();
+
+    let pkt = CPktStream_165_2 {
+        field_1: oaQuestTemplate {
+            quest_id: quest.id,
+            world_guid: *quest.world_def.guid(),
+            level: quest.table.get::<i32>("level").unwrap_or(0),
+            bit_reward: quest.table.get::<i32>("bit_reward").unwrap_or(0),
+            exp_reward: quest.table.get::<i32>("exp_reward").unwrap_or(0),
+            progress_dialogue: quest.table.get::<i32>("progress_dialogue").unwrap_or_default(),
+            completion_dialogue: quest.table.get::<i32>("completion_dialogue").unwrap_or_default(),
+            ..Default::default()
+        },
+        conditions: conditions.len() as u32,
+        field_3: conditions,
+        ..Default::default()
+    };
+
+    debug!("Sending quest {} to player {}: {:#?}", quest.id, controller.character_id(), pkt);
+
+    controller.send_packet(pkt);
+}
+
 fn handle_quest_request(
     In((ent, pkt)): In<(Entity, oaPktQuestRequest)>,
     players: Query<(&QuestLog, &PlayerController)>,
     quests: Res<QuestRegistry>,
+    runtime: Res<LuaRuntime>,
     mut commands: Commands,
 ) {
     debug!("Received quest request from player {}: {:?}", ent, pkt);
@@ -950,17 +1232,7 @@ fn handle_quest_request(
                 return;
             };
 
-            player_controller.send_packet(CPktStream_165_2 {
-                field_1: oaQuestTemplate {
-                    quest_id: quest.id,
-                    world_guid: *quest.world_def.guid(),
-                    level: quest.table.get::<i32>("level").unwrap_or(0),
-                    bit_reward: quest.table.get::<i32>("bit_reward").unwrap_or(0),
-                    exp_reward: quest.table.get::<i32>("exp_reward").unwrap_or(0),
-                    ..Default::default()
-                },
-                ..Default::default()
-            });
+            send_quest(runtime.vm(), player_controller, quest);
         },
         OaPktQuestRequestRequest::QueryActive => {
             let Ok((questlog, player_controller)) = players.get(ent) else {
@@ -978,8 +1250,10 @@ fn handle_quest_request(
                     continue;
                 }
 
-                pkt.quest_list[(quest_id / 8) as usize] = 1 << (quest_id % 8);
+                pkt.quest_list[(quest_id / 8) as usize] |= 1 << (quest_id % 8);
             }
+
+            debug!("Sending active quest list to player {}: {:?}", ent, pkt);
 
             player_controller.send_packet(pkt);
         },
@@ -1005,7 +1279,10 @@ fn handle_quest_request(
 }
 
 #[derive(Component)]
-pub struct QuestMarker { quest_id: i32 }
+pub struct AttachedQuest { quest_id: i32 }
+
+#[derive(Component)]
+pub struct QuestAvailable;
 
 #[derive(Component)]
 pub struct QuestPlayer(Entity);
@@ -1014,7 +1291,7 @@ pub fn send_quest_updates(
     mut event: EventReader<QuestStateUpdated>,
     players: Query<&PlayerController>,
 ) {
-    for &QuestStateUpdated { player, scope, state } in event.read() {
+    for &QuestStateUpdated { player, scope, state: new_state } in event.read() {
         let Ok(controller) = players.get(player) else {
             continue;
         };
@@ -1022,7 +1299,7 @@ pub fn send_quest_updates(
         let (quest_id, event) = match scope {
             QuestUpdateScope::Player => continue,
             QuestUpdateScope::Quest(quest_id) => {
-                let event = match state {
+                let event = match new_state {
                     QuestState::Abandoned => OaPktQuestEventEvent::QuestAbandoned,
                     QuestState::Progression(QuestProgressionState::Active) => OaPktQuestEventEvent::QuestAccepted,
                     QuestState::Progression(QuestProgressionState::Finished) => OaPktQuestEventEvent::QuestFinished,
@@ -1103,4 +1380,56 @@ fn quest_abandoner(
             });
         }
     }
+}
+
+fn handle_quest_state_changes(
+    mut events: EventReader<QuestStateUpdated>,
+    players: Query<&ScriptObject>,
+    quests: Res<QuestRegistry>,
+    mut commands: Commands,
+) {
+    for &QuestStateUpdated { player, scope, state: new_state } in events.read() {
+        let Ok(script_object) = players.get(player) else {
+            continue;
+        };
+
+        match scope {
+            QuestUpdateScope::Player => {
+                // Todo
+            },
+            QuestUpdateScope::Quest(quest_id) => {
+                let Some(quest) = quests.0.get(&quest_id) else {
+                    continue;
+                };
+
+                let func_name = match new_state {
+                    QuestState::Available => "OnQuestAvailable",
+                    QuestState::Progression(QuestProgressionState::Active) => "OnQuestAccepted",
+                    QuestState::Progression(QuestProgressionState::Completed) => "OnQuestCompleted",
+                    QuestState::Progression(QuestProgressionState::Finished) => "OnQuestFinished",
+                    QuestState::Progression(QuestProgressionState::Failed) => "OnQuestFailed",
+                    QuestState::Abandoned => "OnQuestAbandoned",
+                    QuestState::Initialized => continue,
+                };
+
+                let Ok(func) = quest.table.get::<Function>(func_name) else {
+                    continue;
+                };
+
+                commands.call_lua_method(
+                    func, 
+                    (quest.table.clone(), script_object.object().clone())
+                );
+            }
+        }
+    }
+}
+
+fn handle_quest_action_request(
+    In((ent, pkt)): In<(Entity, oaPktRequestQuestAction)>,
+    objects: Query<&ScriptObject>,
+
+    mut commands: Commands,
+) {
+
 }
