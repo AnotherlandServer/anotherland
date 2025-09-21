@@ -194,11 +194,12 @@ fn ai_tick(world: &mut World) {
 
         for (ent, state) in states.0.iter_mut() {
             let update_event: Event = UpdateArgs { dt: 0.1 }.into();
-            
+
             if 
-                let Some(obj) = world.entity(*ent).get::<ScriptObject>() &&
-                let Some(data) = world.entity(*ent).get::<GameObjectData>() &&
-                world.entity(*ent).get::<Active>().is_some() &&
+                let Ok(entity) = world.get_entity(*ent) &&
+                let Some(obj) = entity.get::<ScriptObject>() &&
+                let Some(data) = entity.get::<GameObjectData>() &&
+                entity.get::<Active>().is_some() &&
                 *data.get_named::<bool>("alive").unwrap_or(&false)
             {
                 let obj = obj.object().clone();
