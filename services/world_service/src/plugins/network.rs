@@ -493,6 +493,39 @@ pub fn handle_cluster_client_to_cluster_node(
 ) {
     if let Ok((controller, mut data)) = query.get_mut(ent) {
         match pkt.field_2 {
+            0x4 => { // Update quest tracker
+                debug!("Quest tracker update: {pkt:#?}");
+
+                let mut quests = data.get::<_, Vec<i32>>(Player::MyQuestTrack).cloned().unwrap_or_default();
+                
+                let NativeParam::Struct(args) = pkt.field_3 else {
+                    warn!("Invalid quest tracker update packet");
+                    controller.close();
+                    return;
+                };
+
+                let Some(NativeParam::Bool(active)) = args.get(0) else {
+                    warn!("Invalid quest tracker update packet");
+                    controller.close();
+                    return;
+                };
+
+                let Some(NativeParam::Int(quest_id)) = args.get(1) else {
+                    warn!("Invalid quest tracker update packet");
+                    controller.close();
+                    return;
+                };
+
+                if *active {
+                    if !quests.contains(quest_id) {
+                        quests.push(*quest_id);
+                    }
+                } else {
+                    quests.retain(|id| id != quest_id);
+                }
+
+                data.set(Player::MyQuestTrack, quests);
+            },
             0x5 => { // Check svr request
                 controller.send_packet(oaPktClusterNodeToClient {
                     field_1: Uuid::new(),
