@@ -15,7 +15,7 @@
 
 use std::{collections::HashMap, ops::Deref, path::PathBuf, sync::Arc};
 
-use bevy::{app::{Plugin, PostUpdate, PreStartup, PreUpdate, Startup, Update}, ecs::{event::{Event, EventReader, EventWriter}, hierarchy::{ChildOf, Children}, query::{Changed, Or, With}, removal_detection::{RemovedComponentReader, RemovedComponents}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res, ResMut, SystemId}, world::World}, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}};
+use bevy::{app::{Plugin, PostUpdate, PreStartup, PreUpdate, Startup, Update}, ecs::{event::{Event, EventReader, EventWriter}, hierarchy::{ChildOf, Children}, query::{Changed, Or, With}, removal_detection::{RemovedComponentReader, RemovedComponents}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res, ResMut, SystemId}, world::World}, math::Vec3, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, state::state::OnEnter};
 use bonsai_bt::Status::Running;
 use futures::TryStreamExt;
 use log::{debug, error, info, warn};
@@ -28,7 +28,7 @@ use anyhow::anyhow;
 use tokio::task::block_in_place;
 use toolkit::{types::AvatarId, NativeParam};
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AvatarInfo, CommandExtPriv, ContentInfo, FutureCommands, InstanceManager, InterestAdded, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
+use crate::{error::{WorldError, WorldResult}, instance::{InstanceState, ZoneInstance}, plugins::{AvatarInfo, CommandExtPriv, ContentInfo, FutureCommands, InstanceManager, InterestAdded, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
 pub struct QuestsPlugin {
     quests_path: PathBuf,
 }
@@ -91,7 +91,7 @@ impl Plugin for QuestsPlugin {
 
         let quests_path = self.quests_path.clone();
 
-        app.add_systems(PreStartup, 
+        app.add_systems(OnEnter(InstanceState::Initializing), 
             move |
                 instance: Res<ZoneInstance>,
                 mut runtime: ResMut<LuaRuntime>,
@@ -781,6 +781,7 @@ pub fn insert_questlog_api(
         In(quest): In<Table>,
         mut players: Query<(&mut QuestLog, &PlayerController)>,
         mut quests: ResMut<QuestRegistry>,
+        beacon_query: Query<&GameObjectData>,
         runtime: Res<LuaRuntime>,
         zone: Res<ZoneInstance>,
     | -> WorldResult<()> {
@@ -815,7 +816,7 @@ pub fn insert_questlog_api(
                     {
                         progress.template = template.clone();
 
-                        send_quest(runtime.vm(), controller, &template);
+                        send_quest(runtime.vm(), controller, &template, &zone, &beacon_query);
                     }
                 }
             },
@@ -1105,8 +1106,8 @@ fn sync_quest_markers(
     }
 }
 
-fn send_quest(_lua: &mlua::Lua, controller: &PlayerController, quest: &Quest) {
-    let mut conditions = quest.table.get::<Table>("conditions").ok()
+fn send_quest(_lua: &mlua::Lua, controller: &PlayerController, quest: &Quest, zone: &ZoneInstance, beacon_query: &Query<&GameObjectData>) {
+    let conditions = quest.table.get::<Table>("conditions").ok()
         .and_then(|table| {
             let mut conditions = vec![];
 
@@ -1121,6 +1122,22 @@ fn send_quest(_lua: &mlua::Lua, controller: &PlayerController, quest: &Quest) {
                             warn!("Unknown quest condition type: {}", condition_table.get::<String>("type").ok()?);
                             continue;
                         }
+                    };
+
+                let beacon = if 
+                        let Ok(beacon) = condition_table.get::<Table>("beacon") && 
+                        let Ok(ent) = beacon.entity() &&
+                        let Ok(data) = beacon_query.get(ent)
+                    {
+                        oaQuestBeacon {
+                            world_guid: *zone.world_def.guid(),
+                            zone_guid: *zone.zone.guid(),
+                            position: data.get_named::<Vec3>("pos").copied().unwrap_or_default().into(),
+                            height: data.get_named::<i32>("BeaconHeight").copied().unwrap_or_default() as u32,
+                            radius: data.get_named::<i32>("BeaconRadius").copied().unwrap_or_default() as u32,
+                        }
+                    } else {
+                        oaQuestBeacon::default()
                     };
 
                 let (filter1, filter2) = match kind {
@@ -1179,8 +1196,8 @@ fn send_quest(_lua: &mlua::Lua, controller: &PlayerController, quest: &Quest) {
                     kind,
                     filter1,
                     filter2,
-                    greater_than_one: 2,
                     required_count: condition_table.get::<i32>("required_count").ok()?,
+                    waypoint: beacon,
                     ..Default::default()
                 };
 
@@ -1217,6 +1234,8 @@ fn handle_quest_request(
     players: Query<(&QuestLog, &PlayerController)>,
     quests: Res<QuestRegistry>,
     runtime: Res<LuaRuntime>,
+    zone: Res<ZoneInstance>,
+    beacon_query: Query<&GameObjectData>,
     mut commands: Commands,
 ) {
     debug!("Received quest request from player {}: {:?}", ent, pkt);
@@ -1232,7 +1251,7 @@ fn handle_quest_request(
                 return;
             };
 
-            send_quest(runtime.vm(), player_controller, quest);
+            send_quest(runtime.vm(), player_controller, quest, &zone, &beacon_query);
         },
         OaPktQuestRequestRequest::QueryActive => {
             let Ok((questlog, player_controller)) = players.get(ent) else {
