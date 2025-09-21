@@ -15,7 +15,7 @@
 
 use std::{fs, path::{Path, PathBuf}, sync::mpsc::Receiver, time::Duration};
 
-use bevy::prelude::{Commands, Entity, NonSendMut, Query, ResMut, Resource, World};
+use bevy::{ecs::{event::EventReader, system::Res}, prelude::{Commands, Entity, NonSendMut, Query, ResMut, Resource, World}};
 use derive_builder::Builder;
 use log::{debug, error, info, trace, warn};
 use mlua::{Function, IntoLua, Lua, LuaOptions, StdLib, Table, Value};
@@ -23,7 +23,7 @@ use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
 use toolkit::init_vector_api;
 
-use crate::{api_names::ScriptApi, EntityScriptCommandsExt, ScriptError, ScriptResult, ScriptObject};
+use crate::{api_names::ScriptApi, EntityScriptCommandsExt, LuaScriptReloaded, ScriptError, ScriptObject, ScriptResult};
 
 pub(crate) const REG_WORLD: &str = "world";
 
@@ -369,15 +369,27 @@ pub(crate) fn hot_reload(
             }
         }
 
-        // Remove hot reload markers
-        let loaded = runtime.lua.named_registry_value::<Table>("_LOADED").unwrap();
-        let _ = loaded.for_each(|_: Value, module: Value| {
-            if let Some(module) = module.as_table() {
-                module.raw_remove("__hot_reload")?;
-            }
-
-            Ok(())
-        });
-
+        commands.send_event(LuaScriptReloaded);       
     }
+}
+
+pub fn clean_hot_reload(
+    mut events: EventReader<LuaScriptReloaded>,
+    runtime: Res<LuaRuntime>,
+) {
+    if events.is_empty() {
+        return;
+    }
+
+    // Remove hot reload markers
+    let loaded = runtime.lua.named_registry_value::<Table>("_LOADED").unwrap();
+    let _ = loaded.for_each(|_: Value, module: Value| {
+        if let Some(module) = module.as_table() {
+            module.raw_remove("__hot_reload")?;
+        }
+
+        Ok(())
+    });
+
+    events.clear();
 }
