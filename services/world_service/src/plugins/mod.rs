@@ -42,6 +42,7 @@ mod buffs;
 mod navigation;
 mod npc_ai;
 mod partitioning;
+mod lifetime;
 
 pub use network::*;
 pub use loader::*;
@@ -72,3 +73,4 @@ pub use buffs::*;
 pub use navigation::*;
 pub use npc_ai::*;
 pub use partitioning::*;
+pub use lifetime::*;

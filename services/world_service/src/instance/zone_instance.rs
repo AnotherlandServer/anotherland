@@ -28,7 +28,7 @@ use tokio::{runtime::Handle, task::JoinHandle};
 use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, CooldownGroups, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LoaderPlugin, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, NpcAiPlugin, PartitioningPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin, WorldSpace}, ARGS};
+use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, CooldownGroups, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LifetimePlugin, LoaderPlugin, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, NpcAiPlugin, PartitioningPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin, WorldSpace}, ARGS};
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct InstanceShutdown;
@@ -258,6 +258,7 @@ impl ZoneInstanceBuilder {
             NavigationPlugin,
             NpcAiPlugin,
             PartitioningPlugin,
+            LifetimePlugin,
         ));
 
         let navmesh = Navmesh::load(
