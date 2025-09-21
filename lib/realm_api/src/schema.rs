@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use chrono::Utc;
 use cynic::impl_scalar;
 use serde_json::Value;
 
@@ -26,3 +27,4 @@ pub struct Json(pub Value);
 impl_scalar!(obj_params::Class, schema::Class);
 impl_scalar!(toolkit::types::Uuid, schema::UUID);
 impl_scalar!(chrono::NaiveDate, schema::NaiveDate);
+impl_scalar!(chrono::DateTime<Utc>, schema::DateTime);

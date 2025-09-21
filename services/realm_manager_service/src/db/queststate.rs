@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use async_graphql::{Enum, InputObject, SimpleObject};
+use chrono::{DateTime, Utc};
 use database::DatabaseRecord;
 use mongodb::{bson::doc, options::IndexOptions, IndexModel};
 use serde::{Deserialize, Serialize};
@@ -50,6 +51,8 @@ pub struct QuestState {
 
     #[graphql_crud(filter)]
     pub quest_id: i32,
+
+    pub accepted_time: DateTime<Utc>,
 
     pub state: QuestProgressionState,
     pub conditions: Vec<QuestCondition>,

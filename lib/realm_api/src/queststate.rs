@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use chrono::{DateTime, Utc};
 use cynic::http::ReqwestExt;
 use cynic::{MutationBuilder, QueryBuilder, Id};
 use derive_builder::Builder;
@@ -153,6 +154,7 @@ pub struct QuestState {
     pub quest_id: i32,
     pub state: QuestProgressionState,
     pub conditions: Vec<QuestCondition>,
+    pub accepted_time: DateTime<Utc>,
 }
 
 impl QuestState {
@@ -168,6 +170,7 @@ impl QuestState {
                 .into_iter()
                 .map(QuestCondition::from)
                 .collect(),
+            accepted_time: other.accepted_time,
         }
     }
 
@@ -177,6 +180,7 @@ impl QuestState {
             quest_id: self.quest_id,
             state: self.state.into(),
             conditions: self.conditions.iter().copied().map(Into::into).collect(),
+            accepted_time: self.accepted_time,
         }
     }
 
@@ -249,6 +253,7 @@ impl RealmApi {
 			quest_id,
             state,
             conditions: vec![],
+            accepted_time: Utc::now(),
         }
     }
 
@@ -297,6 +302,7 @@ impl RealmApi {
 }
 
 pub(crate) mod queststate_graphql {
+    use chrono::{DateTime, Utc};
     use toolkit::types::Uuid;
 
     use crate::schema::*;
@@ -362,6 +368,7 @@ pub(crate) mod queststate_graphql {
         pub quest_id: i32,
         pub state: QuestProgressionState,
         pub conditions: Vec<QuestCondition>,
+        pub accepted_time: DateTime<Utc>,
     }
 
     #[derive(cynic::Enum, Debug)]
@@ -397,6 +404,7 @@ pub(crate) mod queststate_graphql {
         pub quest_id: i32,
         pub state: QuestProgressionState,
         pub conditions: Vec<QuestConditionInput>,
+        pub accepted_time: DateTime<Utc>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]
