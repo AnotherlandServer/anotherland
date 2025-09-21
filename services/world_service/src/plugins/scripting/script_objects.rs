@@ -13,12 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{system::{In, Res}, world::World}, prelude::{Added, App, Commands, Entity, EntityWorldMut, Query, ResMut}};
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{component::Component, system::{In, Res}, world::World}, prelude::{Added, App, Commands, Entity, EntityWorldMut, Query, ResMut}};
 use convert_case::{Case, Casing};
 use log::{error, warn};
-use mlua::{IntoLua, Lua, Table};
+use mlua::{Function, IntoLua, Lua, LuaSerdeExt, Table};
 use obj_params::{Class, GameObjectData, GenericParamSet, GenericParamSetBoxExt, NonClientBase};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptApi, EntityScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptApi, ScriptCommandsExt, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 
 use crate::{error::WorldResult, plugins::{AvatarInfo, ContentInfo, PlayerLocalSets}};
@@ -39,6 +39,9 @@ impl Plugin for ScriptObjectInfoPlugin {
         insert_portalbook_api(app.world_mut()).unwrap();
     }
 }
+
+#[derive(Component)]
+pub struct SpawnCallback(pub Function);
 
 fn insert_game_object_api(
     world: &mut World,
@@ -236,17 +239,22 @@ pub fn load_class_script(runtime: &mut LuaRuntime, class: Class, name: Option<&s
 }
 
 pub fn attach_scripts(
-    added: Query<(Entity, &GameObjectData), Added<GameObjectData>>,
+    added: Query<(Entity, &GameObjectData, Option<&SpawnCallback>), Added<GameObjectData>>,
     mut runtime: ResMut<LuaRuntime>,
     mut commands: Commands,
 ) {
-    for (ent, obj) in added.iter() {
+    for (ent, obj, spawn_callback) in added.iter() {
         match load_class_script(&mut runtime, obj.class(), obj.get::<_, String>(NonClientBase::LuaScript).ok().map(|s| s.as_str())) {
             Ok(lua_class) => {
                 commands.entity(ent)
-                    .insert(ScriptObject::new(&runtime, Some(lua_class)).unwrap())
+                    .insert(ScriptObject::new(&runtime, Some(lua_class.clone())).unwrap())
                     .queue(insert_object_info)
                     .call_named_lua_method(ScriptApi::Attach, ());
+
+                if let Some(SpawnCallback(callback)) = spawn_callback {
+                    commands.call_lua_method(callback.clone(), (runtime.vm().null(), lua_class));
+                    commands.entity(ent).remove::<SpawnCallback>();
+                }
             },
             Err(e) => {
                 error!("Failed to load script: {e}");
