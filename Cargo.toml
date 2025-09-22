@@ -66,7 +66,7 @@ portable-atomic = "1.10.0"
 rand = "0.8.5"
 rsa = { version = "0.9.7", features = ["hazmat"] }
 sha1 = "0.10.6"
-uuid = { version = "1.11.0", features = ["v1", "v4"] }
+uuid = { version = "1.18.1", features = ["v1", "v4"] }
 futures = "0.3.31"
 realm_manager_service = { version = "0.1.0", path = "services/realm_manager_service" }
 async-graphql = { version = "7.0.13", features = ["bson", "chrono", "chrono-tz", "uuid"] }
