@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::{app::{Last, Plugin}, ecs::{component::{Component, HookContext}, entity::Entity, query::{Added, Changed}, resource::Resource, system::{Commands, Query, ResMut}}, math::{bounding::Aabb3d, Vec3}};
-use spart::{geometry::{Cube, Point3D}, octree::Octree};
+use spart::{geometry::{Cube, EuclideanDistance, Point3D}, octree::Octree};
 
 use crate::plugins::Movement;
 
@@ -65,7 +65,7 @@ impl WorldSpace {
                 depth: (bounds.max.z - bounds.min.z).into(),
             },
             4, // max depth
-        );
+        ).unwrap();
 
         WorldSpace { tree }
     }
@@ -76,7 +76,7 @@ impl WorldSpace {
         radius: f32,
     ) -> Vec<Entity> {
         self.tree
-            .range_search(&Point3D { 
+            .range_search::<EuclideanDistance>(&Point3D { 
                 x: point.x.into(),
                 y: point.y.into(),
                 z: point.z.into(),
