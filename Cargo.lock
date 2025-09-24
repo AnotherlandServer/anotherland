@@ -1966,7 +1966,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fac387a98bb7c37292057cffc56d62ecb629900026402633ae9160df93a8766"
 dependencies = [
- "nom",
+ "nom 7.1.3",
 ]
 
 [[package]]
@@ -2170,7 +2170,7 @@ dependencies = [
  "async-trait",
  "convert_case 0.6.0",
  "json5",
- "nom",
+ "nom 7.1.3",
  "pathdiff",
  "ron",
  "rust-ini",
@@ -5359,7 +5359,7 @@ dependencies = [
  "glam",
  "indicatif",
  "log",
- "nom",
+ "nom 8.0.0",
  "once_cell",
  "pepkg",
  "plexus",
@@ -5480,6 +5480,15 @@ checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
  "minimal-lexical",
+]
+
+[[package]]
+name = "nom"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -5707,7 +5716,7 @@ dependencies = [
  "flexbuffers",
  "glam",
  "log",
- "nom",
+ "nom 8.0.0",
  "once_cell",
  "phf 0.11.3",
  "serde",
@@ -6227,7 +6236,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "log",
- "nom",
+ "nom 8.0.0",
  "quick-xml",
  "serde",
  "serde-xml-rs",
@@ -6677,7 +6686,7 @@ dependencies = [
  "glam",
  "itertools 0.14.0",
  "log",
- "nom",
+ "nom 8.0.0",
  "prettyplease",
  "proc-macro2",
  "quote",
@@ -8481,7 +8490,7 @@ dependencies = [
  "macros",
  "mlua",
  "mongodb",
- "nom",
+ "nom 8.0.0",
  "once_cell",
  "serde",
  "thiserror 2.0.16",
@@ -8813,7 +8822,7 @@ version = "0.1.0"
 dependencies = [
  "convert_case 0.6.0",
  "itertools 0.14.0",
- "nom",
+ "nom 8.0.0",
  "prettyplease",
  "proc-macro2",
  "quote",
@@ -8833,7 +8842,7 @@ dependencies = [
  "futures",
  "glam",
  "log",
- "nom",
+ "nom 8.0.0",
  "once_cell",
  "thiserror 2.0.16",
  "tokio",
