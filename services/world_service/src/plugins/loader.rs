@@ -381,7 +381,7 @@ fn command_get_avatar_info(
         return;
     };
 
-    let Some(target_ent) = avatar_manager.entity_from_avatar_id(target) else {
+    let Some(target_ent) = avatar_manager.resolve_avatar_id(target) else {
         return;
     };
 

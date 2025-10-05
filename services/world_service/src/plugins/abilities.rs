@@ -15,11 +15,11 @@
 
 use std::{sync::Arc, time::{Duration, Instant}};
 
-use bevy::{app::{App, Plugin, PostUpdate}, ecs::{component::Component, query::Changed, resource::Resource, system::{Commands, Res}, world::World}, platform::collections::HashMap, prelude::{Entity, In, Query}};
+use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{component::Component, event::{Event, EventReader}, query::Changed, resource::Resource, system::{Commands, Res}, world::World}, platform::collections::HashMap, prelude::{Entity, In, Query}};
 use futures::TryStreamExt;
-use mlua::{IntoLua, Lua, Table, Value};
+use mlua::{FromLua, Function, IntoLua, Lua, Table, Value};
 use obj_params::{Class, GameObjectData};
-use protocol::{oaPktAbilityRequest, oaPktAbilityUse, oaPktCooldownUpdate, AbilityEffect, CooldownEntry, CooldownUpdate, OaPktAbilityUseAbilityType};
+use protocol::{oaPktAbilityRequest, oaPktAbilityUse, oaPktCooldownUpdate, oaPktInteractionUpdate, AbilityEffect, CooldownEntry, CooldownUpdate, OaPktAbilityUseAbilityType, OaPktInteractionUpdateEventType, OaPktInteractionUpdateInteractionType};
 use realm_api::RealmApi;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
@@ -34,8 +34,11 @@ pub struct AbilitiesPlugin;
 
 impl Plugin for AbilitiesPlugin {
     fn build(&self, app: &mut App) {
+        app.add_event::<InteractionEvent>();
+
         app.register_message_handler(handle_ability_request);
         app.add_systems(PostUpdate, send_cooldown_updates);
+        app.add_systems(Update, send_interaction_events);
 
         insert_cooldown_api(app.world_mut()).unwrap();
         insert_ability_api(app.world_mut()).unwrap();
@@ -54,6 +57,97 @@ pub enum AbilityKind {
 pub enum EffectType {
     Damage { min: f32, max: f32 },
     Heal { min: f32, max: f32 },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Interaction {
+    Interact { duration: f32 },
+    Extract { duration: f32 },
+    Capture { duration: f32 },
+    CastComplete,
+    CastInterrupt,
+}
+
+impl FromLua for Interaction {
+    fn from_lua(value: Value, _lua: &Lua) -> mlua::Result<Self> {
+        let table = match value {
+            Value::Table(t) => t,
+            _ => return Err(mlua::Error::FromLuaConversionError {
+                from: value.type_name(),
+                to: "Interaction".to_string(),
+                message: Some("expected a table".into()),
+            }),
+        };
+
+        let kind: String = table.get("kind")?;
+        match kind.as_str() {
+            "interact" => {
+                let duration: f32 = table.get("duration")?;
+                Ok(Interaction::Interact { duration })
+            },
+            "extract" => {
+                let duration: f32 = table.get("duration")?;
+                Ok(Interaction::Extract { duration })
+            },
+            "capture" => {
+                let duration: f32 = table.get("duration")?;
+                Ok(Interaction::Capture { duration })
+            },
+            "cast_complete" => Ok(Interaction::CastComplete),
+            "cast_interrupt" => Ok(Interaction::CastInterrupt),
+            _ => Err(mlua::Error::FromLuaConversionError {
+                from: "table",
+                to: "Interaction".to_string(),
+                message: Some(format!("unknown interaction kind: {}", kind)),
+            }),
+        }
+    }
+}
+
+impl IntoLua for Interaction {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        let require = lua.globals().get::<Function>("require")?;
+
+        // Requiring another module in into_lua seems wrong. 
+        // Is there a better way of doing this?
+        let interaction = require.call::<Table>("engine.interaction")?; 
+
+        let metatable = lua.create_table()?;
+        metatable.set("__index", interaction)?;
+
+        let table = lua.create_table()?;
+        table.set_metatable(Some(metatable));
+
+        match self {
+            Interaction::Interact { duration } => {
+                table.set("kind", "interact")?;
+                table.set("duration", duration)?;
+            },
+            Interaction::Extract { duration } => {
+                table.set("kind", "extract")?;
+                table.set("duration", duration)?;
+            },
+            Interaction::Capture { duration } => {
+                table.set("kind", "capture")?;
+                table.set("duration", duration)?;
+            },
+            Interaction::CastComplete => {
+                table.set("kind", "cast_complete")?;
+            },
+            Interaction::CastInterrupt => {
+                table.set("kind", "cast_interrupt")?;
+            },
+        }
+
+        Ok(Value::Table(table))
+    }
+}
+
+#[derive(Event)]
+pub struct InteractionEvent {
+    pub source: Entity,
+    pub target: Entity,
+    pub interaction: Interaction,
 }
 
 #[derive(Component)]
@@ -204,51 +298,6 @@ fn insert_cooldown_api(
     Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
-enum EffectorSettings {
-    Damage {
-        #[serde(default)]
-        delay: f32,
-        #[serde(default)]
-        children: EffectorChildren,
-        #[serde(default)]
-        aoe_target_cap: Option<f32>,
-        #[serde(default)]
-        aoe_coefficient: Option<f32>,
-        #[serde(default)]
-        target_factory: Option<TargetFactory>,
-    }
-}
-
-#[derive(Serialize, Deserialize, Default)]
-struct EffectorChildren {
-    buff: Option<EffectorBuff>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EffectorBuff {
-    buff_name: String,
-    buff_duration: f32,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TargetFactory {
-    #[serde(rename = "type")]
-    kind: String,
-    #[serde(default)]
-    settings: TargetFactorySettings,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-struct TargetFactorySettings {
-    radius_max: Option<f32>,
-    angle: Option<f32>,
-    target_self: bool,
-    affect_enemies: bool,
-}
-
 fn handle_ability_request(
     In((ent, pkt)): In<(Entity, oaPktAbilityRequest)>,
     lua_objects: Query<&ScriptObject>,
@@ -260,7 +309,7 @@ fn handle_ability_request(
 
     let target = pkt.params
         .and_then(|s| s.parse::<AvatarId>().ok())
-        .and_then(|id| avatar_man.entity_from_avatar_id(id))
+        .and_then(|id| avatar_man.resolve_avatar_id(id))
         .and_then(|ent| lua_objects.get(ent).ok())
         .map(|obj| obj.object().clone());
 
@@ -592,5 +641,80 @@ fn insert_ability_api(
             Ok(())
         })?)?;
 
+    ability_api.set("FireInteractionEvent", lua.create_bevy_function(world, 
+        |
+            In((sender, interaction, target)): In<(Table, Interaction, Table)>,
+            mut commands: Commands,
+        | -> WorldResult<()> {
+            commands.send_event(InteractionEvent {
+                source: sender.entity()?,
+                target: target.entity()?,
+                interaction,
+            });
+        Ok(())
+    })?)?;
+
     Ok(())
+}
+
+fn send_interaction_events(
+    mut events: EventReader<InteractionEvent>,
+    players: Query<(&AvatarInfo, &PlayerController)>,
+    targets: Query<(&AvatarInfo, &ScriptObject)>,
+    mut commands: Commands,
+) {
+    for &InteractionEvent { source, target, interaction } in events.read() {
+        let Ok((player, controller)) = players.get(source) else { continue; };
+        let Ok((target, target_obj)) = targets.get(target) else { continue; };
+
+        controller.send_packet(oaPktInteractionUpdate {
+            instigator: player.id,
+            target: target.id,
+            event_type: match interaction {
+                Interaction::Interact { .. } => OaPktInteractionUpdateEventType::Interaction,
+                Interaction::Extract { .. } => OaPktInteractionUpdateEventType::Interaction,
+                Interaction::Capture { .. } => OaPktInteractionUpdateEventType::Interaction,
+                Interaction::CastComplete => OaPktInteractionUpdateEventType::CastCompleted,
+                Interaction::CastInterrupt => OaPktInteractionUpdateEventType::CastInterrupted,
+            },
+            interaction_type: match interaction {
+                Interaction::Interact { .. } => OaPktInteractionUpdateInteractionType::QuestInteract,
+                Interaction::Extract { .. } => OaPktInteractionUpdateInteractionType::EdnaExtract,
+                Interaction::Capture { .. } => OaPktInteractionUpdateInteractionType::CapturingFlag,
+                Interaction::CastComplete => OaPktInteractionUpdateInteractionType::QuestInteract, // undefined
+                Interaction::CastInterrupt => OaPktInteractionUpdateInteractionType::QuestInteract, // undefined
+            },
+            duration: match interaction {
+                Interaction::Interact { duration } => duration,
+                Interaction::Extract { duration } => duration,
+                Interaction::Capture { duration } => duration,
+                Interaction::CastComplete => 0.0,
+                Interaction::CastInterrupt => 0.0,
+            },
+            ..Default::default()
+        });
+
+        match interaction {
+            Interaction::Interact { .. } => {
+                commands.entity(source)
+                    .fire_lua_event("OnInteractionStart", (target_obj.object().clone(), interaction));
+            },
+            Interaction::Extract { .. } => {
+                commands.entity(source)
+                    .fire_lua_event("OnInteractionStart", (target_obj.object().clone(), interaction));
+            },
+            Interaction::Capture { .. } => {
+                commands.entity(source)
+                    .fire_lua_event("OnInteractionStart", (target_obj.object().clone(), interaction));
+            },
+            Interaction::CastComplete => {
+                commands.entity(source)
+                    .fire_lua_event("OnCastCompleted", (target_obj.object().clone(), interaction));
+            },
+            Interaction::CastInterrupt => {
+                commands.entity(source)
+                    .fire_lua_event("OnCastInterrupted", (target_obj.object().clone(), interaction));
+            },
+        }
+    }
 }

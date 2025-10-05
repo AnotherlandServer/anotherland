@@ -69,7 +69,7 @@ impl AvatarIdManager {
         self.entities.entry(id)
     }
 
-    pub fn entity_from_avatar_id(&self, id: AvatarId) -> Option<Entity> {
+    pub fn resolve_avatar_id(&self, id: AvatarId) -> Option<Entity> {
         self.entities.get(&id).copied()
     }
 }

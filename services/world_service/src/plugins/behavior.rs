@@ -124,7 +124,7 @@ fn handle_avatar_tell_behavior(
 ) {
     if 
         let Ok((instigator_ent, controller, instigator_script)) = instigator.get(ent) &&
-        let Some(target_ent) = avatars.entity_from_avatar_id(pkt.target) &&
+        let Some(target_ent) = avatars.resolve_avatar_id(pkt.target) &&
         let Ok((target_info, target, target_script)) = target.get(target_ent) &&
         let Ok(behavior) = pkt.behavior.parse::<StringBehavior>()
     {
@@ -169,7 +169,7 @@ fn handle_avatar_tell_behavior_binary(
 ) {
     if 
         let Ok((instigator_ent, controller, instigator_script)) = instigator.get(ent) &&
-        let Some(target_ent) = avatars.entity_from_avatar_id(pkt.target) &&
+        let Some(target_ent) = avatars.resolve_avatar_id(pkt.target) &&
         let Ok((target_info, target, target_script)) = target.get(target_ent)
     {
         let behavior = BinaryBehavior {
@@ -226,7 +226,7 @@ fn handle_avatar_request_behavior(
 
     if 
         let Ok((instigator_ent, controller, instigator_script)) = instigator.get(ent) &&
-        let Some(target_ent) = avatars.entity_from_avatar_id(pkt.avatar_id) &&
+        let Some(target_ent) = avatars.resolve_avatar_id(pkt.avatar_id) &&
         let Ok((target_info, target, target_script)) = target.get(target_ent) &&
         let Ok(behavior) = format!("{} {}", pkt.behaviour, pkt.data).parse::<StringBehavior>()
     {

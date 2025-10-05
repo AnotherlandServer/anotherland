@@ -19,12 +19,13 @@ use log::debug;
 use mlua::{FromLua, Lua, Table};
 use obj_params::{tags::{NpcOtherlandTag, PlayerTag}, NpcOtherland};
 use protocol::{oaDialogNode, oaDialogQuestPrototype, oaPktDialogChoice, oaPktDialogEnd, oaPktDialogList, CPktStream_166_2, DialogStructure};
+use realm_api::QuestProgressionState;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject};
 use toolkit::types::AvatarId;
 
-use crate::{error::WorldResult, plugins::AvatarInfo};
+use crate::{error::WorldResult, plugins::{AvatarInfo, QuestSegueEvent, QuestStateUpdated}};
 
-use super::{AvatarIdManager, NetworkExtPriv, PlayerController};
+use super::{AvatarIdManager, NetworkExtPriv, PlayerController, QuestState, QuestUpdateScope};
 
 pub struct DialoguePlugin;
 
@@ -82,14 +83,14 @@ impl FromLua for ChoiceEmote {
 
 pub struct DialogueChoice {
     pub choice_emote: ChoiceEmote,
-    pub next_index: usize,
+    pub next_index: Option<usize>,
 }
 
 impl FromLua for DialogueChoice {
     fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<Self> {
         let table: Table = FromLua::from_lua(value, lua)?;
         let choice_emote: ChoiceEmote = table.get("choice_emote")?;
-        let next_index: usize = table.get("next_index")?;
+        let next_index: Option<usize> = table.get("next_index").ok();
         Ok(DialogueChoice {
             choice_emote,
             next_index,
@@ -127,9 +128,10 @@ impl FromLua for DialogueNode {
 
 #[derive(Component)]
 pub struct DialogueState {
-    pub id: i32,
+    pub quest_id: i32,
     pub speaker: Entity,
     pub current_index: usize,
+    pub quest_finisher: bool,
     pub nodes: Vec<DialogueNode>,
 }
 
@@ -175,15 +177,16 @@ fn lua_show_tutorial_message(
 }
 
 fn lua_exec_dialogue(
-    In((player, speaker, id, dialogue)): In<(Table, Table, i32, Table)>,
+    In((player, speaker, quest_id, finish_quest, dialogue)): In<(Table, Table, i32, bool, Table)>,
     runtime: Res<LuaRuntime>,
     mut commands: Commands,
 ) -> mlua::Result<()> {
     commands.entity(player.entity()?)
         .insert(DialogueState {
             current_index: 0,
-            id,
+            quest_id,
             speaker: speaker.entity()?,
+            quest_finisher: finish_quest,
             nodes: {
                 let mut nodes = Vec::new();
                 for pair in dialogue.pairs::<mlua::Value, mlua::Value>() {
@@ -198,7 +201,7 @@ fn lua_exec_dialogue(
     commands.send_event(DialogueNodeSelected {
         player: player.entity()?,
         speaker: speaker.entity()?,
-        id,
+        id: quest_id,
         index: 0,
     });
 
@@ -224,7 +227,7 @@ fn handle_dialogue_request(
     mut commands: Commands,
 ) {
     if 
-        let Some(target_ent) = avatar_id_manager.entity_from_avatar_id(pkt.target) &&
+        let Some(target_ent) = avatar_id_manager.resolve_avatar_id(pkt.target) &&
         let Ok(player) = query.get(ent)
     {
         commands.entity(target_ent)
@@ -237,7 +240,7 @@ fn handle_dialogue_choice(
     avatar_id_manager: Res<AvatarIdManager>,
     mut commands: Commands,
 ) {
-    let Some(speaker) = avatar_id_manager.entity_from_avatar_id(pkt.target) else {
+    let Some(speaker) = avatar_id_manager.resolve_avatar_id(pkt.target) else {
         return;
     };
 
@@ -278,7 +281,7 @@ fn send_dialogue_nodes(
         if let Some(node) = state.nodes.get(state.current_index) {
             let choices = node.choices.iter().map(|choice| {
                 protocol::oaDialogChoice {
-                    dialogue_serial_number: choice.next_index.to_string(),
+                    dialogue_serial_number: choice.next_index.unwrap_or(node.choices.len()).to_string(),
                     emote_index: match choice.choice_emote {
                         ChoiceEmote::Close => protocol::OaDialogChoiceEmoteIndex::Close,
                         ChoiceEmote::Approve => protocol::OaDialogChoiceEmoteIndex::Approve,
@@ -294,9 +297,9 @@ fn send_dialogue_nodes(
             let pkt = CPktStream_166_2 {
                 field_1: DialogStructure {
                     npc_id: speaker_info.id,
-                    dialog_id: state.id,
+                    dialog_id: state.quest_id,
                     dialog_node: oaDialogNode {
-                        dialogue_id: state.id,
+                        dialogue_id: state.quest_id,
                         dialog_content_id: node.content_id,
                         ..Default::default()
                     },
@@ -318,6 +321,17 @@ fn send_dialogue_nodes(
             debug!("Sending dialogue to player {}: {:#?}", controller.avatar_id(), pkt);
 
             controller.send_packet(pkt);
+        } else if state.quest_finisher {
+            commands.send_event(QuestStateUpdated {
+                player: event.player,
+                scope: QuestUpdateScope::Quest(state.quest_id),
+                state: QuestState::Progression(QuestProgressionState::Finished),
+            });
+
+            commands.send_event(QuestSegueEvent {
+                player: event.player,
+                speaker: event.speaker,
+            });
         } else {
             // Node not found, end dialogue
             commands.send_event(DialogueEnd {
@@ -339,7 +353,7 @@ fn send_dialogue_end(
 
         controller.send_packet(oaPktDialogEnd {
             player_id: controller.avatar_id(),
-            dialogue_id: state.id,
+            dialogue_id: state.quest_id,
             ..Default::default()
         });
 

@@ -18,7 +18,7 @@ use log::{debug, error};
 use mlua::{Lua, Table};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, NpcOtherland, Player};
 use protocol::{oaPktMoveManagerPosUpdate, oaPktMoveManagerStateChanged, Physics, PhysicsState};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{OtherlandQuatExt, QuatWrapper, Vec3Wrapper};
 use anyhow::anyhow;
 
@@ -148,7 +148,8 @@ pub fn handle_move_manager_pos_update(
 
         commands
             .entity(ent)
-            .insert(ForceSyncPositionUpdate);
+            .insert(ForceSyncPositionUpdate)
+            .fire_lua_event("OnPositionUpdated", (Vec3Wrapper(movement.position), QuatWrapper(movement.rotation), Vec3Wrapper(movement.velocity)));
     }
 }
 

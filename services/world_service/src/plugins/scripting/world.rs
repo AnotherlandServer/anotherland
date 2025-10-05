@@ -47,7 +47,7 @@ pub fn insert_world_api(
         query: Query<&ScriptObject>,
     | -> WorldResult<Value> {
         if 
-            let Some(entity_id) = avatar_manager.entity_from_avatar_id(id) &&
+            let Some(entity_id) = avatar_manager.resolve_avatar_id(id) &&
             let Ok(obj) = query.get(entity_id)
         {
             Ok(obj.object().clone().into_lua(runtime.vm())?)
