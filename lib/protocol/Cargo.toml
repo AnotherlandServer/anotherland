@@ -10,7 +10,7 @@ convert_case = "0.6.0"
 itertools = "0.14.0"
 prettyplease = "0.2.37"
 proc-macro2 = "1.0.92"
-quote = "1.0.37"
+quote = "1.0.41"
 syn = "2.0.105"
 yaml-rust = "0.4.5"
 
