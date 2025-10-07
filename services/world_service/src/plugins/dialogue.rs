@@ -17,15 +17,14 @@ use anyhow::anyhow;
 use bevy::{app::{Plugin, PreStartup, Update}, ecs::{component::Component, event::{Event, EventReader}}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
 use log::debug;
 use mlua::{FromLua, Lua, Table};
-use obj_params::{tags::{NpcOtherlandTag, PlayerTag}, NpcOtherland};
+use obj_params::tags::{NpcOtherlandTag, PlayerTag};
 use protocol::{oaDialogNode, oaDialogQuestPrototype, oaPktDialogChoice, oaPktDialogEnd, oaPktDialogList, CPktStream_166_2, DialogStructure};
-use realm_api::QuestProgressionState;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject};
 use toolkit::types::AvatarId;
 
-use crate::{error::WorldResult, plugins::{AvatarInfo, QuestSegueEvent, QuestStateUpdated}};
+use crate::{error::WorldResult, plugins::{AvatarInfo, ReturnQuest}};
 
-use super::{AvatarIdManager, NetworkExtPriv, PlayerController, QuestState, QuestUpdateScope};
+use super::{AvatarIdManager, NetworkExtPriv, PlayerController};
 
 pub struct DialoguePlugin;
 
@@ -322,15 +321,9 @@ fn send_dialogue_nodes(
 
             controller.send_packet(pkt);
         } else if state.quest_finisher {
-            commands.send_event(QuestStateUpdated {
+            commands.send_event(ReturnQuest {
                 player: event.player,
-                scope: QuestUpdateScope::Quest(state.quest_id),
-                state: QuestState::Progression(QuestProgressionState::Finished),
-            });
-
-            commands.send_event(QuestSegueEvent {
-                player: event.player,
-                speaker: event.speaker,
+                quest_id: state.quest_id,
             });
         } else {
             // Node not found, end dialogue
@@ -350,6 +343,8 @@ fn send_dialogue_end(
         let Ok((state, controller)) = players.get(event.player) else {
             continue;
         };
+
+        debug!("Ending dialogue for player {}", controller.avatar_id());
 
         controller.send_packet(oaPktDialogEnd {
             player_id: controller.avatar_id(),
