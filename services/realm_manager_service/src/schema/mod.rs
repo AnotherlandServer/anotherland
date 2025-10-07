@@ -23,7 +23,7 @@ use premium_currency::{PremiumCurrencyMutationRoot, PremiumCurrencyRoot};
 use session_state::{SessionStateMutationRoot, SessionStateRoot};
 use skillbook_ext::SkillbookExtMutationRoot;
 
-use crate::db;
+use crate::{db, schema::queststate_ext::QuestStateExtMutationRoot};
 
 mod character_ext;
 mod premium_currency;
@@ -34,6 +34,7 @@ mod session_state;
 mod item_storage_ext;
 mod skillbook_ext;
 mod abilitybar_ext;
+mod queststate_ext;
 
 pub use types::*;
 
@@ -83,4 +84,5 @@ pub struct MutationRoot(
     pub db::NavmeshMutationRoot,
     pub db::NavmeshTileMutationRoot,
     pub db::QuestStateMutationRoot,
+    pub QuestStateExtMutationRoot,
 );

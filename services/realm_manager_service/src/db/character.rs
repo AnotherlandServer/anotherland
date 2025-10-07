@@ -116,6 +116,7 @@ impl DatabaseRecord for Character {
             ("skillbook", "character_id"),
             ("ability_bar", "id"),
             ("item_storages", "owner.Character"),
+            ("quest_states", "character_id"),
         ]
     }
 

@@ -23,7 +23,7 @@ use toolkit::anyhow;
 use toolkit::record_pagination::{RecordCursor, RecordPage, RecordQuery};
 use crate::{RealmApi, RealmApiError, RealmApiResult};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuestProgressionState {
     Active,
     Completed,
@@ -49,6 +49,30 @@ impl From<QuestProgressionState> for queststate_graphql::QuestProgressionState {
             QuestProgressionState::Completed => Self::Completed,
             QuestProgressionState::Finished => Self::Finished,
             QuestProgressionState::Failed => Self::Failed,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ConditionUpdate {
+    Increment,
+    Set,
+}
+
+impl From<queststate_graphql::ConditionUpdate> for ConditionUpdate {
+    fn from(value: queststate_graphql::ConditionUpdate) -> Self {
+        match value {
+            queststate_graphql::ConditionUpdate::Increment => Self::Increment,
+            queststate_graphql::ConditionUpdate::Set => Self::Set,
+        }
+    }
+}
+
+impl From<ConditionUpdate> for queststate_graphql::ConditionUpdate {
+    fn from(value: ConditionUpdate) -> Self {
+        match value {
+            ConditionUpdate::Increment => Self::Increment,
+            ConditionUpdate::Set => Self::Set,
         }
     }
 }
@@ -216,6 +240,30 @@ impl QuestState {
         Ok(())
     }
 
+    pub async fn update_condition(&mut self, condition_id: i32, update: ConditionUpdate, value: i32) -> RealmApiResult<()> {
+        if 
+            let Some(api_base) = &self.api_base &&
+            let Some(graphql_id) = &self.id &&
+            let Some(updated) = api_base
+                .update_condition(graphql_id, condition_id, update, value)
+                .await?
+        {
+            *self = updated;
+        }
+        Ok(())
+    }
+
+    /// Update the quest progression state and refresh this instance.
+    pub async fn update_state(&mut self, new_state: QuestProgressionState) -> RealmApiResult<()> {
+        if 
+            let (Some(api_base), Some(graphql_id)) = (&self.api_base, &self.id) &&
+            let Some(updated) = api_base.update_state(graphql_id, new_state).await?
+        {
+            *self = updated;
+        }
+        Ok(())
+    }
+
     pub async fn delete(self) -> RealmApiResult<()> {
 		if 
 			let Some(api_base) = &self.api_base &&
@@ -298,6 +346,68 @@ impl RealmApi {
         }
 
         Err(RealmApiError::Other(anyhow::anyhow!("No data returned")))
+    }
+
+    /// Call the updateCondition mutation directly.
+    pub async fn update_condition(
+        &self,
+        state_id: &Id,
+        condition_id: i32,
+        update: ConditionUpdate,
+        value: i32,
+    ) -> RealmApiResult<Option<QuestState>> {
+        let response = self
+            .0
+            .client
+            .post(self.0.base_url.clone())
+            .run_graphql(queststate_graphql::UpdateCondition::build(
+                queststate_graphql::UpdateConditionVariables {
+                    state_id: state_id.clone(),
+                    condition_id,
+                    update: update.into(),
+                    value,
+                },
+            ))
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(RealmApiError::GraphQl(errors));
+        }
+
+        if let Some(data) = response.data {
+            Ok(data.update_condition.map(|qs| QuestState::from_graphql(self, qs)))
+        } else {
+            Err(RealmApiError::Other(anyhow::anyhow!("No data returned")))
+        }
+    }
+
+    /// Call the updateState mutation directly.
+    pub async fn update_state(
+        &self,
+        state_id: &Id,
+        new_state: QuestProgressionState,
+    ) -> RealmApiResult<Option<QuestState>> {
+        let response = self
+            .0
+            .client
+            .post(self.0.base_url.clone())
+            .run_graphql(queststate_graphql::UpdateState::build(
+                queststate_graphql::UpdateStateVariables {
+                    state_id: state_id.clone(),
+                    new_state: new_state.into(),
+                },
+            ))
+            .await?;
+
+        if let Some(errors) = response.errors {
+            return Err(RealmApiError::GraphQl(errors));
+        }
+
+        if let Some(data) = response.data {
+            Ok(data.update_state.map(|qs| QuestState::from_graphql(self, qs)))
+        } else {
+            Err(RealmApiError::Other(anyhow::anyhow!("No data returned")))
+        }
     }
 }
 
@@ -426,5 +536,45 @@ pub(crate) mod queststate_graphql {
     pub struct DeleteQueststate {
         #[arguments(id: $id)]
         pub delete_quest_state: Option<QuestState>,
+    }
+
+    // New enum for condition update
+    #[derive(cynic::Enum, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub enum ConditionUpdate {
+        Increment,
+        Set,
+    }
+
+    // Variables for updateCondition
+    #[derive(cynic::QueryVariables, Debug)]
+    pub struct UpdateConditionVariables {
+        pub state_id: ID,
+        pub condition_id: i32,
+        pub update: ConditionUpdate,
+        pub value: i32,
+    }
+
+    // Mutation fragment for updateCondition
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateConditionVariables")]
+    pub struct UpdateCondition {
+        #[arguments(stateId: $state_id, conditionId: $condition_id, update: $update, value: $value)]
+        pub update_condition: Option<QuestState>,
+    }
+
+    // Variables for updateState
+    #[derive(cynic::QueryVariables, Debug)]
+    pub struct UpdateStateVariables {
+        pub state_id: ID,
+        pub new_state: QuestProgressionState,
+    }
+
+    // Mutation fragment for updateState
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateStateVariables")]
+    pub struct UpdateState {
+        #[arguments(stateId: $state_id, newState: $new_state)]
+        pub update_state: Option<QuestState>,
     }
 }

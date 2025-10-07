@@ -20,7 +20,7 @@ use mongodb::{bson::doc, options::IndexOptions, IndexModel};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud, ObjectId};
 
-#[derive(Enum, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Enum, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum QuestProgressionState {
     Active,
     Completed,
@@ -28,7 +28,7 @@ pub enum QuestProgressionState {
     Failed,
 }
 
-#[derive(Serialize, Deserialize, InputObject, SimpleObject)]
+#[derive(Debug, Serialize, Deserialize, InputObject, SimpleObject)]
 #[graphql(input_name = "QuestConditionInput", name = "QuestCondition")]
 pub struct QuestCondition {
     pub id: i32,
@@ -36,7 +36,7 @@ pub struct QuestCondition {
     pub required_count: i32,
 }
 
-#[derive(Serialize, Deserialize, GraphqlCrud)]
+#[derive(Debug, Serialize, Deserialize, GraphqlCrud)]
 #[graphql_crud(name = "QuestState", primary_key_type = "async_graphql::types::ID")]
 pub struct QuestState {
     #[serde(
