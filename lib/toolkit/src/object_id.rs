@@ -18,7 +18,7 @@ use std::{fmt::{Display, Formatter}, ops::{Deref, DerefMut}};
 use async_graphql::{connection::CursorType, InputType, ID};
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ObjectId(mongodb::bson::oid::ObjectId);
 
 impl Display for ObjectId {
