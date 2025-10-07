@@ -21,7 +21,7 @@ use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use futures::{TryStreamExt};
 use log::{debug, error};
 use mlua::{Lua, Table};
-use obj_params::GameObjectData;
+use obj_params::{tags::NonClientBaseTag, GameObjectData, NonClientBase};
 use protocol::{CPktAvatarBehaviors, NetworkVec3};
 use realm_api::{RealmApi, WorldDef};
 use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshParams, DtNavMeshQuery, DtPolyRef, DtQueryFilter, DtTileRef}, detour_crowd::DtPathCorridor};
@@ -645,12 +645,15 @@ fn replicate_paths_on_clients(
 
 fn cleanup_targets(
     mut inactive: RemovedComponents<Active>,
+    query: Query<Entity, With<NonClientBaseTag>>,
     mut commands: Commands,
 ) {
     for ent in inactive.read() {
-        commands.entity(ent)
-            .remove::<NavTarget>()
-            .remove::<PathCorridor>()
-            .remove::<Pathing>();
+        if query.contains(ent) {
+            commands.entity(ent)
+                .remove::<NavTarget>()
+                .remove::<PathCorridor>()
+                .remove::<Pathing>();
+        }
     }
 }
