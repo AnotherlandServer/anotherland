@@ -37,9 +37,9 @@ impl Plugin for InterestsPlugin {
         app.add_event::<InterestTransmitted>();
         app.add_event::<InterestRemoved>();
 
-        app.add_systems(PreUpdate, enable_npc_interest_building);
-        app.add_systems(Update, 
+        app.add_systems(PreUpdate, 
             (
+                enable_npc_interest_building,
                 (
                     enable_player_interest_building,
                     update_interest_list,

@@ -201,7 +201,7 @@ fn lua_exec_dialogue(
         player: player.entity()?,
         speaker: speaker.entity()?,
         id: quest_id,
-        index: 0,
+        index: 1,
     });
 
     Ok(())
@@ -275,12 +275,12 @@ fn send_dialogue_nodes(
             continue;
         };
 
-        state.current_index = event.index;
+        state.current_index = event.index - 1;
         
         if let Some(node) = state.nodes.get(state.current_index) {
             let choices = node.choices.iter().map(|choice| {
                 protocol::oaDialogChoice {
-                    dialogue_serial_number: choice.next_index.unwrap_or(node.choices.len()).to_string(),
+                    dialogue_serial_number: choice.next_index.unwrap_or(event.index  + 1).to_string(),
                     emote_index: match choice.choice_emote {
                         ChoiceEmote::Close => protocol::OaDialogChoiceEmoteIndex::Close,
                         ChoiceEmote::Approve => protocol::OaDialogChoiceEmoteIndex::Approve,
@@ -336,11 +336,11 @@ fn send_dialogue_nodes(
 
 fn send_dialogue_end(
     mut events: EventReader<DialogueEnd>,
-    players: Query<(&DialogueState, &PlayerController)>,
+    players: Query<&PlayerController>,
     mut commands: Commands,
 ) {
     for event in events.read() {
-        let Ok((state, controller)) = players.get(event.player) else {
+        let Ok(controller) = players.get(event.player) else {
             continue;
         };
 
@@ -348,7 +348,7 @@ fn send_dialogue_end(
 
         controller.send_packet(oaPktDialogEnd {
             player_id: controller.avatar_id(),
-            dialogue_id: state.quest_id,
+            dialogue_id: -1,
             ..Default::default()
         });
 

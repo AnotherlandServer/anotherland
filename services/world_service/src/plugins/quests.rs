@@ -15,7 +15,8 @@
 
 use std::{collections::HashMap, ops::Deref, path::PathBuf, sync::Arc};
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{event::{Event, EventReader}, hierarchy::{ChildOf, Children}, query::{Changed, With}, removal_detection::RemovedComponents, resource::Resource, system::{In, ParamSet, Res, ResMut, SystemId}, world::World}, math::Vec3, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, state::state::OnEnter};
+use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{event::{Event, EventReader}, hierarchy::{ChildOf, Children}, query::{Changed, With}, removal_detection::RemovedComponents, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ParamSet, Res, ResMut, SystemId}, world::World}, math::Vec3, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, state::state::OnEnter};
+use chrono::{DateTime, Utc};
 // use bonsai_bt::Status::Running;
 use futures::TryStreamExt;
 use log::{debug, error, info, warn};
@@ -56,14 +57,13 @@ impl Plugin for QuestsPlugin {
             transmit_questlog,
             handle_quest_state_changes,
             handle_quest_condition_update,
-        ));
-
-        app.add_systems(PostUpdate, (
-            sync_quest_state, 
-            update_available_quests, 
-            update_quest_markers, 
-            quest_segue_handler,
-            sync_quest_markers,
+            sync_quest_state.after(handle_quest_state_changes), 
+            (
+                update_available_quests, 
+                update_quest_markers, 
+                sync_quest_markers,
+                quest_segue_handler,
+            ).chain().after(handle_quest_state_changes),
         ));
 
         app.add_event::<QuestStateUpdated>();
@@ -1146,6 +1146,7 @@ fn send_quest(_lua: &mlua::Lua, controller: &PlayerController, quest: &Quest, zo
                         "loot" => OaQuestConditionKind::Loot,
                         "interact" => OaQuestConditionKind::Interact,
                         "dialog" => OaQuestConditionKind::Dialog,
+                        "wait" => OaQuestConditionKind::Wait,
                         _ => {
                             warn!("Unknown quest condition type: {}", condition_table.get::<String>("type").ok()?);
                             continue;
@@ -1216,6 +1217,7 @@ fn send_quest(_lua: &mlua::Lua, controller: &PlayerController, quest: &Quest, zo
                             .unwrap_or_default()
                         )
                     },
+                    OaQuestConditionKind::Wait => (AvatarFilter::default(), AvatarFilter::default()),
                 };
 
                 let condition = oaQuestCondition {
@@ -1245,6 +1247,7 @@ fn send_quest(_lua: &mlua::Lua, controller: &PlayerController, quest: &Quest, zo
             exp_reward: quest.table.get::<i32>("exp_reward").unwrap_or(0),
             progress_dialogue: quest.table.get::<i32>("progress_dialogue").unwrap_or_default(),
             completion_dialogue: quest.table.get::<i32>("completion_dialogue").unwrap_or_default(),
+            system_flags: 16,
             ..Default::default()
         },
         conditions: conditions.len() as u32,
@@ -1505,6 +1508,10 @@ fn handle_quest_state_changes(
             QuestState::Abandoned => "OnQuestAbandoned",
         };
 
+        if let QuestState::Finished = state {
+            commands.send_event(RequestNextQuest { player });
+        }
+
         let Ok(func) = quest.table.get::<Function>(func_name) else {
             continue;
         };
@@ -1592,9 +1599,9 @@ fn quest_segue_handler(
     mut commands: Commands,
 ) {
     for &RequestNextQuest { player } in events.read() {
-        if let Ok((player, dialogue_state)) = query.get(player) {
+        if let Ok((script_object, dialogue_state)) = query.get(player) {
             commands.entity(dialogue_state.speaker)
-                .call_named_lua_method("RequestDialogue", player.object().clone());
+                .call_named_lua_method("RequestDialogue", script_object.object().clone());
         }
     }
 }
