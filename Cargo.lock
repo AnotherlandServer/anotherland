@@ -6806,7 +6806,7 @@ version = "0.1.0"
 dependencies = [
  "bitstream-io",
  "bson",
- "convert_case 0.6.0",
+ "convert_case 0.8.0",
  "glam 0.29.3",
  "itertools 0.14.0",
  "log",
@@ -8950,7 +8950,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 name = "update-bindings"
 version = "0.1.0"
 dependencies = [
- "convert_case 0.6.0",
+ "convert_case 0.8.0",
  "itertools 0.14.0",
  "nom",
  "prettyplease",
