@@ -78,7 +78,7 @@ pub enum Price {
     GameCash(i32),
 }
 
-async fn find_item(db: &Database, item_ref: ItemRef) -> Result<Option<ObjectTemplate>, Error> {
+pub async fn find_item(db: &Database, item_ref: ItemRef) -> Result<Option<ObjectTemplate>, Error> {
     match item_ref {
         ItemRef::Name(name) => {
             Ok(ObjectTemplate::collection(db)
@@ -98,7 +98,7 @@ async fn find_item(db: &Database, item_ref: ItemRef) -> Result<Option<ObjectTemp
     }
 }
 
-async fn send_inventory_update_notifications(ctx: &Context<'_>, tag: Option<String>, results: &[ItemStorageSessionResult]) -> Result<(), Error> {
+pub async fn send_inventory_update_notifications(ctx: &Context<'_>, tag: Option<String>, results: &[ItemStorageSessionResult]) -> Result<(), Error> {
     let server = ctx.data::<Arc<RealmServer>>()?;
 
     for res in results {

@@ -179,6 +179,7 @@ pub struct QuestState {
     pub state: QuestProgressionState,
     pub conditions: Vec<QuestCondition>,
     pub accepted_time: DateTime<Utc>,
+    pub last_condition_update: DateTime<Utc>,
 }
 
 impl QuestState {
@@ -195,6 +196,7 @@ impl QuestState {
                 .map(QuestCondition::from)
                 .collect(),
             accepted_time: other.accepted_time,
+            last_condition_update: other.last_condition_update,
         }
     }
 
@@ -205,6 +207,7 @@ impl QuestState {
             state: self.state.into(),
             conditions: self.conditions.iter().copied().map(Into::into).collect(),
             accepted_time: self.accepted_time,
+            last_condition_update: self.last_condition_update,
         }
     }
 
@@ -302,6 +305,7 @@ impl RealmApi {
             state,
             conditions: vec![],
             accepted_time: Utc::now(),
+            last_condition_update: Utc::now(),
         }
     }
 
@@ -479,6 +483,7 @@ pub(crate) mod queststate_graphql {
         pub state: QuestProgressionState,
         pub conditions: Vec<QuestCondition>,
         pub accepted_time: DateTime<Utc>,
+        pub last_condition_update: DateTime<Utc>,
     }
 
     #[derive(cynic::Enum, Debug)]
@@ -515,6 +520,7 @@ pub(crate) mod queststate_graphql {
         pub state: QuestProgressionState,
         pub conditions: Vec<QuestConditionInput>,
         pub accepted_time: DateTime<Utc>,
+        pub last_condition_update: DateTime<Utc>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]

@@ -23,7 +23,7 @@ use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClientToClus
 use realm_api::SessionState;
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use toolkit::{types::{AvatarId, Uuid}, NativeParam};
-use crate::{instance::{InstanceLabel, InstanceShutdown}, proto::TravelRejectReason};
+use crate::{instance::{InstanceLabel, InstanceShutdown}, plugins::{DespawnAvatar, DynamicInstance, SpawnState}, proto::TravelRejectReason};
 
 use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, proto::TravelMode};
 
@@ -104,19 +104,15 @@ fn cleanup_player_controllers(
     mut commands: Commands,
 ) {
     while let Ok(ControllerRemoved(ent)) = removed.try_recv() {
-        if let Ok(mut ent) = commands.get_entity(ent) {
-            debug!("Despawn player character...");
-            ent.despawn();
-        }
+        debug!("Controller disconnected. Despawn player character...");
+        commands.send_event(DespawnAvatar(ent));
     }
 
     for (ent, controller) in travelling.iter() {
         debug!("Committing travel of peer: {}", controller.id);
 
         let _ = controller.sender.send(WorldEvent::TravelCommited { controller: controller.id });
-        if let Ok(mut ent) = commands.get_entity(ent) {
-            ent.despawn();
-        }
+        commands.send_event(DespawnAvatar(ent));
     }
 }
 
@@ -249,7 +245,9 @@ impl NetworkExt for SubApp {
                 sender,
                 travel_mode,
             },
-            CurrentState::default()
+            CurrentState::default(),
+            SpawnState::Alive,
+            DynamicInstance,
         )).id();
 
         let (ctrl_sender, mut ctrl_receiver) = mpsc::channel(10);

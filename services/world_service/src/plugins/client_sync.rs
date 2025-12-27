@@ -100,8 +100,15 @@ fn sync_avatar_data(
 
 pub fn clear_obj_changes(
     mut changes: Query<&mut GameObjectData, Changed<GameObjectData>>,
+    mut player_local_changes: Query<&mut PlayerLocalSets, Changed<PlayerLocalSets>>,
 ) {
     for mut obj in changes.iter_mut() {
         obj.bypass_change_detection().clear_changes();
+    }
+
+    for mut sets in player_local_changes.iter_mut() {
+        sets.bypass_change_detection().0.iter_mut().for_each(|(_, obj)| {
+            obj.clear_changes();
+        });
     }
 }

@@ -29,7 +29,7 @@ use anyhow::anyhow;
 use tokio::task::block_in_place;
 use toolkit::{NativeParam};
 
-use crate::{error::{WorldError, WorldResult}, instance::{InstanceState, ZoneInstance}, plugins::{dialogue, AvatarIdManager, AvatarInfo, CommandExtPriv, DialogueState, FutureCommands, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
+use crate::{error::{WorldError, WorldResult}, instance::{InstanceState, ZoneInstance}, plugins::{dialogue, AvatarIdManager, AvatarInfo, CommandExtPriv, DespawnAvatar, DialogueState, FutureCommands, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
 pub struct QuestsPlugin {
     quests_path: PathBuf,
 }
@@ -45,6 +45,7 @@ impl QuestsPlugin {
 impl Plugin for QuestsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, (
+            cleanup_quest_markers,
             hot_reload_quests,
             init_quest_entities, 
             load_questlogs_for_joined_players,
@@ -57,6 +58,9 @@ impl Plugin for QuestsPlugin {
             transmit_questlog,
             handle_quest_state_changes,
             handle_quest_condition_update,
+            attach_active_quests,
+            attach_or_detach_quest_on_state_change,
+            detach_from_despawned_player,
             sync_quest_state.after(handle_quest_state_changes), 
             (
                 update_available_quests, 
@@ -329,6 +333,8 @@ pub struct QuestLog {
     in_progress: HashSet<i32>,
 
     quests: HashMap<i32, QuestProgress>,
+
+    //timed_quests: HashSet<i32>,
 }
 
 impl QuestLog {
@@ -486,6 +492,7 @@ pub fn update_quest_markers(
     // Check all interests if questlog changed
     for player_ent in updated_questlogs.iter() {
         let Ok((quest_log, player_script, interests)) = players.get(player_ent) else {
+            warn!("Player not yet fully initialized!");
             continue;
         };
 
@@ -624,7 +631,7 @@ pub fn insert_questlog_api(
     quest_api.set("UpdateQuestMarker", lua.create_bevy_function(world, |
         In((player_tbl, target_tbl, quest, state)): In<(Table, Table, Table, i32)>,
         targets: Query<&Children, With<NonClientBaseTag>>,
-        markers: Query<&QuestPlayer, With<AttachedQuest>>,
+        markers: Query<(&AttachedQuest, &QuestPlayer)>,
         mut commands: Commands,
     | -> WorldResult<()> {
         let target_entity = target_tbl.entity()?;
@@ -639,7 +646,9 @@ pub fn insert_questlog_api(
             .and_then(|children| {
                 children.iter()
                 .filter_map(|&e| Some((e, markers.get(e).ok()?)))
-                .find(|(_, quest_player)| Some(quest_player.0) == player_tbl.entity().ok())
+                .find(|(_, (attached_quest, quest_player))| {
+                    Some(quest_player.0) == player_tbl.entity().ok() && attached_quest.quest_id == quest_id
+                })
             });
 
         if state == 0 && let Some((entity, _)) = marker {
@@ -777,6 +786,76 @@ pub fn insert_questlog_api(
         };
 
         Ok(condition.current_count)
+    })?)?;
+
+    /*quest_api.set("MarkAsTimedQuest", lua.create_bevy_function(world, |
+        In((quest, player)): In<(Table, Table)>,
+        mut players: Query<&mut QuestLog>,
+    | -> WorldResult<()> {
+        let Ok(quest_id) = quest.get::<i32>("id") else {
+            return Err(WorldError::Other(anyhow!("Quest does not have a valid id")));
+        };
+
+        let Ok(mut quest_log) = players.get_mut(player.entity()?) else {
+            return Err(WorldError::Other(anyhow!("Player does not have a valid quest log")));
+        };
+
+        if !quest_log.quests.contains_key(&quest_id) {
+            return Err(WorldError::Other(anyhow!("Player has not started quest {}", quest_id)));
+        };
+
+        quest_log.timed_quests.insert(quest_id);
+
+        Ok(())
+    })?)?;
+
+    quest_api.set("UnmarkAsTimedQuest", lua.create_bevy_function(world, |
+        In((quest, player)): In<(Table, Table)>,
+        mut players: Query<&mut QuestLog>,
+    | -> WorldResult<()> {
+        let Ok(quest_id) = quest.get::<i32>("id") else {
+            return Err(WorldError::Other(anyhow!("Quest does not have a valid id")));
+        };
+
+        let Ok(mut quest_log) = players.get_mut(player.entity()?) else {
+            return Err(WorldError::Other(anyhow!("Player does not have a valid quest log")));
+        };
+
+        quest_log.timed_quests.remove(&quest_id);
+
+        Ok(())
+    })?)?;*/
+
+    quest_api.set("GetLastConditionUpdateTime", lua.create_bevy_function(world, |
+        In((quest, player)): In<(Table, Table)>,
+        players: Query<&QuestLog>,
+    | -> WorldResult<i64> {
+        let Ok(quest_id) = quest.get::<i32>("id") else {
+            return Err(WorldError::Other(anyhow!("Quest does not have a valid id")));
+        };
+
+        let Ok(quest_log) = players.get(player.entity()?) else {
+            return Err(WorldError::Other(anyhow!("Player does not have a valid quest log")));
+        };
+
+        let Some(progress) = quest_log.quests.get(&quest_id).and_then(|q| q.state.as_ref()) else {
+            return Err(WorldError::Other(anyhow!("Player has not started quest {}", quest_id)));
+        };
+
+        Ok(progress.last_condition_update.timestamp())
+    })?)?;
+
+    quest_api.set("ReturnQuest", lua.create_bevy_function(world, |
+        In((quest, player)): In<(Table, Table)>,
+        mut commands: Commands,
+    | -> WorldResult<()> {
+        let Ok(quest_id) = quest.get::<i32>("id") else {
+            return Err(WorldError::Other(anyhow!("Quest does not have a valid id")));
+        };
+
+        commands.send_event(ReturnQuest { player: player.entity()?, quest_id });
+
+        Ok(())
     })?)?;
 
     Ok(())
@@ -977,10 +1056,16 @@ fn insert_questlog_for_player(
 
 fn handle_db_quest_update(
     In((player, quest_id, db_state)): In<(Entity, i32, Option<realm_api::QuestState>)>,
-    mut players: Query<(&PlayerController, &mut QuestLog)>,
+    mut players: Query<(&ScriptObject, &PlayerController, &mut QuestLog)>,
+    quests: Res<QuestRegistry>,
     mut commands: Commands,
 ) {
-    let Ok((controller, mut quest_log)) = players.get_mut(player) else {
+    let Ok((script_object, controller, mut quest_log)) = players.get_mut(player) else {
+        return;
+    };
+
+    let Some(quest_template) = quests.0.get(&quest_id) else {
+        error!("Received quest update for unknown quest id: {}", quest_id);
         return;
     };
 
@@ -1037,6 +1122,16 @@ fn handle_db_quest_update(
 
         quest_log.update_fast_access_maps();
     }
+
+    let Ok(func) = quest_template.table.get::<Function>("StateUpdated") else {
+        error!("Failed to get StateUpdated function for quest: {}", quest_template.id);
+        return;
+    };
+
+    commands.call_lua_method(
+        func,
+        (quest_template.table.clone(), script_object.object().clone())
+    );
 }
 
 fn transmit_questlog(
@@ -1044,7 +1139,10 @@ fn transmit_questlog(
 ) {
     for (quest_log, controller) in query.iter() {
         for (_, quest) in quest_log.quests.iter() {
-            if let Some(state) = &quest.state {
+            if 
+                let Some(state) = &quest.state &&
+                !matches!(state.state, QuestProgressionState::Finished)
+            {
                 controller.send_packet(oaPktQuestUpdate {
                     player: controller.avatar_id(),
                     quest_id: quest.template.id as u32,
@@ -1603,5 +1701,116 @@ fn quest_segue_handler(
             commands.entity(dialogue_state.speaker)
                 .call_named_lua_method("RequestDialogue", script_object.object().clone());
         }
+    }
+}
+
+fn cleanup_quest_markers(
+    mut removed_players: RemovedComponents<PlayerTag>,
+    markers: Query<(Entity, &QuestPlayer)>,
+    mut commands: Commands,
+) {
+    for player in removed_players.read() {
+        debug!("Cleaning up quest markers for removed player: {}", player);
+
+        for (marker, quest_player) in markers.iter() {
+            if quest_player.0 == player {
+                commands.entity(marker).despawn();
+            }
+        }
+    }
+}
+
+fn attach_active_quests(
+    players: Query<(&QuestLog, &ScriptObject), Added<QuestLog>>,
+    mut commands: Commands,
+) {
+    for (quest_log, script_object) in players.iter() {
+        for (_, progress) in quest_log.quests.iter() {
+            if progress.state.as_ref().map(|s| s.state) == Some(QuestProgressionState::Active) {
+                let Ok(attach_quest_to_player) = progress.template.table.get::<Function>("AttachToPlayer") else {
+                    error!("Failed to get AttachToPlayer function for quest: {}", progress.template.id);
+                    continue;
+                };
+
+                // Newly accepted quest, attach to player
+                commands.call_lua_method(
+                    attach_quest_to_player.clone(),
+                    (progress.template.table.clone(), script_object.object().clone())
+                );
+            }
+        }
+    }
+}
+
+fn attach_or_detach_quest_on_state_change(
+    mut events: EventReader<QuestStateUpdated>,
+    players: Query<(&ScriptObject, &PlayerController)>,
+    quests: Res<QuestRegistry>,
+    mut commands: Commands,
+) {
+    for &QuestStateUpdated { player, quest_id, state } in events.read() {
+        let Ok((script_object, _controller)) = players.get(player) else {
+            continue;
+        };
+
+        let Some(quest_template) = quests.0.get(&quest_id) else {
+            error!("Received quest update for unknown quest id: {}", quest_id);
+            return;
+        };
+
+        match state {
+            QuestState::Accepted => {
+                let Ok(attach_quest_to_player) = quest_template.table.get::<Function>("AttachToPlayer") else {
+                    error!("Failed to get AttachToPlayer function for quest: {}", quest_template.id);
+                    return;
+                };
+
+                // Newly accepted quest, attach to player
+                commands.call_lua_method(
+                    attach_quest_to_player.clone(),
+                    (quest_template.table.clone(), script_object.object().clone())
+                );
+            },
+            QuestState::Completed | QuestState::Finished | QuestState::Failed | QuestState::Abandoned => {
+                let Ok(detach_quest_from_player) = quest_template.table.get::<Function>("DetachFromPlayer") else {
+                    error!("Failed to get DetachFromPlayer function for quest: {}", quest_template.id);
+                    return;
+                };
+
+                // Quest finished/failed/abandoned, detach from player
+                commands.call_lua_method(
+                    detach_quest_from_player.clone(),
+                    (quest_template.table.clone(), script_object.object().clone())
+                );
+            },
+            _ => { /* No action needed for other states */ }
+        }
+    }
+}
+
+fn detach_from_despawned_player(
+    mut events: EventReader<DespawnAvatar>,
+    players: Query<(&ScriptObject, &QuestLog)>,
+    mut commands: Commands,
+) {
+    for &DespawnAvatar(ent) in events.read() {
+        let Ok((script_object, quest_log)) = players.get(ent) else {
+            continue;
+        };
+
+        quest_log.quests.iter()
+            .filter(|(_, progress)| progress.state.as_ref().map(|s| s.state) == Some(QuestProgressionState::Active))
+            .for_each(|(_, progress)| {
+                let Ok(detach_quest_from_player) = progress.template.table.get::<Function>("DetachFromPlayer") else {
+                    error!("Failed to get DetachFromPlayer function for quest: {}", progress.template.id);
+                    return;
+                };
+
+                // Player despawned, detach active quests
+                commands.call_lua_method(
+                    detach_quest_from_player.clone(),
+                    (progress.template.table.clone(), script_object.object().clone())
+                );
+            });
     }
 }

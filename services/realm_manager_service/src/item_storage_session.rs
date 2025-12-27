@@ -24,7 +24,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use toolkit::{anyhow::anyhow, types::Uuid, NativeParam};
 
-use crate::{db::{ItemStorage, ObjectTemplate, StorageOwner}, equipment_slots::{EquipmentType, SlotType, EQUIPMENT_SLOTS}};
+use crate::{db::{ItemStorage, ObjectTemplate, StorageOwner}, equipment_slots::{EquipmentType, SlotType, EQUIPMENT_SLOTS}, node_registry};
 
 #[derive(Error, Debug)]
 pub enum ItemStorageSessionError {
@@ -380,6 +380,10 @@ impl ItemStorageSession {
         Self::init(db, Arc::new(Mutex::new(session)), id).await
     }
 
+    pub async fn with_session(db: &Database, session: ClientSession, id: Uuid) -> Result<Self, ItemStorageSessionError> {
+        Self::init(db, Arc::new(Mutex::new(session)), id).await
+    }
+
     pub fn owner(&self) -> &StorageOwner {
         &self.owner
     }
@@ -638,6 +642,68 @@ impl ItemStorageSession {
         }
 
         Ok(())
+    }
+
+    pub async fn add_bits(&mut self, amount: i32) -> Result<i32, ItemStorageSessionError> {
+        if amount <= 0 {
+            return Err(ItemStorageSessionError::Other(anyhow!("amount must be positive")));
+        }
+
+        if let Some(bling) = &mut self.bling {
+            *bling = bling.saturating_add(amount.max(0));
+            Ok(*bling)
+        } else {
+            Err(ItemStorageSessionError::Other(anyhow!("storage is no bits container")))?
+        }
+    }
+
+    pub async fn add_cash(&mut self, amount: i32) -> Result<i32, ItemStorageSessionError> {
+        if amount <= 0 {
+            return Err(ItemStorageSessionError::Other(anyhow!("amount must be positive")));
+        }
+
+        if let Some(cash) = &mut self.game_cash {
+            *cash = cash.saturating_add(amount.max(0));
+            Ok(*cash)
+        } else {
+            Err(ItemStorageSessionError::Other(anyhow!("storage is no cash container")))?
+        }
+    }
+
+    pub async fn take_bits(&mut self, amount: i32) -> Result<i32, ItemStorageSessionError> {
+        if amount <= 0 {
+            return Err(ItemStorageSessionError::Other(anyhow!("amount must be positive")));
+        }
+
+        if let Some(bling) = &mut self.bling {
+            let new_amount = bling.saturating_sub(amount);
+            if new_amount < 0 {
+                return Err(ItemStorageSessionError::Other(anyhow!("not enough bits in storage")));
+            }
+
+            *bling = new_amount;
+            Ok(*bling)
+        } else {
+            Err(ItemStorageSessionError::Other(anyhow!("storage is no bits container")))?
+        }
+    }
+
+    pub async fn take_cash(&mut self, amount: i32) -> Result<i32, ItemStorageSessionError> {
+        if amount <= 0 {
+            return Err(ItemStorageSessionError::Other(anyhow!("amount must be positive")));
+        }
+
+        if let Some(cash) = &mut self.game_cash {
+            let new_amount = cash.saturating_sub(amount);
+            if new_amount < 0 {
+                return Err(ItemStorageSessionError::Other(anyhow!("not enough cash in storage")));
+            }
+
+            *cash = new_amount;
+            Ok(*cash)
+        } else {
+            Err(ItemStorageSessionError::Other(anyhow!("storage is no cash container")))?
+        }
     }
 
     async fn write(&self) -> Result<ItemStorageSessionResult, ItemStorageSessionError> {

@@ -16,7 +16,7 @@
 use async_graphql::{Enum, InputObject, SimpleObject};
 use chrono::{DateTime, Utc};
 use database::DatabaseRecord;
-use mongodb::{bson::doc, options::IndexOptions, IndexModel};
+use mongodb::{bson::{doc, Bson}, options::IndexOptions, IndexModel};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud, ObjectId};
 
@@ -53,9 +53,12 @@ pub struct QuestState {
     pub quest_id: i32,
 
     pub accepted_time: DateTime<Utc>,
+    pub last_condition_update: DateTime<Utc>,
 
     pub state: QuestProgressionState,
     pub conditions: Vec<QuestCondition>,
+
+    pub lua_state: Option<Bson>,
 }
 
 impl DatabaseRecord for QuestState {
