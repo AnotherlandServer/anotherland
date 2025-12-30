@@ -15,7 +15,7 @@
 
 use std::{ops::Deref, time::Duration};
 
-use bevy::{app::{App, Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, EventWriter}, query::Added, schedule::IntoScheduleConfigs, system::{In, Res}, world::World}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
+use bevy::{app::{App, Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, EventWriter}, message::Message, query::Added, schedule::IntoScheduleConfigs, system::{In, Res}, world::World}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
 use mlua::{Lua, Table};
@@ -27,7 +27,7 @@ use anyhow::anyhow;
 
 use crate::{error::WorldResult, plugins::{ContentInfo, DebugPlayer, WorldSpace}};
 
-use super::{Active, AvatarInfo, ConnectionState, CurrentState, Movement, PlayerController, QuestEntity, QuestLog};
+use super::{Active, Avatar, ConnectionState, CurrentState, Movement, PlayerController, QuestEntity, QuestLog};
 
 pub struct InterestsPlugin;
 
@@ -109,13 +109,13 @@ impl Deref for Interests {
     }
 }
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct InterestAdded(pub Entity, pub Entity);
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct InterestTransmitted(pub Entity, pub Entity);
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct InterestRemoved(pub Entity, pub Entity);
 
 #[allow(clippy::type_complexity)]
@@ -151,7 +151,7 @@ fn enable_npc_interest_building(
 
 fn transmit_entities_to_players(
     mut players: Query<(Entity, &PlayerController, &mut Interests, &mut CurrentState)>,
-    objects: Query<(Option<&ContentInfo>, &AvatarInfo, &Movement, &GameObjectData), With<Active>>,
+    objects: Query<(Option<&ContentInfo>, &Avatar, &Movement, &GameObjectData), With<Active>>,
     mut interest_transmitted_event: EventWriter<InterestTransmitted>,
 ) {
     for (player_ent, controller, mut interests, mut state) in players.iter_mut() {
@@ -260,7 +260,7 @@ fn update_interest_list(
     world_space: Res<WorldSpace>,
     mut players: Query<(Entity, &GameObjectData, &Movement, &mut Interests, Option<&PlayerController>, Option<&QuestLog>), With<Interests>>,
     potential_interests: Query<(&GameObjectData, Option<&QuestEntity>, Option<&DebugPlayer>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
-    avatar_info: Query<&AvatarInfo>,
+    avatar_info: Query<&Avatar>,
     mut interest_added_event: EventWriter<InterestAdded>,
     mut interest_removed_event: EventWriter<InterestRemoved>,
 ) {

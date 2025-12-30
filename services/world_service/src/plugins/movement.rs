@@ -24,7 +24,7 @@ use anyhow::anyhow;
 
 use crate::{error::WorldResult, plugins::{Navmesh}};
 
-use super::{AvatarInfo, Interests, NetworkExtPriv, PlayerController};
+use super::{Avatar, Interests, NetworkExtPriv, PlayerController};
 
 pub struct MovementPlugin;
 
@@ -214,7 +214,7 @@ pub fn setup_non_client_movement(
 
 #[allow(clippy::type_complexity)]
 pub fn send_position_updates(
-    positions: Query<(Entity, &AvatarInfo, &Movement), (Changed<Movement>, With<ForceSyncPositionUpdate>)>,
+    positions: Query<(Entity, &Avatar, &Movement), (Changed<Movement>, With<ForceSyncPositionUpdate>)>,
     players: Query<(&Interests, &PlayerController)>,
     mut commands: Commands,
 ) {

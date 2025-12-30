@@ -13,17 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
-
-use bevy::{app::{App, First, Last, Plugin, SubApp}, ecs::{component::Component, resource::Resource, schedule::IntoScheduleConfigs}, platform::collections::HashMap, prelude::{in_state, Commands, Entity, In, IntoSystem, Query, RemovedComponents, Res, ResMut, With}};
-use core_api::Session;
+use bevy::{app::{App, First, Last, Plugin}, ecs::{component::Component, resource::Resource, schedule::IntoScheduleConfigs}, platform::collections::HashMap, prelude::{in_state, Commands, Entity, In, IntoSystem, Query, RemovedComponents, Res, ResMut, With}};
 use log::{debug, error, warn};
 use obj_params::{GameObjectData, Player};
-use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClientToClusterNode, oaPktClusterClientToCommunication, oaPktClusterClientToCommunity, oaPktClusterNodeToClient, oaPktS2XConnectionState, CPkt, CPktGameMsg, CPktResourceNotify, CpktGameMsgMsgType, CpktResourceNotifyResourceType, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
-use realm_api::SessionState;
-use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
-use toolkit::{types::{AvatarId, Uuid}, NativeParam};
-use crate::{instance::{InstanceLabel, InstanceShutdown}, plugins::{DespawnAvatar, DynamicInstance, SpawnState}, proto::TravelRejectReason};
+use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClientToClusterNode, oaPktClusterClientToCommunication, oaPktClusterClientToCommunity, oaPktClusterNodeToClient, oaPktS2XConnectionState, CPkt, CPktGameMsg, CPktResourceNotify, CpktGameMsgMsgType, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
+use tokio::sync::mpsc::{self, Receiver};
+use toolkit::{types::Uuid, NativeParam};
+use crate::{instance::{InstanceLabel, InstanceShutdown}, plugins::{ControllerEntityEvent, ControllerEvent, ControllerRemoved, PlayerController}};
 
 use crate::{error::WorldResult, instance::{InstanceState, ZoneInstance}, proto::TravelMode};
 
@@ -32,7 +28,7 @@ use super::{ForeignResource, Travelling};
 type MessageHandler = Box<dyn Fn(&mut Commands, Entity, CPkt) + Send + Sync + 'static>;
 
 #[derive(Resource)]
-pub struct MessageHandlers(HashMap<(u8, u8), MessageHandler>);
+pub struct MessageHandlers(pub HashMap<(u8, u8), MessageHandler>);
 
 type CommandMessageHandler = Box<dyn Fn(&mut Commands, Entity, NativeParam) -> WorldResult<()> + Send + Sync + 'static>;
 
@@ -55,10 +51,6 @@ pub trait NetworkExtPriv {
     fn register_communication_command_handler<C: CommandMessage + 'static, T: IntoSystem<In<(Entity, C)>, (), Marker> + 'static, Marker>(&mut self, system: T);
 }
 
-pub trait NetworkExt {
-    async fn create_player_controller(&mut self, peer: Uuid, session: Uuid, travel_mode: TravelMode, sender: mpsc::UnboundedSender<WorldEvent>) -> WorldResult<Sender<ControllerEvent>>;
-}
-
 pub struct NetworkPlugin;
 
 impl Plugin for NetworkPlugin {
@@ -75,44 +67,13 @@ impl Plugin for NetworkPlugin {
         app.insert_resource(ForeignResource(ctrl_event_sender));
         app.insert_resource(ForeignResource(ctrl_event_receiver));
 
-        app.add_systems(First, handle_controller_events.run_if(in_state(InstanceState::Running)));
-        app.add_systems(Last, (
-            cleanup_player_controllers,
-            instance_shutdown
-        ).chain());
-        app.add_systems(InstanceShutdown, close_connections);
+        app.add_systems(Last, instance_shutdown);
 
         app.register_message_handler(handle_c2sconnection_state);
         app.register_message_handler(handle_client_server_ping);
         app.register_message_handler(handle_cluster_client_to_community);
         app.register_message_handler(handle_cluster_client_to_communication);
         app.register_message_handler(handle_cluster_client_to_cluster_node);
-    }
-}
-
-fn close_connections(
-    controller: Query<&PlayerController>,
-) {
-    for controller in controller.iter() {
-        controller.close();
-    }
-}
-
-fn cleanup_player_controllers(
-    mut removed: ResMut<ForeignResource<Receiver<ControllerRemoved>>>,
-    travelling: Query<(Entity, &PlayerController), With<Travelling>>,
-    mut commands: Commands,
-) {
-    while let Ok(ControllerRemoved(ent)) = removed.try_recv() {
-        debug!("Controller disconnected. Despawn player character...");
-        commands.send_event(DespawnAvatar(ent));
-    }
-
-    for (ent, controller) in travelling.iter() {
-        debug!("Committing travel of peer: {}", controller.id);
-
-        let _ = controller.sender.send(WorldEvent::TravelCommited { controller: controller.id });
-        commands.send_event(DespawnAvatar(ent));
     }
 }
 
@@ -132,29 +93,6 @@ fn instance_shutdown(
             instance.spawn_task(async move {
                 manager.request_unregister_instance(label).await;
             });
-        }
-    }
-}
-
-fn handle_controller_events(
-    mut packets: ResMut<ForeignResource<Receiver<ControllerEntityEvent>>>,
-    message_handlers: Res<MessageHandlers>,
-    mut commands: Commands,
-) {
-    while let Ok(ControllerEntityEvent(ent, ev)) = packets.try_recv() {
-        match ev {
-            ControllerEvent::Packet(pkt) => {
-                if let Some(handler) = message_handlers.0.get(&pkt.get_id()) {
-                    handler(&mut commands, ent, pkt)
-                    //commands.run_system_with(*handler, (ent, pkt));
-                } else {
-                    warn!("Unknown pkt: {:#02x}:{:#02x}", pkt.get_id().0, pkt.get_id().1);
-                }
-            },
-            ControllerEvent::TravelAccepted => {
-                commands.entity(ent).insert(Travelling);
-            },
-            ControllerEvent::TravelRejected(_travel_reject_reason) => todo!(),
         }
     }
 }
@@ -201,94 +139,6 @@ impl NetworkExtPriv for App {
     }
 }
 
-impl NetworkExt for SubApp {
-    async fn create_player_controller(&mut self, peer: Uuid, session: Uuid, travel_mode: TravelMode, sender: mpsc::UnboundedSender<WorldEvent>) -> WorldResult<Sender<ControllerEvent>> {
-        let instance = self.world().get_resource::<ZoneInstance>().unwrap();
-        let ctrl_removed = self.world().get_resource::<ForeignResource<Sender<ControllerRemoved>>>().unwrap().0.clone();
-        let ctrl_event = self.world().get_resource::<ForeignResource<Sender<ControllerEntityEvent>>>().unwrap().0.clone();
-
-        let session = instance.core_api.get_session(&session).await?
-            .ok_or(anyhow::Error::msg("session not found"))?;
-
-        let state = instance.realm_api.get_session_state(*session.id()).await?
-            .ok_or(anyhow::Error::msg("no active session for realm found"))?;
-
-        // Send resource notification to client, so it can begin loading the map.
-        let _ = sender.send(WorldEvent::Packet { 
-            controller: peer, 
-            pkt: CPktResourceNotify {
-                field_2: *instance.zone.worlddef_guid(),
-                resource_type: CpktResourceNotifyResourceType::WorldDef,
-                ..Default::default()
-            }.into_pkt()
-        });
-
-        // Reset loading state
-        let _ = sender.send(WorldEvent::Packet {
-            controller: peer,
-            pkt: oaPktS2XConnectionState {
-                state: OaPktS2xconnectionStateState::Offline,
-                ..Default::default()
-            }.into_pkt()
-        });
-
-        let state = Arc::new(state);
-
-        // Create entity
-        let ent = self.world_mut().spawn((
-            PlayerController {
-                avatar_id: *state.avatar(),
-                id: peer,
-                character_id: *state.character(),
-                session: Arc::new(session),
-                state: state.clone(),
-                sender,
-                travel_mode,
-            },
-            CurrentState::default(),
-            SpawnState::Alive,
-            DynamicInstance,
-        )).id();
-
-        let (ctrl_sender, mut ctrl_receiver) = mpsc::channel(10);
-
-        // Start receive loop for the client, to feed messages
-        // into the world event loop.
-        tokio::spawn(async move {
-            while let Some(evt) = ctrl_receiver.recv().await {
-                match evt {
-                    ControllerEvent::Packet(CPkt::CPktRouted(pkt)) => {
-                        // I think CPktRouted packets are sent from the client
-                        // to tell the server, that this has to be forwarded to a 
-                        // different server behind the cluster server.
-                        // I don't know yet what the desitnations mean, so we just unpack
-                        // and forward it to the world server to be handled there. 
-                        // In the future we might forward those packets directly to a responsible node.
-                        if let Some(pkt) = pkt.field_4 {
-                            let _ = ctrl_event.send(ControllerEntityEvent(ent, ControllerEvent::Packet(pkt))).await;
-                        }
-                    },
-                    _ => { let _ = ctrl_event.send(ControllerEntityEvent(ent, evt)).await; }
-                }
-            }
-
-            debug!("Stopping player controller {}", *state.avatar());
-            let _ = ctrl_removed.send(ControllerRemoved(ent)).await;
-        });
-
-        Ok(ctrl_sender)
-    }
-}
-
-pub struct ControllerRemoved(Entity);
-pub struct ControllerEntityEvent(Entity, ControllerEvent);
-
-pub enum ControllerEvent {
-    Packet(CPkt),
-    TravelAccepted,
-    TravelRejected(TravelRejectReason),
-}
-
 pub enum WorldEvent {
     Packet { controller: Uuid, pkt: CPkt },
     TravelRequest { controller: Uuid, zone: Uuid, instance: Option<Uuid>, mode: TravelMode },
@@ -308,71 +158,6 @@ pub enum MessageType {
     Quest,
     PopUp,
     IllegalZone,
-}
-
-#[derive(Component, Clone)]
-pub struct PlayerController {
-    avatar_id: AvatarId,
-    id: Uuid,
-    character_id: Uuid,
-    session: Arc<Session>,
-    state: Arc<SessionState>,
-    sender: UnboundedSender<WorldEvent>,
-    travel_mode: TravelMode,
-}
-
-impl PlayerController {
-    pub fn avatar_id(&self) -> AvatarId { self.avatar_id }
-    pub fn character_id(&self) -> Uuid { self.character_id }
-
-    pub fn session(&self) -> Arc<Session> { self.session.clone() }
-    pub fn state(&self) -> Arc<SessionState> { self.state.clone() }
-
-    pub fn travel_mode(&self) -> TravelMode {
-        self.travel_mode
-    }
-
-    pub fn send_packet(&self, packet: impl OtherlandPacket) {
-        let _ = self.sender.send(WorldEvent::Packet {
-            controller: self.id,
-            pkt: packet.into_pkt(),
-        });
-    }
-
-    pub fn request_travel(&self, zone: Uuid, instance: Option<Uuid>, mode: TravelMode) {
-        let _ = self.sender.send(WorldEvent::TravelRequest { 
-            controller: self.id, 
-            zone, 
-            instance, 
-            mode 
-        });
-    }
-
-    pub fn send_message(&self, ty: MessageType, message: impl ToString) {
-        let _ = self.sender.send(WorldEvent::Packet {
-            controller: self.id,
-            pkt: CPktGameMsg {
-                msg_type: match ty {
-                    MessageType::Normal => CpktGameMsgMsgType::Normal,
-                    MessageType::Combat => CpktGameMsgMsgType::Combat,
-                    MessageType::Console => CpktGameMsgMsgType::Console,
-                    MessageType::Clan => CpktGameMsgMsgType::Clan,
-                    MessageType::Party => CpktGameMsgMsgType::Party,
-                    MessageType::Xp => CpktGameMsgMsgType::Xp,
-                    MessageType::Loot => CpktGameMsgMsgType::Loot,
-                    MessageType::Quest => CpktGameMsgMsgType::Quest,
-                    MessageType::PopUp => CpktGameMsgMsgType::PopUp,
-                    MessageType::IllegalZone => CpktGameMsgMsgType::IllegalZone,
-                },
-                message: message.to_string(),
-                ..Default::default()
-            }.into_pkt()
-        });
-    }
-    
-    pub fn close(&self) {
-        let _ = self.sender.send(WorldEvent::Close { controller: self.id });
-    }
 }
 
 #[derive(Component, Default)]

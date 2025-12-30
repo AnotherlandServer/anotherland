@@ -16,7 +16,7 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
-use bevy::{app::{App, Plugin, Update}, ecs::{component::{Component, HookContext}, entity::Entity, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ResMut}, world::World}, platform::collections::HashMap, time::common_conditions::on_timer};
+use bevy::{app::{App, Plugin, Update}, ecs::{component::Component, entity::Entity, lifecycle::HookContext, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ResMut}, world::World}, platform::collections::HashMap, time::common_conditions::on_timer};
 use bonsai_bt::{Behavior, Event, Status, UpdateArgs, BT};
 use log::error;
 use mlua::{Lua, Table};

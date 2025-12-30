@@ -15,7 +15,7 @@
 
 use std::{sync::Arc, time::{Duration, Instant}};
 
-use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{component::Component, event::{Event, EventReader}, query::Changed, resource::Resource, system::{Commands, Res}, world::World}, platform::collections::HashMap, prelude::{Entity, In, Query}};
+use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{component::Component, event::{Event, EventReader}, message::Message, query::Changed, resource::Resource, system::{Commands, Res}, world::World}, platform::collections::HashMap, prelude::{Entity, In, Query}};
 use futures::TryStreamExt;
 use mlua::{FromLua, Function, IntoLua, Lua, Table, Value};
 use obj_params::{Class, GameObjectData};
@@ -28,7 +28,7 @@ use anyhow::anyhow;
 
 use crate::{error::WorldResult, object_cache::CacheEntry, plugins::{ConnectionState, ParamValue}, OBJECT_CACHE};
 
-use super::{AvatarIdManager, AvatarInfo, CachedObject, ContentInfo, CurrentState, Interests, NetworkExtPriv, PlayerController, SkillbookEntry};
+use super::{AvatarIdManager, Avatar, CachedObject, ContentInfo, CurrentState, Interests, NetworkExtPriv, PlayerController, SkillbookEntry};
 
 pub struct AbilitiesPlugin;
 
@@ -143,7 +143,7 @@ impl IntoLua for Interaction {
     }
 }
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct InteractionEvent {
     pub source: Entity,
     pub target: Entity,
@@ -489,7 +489,7 @@ fn insert_ability_api(
             players: Query<(Entity, &PlayerController, &Interests)>,
             npc_abilities: Query<&NpcAbilities>,
             content: Query<&ContentInfo>,
-            targets: Query<&AvatarInfo>,
+            targets: Query<&Avatar>,
         | -> WorldResult<()> {
             let ability = if let Ok(ability) = params.get::<Table>("ability") {
                 if let Ok(skill) = ability.get::<SkillbookEntry>("__skill") {
@@ -659,8 +659,8 @@ fn insert_ability_api(
 
 fn send_interaction_events(
     mut events: EventReader<InteractionEvent>,
-    players: Query<(&AvatarInfo, &PlayerController)>,
-    targets: Query<(&AvatarInfo, &ScriptObject)>,
+    players: Query<(&Avatar, &PlayerController)>,
+    targets: Query<(&Avatar, &ScriptObject)>,
     mut commands: Commands,
 ) {
     for &InteractionEvent { source, target, interaction } in events.read() {

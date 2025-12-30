@@ -21,7 +21,7 @@ use obj_params::{Class, GameObjectData, GenericParamSet, GenericParamSetBoxExt, 
 use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptApi, ScriptCommandsExt, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, plugins::{AvatarInfo, ContentInfo, PlayerLocalSets}};
+use crate::{error::WorldResult, plugins::{Avatar, ContentInfo, PlayerLocalSets}};
 
 use super::{create_log_table, insert_portalbook_api, insert_timer_api, insert_world_api, param::ParamValue, timers::update_timers};
 
@@ -268,7 +268,7 @@ fn insert_object_info(entity: EntityWorldMut<'_>) {
     let object = entity.get::<GameObjectData>().unwrap();
     let content_info = entity.get::<ContentInfo>();
 
-    if let Some(avatar_info) = entity.get::<AvatarInfo>() {
+    if let Some(avatar_info) = entity.get::<Avatar>() {
         script.object().raw_set("avatar_id", avatar_info.id).unwrap();
         script.object().raw_set("name", avatar_info.name.clone()).unwrap();
     } else if let Some(content_info) = content_info {

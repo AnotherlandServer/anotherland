@@ -13,13 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use ::core::hash::Hasher;
 use std::fmt::Debug;
 
 use bevy::{app::AppLabel, ecs::label};
 use toolkit::types::Uuid;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct InstanceLabel {
     id: Uuid,
     instance: Option<Uuid>,
@@ -53,18 +52,5 @@ impl AppLabel for InstanceLabel {
     #[doc = r"`."]
     fn dyn_clone(&self) -> label::Box<dyn AppLabel> {
         label::Box::new(self.clone())
-    }
-
-    #[doc = r" Casts this value to a form where it can be compared with other type-erased values."]
-    fn as_dyn_eq(&self) ->  &dyn label::DynEq {
-        self
-    }
-
-    #[doc = r" Feeds this value into the given [`Hasher`]."]
-    fn dyn_hash(&self, state: &mut dyn Hasher) {
-        state.write(&self.id.bytes());
-        if let Some(instance) = self.instance {
-            state.write(&instance.bytes());
-        }
     }
 }

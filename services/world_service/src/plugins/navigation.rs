@@ -16,7 +16,7 @@
 use std::{ops::Div, sync::Mutex};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{component::Component, entity::Entity, event::EventReader, query::{Changed, With}, removal_detection::RemovedComponents, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::{bounding::Aabb3d, Quat, Vec3, Vec3A}, time::{Time, Virtual}};
+use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{component::Component, entity::Entity, event::EventReader, lifecycle::RemovedComponents, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::{Quat, Vec3, Vec3A, bounding::Aabb3d}, time::{Time, Virtual}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use futures::{TryStreamExt};
 use log::{debug, error};
@@ -28,7 +28,7 @@ use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshParams, DtNavMeshQ
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{bson, OtherlandQuatExt, Vec3Wrapper};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{Active, AvatarInfo, InterestTransmitted, Interests, Movement, PlayerController}};
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, InterestTransmitted, Interests, Movement, PlayerController}};
 
 pub struct NavigationPlugin;
 
@@ -593,7 +593,7 @@ fn factory_name_hash(input: &[u8]) -> u32 {
 }
 
 fn replicate_changed_paths_on_clients(
-    agents: Query<(Entity, &AvatarInfo, &Pathing), Changed<Pathing>>,
+    agents: Query<(Entity, &Avatar, &Pathing), Changed<Pathing>>,
     clients: Query<(&Interests, &PlayerController)>,
 ) {
     for (ent, info, pathing) in agents.iter() {
@@ -616,7 +616,7 @@ fn replicate_changed_paths_on_clients(
 
 fn replicate_paths_on_clients(
     mut transmitted_interests: EventReader<InterestTransmitted>,
-    agents: Query<(&AvatarInfo, &Pathing, &Movement)>,
+    agents: Query<(&Avatar, &Pathing, &Movement)>,
     clients: Query<&PlayerController>,
     time: Res<Time<Virtual>>,
 ) {

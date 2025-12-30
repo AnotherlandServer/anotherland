@@ -19,7 +19,7 @@ use scripting::{LuaExt, LuaRuntime, ScriptObject, ScriptResult};
 use toolkit::types::AvatarId;
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, instance::WorldController, plugins::{AvatarIdManager, AvatarInfo, ContentInfo, InstanceManager}};
+use crate::{error::WorldResult, instance::WorldController, plugins::{AvatarIdManager, Avatar, ContentInfo, InstanceManager}};
 
 pub fn insert_world_api(
     world: &mut World,
@@ -75,7 +75,7 @@ pub fn insert_world_api(
     object_api.set("GetEntityByName", lua.create_bevy_function(world, |
         In(name): In<String>,
         runtime: Res<LuaRuntime>,
-        query: Query<(&AvatarInfo, &ScriptObject)>,
+        query: Query<(&Avatar, &ScriptObject)>,
     | -> WorldResult<Value> {
         for (obj, entity) in query.iter() {
             if obj.name == name {

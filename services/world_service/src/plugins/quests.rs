@@ -15,7 +15,7 @@
 
 use std::{collections::HashMap, ops::Deref, path::PathBuf, sync::Arc};
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{event::{Event, EventReader}, hierarchy::{ChildOf, Children}, query::{Changed, With}, removal_detection::RemovedComponents, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ParamSet, Res, ResMut, SystemId}, world::World}, math::Vec3, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, state::state::OnEnter};
+use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{event::{Event, EventReader}, hierarchy::{ChildOf, Children}, lifecycle::RemovedComponents, message::Message, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ParamSet, Res, ResMut, SystemId}, world::World}, math::Vec3, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, state::state::OnEnter};
 use chrono::{DateTime, Utc};
 // use bonsai_bt::Status::Running;
 use futures::TryStreamExt;
@@ -29,7 +29,7 @@ use anyhow::anyhow;
 use tokio::task::block_in_place;
 use toolkit::{NativeParam};
 
-use crate::{error::{WorldError, WorldResult}, instance::{InstanceState, ZoneInstance}, plugins::{dialogue, AvatarIdManager, AvatarInfo, CommandExtPriv, DespawnAvatar, DialogueState, FutureCommands, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
+use crate::{error::{WorldError, WorldResult}, instance::{InstanceState, ZoneInstance}, plugins::{dialogue, AvatarIdManager, Avatar, CommandExtPriv, DespawnAvatar, DialogueState, FutureCommands, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
 pub struct QuestsPlugin {
     quests_path: PathBuf,
 }
@@ -203,25 +203,25 @@ impl From<AvatarFilterLua> for AvatarFilter {
     }
 }
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct AcceptQuest {
     pub player: Entity,
     pub quest_id: i32,
 }
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct AbandonQuest {
     pub player: Entity,
     pub quest_id: i32,
 }
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct FailQuest {
     pub player: Entity,
     pub quest_id: i32,
 }
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct ReturnQuest {
     pub player: Entity,
     pub quest_id: i32,
@@ -254,14 +254,14 @@ pub enum QuestState {
     Finished,
 }
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct QuestStateUpdated {
     pub player: Entity,
     pub quest_id: i32,
     pub state: QuestState,
 }
 
-#[derive(Event, Clone, Copy)]
+#[derive(Event, Message, Clone, Copy)]
 pub struct QuestConditionUpdate {
     pub player: Entity,
     pub quest_id: i32,
@@ -276,7 +276,7 @@ pub enum ConditionUpdate {
     Set(i32),
 }
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct RequestNextQuest {
     pub player: Entity,
 }
@@ -1164,7 +1164,7 @@ fn transmit_questlog(
 
 fn sync_quest_markers(
     changed_markers: Query<Entity, Changed<QuestAvailable>>,
-    avatars: Query<&AvatarInfo>,
+    avatars: Query<&Avatar>,
     players: Query<&PlayerController>,
     markers: Query<(&ChildOf, &QuestPlayer)>,
     mut removed_markers: RemovedComponents<QuestAvailable>,

@@ -20,7 +20,7 @@ use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use anyhow::anyhow;
 use toolkit::NativeParam;
 
-use crate::{error::WorldResult, plugins::{AvatarInfo, PlayerController}};
+use crate::{error::WorldResult, plugins::{Avatar, PlayerController}};
 
 pub fn insert_portalbook_api(
     world: &mut World,
@@ -32,7 +32,7 @@ pub fn insert_portalbook_api(
 
     object_api.set("Send", lua.create_bevy_function(world,         |
         In(portal_book): In<Table>,
-        avatars: Query<&AvatarInfo>,
+        avatars: Query<&Avatar>,
         query: Query<&PlayerController>,
     | -> WorldResult<()> {
         let player = portal_book.get::<Table>("player")?.entity()?;

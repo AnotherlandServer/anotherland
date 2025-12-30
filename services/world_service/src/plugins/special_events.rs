@@ -16,7 +16,7 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, Update}, ecs::{event::Event, resource::Resource, schedule::IntoScheduleConfigs}, platform::collections::{HashMap, HashSet}, prelude::{in_state, App, Changed, Commands, Entity, Query, Res, ResMut, Trigger}, tasks::futures_lite::StreamExt};
+use bevy::{app::{Plugin, Update}, ecs::{event::Event, message::Message, resource::Resource, schedule::IntoScheduleConfigs}, platform::collections::{HashMap, HashSet}, prelude::{App, Changed, Commands, Entity, Query, Res, ResMut, Trigger, in_state}, tasks::futures_lite::StreamExt};
 use chrono::NaiveDate;
 use obj_params::{Class, CommonConfig};
 use realm_api::RealmApi;
@@ -33,7 +33,7 @@ struct SpecialEvents(HashMap<String, Arc<SpecialEventConfig>>);
 #[derive(Resource, Default)]
 struct ActiveEvent(Option<String>);
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct ActivateEvent {
     event_name: String
 }

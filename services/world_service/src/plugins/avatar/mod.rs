@@ -13,25 +13,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::Plugin, ecs::component::HookContext, platform::{collections::{hash_map::Entry, HashMap}, hash::FixedHasher}, prelude::{App, Component, Entity, Resource}};
-use rand::{thread_rng, Rng};
-use toolkit::types::{AvatarId, AvatarType};
+use bevy::{app::{App, Plugin}, ecs::lifecycle::HookContext};
 
-#[derive(Component)]
-pub struct AvatarInfo {
-    pub id: AvatarId,
-    pub name: String,
-}
+mod component;
+mod id_manager;
+mod loader;
+
+pub use component::*;
+pub use id_manager::*;
+pub use loader::*;
 
 pub struct AvatarPlugin;
 
 impl Plugin for AvatarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AvatarIdManager>();
-        app.world_mut().register_component_hooks::<AvatarInfo>()
+        app.world_mut().register_component_hooks::<Avatar>()
             .on_insert(|mut world, HookContext { entity, .. }| {
                 let id = world.get_entity(entity).unwrap()
-                    .get::<AvatarInfo>().unwrap().id;
+                    .get::<Avatar>().unwrap().id;
                 let mut manager = world.get_resource_mut::<AvatarIdManager>().unwrap();
 
 
@@ -39,45 +39,10 @@ impl Plugin for AvatarPlugin {
             })
             .on_remove(|mut world, HookContext { entity, .. }| {
                 let id = world.get_entity(entity).unwrap()
-                    .get::<AvatarInfo>().unwrap().id;
+                    .get::<Avatar>().unwrap().id;
                 let mut manager = world.get_resource_mut::<AvatarIdManager>().unwrap();
 
                 manager.entities.remove(&id);
             });
-    }
-}
-
-#[derive(Resource)]
-pub struct AvatarIdManager {
-    entities: HashMap<AvatarId, Entity>,
-}
-
-impl AvatarIdManager {
-    pub fn new_avatar_entry(&mut self, avatar_type: AvatarType) -> Entry<'_, AvatarId, Entity, FixedHasher> {
-        let mut rng = thread_rng();
-        let id = loop {
-            let id = AvatarId::new(rng.gen_range(1..1<<56) << 0xF, avatar_type);
-            if !self.entities.contains_key(&id) {
-                break id;
-            }
-        };
-
-        self.entities.entry(id)
-    }
-
-    pub fn avatar_entry(&mut self, id: AvatarId) -> Entry<'_, AvatarId, Entity, FixedHasher> {
-        self.entities.entry(id)
-    }
-
-    pub fn resolve_avatar_id(&self, id: AvatarId) -> Option<Entity> {
-        self.entities.get(&id).copied()
-    }
-}
-
-impl Default for AvatarIdManager {
-    fn default() -> Self {
-        Self {
-            entities: HashMap::new(),
-        }
     }
 }

@@ -13,135 +13,29 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
-use bevy::{app::{First, Last, Plugin, PreUpdate, Update}, ecs::{component::{Component, HookContext}, event::{Event, EventReader, EventWriter}, hierarchy::ChildOf, query::{Changed, Or, With, Without}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, Res, SystemId}, world::World}, math::Vec3, platform::collections::HashMap, prelude::{Added, Commands, Entity, NextState, Query, ResMut}, time::{Time, Virtual}};
-use futures_util::{future::join_all, TryStreamExt};
-use log::{debug, error, info, trace, warn};
-use mlua::{Function, Lua, Table};
-use obj_params::{tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, PlayerTag, StructureBaseTag}, Class, ContentRefList, EdnaFunction, GameObjectData, ItemEdna, NonClientBase, NpcOtherland, Player};
-use realm_api::{ObjectPlacement, RealmApi};
-use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptResult};
-use tokio::runtime;
-use toolkit::{types::{AvatarId, AvatarType, Uuid}, NativeParam};
 use anyhow::anyhow;
+use bevy::{ecs::{entity::Entity, event::{EventReader, EventWriter}, hierarchy::ChildOf, query::{Added, Changed, Or, With, Without}, system::{Commands, In, Query, Res, ResMut}, world::World}, math::Vec3, state::state::NextState, time::{Time, Virtual}};
+use futures::future::join_all;
+use log::{debug, trace, warn};
+use mlua::{Function, Lua, Table};
+use obj_params::{Class, ContentRefList, EdnaFunction, GameObjectData, ItemEdna, NonClientBase, NpcOtherland, Player, tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, PlayerTag, StructureBaseTag}};
+use realm_api::ObjectPlacement;
+use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptResult};
+use toolkit::{NativeParam, types::{AvatarId, AvatarType, Uuid}};
 
-use crate::{error::{WorldError, WorldResult}, instance::{InstanceState, ZoneInstance}, object_cache::{CacheEntry, ObjectCache}, plugins::{navigation, CachedObject, CommandExtPriv, CooldownGroups, ForceSyncPositionUpdate, FutureCommands, Inventory, ItemAbilities, ItemEdnaAbilities, Movement, NpcAbilities, ParamValue, PlayerController, SpawnCallback}, OBJECT_CACHE};
+use crate::{OBJECT_CACHE, error::{WorldError, WorldResult}, instance::InstanceState, object_cache::CacheEntry, plugins::{Active, AvatarIdManager, Avatar, CachedObject, ContentInfo, CooldownGroups, DebugPlayer, DespawnAvatar, DynamicInstance, Factions, ForceSyncPositionUpdate, FutureCommands, HealthUpdateEvent, Inventory, ItemAbilities, ItemEdnaAbilities, LoaderSystems, MessageType, Movement, NpcAbilities, ParamValue, PlayerController, PlayerLocalSets, SpawnCallback, SpawnState}};
 
-use super::{AvatarIdManager, AvatarInfo, Factions, FutureTaskComponent, HealthUpdateEvent, MessageType, PlayerLocalSets};
-
-#[derive(Component)]
-pub struct ContentInfo {
-    pub placement_id: Uuid,
-    pub template: Arc<CacheEntry>,
+pub(super) struct Abilities(Vec<Arc<CacheEntry>>);
+pub(super) struct Item {
+    item: Arc<CacheEntry>,
+    abilities: Vec<Arc<CacheEntry>>,
 }
+pub(super) struct Items(Vec<Item>);
 
-#[derive(Component)]
-pub struct DynamicInstance;
 
-#[derive(Resource)]
-pub struct LoaderSystems {
-    spawn_instance: SystemId<In<(Option<Entity>, WorldResult<(GameObjectData, Arc<CacheEntry>, Abilities, Items)>, String, Table, Option<Function>)>>,
-}
-
-#[derive(Default, Resource)]
-pub struct InstanceManager(HashMap<Uuid, Entity>);
-
-impl InstanceManager {
-    #[allow(dead_code)]
-    pub fn find_instance(&self, id: Uuid) -> Option<Entity> {
-        self.0.get(&id).cloned()
-    }
-}
-
-#[derive(Event)]
-pub struct DespawnAvatar(pub Entity);
-
-pub struct LoaderPlugin;
-
-impl Plugin for LoaderPlugin {
-    fn build(&self, app: &mut bevy::prelude::App) {
-        //let (content_sender, content_receiver) = tokio::sync::mpsc::channel::<Content>(100);
-
-        //app.insert_resource(ForeignResource(content_receiver));
-        app.insert_resource(InstanceManager::default());
-        app.world_mut().register_component_hooks::<ContentInfo>()
-            .on_insert(|mut world, HookContext { entity, .. }| {
-                let id = world.get_entity(entity).unwrap()
-                    .get::<ContentInfo>().unwrap().placement_id;
-                let mut manager = world.get_resource_mut::<InstanceManager>().unwrap();
-
-                manager.0.insert(id, entity);
-            })
-            .on_remove(|mut world, HookContext { entity, .. }| {
-                let id = world.get_entity(entity).unwrap()
-                    .get::<ContentInfo>().unwrap().placement_id;
-                let mut manager = world.get_resource_mut::<InstanceManager>().unwrap();
-
-                manager.0.remove(&id);
-            });
-
-        app.add_systems(First, init_gameobjects);
-        app.add_systems(PreUpdate, (
-            update_spawn_state,
-            spawn_init_entity
-        ).chain());
-        app.add_systems(Update, (
-            sync_debug_pos.after(navigation::update),
-            avatar_despawner,
-        ));
-        app.add_systems(Last, cleanup_dynamic_instances);
-
-        app.add_event::<DespawnAvatar>();
-
-        app.register_command("get_avatar_info", command_get_avatar_info);
-
-        insert_loader_api(app.world_mut()).expect("Failed to insert loader API");
-
-        let systems = LoaderSystems {
-            spawn_instance: app.register_system(spawn_instance),
-        };
-        app.insert_resource(systems);
-
-        let instance = app.world().get_resource::<ZoneInstance>().unwrap();
-        let realm_api = instance.realm_api.clone();
-        let zone = instance.zone.clone();
-        let object_cache = instance.object_cache.clone();
-
-        let init_task = FutureTaskComponent::new(
-            instance.spawn_task(async move {
-                // Query
-                let mut query = realm_api.query_object_placements()
-                    .zone_guid(*zone.guid())
-                    .query().await.unwrap();
-        
-                let mut content = vec![];
-                
-                while let Some(mut placement) = query.try_next().await.unwrap() {
-                    if let Some(template) = object_cache.get_object_by_guid(placement.content_guid).await.unwrap() {
-                        placement.data.set_parent(Some(template.data.clone()));
-                        let (abilities, items) = load_additional_content(&placement.data).await.unwrap();
-                        
-                        content.push((placement, template, abilities, items));
-                    } else {
-                        warn!("Template '{}' not found for placement '{}'", placement.content_guid, placement.id);
-                    }
-                }
-        
-                info!("Instance {} load completed.", zone.guid());
-                content
-            }), 
-            app.world_mut().register_system(ingest_content)
-        );
-
-        app.world_mut().spawn(init_task);
-    }
-}
-
-#[derive(Component)]
-pub struct DebugPlayer;
-
-fn ingest_content(
+pub(super) fn ingest_content(
     In(content): In<Vec<(ObjectPlacement, Arc<CacheEntry>, Abilities, Items)>>,
     mut next_state: ResMut<NextState<InstanceState>>,
     mut avatar_manager: ResMut<AvatarIdManager>,
@@ -174,7 +68,7 @@ fn ingest_content(
         let instance = GameObjectData::instantiate(&Arc::new(placement.data));
 
         let entity = commands.spawn((
-            AvatarInfo {
+            Avatar {
                 id: *entry.key(),
                 name: placement.editor_name.clone(),
             },
@@ -311,39 +205,8 @@ pub fn spawn_init_entity(
     }
 }
 
-struct Abilities(Vec<Arc<CacheEntry>>);
-struct Item {
-    item: Arc<CacheEntry>,
-    abilities: Vec<Arc<CacheEntry>>,
-}
-struct Items(Vec<Item>);
 
-#[derive(Component)]
-pub struct Active;
-
-#[derive(Component, Default, Clone, Copy)]
-pub enum SpawnState {
-    #[default]
-    Alive,
-    Killed(Instant),
-    Despawned(Instant),
-}
-
-impl SpawnState {
-    pub fn mark_killed(&mut self) {
-        *self = SpawnState::Killed(Instant::now());
-    }
-
-    pub fn mark_despawned(&mut self) {
-        *self = SpawnState::Despawned(Instant::now());
-    }
-
-    pub fn mark_alive(&mut self) {
-        *self = SpawnState::Alive;
-    }
-}
-
-fn sync_debug_pos(
+pub(super) fn sync_debug_pos(
     query: Query<&Movement, (Changed<Movement>, With<NpcOtherlandTag>, Without<DebugPlayer>)>,
     mut debug_pos: Query<(Entity, &mut Movement, &ChildOf), (With<DebugPlayer>, Without<NpcOtherlandTag>)>,
     mut commands: Commands,
@@ -367,10 +230,10 @@ fn sync_debug_pos(
     }
 }
 
-fn command_get_avatar_info(
+pub(super) fn command_get_avatar_info(
     In((ent, args)): In<(Entity, Vec<NativeParam>)>,
     player: Query<(&GameObjectData, &PlayerController), With<PlayerTag>>,
-    avatars: Query<(&AvatarInfo, &ContentInfo)>,
+    avatars: Query<(&Avatar, &ContentInfo)>,
     avatar_manager: Res<AvatarIdManager>,
 ) {
     let Ok((player_data, controller)) = player.get(ent) else {
@@ -425,12 +288,14 @@ pub fn insert_loader_api(
 
                 let mut instance = GameObjectData::instantiate(&template.data);
                 for pair in params.pairs::<String, mlua::Value>() {
-                    let (key, value) = pair?;
+                    let (key, value) = pair.map_err(WorldError::LuaError)?;
 
                     let attr = instance.class().get_attribute(&key)
-                        .ok_or(mlua::Error::runtime("attribute not found"))?;
+                        .ok_or(mlua::Error::runtime("attribute not found"))
+                        .map_err(WorldError::LuaError)?;
 
-                    let value = ParamValue::from_lua(attr, value, &lua)?;
+                    let value = ParamValue::from_lua(attr, value, &lua)
+                        .map_err(WorldError::LuaError)?;
 
                     instance.set_named(&key, value);
                 }
@@ -468,7 +333,7 @@ pub fn insert_loader_api(
     Ok(())
 }
 
-async fn load_additional_content(instance: &GameObjectData) -> WorldResult<(Abilities, Items)> {
+pub(super) async fn load_additional_content(instance: &GameObjectData) -> WorldResult<(Abilities, Items)> {
     let mut items: Vec<obj_params::ContentRef> = vec![];
 
     if let Ok(weapons) = instance.get::<_, ContentRefList>(NpcOtherland::DefaultWeapon) {
@@ -552,7 +417,7 @@ async fn load_additional_content(instance: &GameObjectData) -> WorldResult<(Abil
     Ok((Abilities(abilities), Items(items)))
 }
 
-fn spawn_instance(
+pub(super) fn spawn_instance(
     In((owner, instance, name, params, callback)): In<(Option<Entity>, WorldResult<(GameObjectData, Arc<CacheEntry>, Abilities, Items)>, String, Table, Option<Function>)>,
     mut avatar_manager: ResMut<AvatarIdManager>,
     cooldown_groups: Res<CooldownGroups>,
@@ -585,7 +450,7 @@ fn spawn_instance(
 
     let ent = commands.spawn((
         DynamicInstance,
-        AvatarInfo {
+        Avatar {
             id: *entry.key(),
             name,
         },
@@ -649,7 +514,7 @@ fn spawn_instance(
     }
 }
 
-fn cleanup_dynamic_instances(
+pub(super) fn cleanup_dynamic_instances(
     instances: Query<(Entity, &SpawnState), (Changed<SpawnState>, With<DynamicInstance>)>,
     mut commands: Commands,
 ) {
@@ -660,7 +525,7 @@ fn cleanup_dynamic_instances(
     }
 }
 
-fn avatar_despawner(
+pub(super) fn avatar_despawner(
     mut events: EventReader<DespawnAvatar>,
     mut query: Query<&mut SpawnState>,
     mut commands: Commands,

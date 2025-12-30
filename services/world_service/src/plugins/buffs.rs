@@ -27,7 +27,7 @@ use toolkit::types::Uuid;
 
 use crate::{error::WorldResult, object_cache::CacheEntry, plugins::FutureCommands, OBJECT_CACHE};
 
-use super::{attach_scripts, AvatarInfo, ContentInfo, Interests, PlayerController};
+use super::{attach_scripts, Avatar, ContentInfo, Interests, PlayerController};
 
 #[derive(Resource)]
 #[allow(clippy::type_complexity)]
@@ -175,7 +175,7 @@ pub fn insert_buff_api(
 #[allow(clippy::type_complexity)]
 fn insert_buff(
     In((ent, instigator, res, instance_id, duration, _delay, stacks)): In<(Entity, Option<Entity>, WorldResult<Option<Arc<CacheEntry>>>, Uuid, Option<f32>, Option<f32>, Option<i32>)>,
-    query: Query<&AvatarInfo>,
+    query: Query<&Avatar>,
     time: Res<Time<Real>>,
     mut commands: Commands,
 ) {
@@ -251,7 +251,7 @@ pub struct BuffExpired;
 #[allow(clippy::type_complexity)]
 fn send_buff_update(
     query: Query<(&ContentInfo, &GameObjectData, &ChildOf), (With<Buff>, Changed<GameObjectData>)>,
-    avatar_query: Query<&AvatarInfo>,
+    avatar_query: Query<&Avatar>,
     players: Query<(Entity, &Interests, &PlayerController)>,
 ) {
     for (content, obj, child_of) in query.iter() {
@@ -349,7 +349,7 @@ fn update_buffs(
 fn remove_buffs(
     query: Query<(Entity, &ContentInfo, &ChildOf), (With<Buff>, With<BuffExpired>)>,
     players: Query<(Entity, &Interests, &PlayerController)>,
-    avatar_query: Query<&AvatarInfo>,
+    avatar_query: Query<&Avatar>,
     mut commands: Commands,
 ) {
     for (ent, content, child_of) in query.iter() {

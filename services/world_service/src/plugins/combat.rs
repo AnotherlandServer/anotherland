@@ -15,7 +15,7 @@
 
 use std::{sync::atomic::AtomicI32, time::Duration};
 
-use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, EventWriter}, schedule::IntoScheduleConfigs, world::World}, prelude::{Added, App, Changed, Commands, Component, Entity, In, Mut, Or, Query, With}, time::common_conditions::on_timer};
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, EventWriter}, message::Message, schedule::IntoScheduleConfigs, world::World}, prelude::{Added, App, Changed, Commands, Component, Entity, In, Mut, Or, Query, With}, time::common_conditions::on_timer};
 use mlua::{Integer, Lua, Table};
 use obj_params::{tags::{EdnaContainerTag, EdnaReceptorTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, SpawnerTag, StructureTag, VehicleBaseTag}, GameObjectData, Player};
 use protocol::{oaPkt_Combat_HpUpdate, CPktTargetRequest};
@@ -24,7 +24,7 @@ use anyhow::anyhow;
 
 use crate::error::WorldResult;
 
-use super::{spawn_init_entity, AvatarInfo, Interests, NetworkExtPriv, PlayerController};
+use super::{spawn_init_entity, Avatar, Interests, NetworkExtPriv, PlayerController};
 
 pub struct CombatPlugin;
 
@@ -46,7 +46,7 @@ impl Plugin for CombatPlugin {
 
 static LAST_HEALTH_UPDATE_ID: AtomicI32 = AtomicI32::new(0);
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct HealthUpdateEvent {
     entity: Entity,
     source: Option<Entity>,
@@ -183,7 +183,7 @@ fn store_health(
 #[allow(clippy::type_complexity)]
 pub fn process_health_events(
     mut events: EventReader<HealthUpdateEvent>,
-    mut target: Query<(&AvatarInfo, &mut Health, &mut GameObjectData), Or<(With<PlayerTag>, With<NpcBaseTag>)>>,
+    mut target: Query<(&Avatar, &mut Health, &mut GameObjectData), Or<(With<PlayerTag>, With<NpcBaseTag>)>>,
     script_objects: Query<&ScriptObject>,
     receivers: Query<(&PlayerController, &Interests)>,
     mut commands: Commands,

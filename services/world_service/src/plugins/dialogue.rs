@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PreStartup, Update}, ecs::{component::Component, event::{Event, EventReader}}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
+use bevy::{app::{Plugin, PreStartup, Update}, ecs::{component::Component, event::{Event, EventReader}, message::Message}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
 use log::debug;
 use mlua::{FromLua, Lua, Table};
 use obj_params::tags::{NpcOtherlandTag, PlayerTag};
@@ -22,7 +22,7 @@ use protocol::{oaDialogNode, oaDialogQuestPrototype, oaPktDialogChoice, oaPktDia
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject};
 use toolkit::types::AvatarId;
 
-use crate::{error::WorldResult, plugins::{AvatarInfo, ReturnQuest}};
+use crate::{error::WorldResult, plugins::{Avatar, ReturnQuest}};
 
 use super::{AvatarIdManager, NetworkExtPriv, PlayerController};
 
@@ -41,7 +41,7 @@ impl Plugin for DialoguePlugin {
     }
 }
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct DialogueNodeSelected {
     pub player: Entity,
     pub speaker: Entity,
@@ -49,7 +49,7 @@ pub struct DialogueNodeSelected {
     pub index: usize,
 }
 
-#[derive(Event)]
+#[derive(Event, Message)]
 pub struct DialogueEnd {
     pub player: Entity,
 }
@@ -260,7 +260,7 @@ fn handle_dialogue_choice(
 fn send_dialogue_nodes(
     mut events: EventReader<DialogueNodeSelected>,
     mut players: Query<(&mut DialogueState, &PlayerController)>,
-    speakers: Query<&AvatarInfo, With<NpcOtherlandTag>>,
+    speakers: Query<&Avatar, With<NpcOtherlandTag>>,
     mut commands: Commands,
 ) {
     for event in events.read() {

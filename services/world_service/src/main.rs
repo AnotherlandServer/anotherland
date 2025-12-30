@@ -15,17 +15,19 @@
 
 #![feature(exclusive_wrapper)]
 #![feature(try_blocks)]
+#![feature(linked_list_retain)]
+#![feature(specialization)]
 
 use factions::FactionManager;
 use instance::{InstanceLabel, ZoneSubApp};
 use object_cache::ObjectCache;
-use plugins::{ControllerEvent, NetworkExt};
+use plugins::{ControllerEvent, PlayerControllerSubAppExt};
 use protocol::CPkt;
 use tokio_util::sync::CancellationToken;
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use bevy::{app::App, MinimalPlugins};
+use bevy::{MinimalPlugins, app::App, asset::{AssetApp, AssetMetaCheck, AssetMode, AssetPlugin}};
 use clap::Parser;
 use cluster::{Endpoint, PeerIdentity};
 use core_api::CoreApi;
@@ -280,7 +282,7 @@ async fn main() -> WorldResult<()> {
     // Create bevy app
     let mut app = App::new();
     app.add_plugins(MinimalPlugins);
-
+    
     // Aim for 50 cycles/sec
     let mut update_interval = time::interval(Duration::from_millis(20));   
 

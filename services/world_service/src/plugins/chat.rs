@@ -21,7 +21,7 @@ use toolkit::types::Uuid;
 
 use crate::instance::ZoneInstance;
 
-use super::{AvatarInfo, Movement, NetworkExtPriv, PlayerController};
+use super::{Avatar, Movement, NetworkExtPriv, PlayerController};
 
 pub struct ChatPlugin;
 
@@ -34,7 +34,7 @@ impl Plugin for ChatPlugin {
 fn handle_chat_msg(
     In((ent, pkt)): In<(Entity, CPktChat)>,
     instance: Res<ZoneInstance>,
-    query: Query<(&PlayerController, &AvatarInfo, &GameObjectData, &Movement), With<PlayerTag>>,
+    query: Query<(&PlayerController, &Avatar, &GameObjectData, &Movement), With<PlayerTag>>,
 ) {
     if let Ok((send_controller, avatar, sender_data, sender_movement)) = query.get(ent) {
         // Local messages are directly handled by this world node,

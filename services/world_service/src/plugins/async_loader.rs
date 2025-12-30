@@ -15,7 +15,7 @@
 
 use std::pin::Pin;
 
-use bevy::{app::{First, Plugin}, ecs::{component::Component, entity::Entity, system::{Command, Commands, In, Query, SystemId}}, prelude::App, tasks::futures_lite::future, utils::synccell::SyncCell};
+use bevy::{app::{First, Plugin}, ecs::{component::Component, entity::Entity, system::{Command, Commands, In, Query, SystemId}}, platform::cell::SyncCell, prelude::App, tasks::futures_lite::future};
 use futures::executor::block_on;
 use tokio::task::JoinHandle;
 

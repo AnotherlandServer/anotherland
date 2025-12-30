@@ -25,7 +25,7 @@ use toolkit::NativeParam;
 
 use crate::error::WorldError;
 
-use super::{AvatarIdManager, AvatarInfo, NetworkExtPriv, PlayerController};
+use super::{AvatarIdManager, Avatar, NetworkExtPriv, PlayerController};
 
 pub struct StringBehavior {
     pub name: String,
@@ -117,7 +117,7 @@ impl BehaviorExt for App {
 fn handle_avatar_tell_behavior(
     In((ent, pkt)): In<(Entity, oaPktAvatarTellBehavior)>,
     instigator: Query<(Entity, &PlayerController, Option<&ScriptObject>)>,
-    target: Query<(&AvatarInfo, &GameObjectData, Option<&ScriptObject>)>,
+    target: Query<(&Avatar, &GameObjectData, Option<&ScriptObject>)>,
     behaviors: Res<BehaviorMap<StringBehavior>>,
     avatars: Res<AvatarIdManager>,
     mut commands: Commands
@@ -162,7 +162,7 @@ fn handle_avatar_tell_behavior(
 fn handle_avatar_tell_behavior_binary(
     In((ent, pkt)): In<(Entity, oaPktAvatarTellBehaviorBinary)>,
     instigator: Query<(Entity, &PlayerController, Option<&ScriptObject>)>,
-    target: Query<(&AvatarInfo, &GameObjectData, Option<&ScriptObject>)>,
+    target: Query<(&Avatar, &GameObjectData, Option<&ScriptObject>)>,
     behaviors: Res<BehaviorMap<BinaryBehavior>>,
     avatars: Res<AvatarIdManager>,
     mut commands: Commands
@@ -217,7 +217,7 @@ fn handle_avatar_tell_behavior_binary(
 fn handle_avatar_request_behavior(
     In((ent, pkt)): In<(Entity, CPktRequestAvatarBehaviors)>,
     instigator: Query<(Entity, &PlayerController, Option<&ScriptObject>)>,
-    target: Query<(&AvatarInfo, &GameObjectData, Option<&ScriptObject>)>,
+    target: Query<(&Avatar, &GameObjectData, Option<&ScriptObject>)>,
     behaviors: Res<BehaviorMap<StringBehavior>>,
     avatars: Res<AvatarIdManager>,
     mut commands: Commands

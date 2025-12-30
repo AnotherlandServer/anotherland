@@ -15,7 +15,7 @@
 
 use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration, future::Future};
 
-use bevy::{app::{First, Last, Main, MainSchedulePlugin, PanicHandlerPlugin, PreStartup, SubApp, TaskPoolPlugin}, diagnostic::FrameCountPlugin, ecs::{component::Component, entity::Entity, event::{event_update_condition, event_update_system, EventRegistry, EventUpdates}, resource::Resource, schedule::{IntoScheduleConfigs, ScheduleLabel}, system::Commands}, prelude::{AppExtStates, AppTypeRegistry,NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, state::States}, tasks::futures_lite::StreamExt, time::{common_conditions::on_timer, TimePlugin}};
+use bevy::{MinimalPlugins, app::{First, Last, Main, MainSchedulePlugin, PanicHandlerPlugin, PreStartup, SubApp, TaskPoolPlugin}, diagnostic::FrameCountPlugin, ecs::{component::Component, entity::Entity, message::MessageRegistry, resource::Resource, schedule::{IntoScheduleConfigs, ScheduleLabel}, system::Commands}, prelude::{AppExtStates, AppTypeRegistry,NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, state::States}, tasks::futures_lite::StreamExt, time::{TimePlugin, common_conditions::on_timer}};
 use core_api::CoreApi;
 use derive_builder::Builder;
 use log::{debug, trace, error};
@@ -185,22 +185,23 @@ impl ZoneInstanceBuilder {
 
         // Low level setup
         app.init_resource::<AppTypeRegistry>();
-        app.init_resource::<EventRegistry>();
+        app.init_resource::<MessageRegistry>();
+        //app.init_resource::<EventRegistry>();
 
         app.update_schedule = Some(Main.intern());
         app.add_plugins(TaskPoolPlugin::default());
         app.add_plugins(FrameCountPlugin);
-        app.add_plugins(TimePlugin);
         app.add_plugins(MainSchedulePlugin);
         app.add_plugins(StatesPlugin);
         app.add_plugins(PanicHandlerPlugin);
+        app.add_plugins(TimePlugin);
 
-        app.add_systems(
+        /*app.add_systems(
             First,
             event_update_system
                 .in_set(EventUpdates)
                 .run_if(event_update_condition),
-        );
+        );*/
 
         // Instance setup
         app.init_state::<InstanceState>();

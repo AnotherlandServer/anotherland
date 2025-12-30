@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Last, Plugin}, ecs::{component::{Component, HookContext}, entity::Entity, query::{Added, Changed}, resource::Resource, system::{Commands, Query, ResMut}}, math::{bounding::Aabb3d, Vec3}};
+use bevy::{app::{Last, Plugin}, ecs::{component::Component, entity::Entity, lifecycle::HookContext, query::{Added, Changed}, resource::Resource, system::{Commands, Query, ResMut}}, math::{Vec3, bounding::Aabb3d}};
 use spart::{geometry::{Cube, EuclideanDistance, Point3D}, octree::Octree};
 
 use crate::plugins::Movement;
