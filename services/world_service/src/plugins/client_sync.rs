@@ -19,7 +19,7 @@ use log::trace;
 use obj_params::{GameObjectData, GenericParamSet, ParamFlag, ParamWriter};
 use protocol::CPktAvatarUpdate;
 
-use super::{Avatar, EnableClientUpdates, Interests, PlayerController, PlayerLocalSets};
+use super::{Avatar, Interests, PlayerController, PlayerLocalSets};
 
 pub struct ClientSyncPlugin;
 
@@ -33,7 +33,7 @@ impl Plugin for ClientSyncPlugin {
 #[allow(clippy::type_complexity)]
 fn sync_avatar_data(
     changes: Query<(Entity, &Avatar, &GameObjectData, Option<&PlayerLocalSets>), Or<(Changed<GameObjectData>, Changed<PlayerLocalSets>)>>,
-    players: Query<(Entity, &Avatar, Option<&Interests>, &PlayerController), With<EnableClientUpdates>>,
+    players: Query<(Entity, &Avatar, Option<&Interests>, &PlayerController)>,
 ) {
     for (entity, obj_avatar, obj, local_obj) in changes.iter() {
         for (player_ent, player_avatar, interests, controller) in players.iter() {

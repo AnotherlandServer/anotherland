@@ -15,13 +15,16 @@
 
 mod player;
 mod loader;
+mod localset;
 mod player_lua;
 mod skillbook;
 mod skillbook_lua;
 mod controller;
+mod portalbook_lua;
 
 use bevy::{app::{First, Last, Plugin, Update}, ecs::{entity::Entity, schedule::IntoScheduleConfigs, system::{In, Query}}, math::Vec3, state::condition::in_state};
 pub use controller::*;
+pub use localset::*;
 use log::{debug, error};
 use obj_params::Class;
 pub use player::*;
@@ -57,9 +60,8 @@ impl Plugin for PlayerPlugin {
         app.add_systems(Update, spawn_player);
 
         app.add_systems(Last, (
-            begin_loading_sequence,
             save_player_data.before(clear_obj_changes),
-            remove_local_changed,
+            cleanup_local_sets,
             cleanup_player_controllers,
         ));
 
@@ -113,7 +115,11 @@ impl Plugin for PlayerPlugin {
             }
         );
 
-        skillbook_lua::insert_skillbook_api(app.world_mut()).unwrap();
-        player_lua::insert_player_api(app.world_mut()).unwrap();
+        skillbook_lua::insert_skillbook_api(app.world_mut())
+            .expect("failed to insert skillbook api");
+        player_lua::insert_player_api(app.world_mut())
+            .expect("failed to insert player api");
+        portalbook_lua::insert_portalbook_api(app.world_mut())
+            .expect("failed to insert portalbook api");
     }
 }

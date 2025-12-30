@@ -16,7 +16,7 @@
 use std::collections::LinkedList;
 
 use bevy::{ecs::{component::Component, entity::Entity, error::{BevyError, Result}, resource::Resource, system::{Commands, EntityCommands, ResMut}}, platform::collections::HashSet, tasks::{IoTaskPool, Task, block_on, poll_once}};
-use log::error;
+use log::{debug, error};
 
 pub struct LoadContext {
     entity: Entity,
@@ -139,7 +139,7 @@ impl<T: LoadableComponent + MaybeVirtualComponent> TypeErasedComponentLoader for
             self.component = Some(component);
 
             self.dependant_loaders = context.dependant_loaders.drain(..).collect();
-            self.dependant_loaders.is_empty()
+            false
         } else {
             self.dependant_loaders
                 .retain_mut(|c| {

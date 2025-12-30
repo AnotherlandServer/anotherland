@@ -23,7 +23,7 @@ use realm_api::SessionState;
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use toolkit::types::{AvatarId, Uuid};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AvatarLoader, AvatarLoaderParams, AvatarStorageId, ComponentLoaderCommandsTrait, CurrentState, DespawnAvatar, DynamicInstance, ForeignResource, MessageHandlers, MessageType, SpawnState, Travelling, WorldEvent, disconnect_player_error_handler}, proto::{TravelMode, TravelRejectReason}};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AvatarLoader, AvatarLoaderParams, AvatarStorageId, ComponentLoaderCommandsTrait, CurrentState, DespawnAvatar, DynamicInstance, ForeignResource, MessageHandlers, MessageType, SpawnState, Travelling, WorldEvent, player::loader::disconnect_player_error_handler}, proto::{TravelMode, TravelRejectReason}};
 
 #[derive(Component, Clone)]
 pub struct PlayerController {

@@ -13,14 +13,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod param;
-mod script_objects;
-mod log;
-mod timers;
-mod world;
+use bevy::{ecs::{component::Component, entity::Entity, lifecycle::RemovedComponents, system::Query}, platform::collections::HashMap};
+use obj_params::{GenericParamSet, tags::PlayerTag};
 
-pub use script_objects::*;
-pub use log::*;
-pub use param::*;
-pub use timers::*;
-pub use world::*;
+#[derive(Component, Default)]
+pub struct PlayerLocalSets(pub HashMap<Entity, Box<dyn GenericParamSet>>);
+
+pub fn cleanup_local_sets(
+    mut removed: RemovedComponents<PlayerTag>,
+    mut query: Query<(Entity, &mut PlayerLocalSets)>,
+) {
+    for ent in removed.read() {
+        if let Ok((_, mut changes)) = query.get_mut(ent) {
+            changes.0.remove(&ent);
+        }
+    }
+}

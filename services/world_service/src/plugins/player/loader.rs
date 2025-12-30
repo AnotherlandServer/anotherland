@@ -14,10 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{ecs::{error::Result, query::With, system::EntityCommands, world::EntityWorldMut}, math::{Quat, Vec3}};
-use log::{error, warn};
-use obj_params::{ContentRefList, GameObjectData, NonClientBase, Player, Portal, tags::{PortalTag, SpawnNodeTag, StartingPointTag}};
-use protocol::{AbilityBarReference, PhysicsState, oaAbilityBarReferences, oaPlayerClassData};
+use bevy::{ecs::{error::{BevyError, Result}, query::With, system::EntityCommands, world::EntityWorldMut}, math::{Quat, Vec3}, time::{Time, Virtual}};
+use bitstream_io::{ByteWriter, LittleEndian};
+use log::{debug, error, warn};
+use obj_params::{ContentRefList, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamWriter, Player, Portal, tags::{PortalTag, SpawnNodeTag, StartingPointTag}};
+use protocol::{AbilityBarReference, CPktAvatarUpdate, CPktBlob, CPktServerNotify, MoveManagerInit, Physics, PhysicsState, oaAbilityBarReferences, oaPlayerClassData};
 use realm_api::{Character, RealmApi};
 use toolkit::{OtherlandQuatExt, types::Uuid};
 
@@ -109,7 +110,8 @@ impl AvatarLoader {
                     factions,
                     movement,
                 ));
-            });
+            })
+            .queue(Self::begin_loading_sequence);
             
         Ok(())
     }
@@ -221,4 +223,76 @@ impl AvatarLoader {
             ..Default::default()
         }.to_bytes());
     }
+
+    fn begin_loading_sequence(entity: EntityWorldMut<'_>) {
+        let avatar = entity.get::<Avatar>().unwrap();
+        let controller = entity.get::<PlayerController>().unwrap();
+        let movement = entity.get::<Movement>().unwrap();
+        let obj = entity.get::<GameObjectData>().unwrap();
+        let time = entity.resource::<Time<Virtual>>();
+
+        debug!("Starting spawning sequence for character: {}", avatar.name);
+
+        let mut serialized = Vec::new();
+        let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
+
+        // Send character to client, so it begins loading the level
+        if matches!(controller.travel_mode(), TravelMode::Login) {
+            obj.write_to_privileged_client(&mut writer).unwrap();
+
+            controller.send_packet(CPktServerNotify {
+                notify_type: protocol::CpktServerNotifyNotifyType::SyncGameClock,
+                game_clock: Some(time.elapsed_secs_f64()),
+                ..Default::default()
+            });
+
+            controller.send_packet(CPktBlob {
+                avatar_id: controller.avatar_id(),
+                avatar_name: avatar.name.clone(),
+                class_id: obj.class().id() as u32,
+                params: serialized.into(),
+                movement: MoveManagerInit {
+                    pos: movement.position.into(),
+                    rot: movement.rotation.into(),
+                    vel: movement.velocity.into(),
+                    physics: Physics {
+                        state: movement.mode,
+                    },
+                    mover_type: movement.mover_type,
+                    mover_replication_policy: movement.mover_replication_policy,
+                    version: movement.version,
+                    ..Default::default()
+                }.to_bytes().into(),
+                has_guid: true,
+                field_7: Some(*controller.session().id()),
+                ..Default::default()
+            });
+        } else {
+            let changes = obj.changes().
+                filter(|(attr, _)| !attr.has_flag(&ParamFlag::ClientUnknown))
+                .collect::<Box<dyn GenericParamSet>>();
+
+            changes.write_to_privileged_client(&mut writer).unwrap();
+
+            controller.send_packet(CPktAvatarUpdate {
+                full_update: false,
+                avatar_id: Some(controller.avatar_id()),
+                name: Some(avatar.name.clone()),
+                class_id: Some(obj.class().id() as u32),
+                params: serialized.into(),
+                ..Default::default()
+            });
+        }
+    }
+}
+
+pub fn disconnect_player_error_handler(error: BevyError, commands: &mut EntityCommands<'_>) {
+    error!("Error loading player component: {error:?}");
+
+    commands
+        .queue(|entity: EntityWorldMut| {
+            if let Some(controller) = entity.get::<PlayerController>() {
+                controller.close();
+            }
+        });
 }
