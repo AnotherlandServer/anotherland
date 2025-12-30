@@ -15,7 +15,7 @@
 
 use std::{fs, path::{Path, PathBuf}, sync::mpsc::Receiver, time::Duration};
 
-use bevy::{ecs::{event::EventReader, system::Res}, prelude::{Commands, Entity, NonSendMut, Query, ResMut, Resource, World}};
+use bevy::{ecs::{message::MessageReader, system::Res}, prelude::{Commands, Entity, NonSendMut, Query, ResMut, Resource, World}};
 use derive_builder::Builder;
 use log::{debug, error, info, trace, warn};
 use mlua::{Function, IntoLua, Lua, LuaOptions, StdLib, Table, Value};
@@ -369,12 +369,12 @@ pub(crate) fn hot_reload(
             }
         }
 
-        commands.send_event(LuaScriptReloaded);       
+        commands.write_message(LuaScriptReloaded);       
     }
 }
 
 pub fn clean_hot_reload(
-    mut events: EventReader<LuaScriptReloaded>,
+    mut events: MessageReader<LuaScriptReloaded>,
     runtime: Res<LuaRuntime>,
 ) {
     if events.is_empty() {

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::App, ecs::component::HookContext, prelude::Component};
+use bevy::{app::App, ecs::lifecycle::HookContext, prelude::Component};
 use mlua::{Lua, Table};
 
 use crate::{LuaRuntime, ScriptResult};

@@ -13,11 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{First, Last, Plugin, PreStartup}, ecs::{event::Event, schedule::IntoScheduleConfigs}, prelude::{resource_exists, App}};
+use bevy::{app::{First, Last, Plugin, PreStartup}, ecs::{message::Message, schedule::IntoScheduleConfigs}, prelude::{App, resource_exists}};
 
 use crate::{clean_hot_reload, create_script_object_hooks, hot_reload, prepare_hot_reload, HotReloadEnabled};
 
-#[derive(Event)]
+#[derive(Message)]
 pub struct LuaScriptReloaded;
 
 pub struct ScriptingPlugin;
@@ -28,7 +28,7 @@ impl Plugin for ScriptingPlugin {
         app.add_systems(First, hot_reload.run_if(resource_exists::<HotReloadEnabled>));
         app.add_systems(Last, clean_hot_reload);
 
-        app.add_event::<LuaScriptReloaded>();
+        app.add_message::<LuaScriptReloaded>();
 
         create_script_object_hooks(app);
     }
