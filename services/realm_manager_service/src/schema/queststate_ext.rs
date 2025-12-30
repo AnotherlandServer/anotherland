@@ -134,7 +134,7 @@ impl QuestStateExtMutationRoot {
                 return Ok(None);
             };
 
-        let (quest_state, equipment_result) = match (prev_quest_state.state, quest_state.state) {
+        let (mut session, quest_state, equipment_result) = match (prev_quest_state.state, quest_state.state) {
             (QuestProgressionState::Active, QuestProgressionState::Completed) |
             (QuestProgressionState::Active, QuestProgressionState::Finished) |
             (QuestProgressionState::Completed, QuestProgressionState::Finished) => {
@@ -172,29 +172,32 @@ impl QuestStateExtMutationRoot {
                         inventory_session.add_bits(rewards.bits as i32).await?;
                     }
 
-                    let (mut session, item_storage_result) = inventory_session.write_uncommitted().await?;
+                    let (session, item_storage_result) = inventory_session.write_uncommitted().await?;
 
                     if rewards.experience > 0 {
                         debug!("Giving quest rewards experience: {}", rewards.experience);
                     }
 
-                    let results = inventory_session.commit().await?;
-                    send_inventory_update_notifications(ctx, rewards.tag, &results).await?;
+                    //let results = inventory_session.commit().await?;
+                    send_inventory_update_notifications(ctx, rewards.tag, &item_storage_result).await?;
 
-                    let res = results.into_iter().next().unwrap();
+                    //let res = results.into_iter().next().unwrap();
 
-                    (quest_state_res, None)
+                    (session, quest_state_res, None)
                 } else {
-                    (quest_state_res, None)
+                    (session, quest_state_res, None)
                 }
             },
             (QuestProgressionState::Active, QuestProgressionState::Failed) => {
+                let quest_state_res = QuestState::collection(&db)
+                    .find_one_and_update(doc! { "_id": quest_state_id }, doc! { "$set": { "conditions.$[].current_count": 0 } })
+                    .return_document(ReturnDocument::After)
+                    .session(&mut session)
+                    .await?;
+
                 (
-                    QuestState::collection(&db)
-                        .find_one_and_update(doc! { "_id": quest_state_id }, doc! { "$set": { "conditions.$[].current_count": 0 } })
-                        .return_document(ReturnDocument::After)
-                        .session(&mut session)
-                        .await?,
+                    session,
+                    quest_state_res,
                     None,
                 )
             },
