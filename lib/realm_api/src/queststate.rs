@@ -379,7 +379,7 @@ impl RealmApi {
         }
 
         if let Some(data) = response.data {
-            Ok(data.update_condition.map(|qs| QuestState::from_graphql(self, qs)))
+            Ok(data.update_condition.map(|qs| QuestState::from_graphql(self, qs.state)))
         } else {
             Err(RealmApiError::Other(anyhow::anyhow!("No data returned")))
         }
@@ -408,7 +408,7 @@ impl RealmApi {
         }
 
         if let Some(data) = response.data {
-            Ok(data.update_state.map(|qs| QuestState::from_graphql(self, qs)))
+            Ok(data.update_state.map(|qs| QuestState::from_graphql(self, qs.state)))
         } else {
             Err(RealmApiError::Other(anyhow::anyhow!("No data returned")))
         }
@@ -419,6 +419,7 @@ pub(crate) mod queststate_graphql {
     use chrono::{DateTime, Utc};
     use toolkit::types::Uuid;
 
+    use crate::item_storage_graphql::EquipmentResult;
     use crate::schema::*;
     use crate::schema::schema::ID;
 
@@ -484,6 +485,13 @@ pub(crate) mod queststate_graphql {
         pub conditions: Vec<QuestCondition>,
         pub accepted_time: DateTime<Utc>,
         pub last_condition_update: DateTime<Utc>,
+    }
+
+    #[derive(cynic::QueryFragment)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct QuestStateChangeResult {
+        pub state: QuestState,
+        pub equipment_result: Option<EquipmentResult>,
     }
 
     #[derive(cynic::Enum, Debug)]
@@ -562,11 +570,11 @@ pub(crate) mod queststate_graphql {
     }
 
     // Mutation fragment for updateCondition
-    #[derive(cynic::QueryFragment, Debug)]
+    #[derive(cynic::QueryFragment)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateConditionVariables")]
     pub struct UpdateCondition {
         #[arguments(stateId: $state_id, conditionId: $condition_id, update: $update, value: $value)]
-        pub update_condition: Option<QuestState>,
+        pub update_condition: Option<QuestStateChangeResult>,
     }
 
     // Variables for updateState
@@ -577,10 +585,10 @@ pub(crate) mod queststate_graphql {
     }
 
     // Mutation fragment for updateState
-    #[derive(cynic::QueryFragment, Debug)]
+    #[derive(cynic::QueryFragment)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateStateVariables")]
     pub struct UpdateState {
         #[arguments(stateId: $state_id, newState: $new_state)]
-        pub update_state: Option<QuestState>,
+        pub update_state: Option<QuestStateChangeResult>,
     }
 }
