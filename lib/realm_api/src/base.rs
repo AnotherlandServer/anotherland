@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use reqwest::{Client, Url};
 
@@ -28,13 +28,25 @@ pub struct RealmApi(pub(crate) Arc<RealmBase>);
 unsafe impl Send for RealmApi {}
 unsafe impl Sync for RealmApi {}
 
+static GLOBAL_INSTANCE: OnceLock<Arc<RealmBase>> = OnceLock::new();
+
 impl RealmApi {
-    pub fn new(url: Url) -> Self {
-        RealmApi(Arc::new(
-            RealmBase { 
-                base_url: url,
-                client: Client::new()
-            }
-        ))
+    pub fn init(url: Url) -> Self {
+        RealmApi(GLOBAL_INSTANCE.get_or_init(move || {
+            Arc::new(
+                RealmBase { 
+                    base_url: url,
+                    client: Client::new()
+                }
+            )
+        }).clone())
+    }
+
+    pub fn get() -> Self {
+        RealmApi(
+            GLOBAL_INSTANCE.get()
+                .expect("RealmApi not initialized")
+                .clone()
+        )
     }
 }

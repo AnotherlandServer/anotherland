@@ -73,7 +73,7 @@ async fn main() -> SeedRealmResult<()> {
 
     print_banner();
 
-    let realm_api = RealmApi::new(ARGS.service_realm_url.clone());
+    let realm_api = RealmApi::init(ARGS.service_realm_url.clone());
 
     import_worlddef(&ARGS.client_path, &realm_api).await?;
     import_zone(&ARGS.client_path, &realm_api).await?;

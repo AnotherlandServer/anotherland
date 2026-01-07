@@ -61,7 +61,7 @@ static ARGS: Lazy<Cli> = Lazy::new(Cli::parse);
 async fn main() -> ClusterFrontendResult<()> {
     print_banner();
 
-    let realm_api = RealmApi::new(ARGS.service_realm_url.clone());
+    let realm_api = RealmApi::init(ARGS.service_realm_url.clone());
     let core_api = CoreApi::new(ARGS.service_core_url.clone());
 
     let (realm_client, _notifications) = RealmClient::connect(&ARGS.realm_zmq_addr).await
