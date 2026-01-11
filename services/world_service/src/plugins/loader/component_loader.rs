@@ -15,31 +15,64 @@
 
 use std::collections::LinkedList;
 
-use bevy::{ecs::{component::Component, entity::Entity, error::{BevyError, Result}, resource::Resource, system::{Commands, EntityCommands, ResMut}}, platform::collections::HashSet, tasks::{IoTaskPool, Task, block_on, poll_once}};
+use bevy::{ecs::{component::Component, entity::Entity, error::{BevyError, Result}, resource::Resource, system::{Commands, EntityCommands, ResMut}}, tasks::{IoTaskPool, Task, block_on, poll_once}};
 use log::{debug, error};
 
-pub struct LoadContext {
+pub struct LoadContext<T: Send + Sync + Sized> {
     entity: Entity,
     dependant_loaders: Vec<Box<dyn TypeErasedComponentLoader + 'static>>,
+    data: Option<T>,
 }
 
-impl LoadContext {
-    pub fn load_dependency<T: LoadableComponent + 'static>(&mut self, parameters: T::Parameters) {
+impl<D: Send + Sync + Sized> LoadContext<D> {
+    pub fn set_data(&mut self, data: D) {
+        self.data = Some(data);
+    }
+
+    pub fn data(&self) -> &Option<D> {
+        &self.data
+    }
+
+    pub fn data_mut(&mut self) -> &mut Option<D> {
+        &mut self.data
+    }
+
+    pub fn load_dependency<T: LoadableComponent + 'static>(&mut self, parameters: T::Parameters) -> &mut Self {
         self.load_dependency_with_error_handler::<T>(parameters, default_error_handler)
+    }
+
+    pub fn load_cross_dependency<T: LoadableComponent + 'static>(
+        &mut self,
+        entity: Entity,
+        parameters: T::Parameters,
+    ) -> &mut Self {
+        self.load_cross_dependency_with_error_handler::<T>(entity, parameters, default_error_handler)
     }
 
     pub fn load_dependency_with_error_handler<T: LoadableComponent + 'static>(
         &mut self,
         parameters: T::Parameters,
         error_handler: fn(BevyError, &mut EntityCommands<'_>),
-    ) {
+    ) -> &mut Self {
+        self.load_cross_dependency_with_error_handler::<T>(self.entity, parameters, error_handler)
+    }
+
+    pub fn load_cross_dependency_with_error_handler<T: LoadableComponent + 'static>(
+        &mut self,
+        entity: Entity,
+        parameters: T::Parameters,
+        error_handler: fn(BevyError, &mut EntityCommands<'_>),
+    ) -> &mut Self {
         self.dependant_loaders.push(Box::new(ComponentLoader::<T> {
-            entity: self.entity,
-            task: IoTaskPool::get().spawn(T::load(parameters)),
+            entity,
+            task: IoTaskPool::get()
+                .spawn(run_loader::<T>(entity, parameters)),
             error_handler,
-            dependant_loaders: Vec::new(),
             component: None,
+            context: None,
         }));
+
+        self
     }
 }
 
@@ -63,9 +96,11 @@ impl<T: LoadableComponent + VirtualComponent> MaybeVirtualComponent for T {
 
 pub trait LoadableComponent: Component + Sized + Send + Sync {
     type Parameters: Send + Sync;
+    type ContextData: Send + Sync = ();
 
-    async fn load(parameters: Self::Parameters) -> Result<Self>;
-    fn on_load(&mut self, commands: &mut EntityCommands<'_>, context: &mut LoadContext) -> Result<()> { Ok(()) }
+    async fn load(parameters: Self::Parameters, context: &mut LoadContext<Self::ContextData>) -> Result<Self>;
+    fn load_dependencies(&mut self, _commands: &mut EntityCommands<'_>, _context: &mut LoadContext<Self::ContextData>) -> Result<()> { Ok(()) }
+    fn on_load(&mut self, _commands: &mut EntityCommands<'_>, _data: Option<Self::ContextData>) -> Result<()> { Ok(()) }
 }
 
 #[derive(Resource, Default)]
@@ -84,28 +119,40 @@ impl LoadingComponents {
         parameters: T::Parameters,
         error_handler: fn(BevyError, &mut EntityCommands<'_>),
     ) {
-        let task_pool = IoTaskPool::get();
         self.loaders.push_back(Box::new(ComponentLoader::<T> {
             entity,
-            task: task_pool.spawn(T::load(parameters)),
+            task: IoTaskPool::get()
+                .spawn(run_loader::<T>(entity, parameters)),
             error_handler,
-            dependant_loaders: Vec::new(),
             component: None,
+            context: None,
         }));
     }
 }
 
+async fn run_loader<T: LoadableComponent>(entity: Entity, parameters: T::Parameters) -> Result<(T, LoadContext<T::ContextData>)> {
+    let mut context = LoadContext {
+        entity,
+        dependant_loaders: Vec::new(),
+        data: None,
+    };
+
+    T::load(parameters, &mut context)
+        .await
+        .map(|c| (c, context))
+}
+
 pub struct ComponentLoader<T: LoadableComponent> {
     entity: Entity,
-    task: Task<Result<T>>,
+    task: Task<Result<(T, LoadContext<T::ContextData>)>>,
     error_handler: fn(BevyError, &mut EntityCommands<'_>),
-    dependant_loaders: Vec<Box<dyn TypeErasedComponentLoader>>,
     component: Option<T>,
+    context: Option<LoadContext<T::ContextData>>,
 }
 
 trait TypeErasedComponentLoader: Send + Sync {
     fn entity(&self) -> Entity;
-    fn load_component<'a>(&mut self, commands: &'a mut Commands<'_, '_>) -> bool;
+    fn load_component(&mut self, commands: &mut Commands<'_, '_>) -> bool;
 }
 
 impl<T: LoadableComponent + MaybeVirtualComponent> TypeErasedComponentLoader for ComponentLoader<T> {
@@ -113,7 +160,7 @@ impl<T: LoadableComponent + MaybeVirtualComponent> TypeErasedComponentLoader for
         self.entity
     }
 
-    fn load_component<'a>(&mut self, commands: &'a mut Commands<'_, '_>) -> bool {
+    fn load_component(&mut self, commands: &mut Commands<'_, '_>) -> bool {
         if self.component.is_none() {
             let Some(res) = block_on(poll_once(&mut self.task)) else {
                 return false;
@@ -121,36 +168,44 @@ impl<T: LoadableComponent + MaybeVirtualComponent> TypeErasedComponentLoader for
 
             let mut entity_commands = commands.entity(self.entity);
 
-            let Ok(mut component) = res else {
+            let Ok((mut component, mut context)) = res else {
+                debug!("ComponentLoader: Error loading component for entity {:?}", self.entity);
                 (self.error_handler)(res.err().unwrap(), &mut entity_commands);
                 return true;
             };
 
-            let mut context = LoadContext {
-                entity: self.entity,
-                dependant_loaders: Vec::new(),
-            };
-
-            if let Err(e) = component.on_load(&mut entity_commands, &mut context) {
+            if let Err(e) = component.load_dependencies(&mut entity_commands, &mut context) {
+                debug!("ComponentLoader: Error loading dependencies for component for entity {:?}: {:?}", self.entity, e);
                 (self.error_handler)(e, &mut entity_commands);
                 return true;
             }
 
             self.component = Some(component);
+            self.context = Some(context);
 
-            self.dependant_loaders = context.dependant_loaders.drain(..).collect();
             false
         } else {
-            self.dependant_loaders
+            let context = self.context.as_mut().unwrap();
+
+            context
+                .dependant_loaders
                 .retain_mut(|c| {
                     !c.load_component(commands)
                 });
 
-            if self.dependant_loaders.is_empty() {
+            if context.dependant_loaders.is_empty() {
+                let mut component = self.component.take().unwrap();
+
+                if let Err(e) = component.on_load(&mut commands.entity(self.entity), self.context.take().unwrap().data) {
+                    debug!("ComponentLoader: Error in on_load for component for entity {:?}: {:?}", self.entity, e);
+                    (self.error_handler)(e, &mut commands.entity(self.entity));
+                    return true;
+                }
+
                 if !T::is_virtual() {
                     commands
                         .entity(self.entity)
-                        .insert(self.component.take().unwrap());
+                        .insert(component);
                 }
                 
                 true

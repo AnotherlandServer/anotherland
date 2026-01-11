@@ -423,7 +423,7 @@ impl ItemStorageSession {
         let mut item: Item = Item {
             id: Uuid::new(),
             base_item: (base_item.id, base_item.numeric_id),
-            instance: GameObjectData::instantiate(&Arc::new(base_item.data)),
+            instance: GameObjectData::instantiate(Arc::new(base_item.data)),
         };
 
         if let Some(mut overrides) = overrides {

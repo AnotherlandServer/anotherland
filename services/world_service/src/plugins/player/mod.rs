@@ -21,6 +21,7 @@ mod skillbook;
 mod skillbook_lua;
 mod controller;
 mod portalbook_lua;
+mod initial_inventory_transfer;
 
 use bevy::{app::{First, Last, Plugin, Update}, ecs::{entity::Entity, schedule::IntoScheduleConfigs, system::{In, Query}}, math::Vec3, state::condition::in_state};
 pub use controller::*;
@@ -31,6 +32,7 @@ pub use player::*;
 use protocol::{oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit};
 use regex::Regex;
 pub use skillbook::*;
+pub use initial_inventory_transfer::*;
 
 use crate::{instance::{InstanceShutdown, InstanceState}, plugins::{BehaviorExt, CommandExtPriv, NetworkExtPriv, StringBehavior, clear_obj_changes}};
 

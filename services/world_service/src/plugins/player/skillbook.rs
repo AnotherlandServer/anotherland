@@ -21,26 +21,24 @@ use log::{debug, warn};
 use mlua::{FromLua, IntoLua, Table, UserData};
 use obj_params::{EdnaAbility, GameObjectData, Player};
 use protocol::{oaAbilityDataPlayer, oaAbilityDataPlayerArray};
-use realm_api::{RealmApi, State};
+use realm_api::{ObjectTemplate, RealmApi, State};
 use scripting::LuaRuntime;
 use toolkit::types::Uuid;
 
-use crate::{OBJECT_CACHE, error::WorldResult, object_cache::CacheEntry, plugins::{CombatStyle, LoadableComponent, ParamValue, load_class_script}};
+use crate::{error::WorldResult, plugins::{CombatStyle, ContentCache, ContentCacheRef, LoadContext, LoadableComponent, ParamValue, WeakCache, load_class_script}};
 
 #[derive(Component)]
 pub struct Skillbook(pub(super) Vec<SkillbookEntry>);
 
-#[derive(Debug)]
-#[allow(unused)]
 pub struct Skill {
     pub id: Uuid,
-    pub ability: Arc<CacheEntry>,
+    pub ability: Arc<ObjectTemplate>,
     pub group: String,
     pub state: State,
     pub stance: i32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SkillbookEntry(Arc<Skill>);
 
 impl UserData for SkillbookEntry {
@@ -93,7 +91,6 @@ impl SkillbookEntry {
 }
 
 pub struct SkillbookParams {
-    pub realm_api: RealmApi,
     pub character_id: Uuid,
     pub level: i32,
     pub combat_style: CombatStyle,
@@ -102,8 +99,9 @@ pub struct SkillbookParams {
 impl LoadableComponent for Skillbook {
     type Parameters = SkillbookParams;
 
-    async fn load(Self::Parameters { realm_api, character_id, level, combat_style }: Self::Parameters) -> Result<Self> {
-        let mut skillbook = realm_api.get_or_create_skillbook(character_id).await?;
+    async fn load(Self::Parameters { character_id, level, combat_style }: Self::Parameters, _context: &mut LoadContext<<Self as LoadableComponent>::ContextData>) -> Result<Self> {
+        let mut skillbook = RealmApi::get()
+            .get_or_create_skillbook(character_id).await?;
 
         if skillbook.combat_style != combat_style.into() {
             debug!("Player combat style does not match skillbook");
@@ -119,7 +117,7 @@ impl LoadableComponent for Skillbook {
 
         let skills = join_all(skillbook.skills.iter()
             .map(async |s| {
-                if let Ok(Some(ability)) = OBJECT_CACHE.wait().get_object_by_guid(s.ability_id).await {
+                if let Ok(Some(ability)) = ContentCache::get(&ContentCacheRef::Uuid(s.ability_id)).await {
                     Some(SkillbookEntry(Arc::new(Skill {
                         id: s.id,
                         ability,

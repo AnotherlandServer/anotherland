@@ -13,19 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
-
-use bevy::{ecs::{entity::Entity, resource::Resource, system::{In, SystemId}}, platform::collections::HashMap};
-use mlua::{Function, Table};
-use obj_params::GameObjectData;
+use bevy::{ecs::{entity::Entity, resource::Resource}, platform::collections::HashMap};
 use toolkit::types::Uuid;
 
-use crate::{error::WorldResult, object_cache::CacheEntry, plugins::loader::{Abilities, Items}};
-
-#[derive(Resource)]
+/*#[derive(Resource)]
 pub struct LoaderSystems {
     pub(super) spawn_instance: SystemId<In<(Option<Entity>, WorldResult<(GameObjectData, Arc<CacheEntry>, Abilities, Items)>, String, Table, Option<Function>)>>,
-}
+}*/
 
 #[derive(Default, Resource)]
 pub struct InstanceManager(pub(super) HashMap<Uuid, Entity>);

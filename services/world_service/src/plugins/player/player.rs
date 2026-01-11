@@ -13,17 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{ecs::{component::Component, error::BevyError, event::EventWriter, resource::Resource, system::{EntityCommands, SystemId}, world::EntityWorldMut}, math::{Quat, Vec3}, platform::collections::HashMap, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}, time::{Time, Virtual}};
-use bitstream_io::{ByteWriter, LittleEndian};
+use bevy::{ecs::{event::EventWriter, resource::Resource, system::SystemId}, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
 use log::{debug, error, trace, warn};
 use mlua::Function;
-use obj_params::{tags::PlayerTag, AttributeInfo, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, ParamWriter, Player, Value};
-use protocol::{oaAbilityBarReferences, CPktAvatarUpdate, CPktBlob, CPktServerNotify, MoveManagerInit, Physics};
-use realm_api::{AbilitySlot, EquipmentResult, ObjectPlacement, RealmApiResult};
+use obj_params::{tags::PlayerTag, AttributeInfo, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, Player, Value};
+use protocol::{oaAbilityBarReferences, CPktAvatarUpdate};
+use realm_api::{AbilitySlot, EquipmentResult, ObjectPlacement, RealmApi, RealmApiResult};
 use scripting::{EntityScriptCommandsExt, ScriptObject};
 use toolkit::{NativeParam, OtherlandQuatExt};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{Avatar, ConnectionState, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, MessageType, Movement, PlayerController, ServerAction}, proto::TravelMode};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{ConnectionState, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, MessageType, Movement, PlayerController, ServerAction}, proto::TravelMode};
 
 #[allow(clippy::type_complexity)]
 pub fn spawn_player(
@@ -53,13 +52,12 @@ pub fn save_player_data(
         let volatile_diff = obj.changes()
             .filter(|(attr, _)| !attr.has_flag(&ParamFlag::Persistent))
             .collect::<Box<dyn GenericParamSet>>();
-        let realm_api = instance.realm_api.clone();
 
         if 
             let Some(Value::Any(ability_bar)) = volatile_diff.get_param(Player::CurrentAbilityBarReferences.name()) &&
             let Ok((_, current_ability_bar)) = oaAbilityBarReferences::from_bytes(ability_bar)
         {
-            let mut ability_bar = realm_api.create_empty_ability_bar(id);
+            let mut ability_bar = RealmApi::get().create_empty_ability_bar(id);
             ability_bar.single_slot = AbilitySlot {
                 id: current_ability_bar.single_slot_bar.id,
                 ability: current_ability_bar.single_slot_bar.skill.clone(),
@@ -89,7 +87,7 @@ pub fn save_player_data(
             // backpressure in case our updates don't go trough.
             // Also, errors are not really handled here.
             instance.spawn_task(async move {
-                if let Err(e) = realm_api.update_character_data_diff(&id, persistent_diff).await {
+                if let Err(e) = RealmApi::get().update_character_data_diff(&id, persistent_diff).await {
                     error!("Character update failed: {e:?}");
                 }
             });

@@ -256,7 +256,7 @@ impl Character {
             {
                 let item = Arc::new(Item {
                     template_id: item.numeric_id,
-                    instance: GameObjectData::instantiate(&Arc::new(item.data)),
+                    instance: GameObjectData::instantiate(Arc::new(item.data)),
                 });
 
                 for &slot in &eq_type.slots {

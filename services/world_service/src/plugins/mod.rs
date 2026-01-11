@@ -43,7 +43,8 @@ mod navigation;
 mod npc_ai;
 mod partitioning;
 mod lifetime;
-mod non_client;
+mod non_player;
+mod content_cache;
 
 pub use network::*;
 pub use loader::*;
@@ -75,4 +76,5 @@ pub use navigation::*;
 pub use npc_ai::*;
 pub use partitioning::*;
 pub use lifetime::*;
-pub use non_client::*;
+pub use non_player::*;
+pub use content_cache::*;

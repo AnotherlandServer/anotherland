@@ -23,7 +23,7 @@ use realm_api::RealmApi;
 use serde_json::Value;
 use toolkit::types::Uuid;
 
-use crate::{error::WorldResult, instance::InstanceState, object_cache::ObjectCache};
+use crate::{error::{WorldError, WorldResult}, instance::InstanceState, plugins::{ContentCache, ContentCacheRef, WeakCache}};
 
 use super::{Active, ConnectionState, ContentInfo, CurrentState, PlayerController, ServerAction};
 
@@ -55,11 +55,12 @@ pub struct SpecialEventsPlugin {
 }
 
 impl SpecialEventsPlugin {
-    pub async fn new(object_cache: ObjectCache, realm_api: RealmApi, map: &str) -> WorldResult<Self> {
+    pub async fn new(map: &str) -> WorldResult<Self> {
         let mut events = HashMap::new();
 
         // Special events config
-        let special_events_cfg = object_cache.get_object_by_name("SpecialEventConfig").await?
+        let special_events_cfg = ContentCache::get(&ContentCacheRef::Name("SpecialEventConfig".to_string())).await
+            .map_err(WorldError::BevyError)?
             .ok_or(anyhow!("SpecialEventConfig not found"))?;
 
         let special_events = special_events_cfg.data
@@ -67,7 +68,8 @@ impl SpecialEventsPlugin {
             .as_array().ok_or(anyhow!("SpecialEventConfig is not an array"))?;
 
         // Lookup event configs for the current map
-        let mut cursor = realm_api.query_object_templates()
+        let mut cursor = RealmApi::get()
+            .query_object_templates()
             .class(Class::CommonConfig)
             .query().await?;
 

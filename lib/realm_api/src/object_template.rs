@@ -13,9 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
-use obj_params::{Class, GameObjectData};
+use obj_params::{AsGameObjectDataRef, Class, GameObjectData, GameObjectParent, IntoGameObjectParent};
 use object_template_graphql::{BatchCreateObjectTemplates, BatchCreateObjectTemplatesVariables, CreateObjectTemplate, CreateObjectTemplateVariables, DeleteObjectTemplate, DeleteObjectTemplateVariables, GetObjectTemplate, GetObjectTemplateVariables, GetObjectTemplates, GetObjectTemplatesVariables, ObjectTemplateFilter, ObjectTemplateInput};
 use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
 
@@ -148,6 +150,12 @@ impl ObjectTemplate {
             name: &self.name,
             data: schema::Json(serde_json::to_value(&self.data).unwrap()),
         }
+    }
+}
+
+impl AsGameObjectDataRef for ObjectTemplate {
+    fn as_data_ref(&self) -> &GameObjectData {
+        &self.data
     }
 }
 

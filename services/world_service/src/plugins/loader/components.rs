@@ -16,14 +16,13 @@
 use std::{sync::Arc, time::Instant};
 
 use bevy::ecs::component::Component;
+use realm_api::ObjectTemplate;
 use toolkit::types::Uuid;
-
-use crate::object_cache::CacheEntry;
 
 #[derive(Component)]
 pub struct ContentInfo {
     pub placement_id: Uuid,
-    pub template: Arc<CacheEntry>,
+    pub template: Arc<ObjectTemplate>,
 }
 
 #[derive(Component)]

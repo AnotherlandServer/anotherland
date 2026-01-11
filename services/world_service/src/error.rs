@@ -62,6 +62,9 @@ pub enum WorldError {
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 
+    #[error("bevy error: {0}")]
+    BevyError(bevy::ecs::error::BevyError),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error)
 }

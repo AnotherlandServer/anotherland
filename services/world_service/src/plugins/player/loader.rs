@@ -22,15 +22,15 @@ use protocol::{AbilityBarReference, CPktAvatarUpdate, CPktBlob, CPktServerNotify
 use realm_api::{Character, RealmApi};
 use toolkit::{OtherlandQuatExt, types::Uuid};
 
-use crate::{instance::ZoneInstance, plugins::{Avatar, AvatarLoader, CombatStyle, ComponentLoaderCommandsTrait, ContentInfo, CooldownGroups, Factions, LoadContext, Movement, Navmesh, PlayerController, Skillbook, SkillbookParams}, proto::TravelMode};
+use crate::{instance::ZoneInstance, plugins::{Avatar, AvatarLoader, CombatStyle, ContentInfo, CooldownGroups, Factions, FactionsParameters, LoadContext, LoadableComponent, Movement, Navmesh, PlayerController, Skillbook, SkillbookParams}, proto::TravelMode};
 
 impl AvatarLoader {
-    pub async fn load_player_character(realm_api: RealmApi, character_id: Uuid) -> Result<Character> {
-        let mut character = realm_api
+    pub async fn load_player_character(character_id: Uuid) -> Result<Character> {
+        let mut character = RealmApi::get()
             .get_character(&character_id).await?
             .ok_or(anyhow!("Character not found"))?;
         
-        let ability_bar = realm_api
+        let ability_bar = RealmApi::get()
             .get_or_create_ability_bar(character_id).await?;
 
         // Build ability bar in the clients binary format
@@ -61,16 +61,24 @@ impl AvatarLoader {
         Ok(character)
     }
 
-    pub fn on_load_player_character(&mut self, commands: &mut EntityCommands<'_>, _: &mut LoadContext, mut character: Character) -> Result<()> {
-        commands
-            .load_component::<Skillbook>(SkillbookParams {
-                realm_api: self.realm_api.clone(),
+    pub fn load_player_character_dependencies(&mut self, _: &mut EntityCommands<'_>, context: &mut LoadContext<<AvatarLoader as LoadableComponent>::ContextData>, character: &mut Character) -> Result<()> {
+        context
+            .load_dependency::<Skillbook>(SkillbookParams {
                 character_id: *character.id(),
                 level: *character.data().get::<_, i32>(Player::Lvl).unwrap(),
                 combat_style: CombatStyle::from_id(
                     *character.data().get::<_, i32>(Player::CombatStyle).unwrap()
                 ),
             })
+            .load_dependency::<Factions>(FactionsParameters {
+                factions: character.data().get::<_, ContentRefList>(Player::Faction).unwrap().clone(),
+            });
+            
+        Ok(())
+    }
+
+    pub fn on_load_player_character(&mut self, commands: &mut EntityCommands<'_>, mut character: Character) -> Result<()> {
+        commands
             .queue(|mut entity: EntityWorldMut<'_>| {
                 Self::prepare_character_spawn(&mut entity, &mut character);
 
@@ -94,12 +102,6 @@ impl AvatarLoader {
                     seconds: 0.0,
                 };
 
-                let mut factions = Factions::default();
-
-                for faction in character.data().get::<_, ContentRefList>(Player::Faction).unwrap().iter() {
-                    factions.add_faction(faction.id);
-                }
-
                 entity.insert((
                     Avatar {
                         id: controller.avatar_id(),
@@ -107,12 +109,11 @@ impl AvatarLoader {
                     },
                     character.take_data(),
                     cooldowns.create_cooldowns(),
-                    factions,
                     movement,
                 ));
             })
             .queue(Self::begin_loading_sequence);
-            
+
         Ok(())
     }
 

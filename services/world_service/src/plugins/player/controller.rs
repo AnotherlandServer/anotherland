@@ -19,11 +19,11 @@ use bevy::{app::SubApp, ecs::{component::Component, entity::Entity, message::{Me
 use core_api::Session;
 use log::{debug, warn};
 use protocol::{CPkt, CPktGameMsg, CPktResourceNotify, CpktGameMsgMsgType, CpktResourceNotifyResourceType, OaPktS2xconnectionStateState, OtherlandPacket, oaPktS2XConnectionState};
-use realm_api::SessionState;
+use realm_api::{RealmApi, SessionState};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use toolkit::types::{AvatarId, Uuid};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AvatarLoader, AvatarLoaderParams, AvatarStorageId, ComponentLoaderCommandsTrait, CurrentState, DespawnAvatar, DynamicInstance, ForeignResource, MessageHandlers, MessageType, SpawnState, Travelling, WorldEvent, player::loader::disconnect_player_error_handler}, proto::{TravelMode, TravelRejectReason}};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AvatarLoader, AvatarLoaderParams, ComponentLoaderCommandsTrait, CurrentState, DespawnAvatar, DynamicInstance, ForeignResource, MessageHandlers, MessageType, SpawnState, Travelling, WorldEvent, player::loader::disconnect_player_error_handler}, proto::{TravelMode, TravelRejectReason}};
 
 #[derive(Component, Clone)]
 pub struct PlayerController {
@@ -121,7 +121,8 @@ impl PlayerControllerSubAppExt for SubApp {
         let session = instance.core_api.get_session(&session).await?
             .ok_or(anyhow::Error::msg("session not found"))?;
 
-        let state = instance.realm_api.get_session_state(*session.id()).await?
+        let state = RealmApi::get()
+            .get_session_state(*session.id()).await?
             .ok_or(anyhow::Error::msg("no active session for realm found"))?;
 
         let (ctrl_sender, ctrl_receiver) = mpsc::channel(10);
@@ -186,10 +187,8 @@ pub fn process_join_requests(
                 DynamicInstance,
             ))
             .load_component_with_error_handler::<AvatarLoader>(
-                AvatarLoaderParams {
-                    id: AvatarStorageId::PlayerCharacter(*session_state.character()),
-                    realm_api: instance.realm_api.clone(),
-                },
+                    AvatarLoaderParams::PlayerCharacter(*session_state.character()
+                ),
                 disconnect_player_error_handler
             )
             .id();

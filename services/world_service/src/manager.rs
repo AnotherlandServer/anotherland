@@ -26,7 +26,7 @@ use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, onesh
 use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
-use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, object_cache::ObjectCache, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode, OBJECT_CACHE};
+use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode};
 
 struct PendingInstance {
     world_def: Arc<WorldDef>,
@@ -45,7 +45,6 @@ struct InstanceManagerData {
     instances: Vec<InstanceLabel>,
     event_sender: mpsc::UnboundedSender<InstanceEvent>,
     limit: usize,
-    object_cache: ObjectCache,
 }
 
 pub enum InstanceEvent {
@@ -121,7 +120,6 @@ impl InstanceManager {
             instances: Vec::new(),
             event_sender,
             limit,
-            object_cache: OBJECT_CACHE.wait().clone(),
         }))))
     }
 
@@ -191,10 +189,8 @@ impl InstanceManager {
     pub async fn provision_instance(&self, transaction_id: Uuid) {
         let mut s = self.0.lock().await;
 
-        let realm_api = s.realm_api.clone();
         let core_api = s.core_api.clone();
         let realm_client = s.realm_client.clone();
-        let object_cache = s.object_cache.clone();
 
         if let Some(req) = s.requests.remove(&transaction_id) {
             drop(s); // Release lock before instantiation
@@ -202,12 +198,10 @@ impl InstanceManager {
             match ZoneInstanceBuilder::default()
                 .world_def(req.world_def.clone())
                 .zone(req.zone.clone())
-                .realm_api(realm_api)
                 .core_api(core_api)
                 .realm_client(realm_client)
                 .handle(Handle::current())
                 .task_tracker(TaskTracker::new())
-                .object_cache(object_cache)
                 .instance_id(req.key)
                 .manager(self.clone())
                 .instantiate().await

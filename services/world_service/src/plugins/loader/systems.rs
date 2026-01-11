@@ -21,21 +21,21 @@ use futures::future::join_all;
 use log::{debug, trace, warn};
 use mlua::{Function, Lua, Table};
 use obj_params::{Class, ContentRefList, EdnaFunction, GameObjectData, ItemEdna, NonClientBase, NpcOtherland, Player, tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, PlayerTag, StructureBaseTag}};
-use realm_api::ObjectPlacement;
+use realm_api::{ObjectPlacement, ObjectTemplate};
 use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptResult};
 use toolkit::{NativeParam, types::{AvatarId, AvatarType, Uuid}};
 
-use crate::{OBJECT_CACHE, error::{WorldError, WorldResult}, instance::InstanceState, object_cache::CacheEntry, plugins::{Active, AvatarIdManager, Avatar, CachedObject, ContentInfo, CooldownGroups, DebugPlayer, DespawnAvatar, DynamicInstance, Factions, ForceSyncPositionUpdate, FutureCommands, HealthUpdateEvent, Inventory, ItemAbilities, ItemEdnaAbilities, LoaderSystems, MessageType, Movement, NpcAbilities, ParamValue, PlayerController, PlayerLocalSets, SpawnCallback, SpawnState}};
+use crate::{error::{WorldError, WorldResult}, instance::InstanceState, plugins::{Active, AvatarIdManager, Avatar, StaticObject, ContentInfo, CooldownGroups, DebugPlayer, DespawnAvatar, DynamicInstance, Factions, ForceSyncPositionUpdate, FutureCommands, HealthUpdateEvent, Inventory, ItemAbilities, ItemEdnaAbilities, MessageType, Movement, NpcAbilities, ParamValue, PlayerController, PlayerLocalSets, SpawnCallback, SpawnState}};
 
-pub(super) struct Abilities(Vec<Arc<CacheEntry>>);
+pub(super) struct Abilities(Vec<Arc<ObjectTemplate>>);
 pub(super) struct Item {
-    item: Arc<CacheEntry>,
-    abilities: Vec<Arc<CacheEntry>>,
+    item: Arc<ObjectTemplate>,
+    abilities: Vec<Arc<ObjectTemplate>>,
 }
 pub(super) struct Items(Vec<Item>);
 
 
-pub(super) fn ingest_content(
+/*pub(super) fn ingest_content(
     In(content): In<Vec<(ObjectPlacement, Arc<CacheEntry>, Abilities, Items)>>,
     mut next_state: ResMut<NextState<InstanceState>>,
     mut avatar_manager: ResMut<AvatarIdManager>,
@@ -125,7 +125,7 @@ pub(super) fn ingest_content(
     }
 
     next_state.set(InstanceState::Initializing);
-}
+}*/
 
 pub fn init_gameobjects(
     added: Query<(Entity, &GameObjectData), Added<GameObjectData>>,
@@ -169,7 +169,7 @@ pub fn update_spawn_state(
                 if instant.elapsed().as_secs_f32() >= despawn_delay {
                     debug!("Respawning entity {ent}");
 
-                    let obj = GameObjectData::instantiate(&obj.parent().unwrap());
+                    let obj = GameObjectData::instantiate(obj.parent().unwrap());
 
                     // This should be handled as event
                     movement.position = *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap();
@@ -274,11 +274,12 @@ pub fn insert_loader_api(
 
     loader_api.set("RequestSpawnInstance", lua.create_bevy_function(world, |
         In((owner, template, name, params, callback)): In<(Option<Table>, String, String, Table, Option<Function>)>,
-        loader_systems: Res<LoaderSystems>,
+        //loader_systems: Res<LoaderSystems>,
         runtime: Res<LuaRuntime>,
         mut commands: Commands
     | -> WorldResult<()> {
-        let lua = runtime.vm().clone();
+        todo!()
+        /*let lua = runtime.vm().clone();
 
         commands.run_system_async(async move {
             let res = try {
@@ -314,7 +315,7 @@ pub fn insert_loader_api(
             )
         }, loader_systems.spawn_instance);
 
-        Ok(())
+        Ok(())*/
     })?)?;
 
     loader_api.set("DespawnAvatar", lua.create_bevy_function(world, |
@@ -333,7 +334,7 @@ pub fn insert_loader_api(
     Ok(())
 }
 
-pub(super) async fn load_additional_content(instance: &GameObjectData) -> WorldResult<(Abilities, Items)> {
+/*pub(super) async fn load_additional_content(instance: &GameObjectData) -> WorldResult<(Abilities, Items)> {
     let mut items: Vec<obj_params::ContentRef> = vec![];
 
     if let Ok(weapons) = instance.get::<_, ContentRefList>(NpcOtherland::DefaultWeapon) {
@@ -415,9 +416,9 @@ pub(super) async fn load_additional_content(instance: &GameObjectData) -> WorldR
         .collect();
     
     Ok((Abilities(abilities), Items(items)))
-}
+}*/
 
-pub(super) fn spawn_instance(
+/*pub(super) fn spawn_instance(
     In((owner, instance, name, params, callback)): In<(Option<Entity>, WorldResult<(GameObjectData, Arc<CacheEntry>, Abilities, Items)>, String, Table, Option<Function>)>,
     mut avatar_manager: ResMut<AvatarIdManager>,
     cooldown_groups: Res<CooldownGroups>,
@@ -512,7 +513,7 @@ pub(super) fn spawn_instance(
                 inventory,
             ));
     }
-}
+}*/
 
 pub(super) fn cleanup_dynamic_instances(
     instances: Query<(Entity, &SpawnState), (Changed<SpawnState>, With<DynamicInstance>)>,

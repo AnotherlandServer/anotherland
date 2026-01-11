@@ -19,18 +19,20 @@ mod resources;
 mod systems;
 mod commands_component_loader;
 mod component_loader;
+mod cache;
 
-use bevy::{app::{First, Last, Plugin, PreUpdate, Update}, ecs::{lifecycle::HookContext, schedule::IntoScheduleConfigs}};
+use bevy::{app::{First, Last, Plugin, PostStartup, PreUpdate, Update}, ecs::{event::EntityEvent, lifecycle::{Despawn, HookContext, OnDespawn}, observer::On, schedule::IntoScheduleConfigs, system::{Commands, ResMut}}, state::state::NextState};
 pub use components::*;
 pub use events::*;
-use futures::TryStreamExt;
-use log::{info, warn};
+use log::debug;
 pub use resources::*;
 pub use systems::*;
 pub use commands_component_loader::*;
 pub use component_loader::*;
+pub use cache::*;
+use toolkit::bson::de;
 
-use crate::{instance::ZoneInstance, plugins::{CommandExtPriv, FutureTaskComponent, navigation}};
+use crate::{instance::{InstanceState, ZoneInstance}, plugins::{CommandExtPriv, ZoneLoader, ZoneLoaderParameter, navigation}};
 
 pub struct LoaderPlugin;
 
@@ -56,7 +58,10 @@ impl Plugin for LoaderPlugin {
                 manager.0.remove(&id);
             });
 
-        app.add_systems(First, (init_gameobjects, process_loading_components));
+        app.add_systems(First, (
+            process_loading_components,
+            init_gameobjects
+        ).chain());
         app.add_systems(PreUpdate, (
             update_spawn_state,
             spawn_init_entity
@@ -73,14 +78,24 @@ impl Plugin for LoaderPlugin {
 
         insert_loader_api(app.world_mut()).expect("Failed to insert loader API");
 
-        let systems = LoaderSystems {
+        /*let systems = LoaderSystems {
             spawn_instance: app.register_system(spawn_instance),
         };
-        app.insert_resource(systems);
+        app.insert_resource(systems);*/
 
         app.init_resource::<LoadingComponents>();
 
         let instance = app.world().get_resource::<ZoneInstance>().unwrap();
+        let zone = instance.zone.clone();
+        app.add_systems(PostStartup, move |mut commands: Commands| {
+            commands
+                .spawn_empty()
+                .load_component::<ZoneLoader>(ZoneLoaderParameter {
+                    zone: zone.clone()
+                });
+        });
+
+        /*let instance = app.world().get_resource::<ZoneInstance>().unwrap();
         let realm_api = instance.realm_api.clone();
         let zone = instance.zone.clone();
         let object_cache = instance.object_cache.clone();
@@ -111,6 +126,6 @@ impl Plugin for LoaderPlugin {
             app.world_mut().register_system(ingest_content)
         );
 
-        app.world_mut().spawn(init_task);
+        app.world_mut().spawn(init_task);*/
     }
 }

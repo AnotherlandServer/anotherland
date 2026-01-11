@@ -13,18 +13,82 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, ops::Deref};
 
 use bevy::{platform::collections::HashMap, prelude::Component};
 use serde::{Deserialize, Serialize};
 
 use crate::{Attribute, AttributeInfo, Class, GenericParamSet, ParamError, ParamFlag, ParamResult, ParamSet, ParamWriter, Value};
 
+pub trait AsGameObjectDataRef {
+    fn as_data_ref(&self) -> &GameObjectData;
+}
+
+impl AsGameObjectDataRef for GameObjectData {
+    fn as_data_ref(&self) -> &GameObjectData {
+        self
+    }
+}
+
+impl<T: Deref<Target = GameObjectData>> AsGameObjectDataRef for T {
+    fn as_data_ref(&self) -> &GameObjectData {
+        self.deref()
+    }
+}
+
+pub trait GameObjectParent: Send + Sync {
+    fn data(&self) -> &GameObjectData;
+    fn clone(&self) -> Box<dyn GameObjectParent>;
+}
+
+impl
+    <
+        R: AsGameObjectDataRef + 'static,
+        T: Deref<Target = R> + Send + Sync + Clone + 'static
+    > 
+    GameObjectParent for T 
+{
+    fn data(&self) -> &GameObjectData {
+        self.as_data_ref()
+    }
+
+    fn clone(&self) -> Box<dyn GameObjectParent> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn GameObjectParent> {
+    fn clone(&self) -> Self {
+        self.as_ref().clone()
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        *self = source.as_ref().clone();
+    }
+}
+
+pub trait IntoGameObjectParent {
+    fn into_parent(self) -> Box<dyn GameObjectParent>;
+}
+
+impl<T: GameObjectParent + Send + Sync + Clone + 'static> IntoGameObjectParent for T {
+    fn into_parent(self) -> Box<dyn GameObjectParent> {
+        Box::new(self)
+    }
+}
+
+impl IntoGameObjectParent for &dyn GameObjectParent {
+    fn into_parent(self) -> Box<dyn GameObjectParent> {
+        self.clone()
+    }
+}
+
+
 #[derive(Serialize, Deserialize, Component)]
 #[serde(transparent)]
 pub struct GameObjectData {
     #[serde(skip)]
-    parent: Option<Arc<GameObjectData>>,
+    parent: Option<Box<dyn GameObjectParent>>,
     instance: Box<dyn GenericParamSet>,
 }
 
@@ -57,15 +121,18 @@ impl GameObjectData {
         }
     }
 
-    pub fn instantiate(parent: &Arc<GameObjectData>) -> Self {
+    pub fn instantiate<T: IntoGameObjectParent>(parent: T) -> Self {
+        let parent = parent.into_parent();
+        let class = parent.data().class();
+
         Self {
-            parent: Some(parent.clone()),
-            instance: parent.class().create_param_set(vec![]),
+            parent: Some(parent),
+            instance: class.create_param_set(vec![]),
         }
     }
 
-    pub fn set_parent(&mut self, parent: Option<Arc<GameObjectData>>) {
-        self.parent = parent;
+    pub fn set_parent<T: IntoGameObjectParent>(&mut self, parent: Option<T>) {
+        self.parent = parent.map(|p| p.into_parent());
     }
 
     pub fn class(&self) -> Class { self.instance.class() }
@@ -102,7 +169,7 @@ impl GameObjectData {
                 .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
         }  else if 
             let Some(parent) = self.parent.as_ref() &&
-            let Ok(value) = parent.get_named(attr)
+            let Ok(value) = parent.data().get_named(attr)
         {
             Ok(value)
         } else {
@@ -126,7 +193,7 @@ impl GameObjectData {
                 .map_err(|e: <&'a V as TryFrom<&'a Value>>::Error| e.into())
         }  else if 
             let Some(parent) = self.parent.as_ref() &&
-            let Ok(value) = parent.get_named_or_default(attr, default)
+            let Ok(value) = parent.data().get_named_or_default(attr, default)
         {
             Ok(value)
         } else if self.instance.class().get_attribute(attr).is_none() {
@@ -193,7 +260,7 @@ impl GameObjectData {
         let mut current = self.parent.clone();
         while let Some(parent) = current {
             parents.push(parent.clone());
-            current = parent.parent.clone();
+            current = parent.data().parent.clone();
         }
 
         parents.reverse();
@@ -202,7 +269,8 @@ impl GameObjectData {
             let mut params: HashMap<&dyn AttributeInfo, &Value> = HashMap::new();
 
             for parent in &parents {
-                parent.as_set()
+                parent.data()
+                    .as_set()
                     .values()
                     .filter(|&(a,v)| filter(a, v))
                     .for_each(|(a,v)| { params.insert(a, v); });
@@ -225,8 +293,8 @@ impl GameObjectData {
         Ok(())
     }
 
-    pub fn parent(&self) -> Option<Arc<GameObjectData>> {
-        self.parent.clone()
+    pub fn parent(&self) -> Option<& dyn GameObjectParent> {
+        self.parent.as_ref().map(|r| r.as_ref())
     }
 }
 

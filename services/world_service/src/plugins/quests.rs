@@ -15,21 +15,20 @@
 
 use std::{collections::HashMap, ops::Deref, path::PathBuf, sync::Arc};
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{event::{Event, EventReader}, hierarchy::{ChildOf, Children}, lifecycle::RemovedComponents, message::Message, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ParamSet, Res, ResMut, SystemId}, world::World}, math::Vec3, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, state::state::OnEnter};
-use chrono::{DateTime, Utc};
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader}, hierarchy::{ChildOf, Children}, lifecycle::RemovedComponents, message::Message, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ParamSet, Res, ResMut, SystemId}, world::World}, math::Vec3, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, state::state::OnEnter};
 // use bonsai_bt::Status::Running;
 use futures::TryStreamExt;
 use log::{debug, error, info, warn};
 use mlua::{FromLua, Function, IntoLua, Lua, Table, Value};
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, GameObjectData, NonClientBase};
 use protocol::{oaPktQuestEvent, oaPktQuestGiverStatus, oaPktQuestRequest, oaPktQuestUpdate, oaPktRequestQuestAction, oaQuestBeacon, oaQuestCondition, oaQuestTemplate, AvatarFilter, CPktStream_165_2, CPktStream_165_7, OaPktQuestEventEvent, OaPktQuestRequestRequest, OaPktRequestQuestActionKind, OaQuestConditionKind, QuestUpdateData};
-use realm_api::{QuestCondition, QuestProgressionState, WorldDef};
+use realm_api::{QuestCondition, QuestProgressionState, RealmApi, WorldDef};
 use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaScriptReloaded, LuaTableExt, ScriptCommandsExt, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 use tokio::task::block_in_place;
 use toolkit::{NativeParam};
 
-use crate::{error::{WorldError, WorldResult}, instance::{InstanceState, ZoneInstance}, plugins::{dialogue, AvatarIdManager, Avatar, CommandExtPriv, DespawnAvatar, DialogueState, FutureCommands, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
+use crate::{error::{WorldError, WorldResult}, instance::{InstanceState, ZoneInstance}, plugins::{AvatarIdManager, Avatar, CommandExtPriv, DespawnAvatar, DialogueState, FutureCommands, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
 pub struct QuestsPlugin {
     quests_path: PathBuf,
 }
@@ -994,10 +993,10 @@ fn load_questlogs_for_joined_players(
 ) {
     for (entity, controller) in players.iter() {
         let controller = controller.clone();
-        let realm_api = instance.realm_api.clone();
 
         commands.run_system_async(async move {
-            let Ok(mut res) = realm_api.query_quest_states()
+            let Ok(mut res) = RealmApi::get()
+                .query_quest_states()
                 .character_id(controller.character_id())
                 .query()
                 .await 
@@ -1461,10 +1460,10 @@ fn quest_accepter(
         debug!("Player {} is trying to accept quest {}", player, quest_id);
 
         if questlog.available.contains(&quest_id) {
-            let realm_api = instance.realm_api.clone();
             let controller = player_controller.clone();
 
-            let mut state = realm_api.create_empty_queststate(controller.character_id(), quest_id, QuestProgressionState::Active);
+            let mut state = RealmApi::get()
+                .create_empty_queststate(controller.character_id(), quest_id, QuestProgressionState::Active);
 
             // Init quest conditions on accept
             if let Ok(conditions) = quest.table.get::<Table>("conditions") {
@@ -1482,7 +1481,7 @@ fn quest_accepter(
             }
 
             commands.run_system_async(async move {
-                match realm_api.create_queststate(&state).await {
+                match RealmApi::get().create_queststate(&state).await {
                     Ok(state) => {
                         debug!("Player {} accepted quest {}", player, quest_id);
 

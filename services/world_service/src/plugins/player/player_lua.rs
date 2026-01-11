@@ -24,7 +24,7 @@ use realm_api::{ObjectPlacement, RealmApi};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::types::Uuid;
 
-use crate::{OBJECT_CACHE, error::WorldResult, instance::ZoneInstance, plugins::{Active, Avatar, ConnectionState, CurrentState, FutureCommands, MessageType, Movement, PlayerController, ServerAction, player::PlayerSystems}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{Active, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, FutureCommands, MessageType, Movement, PlayerController, ServerAction, WeakCache, player::PlayerSystems}, proto::TravelMode};
 
 pub(super) fn insert_player_api(
     world: &mut World,
@@ -70,18 +70,16 @@ pub(super) fn insert_player_api(
         |
             In((player, class_item, clear_inventory, callback)): In<(Table, String, bool, Option<Function>)>,
             query: Query<(Entity, &PlayerController)>,
-            instance: Res<ZoneInstance>,
             systems: Res<PlayerSystems>,
             mut commands: Commands
         | -> WorldResult<()> {
             let (ent, controller) = query.get(player.entity()?)
                 .map_err(|_| anyhow!("player not found"))?;
 
-            let realm_api = instance.realm_api.clone();
             let character_id = controller.character_id();
 
             commands.run_system_async(async move {
-                (ent, realm_api.character_apply_class_item(&character_id, &class_item, clear_inventory).await, callback)
+                (ent, RealmApi::get().character_apply_class_item(&character_id, &class_item, clear_inventory).await, callback)
             }, systems.apply_class_item_result);
 
             Ok(())
@@ -96,11 +94,9 @@ pub(super) fn insert_player_api(
             let ent = player.entity()?;
             
             if let Ok(controller) = query.get(ent).cloned() {
-                let realm_api = instance.realm_api.clone();
-
                 instance.spawn_task(async move {
                     match 
-                        realm_api
+                        RealmApi::get()
                             .query_zones()
                             .zone(zone.clone())
                             .query()
@@ -135,21 +131,19 @@ pub(super) fn insert_player_api(
     player_api.set("TravelToPortal", lua.create_bevy_function(world,
         |
             In((player, portal_guid)): In<(Table, String)>,
-            instance: Res<ZoneInstance>,
             systems: Res<PlayerSystems>,
             mut commands: Commands
         | -> WorldResult<()> {
             let ent = player.entity()?;
             let portal_guid = portal_guid.parse::<Uuid>()?;
 
-            let realm_api = instance.realm_api.clone();
-
-            async fn load_object(realm_api: &RealmApi, id: Uuid) -> WorldResult<Option<ObjectPlacement>> {
+            async fn load_object(id: Uuid) -> WorldResult<Option<ObjectPlacement>> {
                 if 
-                    let Some(mut object) = realm_api.get_object_placement(id).await? &&
-                    let Some(template) = OBJECT_CACHE.wait().get_object_by_guid(object.content_guid).await?
+                    let Some(mut object) = RealmApi::get().get_object_placement(id).await? &&
+                    let Some(template) = ContentCache::get(&ContentCacheRef::Uuid(object.content_guid)).await
+                        .map_err(WorldError::BevyError)?
                 {
-                    object.data.set_parent(Some(template.data.clone()));
+                    object.data.set_parent(Some(template));
                     Ok(Some(object))
                 } else {
                     Ok(None)
@@ -157,10 +151,10 @@ pub(super) fn insert_player_api(
             }
 
             commands.run_system_async(async move {
-                match load_object(&realm_api, portal_guid).await {
+                match load_object( portal_guid).await {
                     Ok(Some(portal)) => {
                         if let Ok(exit_point) = portal.data.get::<_, Uuid>(Portal::ExitPoint).cloned() {
-                            (ent, Ok(Some(portal)), load_object(&realm_api, exit_point).await)
+                            (ent, Ok(Some(portal)), load_object(exit_point).await)
                         } else {
                             (ent, Ok(Some(portal)), Ok(None))
                         }

@@ -15,7 +15,7 @@
 
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
-use obj_params::{Class, GameObjectData};
+use obj_params::{AsGameObjectDataRef, Class, GameObjectData, GameObjectParent};
 use object_placement_graphql::{BatchCreateObjectPlacements, BatchCreateObjectPlacementsVariables, CreateObjectPlacement, CreateObjectPlacementVariables, DeleteObjectPlacement, DeleteObjectPlacementVariables, GetObjectPlacement, GetObjectPlacementVariables, GetObjectPlacements, GetObjectPlacementsVariables, ObjectPlacementFilter, ObjectPlacementInput};
 use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
 
@@ -145,6 +145,12 @@ impl ObjectPlacement {
             data: schema::Json(serde_json::to_value(&self.data).unwrap()),
             phase_tag: &self.phase_tag,
         }
+    }
+}
+
+impl AsGameObjectDataRef for ObjectPlacement {
+    fn as_data_ref(&self) -> &GameObjectData {
+        &self.data
     }
 }
 

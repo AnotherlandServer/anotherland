@@ -13,30 +13,177 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::{Arc, OnceLock};
 
-use bevy::{app::Plugin, ecs::{component::Component, world::World}, prelude::{App, Entity, In, Query}};
-use log::trace;
+use bevy::{app::Plugin, ecs::{component::Component, error::Result, world::World}, platform::collections::HashMap, prelude::{App, Entity, In, Query}};
+use futures::{TryStreamExt, future::join_all};
+use log::{debug, trace};
 use mlua::{Lua, Table};
+use obj_params::{Class, ContentRefList};
 use protocol::{oaPktFactionRequest, oaPktFactionResponse, FactionRelation, FactionRelationList};
+use realm_api::RealmApi;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use serde::Deserialize;
+use serde_json::Value;
+use tokio::sync::{RwLock, RwLockWriteGuard};
 use toolkit::{types::Uuid, NativeParam};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, factions::Faction, FACTIONS};
+use crate::{error::WorldResult, plugins::{Cache, LoadContext, LoadableComponent, StrongCache}};
 
 use super::{NetworkExtPriv, PlayerController};
+
+struct FactionCache;
+
+#[derive(Hash, PartialEq, Eq, Clone)]
+enum FactionRef {
+    Id(Uuid),
+    Name(String),
+}
+
+impl Cache for FactionCache {
+    type CacheKey = FactionRef;
+    type CacheData = Faction;
+
+    async fn load(key: &Self::CacheKey) -> Result<Option<Self::CacheData>> {
+        let Some(faction) = 
+            (match key {
+                FactionRef::Id(id) => 
+                    RealmApi::get()
+                        .get_object_template(*id)
+                        .await?,
+                FactionRef::Name(name) => 
+                    RealmApi::get()
+                        .query_object_templates()
+                        .class(Class::Faction)
+                        .name(name.to_string())
+                        .query().await?
+                        .try_next().await?
+            })
+        else {
+            return Ok(None);
+        };
+
+        debug!("Loading faction {} ({})", faction.name, faction.id);
+
+        let relations = 
+            if 
+                let Ok(value) = faction.data.get::<_, Value>(obj_params::Faction::Relations) && 
+                value.is_array() 
+            {
+                serde_json::from_value::<Vec<Relation>>(
+                    value.clone()
+                ).unwrap()
+            } else {
+                vec![]
+            };
+
+
+        Ok(Some(
+            Faction {
+                id: faction.id,
+                name: faction.name.clone(),
+                relations,
+            }
+        ))
+    }
+
+    async fn post_load(data: &Arc<Self::CacheData>) -> Result<()> {
+        let _ = join_all(
+        data
+            .relations()
+            .iter()
+            .map(async |relation| {
+                Self::get(&FactionRef::Name(relation.faction.clone())).await
+            })
+        ).await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
+
+        Ok(())
+    }
+}
+
+impl StrongCache for FactionCache {
+    fn cache() -> &'static RwLock<HashMap<Self::CacheKey, Arc<Self::CacheData>>> {
+        static CACHE: OnceLock<RwLock<HashMap<FactionRef, Arc<Faction>>>> = OnceLock::new();
+        CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+    }
+
+    async fn cache_insert(cache: &mut RwLockWriteGuard<'_, HashMap<Self::CacheKey, Arc<Self::CacheData>>>, _key: Self::CacheKey, data: &Arc<Self::CacheData>) {
+        cache.insert(FactionRef::Id(data.id), data.clone());
+        cache.insert(FactionRef::Name(data.name.clone()), data.clone());
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct Relation {
+    pub faction: String,
+    pub standing: i32,
+}
+
+pub struct Faction {
+    id: Uuid,
+    name: String,
+    relations: Vec<Relation>,
+}
+
+impl Faction {
+    pub fn id(&self) -> Uuid {
+        self.id
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn get_standing(&self, other: &Faction) -> i32 {
+        for relation in &self.relations {
+            if relation.faction == other.name {
+                return relation.standing;
+            }
+        }
+
+        0
+    }
+
+    pub fn relations(&self) -> &[Relation] {
+        &self.relations
+    }
+}
 
 #[derive(Component, Default)]
 pub struct Factions(Vec<(Arc<Faction>, i32)>);
 
-impl Factions {
-    pub fn add_faction(&mut self, id: Uuid) {
-        if let Some(faction) = FACTIONS.get().unwrap().get_faction(id) {
-            self.0.push((faction.clone(), 1000));
-        }
-    }
+pub struct FactionsParameters {
+    pub factions: ContentRefList,
+}
 
+impl LoadableComponent for Factions {
+    type Parameters = FactionsParameters;
+
+    async fn load(parameters: Self::Parameters, _context: &mut LoadContext<Self::ContextData>) -> Result<Self> {
+        let factions = 
+            join_all(
+                parameters.factions.iter()
+                    .map(async |faction_ref| {
+                        FactionCache::get(&FactionRef::Id((*faction_ref.id).into())).await
+                    })
+                    .collect::<Vec<_>>()
+            ).await
+            .into_iter()
+            .collect::<Result<Vec<Option<Arc<Faction>>>>>()?
+            .into_iter()
+            .flatten()
+            .map(|faction| (faction, 1000))
+            .collect();
+
+        Ok(Factions(factions))
+    }
+}
+
+impl Factions {
     pub fn relation_to(&self, other: &Factions) -> i32 {
         for (my_faction, _) in &self.0 {
             for relation in my_faction.relations() {
@@ -56,7 +203,7 @@ impl Factions {
                         return relation.standing;
                     }
                 }
-            }
+            } 
         }
 
         0
@@ -64,22 +211,7 @@ impl Factions {
 
     #[allow(dead_code)]
     pub fn relations(&self) -> Vec<(Arc<Faction>, i32)> {
-        let mut relations = HashMap::new();
-
-        for (faction, _) in &self.0 {
-            for relation in faction.relations() {
-                relations.insert(&relation.faction, relation.standing);
-            }
-        }
-
-        relations.into_iter()
-            .filter_map(|(faction_name, standing)| {
-                FACTIONS.get().unwrap().get_faction_by_name(faction_name)
-                    .map(|faction| {
-                        (faction.clone(), standing)
-                    })
-            })
-            .collect()
+        self.0.clone()
     }
 }
 

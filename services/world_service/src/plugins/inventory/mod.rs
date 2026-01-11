@@ -13,30 +13,36 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+mod loader;
+mod item_loader;
+
+pub use loader::*;
+pub use item_loader::*;
+
 use std::{ops::Deref, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, hierarchy::ChildOf, lifecycle::HookContext, query::Without, resource::Resource, schedule::IntoScheduleConfigs, system::{ResMut, SystemId}, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
+use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, query::Without, resource::Resource, schedule::IntoScheduleConfigs, system::{ResMut, SystemId}, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
-use futures::future::join_all;
+use futures::{TryFutureExt, future::join_all};
 use log::{debug, error, warn};
 use mlua::{FromLua, IntoLua, Lua, Table, UserData};
 use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, EdnaAbility, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player};
 use protocol::{oaPktItemStorage, oaPktShopCartBuyRequest, oaPktSteamMicroTxn, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
-use realm_api::{Item, ItemRef, Price, StorageOwner};
+use realm_api::{Item, ItemRef, ObjectTemplate, Price, RealmApi, StorageOwner};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{error::WorldResult, instance::ZoneInstance, object_cache::CacheEntry, OBJECT_CACHE};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, StaticObject, WeakCache}};
 
 use super::{attach_scripts, load_class_script, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, NetworkExtPriv, ParamValue, PlayerController, StringBehavior};
 
 #[derive(Resource)]
 #[allow(clippy::type_complexity)]
 struct InventorySystems {
-    insert_item_storage: SystemId<In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>, Vec<CachedObject>)>)>>>,
+    insert_item_storage: SystemId<In<Result<(Entity, Inventory, Vec<(realm_api::Item, Arc<ObjectTemplate>, Vec<StaticObject>)>)>>>,
     apply_storage_result: SystemId<In<(Entity, StorageResult)>>,
     handle_purchase_result: SystemId<In<(Entity, StorageResult)>>,
     apply_equipment_result: SystemId<In<(Entity, EquipmentResult)>>,
@@ -50,7 +56,7 @@ struct EquipmentResult {
 }
 
 impl EquipmentResult {
-    pub async fn from_result(result: realm_api::EquipmentResult) -> WorldResult<Self> {
+    pub async fn from_result(result: realm_api::EquipmentResult) -> Result<Self> {
         let storage_results = join_all(result.storage_results.into_iter()
             .map(StorageResult::from_result)
             .collect::<Vec<_>>()
@@ -71,7 +77,7 @@ struct StorageResult {
     storage_id: Uuid,
     bling: Option<i32>,
     game_cash: Option<i32>,
-    changed_items: Option<Vec<(Item, Arc<CacheEntry>, Vec<CachedObject>)>>,
+    changed_items: Option<Vec<(Item, Arc<ObjectTemplate>, Vec<StaticObject>)>>,
     removed_items: Option<Vec<Uuid>>,
     error: Option<(String, Option<NativeParam>)>,
 }
@@ -84,12 +90,12 @@ impl StorageResult {
         }
     }
 
-    pub async fn from_result(result: realm_api::StorageResult) -> WorldResult<Self> {
+    pub async fn from_result(result: realm_api::StorageResult) -> Result<Self> {
         let changed_items = if let Some(changed_items) = result.changed_items {
             Some(
                 join_all(changed_items.into_iter()
                     .map(|item| async {
-                        if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
+                        if let Some(base_item) = ContentCache::get(&ContentCacheRef::Uuid(item.template_id)).await? {
                             let mut ability_cache = vec![];
                             
                             if 
@@ -97,20 +103,20 @@ impl StorageResult {
                                 let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
                             {
                                 for ability in abilities.0 {
-                                    if let Some(ability) = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await? {
-                                        ability_cache.push(CachedObject(ability));
+                                    if let Some(ability) = ContentCache::get(&ContentCacheRef::Name(ability.ability_name.clone())).await? {
+                                        ability_cache.push(StaticObject(ability));
                                     }
                                 }
                             }
 
                             Ok((item, base_item, ability_cache))
                         } else {
-                            Err(anyhow!("Failed to load item template {}", item.template_id))
+                            Err(BevyError::from(anyhow!("Failed to load item template {}", item.template_id)))
                         }
                     })
                     .collect::<Vec<_>>()
                 ).await.into_iter()
-                .collect::<Result<Vec<_>, _>>()?
+                .collect::<Result<Vec<_>>>()?
             )
         } else {
             None
@@ -127,11 +133,11 @@ impl StorageResult {
     }
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 #[serde(transparent, default)]
 pub struct ItemEdnaAbilities(pub Vec<ItemEdnaAbility>);
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemEdnaAbility {
     pub ability_name: String,
@@ -294,61 +300,19 @@ fn insert_inventory_api(
         |
             In(player): In<Table>,
             query: Query<&PlayerController, Added<PlayerTag>>,
-            instance: Res<ZoneInstance>,
-            systems: Res<InventorySystems>,
             mut commands: Commands,
         | -> WorldResult<()> {
             let controller = query.get(player.entity()?)
                 .map_err(|_| anyhow!("player not found"))?;
-
-            let realm_api = instance.realm_api.clone();
             let character_id = controller.character_id();
     
-            commands.run_system_async(async move {
-                let storage = realm_api.get_or_create_item_storage(StorageOwner::Character(character_id), "inventory").await?;
-                let mut items = vec![];
-    
-                // Load cached item templates
-                for item in storage.items {
-                    if let Some(base_item) = OBJECT_CACHE.wait().get_object_by_guid(item.template_id).await? {
-                        // Cache abilities for later use
-                        let abilities = if 
-                            let Ok(abilities) = base_item.data.get::<_, Value>(ItemEdna::Abilities) &&
-                            let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
-                        {
-                            let mut item_abilities = vec![];
-    
-                            for ability in abilities.0 {
-                                if let Some(ability) = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await? {
-                                    item_abilities.push(CachedObject(ability));
-                                }
-                            }
-    
-                            item_abilities
-                        } else {
-                            vec![]
-                        };
-    
-                        items.push((item, base_item, abilities));
-                    }
-                }
-    
-                let mut inventory = Inventory::new(
-                    storage.id, 
-                    storage.name, 
-                    storage.bling, 
-                    storage.game_cash,
-                    storage.capacity,
-                );
-    
-                inventory.observing_players.insert(player.entity()?);
-    
-                Ok((player.entity()?, inventory, items))
-            }, systems.insert_item_storage);
+            commands
+                .entity(player.entity()?)
+                .load_component::<InitialInventoryTransfer>(character_id);
             
             Ok(())
         })?)?;
-
+        
     Ok(())
 }
 
@@ -357,9 +321,9 @@ struct CharacterPreset {
     combat_style: Option<i32>,
     level: Option<i32>,
     level_up_skills: Option<bool>,
-    weapons: Vec<Arc<CacheEntry>>,
-    armors: Vec<Arc<CacheEntry>>,
-    qboost: Vec<Arc<CacheEntry>>,
+    weapons: Vec<Arc<ObjectTemplate>>,
+    armors: Vec<Arc<ObjectTemplate>>,
+    qboost: Vec<Arc<ObjectTemplate>>,
 } 
 
 #[derive(Component, Default)]
@@ -392,68 +356,6 @@ impl Inventory {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct CachedObject(pub Arc<CacheEntry>);
-
-impl Deref for CachedObject {
-    type Target = Arc<CacheEntry>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl UserData for CachedObject {
-    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("Get", |lua, this, name: String| {
-            let val = this.data.get_named::<obj_params::Value>(&name)
-                .map_err(mlua::Error::external)?;
-        
-            ParamValue::new(val.clone())
-                .into_lua(lua)
-       });
-    }
-}
-
-impl FromLua for CachedObject {
-    fn from_lua(value: mlua::Value, _: &mlua::Lua) -> mlua::Result<Self> {
-        let usr = value.as_userdata().ok_or(mlua::Error::runtime("object expected"))?;
-        Ok(usr.borrow::<CachedObject>()?.clone())
-    }
-}
-
-impl CachedObject {
-    pub fn construct_lua_table(&self, runtime: &mut LuaRuntime) -> WorldResult<Table> {
-        let base = load_class_script(runtime, 
-            self.0.class, 
-            self.0.data.get::<_, String>(EdnaAbility::LuaScript).ok().map(|s| s.as_str()))?;
-
-        let metatable = runtime.vm().create_table()?;
-        metatable.set("__index", base)?;
-
-        let table = runtime.vm().create_table()?;
-        table.set_metatable(Some(metatable));
-        table.set("__item_ability", self.clone())?;
-
-        table.set("template_guid", self.id.to_string())?;
-        table.set("name", self.name.clone())?;
-        table.set("class", self.class.name().to_string())?;
-
-        Ok(table)
-    }
-}
-
-#[derive(Component)]
-pub struct ItemAbilities(pub Vec<CachedObject>);
-
-impl Deref for ItemAbilities {
-    type Target = Vec<CachedObject>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 fn prepare_load_player_inventory(
     query: Query<(Entity, &ScriptObject), Added<PlayerTag>>,
     instance: Res<ZoneInstance>,
@@ -472,7 +374,7 @@ fn prepare_load_player_inventory(
 
 #[allow(clippy::type_complexity)]
 fn insert_item_storage(
-    In(result): In<WorldResult<(Entity, Inventory, Vec<(realm_api::Item, Arc<CacheEntry>, Vec<CachedObject>)>)>>,
+    In(result): In<Result<(Entity, Inventory, Vec<(realm_api::Item, Arc<ObjectTemplate>, Vec<StaticObject>)>)>>,
     ents: Query<Entity>,
     mut player: Query<(&mut GameObjectData, &ScriptObject), With<PlayerTag>>,
     instance: Res<ZoneInstance>,
@@ -490,7 +392,7 @@ fn insert_item_storage(
                 
                 for (item, template, abilities) in items {
                     let mut instance = item.instance;
-                    instance.set_parent(Some(template.data.clone()));
+                    instance.set_parent(Some(template.clone()));
 
                     let item_ent = commands.spawn((
                         ContentInfo {
@@ -530,7 +432,6 @@ fn insert_item_storage(
 fn command_add_item(
     In((ent, args)): In<(Entity, Vec<NativeParam>)>,
     storage: Query<&Inventory>,
-    instance: Res<ZoneInstance>,
     systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
@@ -540,13 +441,13 @@ fn command_add_item(
         let Some(NativeParam::String(item_name)) = args.next() &&
         let Ok(storage) = storage.get(ent)
     {
-        let realm_api = instance.realm_api.clone();
         let storage_id = storage.id;
 
         commands.run_system_async(async move {
             debug!("Try inserting item {item_name}");
 
-            match realm_api.item_storage_access(&storage_id)
+            match RealmApi::get()
+                .item_storage_access(&storage_id)
                 .insert_item(ItemRef::Name(&item_name), Some(ent.to_string()))
                 .await
             {
@@ -617,7 +518,6 @@ fn apply_character_preset(
 fn behavior_inventory_item_pos(
     In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
     inventories: Query<&Inventory>,
-    instance: Res<ZoneInstance>,
     systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
@@ -628,11 +528,11 @@ fn behavior_inventory_item_pos(
         let Some(slot) = args.next().and_then(|arg| arg.parse::<i32>().ok()) &&
         let Ok(storage) = inventories.get(ent)
     {
-        let realm_api = instance.realm_api.clone();
         let storage_id = storage.id;
 
         commands.run_system_async(async move {
-            if let Ok(res) = realm_api.item_storage_access(&storage_id)
+            if let Ok(res) = RealmApi::get()
+                .item_storage_access(&storage_id)
                 .move_item(item_id, slot, Some(ent.to_string()))
                 .await
             {
@@ -654,7 +554,6 @@ fn behavior_inventory_item_pos(
 fn behavior_inventory_discard_item(
     In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
     inventories: Query<&Inventory>,
-    instance: Res<ZoneInstance>,
     systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
@@ -664,11 +563,11 @@ fn behavior_inventory_discard_item(
         let Some(item_id) = args.next().and_then(|arg| arg.parse::<Uuid>().ok()) &&
         let Ok(storage) = inventories.get(ent)
     {
-        let realm_api = instance.realm_api.clone();
         let storage_id = storage.id;
 
         commands.run_system_async(async move {
-            if let Ok(res) = realm_api.item_storage_access(&storage_id)
+            if let Ok(res) = RealmApi::get()
+                .item_storage_access(&storage_id)
                 .destroy_item(item_id, Some(ent.to_string()))
                 .await
             {
@@ -690,7 +589,6 @@ fn behavior_inventory_discard_item(
 fn behavior_inventory_request_equip(
     In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
     inventories: Query<&Inventory>,
-    instance: Res<ZoneInstance>,
     systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
@@ -701,11 +599,11 @@ fn behavior_inventory_request_equip(
         let Some(slot) = args.next().and_then(|arg| arg.parse::<i32>().ok()) &&
         let Ok(storage) = inventories.get(ent)
     {
-        let realm_api = instance.realm_api.clone();
         let storage_id = storage.id;
 
         commands.run_system_async(async move {
-            if let Ok(res) = realm_api.item_storage_access(&storage_id)
+            if let Ok(res) = RealmApi::get()
+                .item_storage_access(&storage_id)
                 .equip_item(item_id, if slot != -1 { Some(slot) } else { None }, Some(ent.to_string()))
                 .await
             {
@@ -727,7 +625,6 @@ fn behavior_inventory_request_equip(
 fn behavior_inventory_request_unequip(
     In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
     inventories: Query<&Inventory>,
-    instance: Res<ZoneInstance>,
     systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
@@ -737,11 +634,11 @@ fn behavior_inventory_request_unequip(
         let Some(item_id) = args.next().and_then(|arg| arg.parse::<Uuid>().ok()) &&
         let Ok(storage) = inventories.get(ent)
     {
-        let realm_api = instance.realm_api.clone();
         let storage_id = storage.id;
 
         commands.run_system_async(async move {
-            if let Ok(res) = realm_api.item_storage_access(&storage_id)
+            if let Ok(res) = RealmApi::get()
+                .item_storage_access(&storage_id)
                 .unequip_item(item_id, Some(ent.to_string()))
                 .await
             {
@@ -828,7 +725,7 @@ fn apply_storage_result(
         if let Some(changed_items) = result.changed_items {
             for (item, template, abilities) in changed_items {
                 let mut instance = item.instance;
-                instance.set_parent(Some(template.data.clone()));
+                instance.set_parent(Some(template.clone()));
 
                 let mut data = Vec::new();
                 {
@@ -860,7 +757,7 @@ fn apply_storage_result(
                     let item_ent = commands.spawn((
                         ContentInfo {
                             placement_id: item.id,
-                            template: template.clone(),
+                            template,
                         },
                         instance,
                         ItemAbilities(abilities),
@@ -894,9 +791,6 @@ fn apply_storage_result(
     }
 }
 
-#[derive(Component)]
-pub struct InitialInventoryTransfer(Option<Vec<Entity>>);
-
 fn init_client_inventory(
     inventories: Query<(&PlayerController, &Inventory), Added<Inventory>>
 ) {
@@ -923,6 +817,8 @@ fn send_initial_items(
 ) {
     for (entity, controller, mut queue, mut state) in transfer_queues.iter_mut() {
         if let Some(queue) = &mut queue.0 {
+            debug!("Initial item queue length: {}", queue.len());
+
             let count = queue.len().min(10);
             for item_ent in queue.drain(..count) {
                 if let Ok((content, item)) = items.get(item_ent) {
@@ -990,17 +886,16 @@ fn send_item_updates(
 fn handle_shop_cart_buy_request(
     In((ent, pkt)): In<(Entity, oaPktShopCartBuyRequest)>,
     query: Query<&Inventory>,
-    instance: Res<ZoneInstance>,
     systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
     if let Ok(storage) = query.get(ent) {
-        let realm_api = instance.realm_api.clone();
         let storage_id = storage.id;
 
         if let Some(entry) = pkt.shopping_cart.first().cloned() {
             commands.run_system_async(async move {
-                match realm_api.item_storage_access(&storage_id)
+                match RealmApi::get()
+                    .item_storage_access(&storage_id)
                     .purchase_item(ItemRef::Uuid(entry.id), None, Price::Bling(0))
                     .await
                 {

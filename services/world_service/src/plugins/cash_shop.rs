@@ -16,6 +16,7 @@
 use bevy::{app::Plugin, prelude::{App, Entity, In, Query, Res}};
 use log::debug;
 use protocol::{oaPktCashItemVendorSyncAcknowledge, oaPktCashItemVendorSyncRequest, oaPktSKUBundleSyncAcknowledge, oaPktSKUBundleSyncRequest, CashItemSKUBundleEntry, CashItemSKUItemEntry, CashItemVendorEntry};
+use realm_api::RealmApi;
 
 use crate::instance::ZoneInstance;
 
@@ -40,7 +41,6 @@ fn handle_sku_bundle_sync_request(
         // to handle the big query more ergonomically.
 
         let controller = controller.clone();
-        let realm_api = instance.realm_api.clone();
 
         instance.spawn_task(async move {
             let mut response = oaPktSKUBundleSyncAcknowledge::default();
@@ -48,7 +48,7 @@ fn handle_sku_bundle_sync_request(
             for item_request in pkt.sku_items {
                 if 
                     let Ok(id) = item_request.id.parse() &&
-                    let Ok(Some(item)) = realm_api.get_cash_shop_item(id).await
+                    let Ok(Some(item)) = RealmApi::get().get_cash_shop_item(id).await
                 {
                     response.sku_items.push(CashItemSKUItemEntry { 
                         sku_id: item.id.to_string(),
@@ -83,7 +83,7 @@ fn handle_sku_bundle_sync_request(
             for bundle_request in pkt.bundle_items {
                 if 
                     let Ok(id) = bundle_request.id.parse() &&
-                    let Ok(Some(bundle)) = realm_api.get_cash_shop_item_bundle(id).await
+                    let Ok(Some(bundle)) = RealmApi::get().get_cash_shop_item_bundle(id).await
                 {
                     response.bundle_items.push(CashItemSKUBundleEntry { 
                         cash_price: bundle.cash_price as u32, 
@@ -135,7 +135,6 @@ fn handle_cash_item_vendor_sync_request(
         // to handle the big query more ergonomically.
 
         let controller = controller.clone();
-        let realm_api = instance.realm_api.clone();
 
         instance.spawn_task(async move {
             let mut response = oaPktCashItemVendorSyncAcknowledge::default();
@@ -143,7 +142,7 @@ fn handle_cash_item_vendor_sync_request(
             for vendor_request in pkt.items {
                 if 
                     let Ok(id) = vendor_request.id.parse() &&
-                    let Ok(Some(vendor)) = realm_api.get_cash_shop_vendor(id).await
+                    let Ok(Some(vendor)) = RealmApi::get().get_cash_shop_vendor(id).await
                 {
                     response.items.push(CashItemVendorEntry {
                         vendor_id: vendor.id.to_string(),

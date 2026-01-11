@@ -15,7 +15,7 @@
 
 use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration, future::Future};
 
-use bevy::{MinimalPlugins, app::{First, Last, Main, MainSchedulePlugin, PanicHandlerPlugin, PreStartup, SubApp, TaskPoolPlugin}, diagnostic::FrameCountPlugin, ecs::{component::Component, entity::Entity, message::MessageRegistry, resource::Resource, schedule::{IntoScheduleConfigs, ScheduleLabel}, system::Commands}, prelude::{AppExtStates, AppTypeRegistry,NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, state::States}, tasks::futures_lite::StreamExt, time::{TimePlugin, common_conditions::on_timer}};
+use bevy::{app::{Last, Main, MainSchedulePlugin, PanicHandlerPlugin, PreStartup, SubApp, TaskPoolPlugin}, diagnostic::FrameCountPlugin, ecs::{component::Component, entity::Entity, message::MessageRegistry, query::With, resource::Resource, schedule::{IntoScheduleConfigs, ScheduleLabel}, system::Commands}, prelude::{AppExtStates, AppTypeRegistry,NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, condition::in_state, state::States}, tasks::futures_lite::StreamExt, time::{TimePlugin, common_conditions::on_timer}};
 use core_api::CoreApi;
 use derive_builder::Builder;
 use log::{debug, trace, error};
@@ -28,7 +28,7 @@ use tokio::{runtime::Handle, task::JoinHandle};
 use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, object_cache::ObjectCache, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, CooldownGroups, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LifetimePlugin, LoaderPlugin, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, NpcAiPlugin, PartitioningPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin, WorldSpace}, ARGS};
+use crate::{ARGS, error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, ComponentLoaderCommandsTrait, CooldownGroups, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LifetimePlugin, LoaderPlugin, LoadingComponents, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, NpcAiPlugin, PartitioningPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin, WorldSpace, ZoneLoader, ZoneLoaderParameter}};
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct InstanceShutdown;
@@ -102,12 +102,10 @@ pub struct ZoneConfig {
 #[derive(Builder, Resource)]
 #[builder(pattern = "owned", build_fn(private, error = "WorldError"))]
 pub struct ZoneInstance {
-    pub realm_api: RealmApi,
     pub core_api: CoreApi,
     pub realm_client: Arc<RealmClient>,
     handle: Handle,
     task_tracker: TaskTracker,
-    pub object_cache: ObjectCache,
 
     pub manager: InstanceManager,
 
@@ -151,11 +149,10 @@ impl ZoneInstanceBuilder {
         let mut app = SubApp::new();
         let mut instance = self.build()?;
 
-        let realm_api = instance.realm_api.clone();
         let world_def = instance.world_def.clone();
-        let object_cache = instance.object_cache.clone();
 
-        if let Some(config) = instance.realm_api.query_object_templates()
+        if let Some(config) = RealmApi::get()
+            .query_object_templates()
             .category(Category::Misc)
             .class(Class::OaZoneConfig)
             .name(instance.zone.realu_zone_type().to_owned())
@@ -203,13 +200,11 @@ impl ZoneInstanceBuilder {
                 .run_if(event_update_condition),
         );*/
 
+        let zone = instance.zone.clone();
+
         // Instance setup
         app.init_state::<InstanceState>();
         app.insert_resource(instance);
-        app.add_systems(OnEnter(InstanceState::Initializing), start_instance);
-        app.add_systems(Last, check_inactivity_timeout
-                .run_if(on_timer(Duration::from_secs(60)))
-        );
 
         // Core plugins
         app.add_plugins((
@@ -250,7 +245,7 @@ impl ZoneInstanceBuilder {
         ));
 
         app.add_plugins((
-            SpecialEventsPlugin::new(object_cache.clone(), realm_api.clone(), world_def.name()).await?,
+            SpecialEventsPlugin::new(world_def.name()).await?,
             QuestsPlugin::new(content_path.join("lua").join("quests")),
             ChatPlugin,
             AbilitiesPlugin,
@@ -262,16 +257,21 @@ impl ZoneInstanceBuilder {
             LifetimePlugin,
         ));
 
-        let navmesh = Navmesh::load(
-            realm_api.clone(),
-            world_def.as_ref()
-        ).await?;
+        let navmesh = Navmesh::load(world_def.as_ref()).await?;
 
         app.insert_resource(WorldSpace::new(navmesh.bounds()));
         app.insert_resource(navmesh);
-        app.insert_resource(CooldownGroups::load(&realm_api).await?);
+        app.insert_resource(CooldownGroups::load().await?);
 
         app.add_systems(PreStartup, spawn_world_controller);
+        app.add_systems(OnEnter(InstanceState::Initializing), start_instance);
+
+        app.add_systems(Last,
+            check_inactivity_timeout
+                .run_if(on_timer(Duration::from_secs(60)))
+        );
+
+        app.world_mut().flush();
 
         Ok(app)
     }

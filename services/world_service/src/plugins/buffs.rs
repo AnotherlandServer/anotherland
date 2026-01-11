@@ -16,23 +16,24 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, entity::Entity, hierarchy::{ChildOf, Children}, query::{Added, Changed, With, Without}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res, SystemId}, world::World}, time::{Real, Stopwatch, Time, Virtual}};
+use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, entity::Entity, error::Result, hierarchy::{ChildOf, Children}, query::{Added, Changed, With, Without}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res, SystemId}, world::World}, time::{Real, Stopwatch, Time, Virtual}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::{debug, warn};
 use mlua::{Lua, Table};
-use obj_params::{GameObjectData, OaBuff2, ParamWriter};
+use obj_params::{ContentRef, GameObjectData, OaBuff2, ParamWriter};
 use protocol::{CPktBuffRequest, CPktBuffUpdate};
+use realm_api::ObjectTemplate;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use toolkit::types::Uuid;
 
-use crate::{error::WorldResult, object_cache::CacheEntry, plugins::FutureCommands, OBJECT_CACHE};
+use crate::{error::WorldResult, plugins::{ContentCache, ContentCacheRef, FutureCommands, WeakCache}};
 
 use super::{attach_scripts, Avatar, ContentInfo, Interests, PlayerController};
 
 #[derive(Resource)]
 #[allow(clippy::type_complexity)]
 struct BuffSystems {
-    insert_buff: SystemId<In<(Entity, Option<Entity>, WorldResult<Option<Arc<CacheEntry>>>, Uuid, Option<f32>, Option<f32>, Option<i32>)>>,
+    insert_buff: SystemId<In<(Entity, Option<Entity>, Result<Option<Arc<ObjectTemplate>>>, Uuid, Option<f32>, Option<f32>, Option<i32>)>>,
 }
 
 pub struct BuffsPlugin;
@@ -77,7 +78,9 @@ pub fn insert_buff_api(
             (
                 ent,
                 instigator,
-                OBJECT_CACHE.wait().get_object_by_guid(id).await,
+                ContentCache::get(
+                    &ContentCacheRef::Uuid(id)
+                ).await,
                 instance_id,
                 duration,
                 delay,
@@ -101,7 +104,9 @@ pub fn insert_buff_api(
             (
                 ent,
                 instigator,
-                OBJECT_CACHE.wait().get_object_by_name(&name).await,
+                ContentCache::get(
+                    &ContentCacheRef::Name(name)
+                ).await,
                 instance_id,
                 duration,
                 delay,
@@ -174,7 +179,7 @@ pub fn insert_buff_api(
 
 #[allow(clippy::type_complexity)]
 fn insert_buff(
-    In((ent, instigator, res, instance_id, duration, _delay, stacks)): In<(Entity, Option<Entity>, WorldResult<Option<Arc<CacheEntry>>>, Uuid, Option<f32>, Option<f32>, Option<i32>)>,
+    In((ent, instigator, res, instance_id, duration, _delay, stacks)): In<(Entity, Option<Entity>, Result<Option<Arc<ObjectTemplate>>>, Uuid, Option<f32>, Option<f32>, Option<i32>)>,
     query: Query<&Avatar>,
     time: Res<Time<Real>>,
     mut commands: Commands,
@@ -182,7 +187,7 @@ fn insert_buff(
     if let Ok(Some(template)) = res {
         debug!("Inserting buff {ent:?} with template {}", template.id);
 
-        let mut data = GameObjectData::instantiate(&template.data);
+        let mut data = GameObjectData::instantiate(template.clone());
         
         let mut buff = Buff {
             added: Stopwatch::new(),

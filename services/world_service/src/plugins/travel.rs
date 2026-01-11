@@ -16,7 +16,7 @@
 use bevy::{app::Plugin, prelude::{App, Component, Entity, In, Query, Res}};
 use futures_util::TryStreamExt;
 use log::error;
-use realm_api::ZoneType;
+use realm_api::{RealmApi, ZoneType};
 use toolkit::{types::AvatarId, IterExt, NativeParam};
 
 use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, proto::TravelMode};
@@ -42,13 +42,14 @@ impl Plugin for TravelPlugin {
                 let Some(NativeParam::String(world)) = args.next() &&
                 let Ok(controller) = players.get(ent).cloned() 
             {
-                let realm_api = instance.realm_api.clone();
                 instance.spawn_task(async move {
                     if 
-                    let Some(world_def) = realm_api.query_worlddefs()
+                    let Some(world_def) = RealmApi::get()
+                        .query_worlddefs()
                         .name(world.clone())
                         .query().await?.try_next().await? &&
-                    let Some(zone) = realm_api.query_zones()
+                    let Some(zone) = RealmApi::get()
+                        .query_zones()
                         .zone_type(ZoneType::World)
                         .worlddef_guid(*world_def.guid())
                         .query().await?.try_next().await?
@@ -97,15 +98,16 @@ fn handle_join_dungeon(
     players: Query<&PlayerController>,
 ) {
     if let Ok(controller) = players.get(ent).cloned() {
-        let realm_api = instance.realm_api.clone();
         instance.spawn_task(async move {
             if let Err(e) = async {
                 
                 if 
-                    let Some(world_def) = realm_api.query_worlddefs()
+                    let Some(world_def) = RealmApi::get()
+                        .query_worlddefs()
                         .name(cmd.map_name.clone())
                         .query().await?.try_next().await? &&
-                    let Some(zone) = realm_api.query_zones()
+                    let Some(zone) = RealmApi::get()
+                        .query_zones()
                         .zone_type(ZoneType::World)
                         .worlddef_guid(*world_def.guid())
                         .query().await?.try_next().await?
@@ -187,15 +189,16 @@ fn handle_social_travel(
         cmd.is_travel &&
         let Ok(controller) = players.get(ent).cloned()
     {
-        let realm_api = instance.realm_api.clone();
         instance.spawn_task(async move {
             if let Err(e) = async {
                 
                 if 
-                    let Some(world_def) = realm_api.query_worlddefs()
+                    let Some(world_def) = RealmApi::get()
+                        .query_worlddefs()
                         .name(cmd.map_name.clone())
                         .query().await?.try_next().await? &&
-                    let Some(zone) = realm_api.query_zones()
+                    let Some(zone) = RealmApi::get()
+                        .query_zones()
                         .zone_type(ZoneType::World)
                         .worlddef_guid(*world_def.guid())
                         .query().await?.try_next().await?

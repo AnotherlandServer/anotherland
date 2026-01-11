@@ -180,8 +180,8 @@ impl Navmesh {
 }
 
 impl Navmesh {
-    pub async fn load(realm_api: RealmApi, world: &WorldDef) -> WorldResult<Self> {
-        let navmesh = realm_api
+    pub async fn load(world: &WorldDef) -> WorldResult<Self> {
+        let navmesh = RealmApi::get()
             .query_navmeshs()
             .world_guid(*world.guid())
             .query()
@@ -190,7 +190,7 @@ impl Navmesh {
             .await?
             .ok_or(WorldError::Other(anyhow!("No navigation mesh found for world: {}", world.guid())))?;
 
-        let tiles = realm_api
+        let tiles = RealmApi::get()
             .query_navmesh_tiles()
             .mesh_id(navmesh.id)
             .query()

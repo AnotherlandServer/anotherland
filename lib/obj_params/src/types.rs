@@ -63,7 +63,7 @@ pub enum ParamType {
     InstanceGroup,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Hash, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ContentRef {
     pub class: Class,
     pub id: Uuid,

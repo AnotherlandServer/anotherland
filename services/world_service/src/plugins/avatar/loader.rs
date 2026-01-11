@@ -21,7 +21,6 @@ use crate::plugins::{LoadContext, LoadableComponent, VirtualComponent};
 
 #[derive(Component)]
 pub struct AvatarLoader {
-    pub realm_api: RealmApi,
     data: Option<AvatarLoaderData>,
 }
 
@@ -30,12 +29,7 @@ pub enum AvatarLoaderData {
     Placement(ObjectPlacement),
 }
 
-pub struct AvatarLoaderParams {
-    pub id: AvatarStorageId,
-    pub realm_api: RealmApi,
-}
-
-pub enum AvatarStorageId {
+pub enum AvatarLoaderParams {
     PlayerCharacter(Uuid),
     Placement(Uuid),
     PersistentInstance(Uuid),
@@ -46,26 +40,39 @@ impl VirtualComponent for AvatarLoader {}
 impl LoadableComponent for AvatarLoader {
     type Parameters = AvatarLoaderParams;
 
-    async fn load(parameters: Self::Parameters) -> Result<Self> {
+    async fn load(parameters: Self::Parameters, _context: &mut LoadContext<Self::ContextData>) -> Result<Self> {
         Ok(AvatarLoader {
-            realm_api: parameters.realm_api.clone(),
             data: Some(
-                match parameters.id {
-                    AvatarStorageId::PlayerCharacter(character_id) => {
+                match parameters {
+                    AvatarLoaderParams::PlayerCharacter(character_id) => {
                         AvatarLoaderData::PlayerCharacter(
-                            Self::load_player_character(parameters.realm_api, character_id).await?
+                            Self::load_player_character(character_id).await?
                         )
                     }
-                    AvatarStorageId::Placement(_) => todo!(),
-                    AvatarStorageId::PersistentInstance(_) => todo!(),
+                    AvatarLoaderParams::Placement(_) => todo!(),
+                    AvatarLoaderParams::PersistentInstance(_) => todo!(),
                 }
             ),
         })
     }
 
-    fn on_load(&mut self, commands: &mut EntityCommands<'_>, context: &mut LoadContext) -> Result<()> {
-        match self.data.take().unwrap() {
-            AvatarLoaderData::PlayerCharacter(character) => self.on_load_player_character(commands, context, character),
+    fn load_dependencies(&mut self, commands: &mut EntityCommands<'_>, context: &mut LoadContext<Self::ContextData>) -> Result<()> {
+        let mut data = self.data.take();
+
+        let ret = match data.as_mut() {
+            Some(AvatarLoaderData::PlayerCharacter(character)) => self.load_player_character_dependencies(commands, context, character),
+            None => unreachable!(),
+            _ => todo!(),
+        };
+
+        self.data = data;
+        ret
+    }
+
+    fn on_load(&mut self, commands: &mut EntityCommands<'_>, _data: Option<Self::ContextData>) -> Result<()> {
+        match self.data.take() {
+            Some(AvatarLoaderData::PlayerCharacter(character)) => self.on_load_player_character(commands, character),
+            None => unreachable!(),
             _ => todo!(),
         }
     }
