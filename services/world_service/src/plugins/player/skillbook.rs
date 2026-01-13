@@ -30,6 +30,7 @@ use crate::{error::WorldResult, plugins::{CombatStyle, ContentCache, ContentCach
 #[derive(Component)]
 pub struct Skillbook(pub(super) Vec<SkillbookEntry>);
 
+#[allow(unused)]
 pub struct Skill {
     pub id: Uuid,
     pub ability: Arc<ObjectTemplate>,

@@ -323,7 +323,7 @@ pub fn insert_ability_api(
             In((sender, interaction, target)): In<(Table, Interaction, Table)>,
             mut commands: Commands,
         | -> WorldResult<()> {
-            commands.send_event(InteractionEvent {
+            commands.write_message(InteractionEvent {
                 source: sender.entity()?,
                 target: target.entity()?,
                 interaction,

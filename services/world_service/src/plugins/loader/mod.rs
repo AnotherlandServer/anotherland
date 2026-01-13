@@ -21,26 +21,21 @@ mod commands_component_loader;
 mod component_loader;
 mod cache;
 
-use bevy::{app::{First, Last, Plugin, PostStartup, PreUpdate, Update}, ecs::{event::EntityEvent, lifecycle::{Despawn, HookContext, OnDespawn}, observer::On, schedule::IntoScheduleConfigs, system::{Commands, ResMut}}, state::state::NextState};
+use bevy::{app::{First, Last, Plugin, PostStartup, PreUpdate, Update}, ecs::{lifecycle::HookContext, schedule::IntoScheduleConfigs, system::Commands}};
 pub use components::*;
 pub use events::*;
-use log::debug;
 pub use resources::*;
 pub use systems::*;
 pub use commands_component_loader::*;
 pub use component_loader::*;
 pub use cache::*;
-use toolkit::bson::de;
 
-use crate::{instance::{InstanceState, ZoneInstance}, plugins::{CommandExtPriv, ZoneLoader, ZoneLoaderParameter, navigation}};
+use crate::{instance::ZoneInstance, plugins::{CommandExtPriv, ZoneLoader, ZoneLoaderParameter, navigation}};
 
 pub struct LoaderPlugin;
 
 impl Plugin for LoaderPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        //let (content_sender, content_receiver) = tokio::sync::mpsc::channel::<Content>(100);
-
-        //app.insert_resource(ForeignResource(content_receiver));
         app.insert_resource(InstanceManager::default());
         app.world_mut().register_component_hooks::<ContentInfo>()
             .on_insert(|mut world, HookContext { entity, .. }| {
@@ -78,11 +73,6 @@ impl Plugin for LoaderPlugin {
 
         insert_loader_api(app.world_mut()).expect("Failed to insert loader API");
 
-        /*let systems = LoaderSystems {
-            spawn_instance: app.register_system(spawn_instance),
-        };
-        app.insert_resource(systems);*/
-
         app.init_resource::<LoadingComponents>();
 
         let instance = app.world().get_resource::<ZoneInstance>().unwrap();
@@ -94,38 +84,5 @@ impl Plugin for LoaderPlugin {
                     zone: zone.clone()
                 });
         });
-
-        /*let instance = app.world().get_resource::<ZoneInstance>().unwrap();
-        let realm_api = instance.realm_api.clone();
-        let zone = instance.zone.clone();
-        let object_cache = instance.object_cache.clone();
-
-        let init_task = FutureTaskComponent::new(
-            instance.spawn_task(async move {
-                // Query
-                let mut query = realm_api.query_object_placements()
-                    .zone_guid(*zone.guid())
-                    .query().await.unwrap();
-        
-                let mut content = vec![];
-                
-                while let Some(mut placement) = query.try_next().await.unwrap() {
-                    if let Some(template) = object_cache.get_object_by_guid(placement.content_guid).await.unwrap() {
-                        placement.data.set_parent(Some(template.data.clone()));
-                        let (abilities, items) = load_additional_content(&placement.data).await.unwrap();
-                        
-                        content.push((placement, template, abilities, items));
-                    } else {
-                        warn!("Template '{}' not found for placement '{}'", placement.content_guid, placement.id);
-                    }
-                }
-        
-                info!("Instance {} load completed.", zone.guid());
-                content
-            }), 
-            app.world_mut().register_system(ingest_content)
-        );
-
-        app.world_mut().spawn(init_task);*/
     }
 }

@@ -19,10 +19,13 @@ use crate::plugins::{LoadableComponent, LoadingComponents};
 
 pub trait ComponentLoaderCommandsTrait {
     fn load_component<T: Component + LoadableComponent>(&mut self, parameters: T::Parameters) -> &mut Self;
-    fn load_component_with_error_handler<T: Component + LoadableComponent>(
+    fn load_component_with_error_handler<
+        T: Component + LoadableComponent,
+        F: FnOnce(bevy::ecs::error::BevyError, &mut EntityCommands<'_>) + Send + Sync + 'static,
+    >(
         &mut self,
         parameters: T::Parameters,
-        error_handler: fn(bevy::ecs::error::BevyError, &mut EntityCommands<'_>),
+        error_handler: F,
     ) -> &mut Self;
 }
 
@@ -35,15 +38,18 @@ impl ComponentLoaderCommandsTrait for EntityCommands<'_> {
         })
     }
 
-    fn load_component_with_error_handler<T: Component + LoadableComponent>(
+    fn load_component_with_error_handler<
+        T: Component + LoadableComponent,
+        F: FnOnce(bevy::ecs::error::BevyError, &mut EntityCommands<'_>) + Send + Sync + 'static,
+    >(
         &mut self,
         parameters: T::Parameters,
-        error_handler: fn(bevy::ecs::error::BevyError, &mut EntityCommands<'_>),
+        error_handler: F,
     ) -> &mut Self {
         self.queue(move |mut entity: EntityWorldMut| {
             let id = entity.id();
             let mut loading = entity.resource_mut::<LoadingComponents>();
-            loading.load_component_with_error_handler::<T>(id, parameters, error_handler);
+            loading.load_component_with_error_handler::<T, F>(id, parameters, error_handler);
         })
     }
 }

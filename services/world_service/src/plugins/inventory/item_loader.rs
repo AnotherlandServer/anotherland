@@ -17,11 +17,10 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use bevy::ecs::{component::Component, error::Result};
-use log::debug;
 use obj_params::{ContentRefList, EdnaFunction, GameObjectData, ItemEdna};
 use realm_api::ObjectTemplate;
 use serde_json::Value;
-use toolkit::types::{UUID_NIL, Uuid};
+use toolkit::types::Uuid;
 
 use crate::plugins::{ContentCache, ContentCacheRef, ContentInfo, ItemAbilities, ItemAbilityRef, ItemEdnaAbilities, LoadContext, LoadableComponent, WeakCache};
 
@@ -58,7 +57,7 @@ impl LoadableComponent for Item {
         Ok(Item)
     }
 
-    fn load_dependencies(&mut self, commands: &mut bevy::ecs::system::EntityCommands<'_>, context: &mut LoadContext<Self::ContextData>) -> Result<()> {
+    fn load_dependencies(&mut self, _commands: &mut bevy::ecs::system::EntityCommands<'_>, context: &mut LoadContext<Self::ContextData>) -> Result<()> {
         let (item, _) = context.data().as_ref().unwrap();
 
         let mut item_abilities = vec![];

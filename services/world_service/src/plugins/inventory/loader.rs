@@ -13,12 +13,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::ecs::{error::Result, hierarchy::ChildOf, system::EntityCommands, world::EntityWorldMut};
-use obj_params::{ContentRefList, GameObjectData, Player};
-use realm_api::{ItemStorage, RealmApi, StorageOwner};
-use toolkit::types::{UUID_NIL, Uuid};
+use bevy::ecs::{error::Result, hierarchy::ChildOf, system::EntityCommands};
+use obj_params::{ContentRefList, GameObjectData};
+use realm_api::{RealmApi, StorageOwner};
 
-use crate::plugins::{Inventory, Item, ItemInstance, ItemParameters, LoadContext, LoadableComponent};
+use crate::plugins::{Inventory, ItemInstance, ItemParameters, LoadContext, LoadableComponent};
 
 pub enum InventoryParameter {
     Persistent(StorageOwner, String),

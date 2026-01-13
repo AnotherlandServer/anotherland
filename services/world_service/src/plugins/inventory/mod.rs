@@ -19,17 +19,17 @@ mod item_loader;
 pub use loader::*;
 pub use item_loader::*;
 
-use std::{ops::Deref, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, query::Without, resource::Resource, schedule::IntoScheduleConfigs, system::{ResMut, SystemId}, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
-use futures::{TryFutureExt, future::join_all};
+use futures::{future::join_all};
 use log::{debug, error, warn};
-use mlua::{FromLua, IntoLua, Lua, Table, UserData};
-use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, EdnaAbility, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player};
+use mlua::{Lua, Table};
+use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player};
 use protocol::{oaPktItemStorage, oaPktShopCartBuyRequest, oaPktSteamMicroTxn, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
-use realm_api::{Item, ItemRef, ObjectTemplate, Price, RealmApi, StorageOwner};
+use realm_api::{Item, ItemRef, ObjectTemplate, Price, RealmApi};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -37,12 +37,11 @@ use toolkit::{types::Uuid, NativeParam};
 
 use crate::{error::WorldResult, instance::ZoneInstance, plugins::{ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, StaticObject, WeakCache}};
 
-use super::{attach_scripts, load_class_script, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, NetworkExtPriv, ParamValue, PlayerController, StringBehavior};
+use super::{attach_scripts, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, NetworkExtPriv, PlayerController, StringBehavior};
 
 #[derive(Resource)]
 #[allow(clippy::type_complexity)]
 struct InventorySystems {
-    insert_item_storage: SystemId<In<Result<(Entity, Inventory, Vec<(realm_api::Item, Arc<ObjectTemplate>, Vec<StaticObject>)>)>>>,
     apply_storage_result: SystemId<In<(Entity, StorageResult)>>,
     handle_purchase_result: SystemId<In<(Entity, StorageResult)>>,
     apply_equipment_result: SystemId<In<(Entity, EquipmentResult)>>,
@@ -155,7 +154,6 @@ pub struct InventoryPlugin;
 impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
         let inventory_systems = InventorySystems {
-            insert_item_storage: app.register_system(insert_item_storage),
             apply_storage_result: app.register_system(apply_storage_result),
             handle_purchase_result: app.register_system(handle_purchase_result),
             apply_equipment_result: app.register_system(apply_equipment_result),
@@ -369,63 +367,6 @@ fn prepare_load_player_inventory(
         commands
             .entity(instance.world_controller)
             .call_named_lua_method("PreLoadPlayerInventory", obj.object().clone());
-    }
-}
-
-#[allow(clippy::type_complexity)]
-fn insert_item_storage(
-    In(result): In<Result<(Entity, Inventory, Vec<(realm_api::Item, Arc<ObjectTemplate>, Vec<StaticObject>)>)>>,
-    ents: Query<Entity>,
-    mut player: Query<(&mut GameObjectData, &ScriptObject), With<PlayerTag>>,
-    instance: Res<ZoneInstance>,
-    mut commands: Commands,
-) {
-    match result {
-        Ok((ent, mut storage, items)) => {
-            if 
-                let Ok((mut player, obj)) = player.get_mut(ent) &&
-                let Ok(ent) = ents.get(ent)
-            {
-                player.set(Player::Bling, storage.bling.unwrap_or(0));
-                player.set(Player::GameCash, storage.game_cash.unwrap_or(0));
-
-                
-                for (item, template, abilities) in items {
-                    let mut instance = item.instance;
-                    instance.set_parent(Some(template.clone()));
-
-                    let item_ent = commands.spawn((
-                        ContentInfo {
-                            placement_id: item.id,
-                            template: template.clone(),
-                        },
-                        ItemAbilities(abilities),
-                        instance,
-                        ChildOf(ent),
-                    ))
-                    .id();
-
-                    debug!("Inserting item {}: {}", item.id, item_ent);
-
-                    storage.items.insert(item.id, item_ent);
-                }
-
-                commands.entity(ent)
-                    .insert((
-                        InitialInventoryTransfer(
-                            Some(storage.items.values().copied().collect())
-                        ),
-                        storage,
-                    ));
-
-                commands
-                    .entity(instance.world_controller)
-                    .call_named_lua_method("PostLoadPlayerInventory", obj.object().clone());
-            }
-        },
-        Err(e) => {
-            error!("Failed to load player inventory: {e}");
-        }
     }
 }
 

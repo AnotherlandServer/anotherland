@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::ecs::{component::Component, error::Result, system::EntityCommands};
-use realm_api::{Character, ObjectPlacement, RealmApi};
+use realm_api::{Character, ObjectPlacement};
 use toolkit::types::Uuid;
 
 use crate::plugins::{LoadContext, LoadableComponent, VirtualComponent};

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod player;
+mod systems;
 mod loader;
 mod localset;
 mod player_lua;
@@ -28,7 +28,7 @@ pub use controller::*;
 pub use localset::*;
 use log::{debug, error};
 use obj_params::Class;
-pub use player::*;
+pub use systems::*;
 use protocol::{oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit};
 use regex::Regex;
 pub use skillbook::*;

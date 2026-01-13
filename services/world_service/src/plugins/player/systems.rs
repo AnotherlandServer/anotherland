@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{ecs::{event::EventWriter, resource::Resource, system::SystemId}, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
+use bevy::{ecs::{message::MessageWriter, resource::Resource, system::SystemId}, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
 use log::{debug, error, trace, warn};
 use mlua::Function;
 use obj_params::{tags::PlayerTag, AttributeInfo, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, Player, Value};
@@ -124,7 +124,7 @@ pub fn handle_avatar_update(
 
 pub fn cmd_instant_kill(
     In((ent, _)): In<(Entity, Vec<NativeParam>)>,
-    mut event: EventWriter<HealthUpdateEvent>
+    mut event: MessageWriter<HealthUpdateEvent>
 ) {
     event.write(HealthUpdateEvent::kill(ent, None));
 }

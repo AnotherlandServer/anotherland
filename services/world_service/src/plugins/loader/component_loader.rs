@@ -38,7 +38,7 @@ impl<D: Send + Sync + Sized> LoadContext<D> {
     }
 
     pub fn load_dependency<T: LoadableComponent + 'static>(&mut self, parameters: T::Parameters) -> &mut Self {
-        self.load_dependency_with_error_handler::<T>(parameters, default_error_handler)
+        self.load_dependency_with_error_handler::<T, _>(parameters, default_error_handler)
     }
 
     pub fn load_cross_dependency<T: LoadableComponent + 'static>(
@@ -46,28 +46,34 @@ impl<D: Send + Sync + Sized> LoadContext<D> {
         entity: Entity,
         parameters: T::Parameters,
     ) -> &mut Self {
-        self.load_cross_dependency_with_error_handler::<T>(entity, parameters, default_error_handler)
+        self.load_cross_dependency_with_error_handler::<T, _>(entity, parameters, default_error_handler)
     }
 
-    pub fn load_dependency_with_error_handler<T: LoadableComponent + 'static>(
+    pub fn load_dependency_with_error_handler<
+        T: LoadableComponent + 'static, 
+        F: FnOnce(BevyError, &mut EntityCommands<'_>) + Send + Sync + 'static
+    >(
         &mut self,
         parameters: T::Parameters,
-        error_handler: fn(BevyError, &mut EntityCommands<'_>),
+        error_handler: F,
     ) -> &mut Self {
-        self.load_cross_dependency_with_error_handler::<T>(self.entity, parameters, error_handler)
+        self.load_cross_dependency_with_error_handler::<T, F>(self.entity, parameters, error_handler)
     }
 
-    pub fn load_cross_dependency_with_error_handler<T: LoadableComponent + 'static>(
+    pub fn load_cross_dependency_with_error_handler<
+        T: LoadableComponent + 'static, 
+        F: FnOnce(BevyError, &mut EntityCommands<'_>) + Send + Sync + 'static
+    >(
         &mut self,
         entity: Entity,
         parameters: T::Parameters,
-        error_handler: fn(BevyError, &mut EntityCommands<'_>),
+        error_handler: F,
     ) -> &mut Self {
-        self.dependant_loaders.push(Box::new(ComponentLoader::<T> {
+        self.dependant_loaders.push(Box::new(ComponentLoader::<T, F> {
             entity,
             task: IoTaskPool::get()
                 .spawn(run_loader::<T>(entity, parameters)),
-            error_handler,
+            error_handler: Some(error_handler),
             component: None,
             context: None,
         }));
@@ -110,20 +116,23 @@ pub struct LoadingComponents {
 
 impl LoadingComponents {
     pub fn load_component<T: LoadableComponent + 'static + Send + Sync>(&mut self, entity: Entity, parameters: T::Parameters) {
-        self.load_component_with_error_handler::<T>(entity, parameters, default_error_handler)
+        self.load_component_with_error_handler::<T, _>(entity, parameters, default_error_handler)
     }
 
-    pub fn load_component_with_error_handler<T: LoadableComponent + 'static + Send + Sync>(
+    pub fn load_component_with_error_handler<
+        T: LoadableComponent + 'static + Send + Sync, 
+        F: FnOnce(BevyError, &mut EntityCommands<'_>) + Send + Sync + 'static
+    >(
         &mut self,
         entity: Entity,
         parameters: T::Parameters,
-        error_handler: fn(BevyError, &mut EntityCommands<'_>),
+        error_handler: F,
     ) {
-        self.loaders.push_back(Box::new(ComponentLoader::<T> {
+        self.loaders.push_back(Box::new(ComponentLoader::<T, F> {
             entity,
             task: IoTaskPool::get()
                 .spawn(run_loader::<T>(entity, parameters)),
-            error_handler,
+            error_handler: Some(error_handler),
             component: None,
             context: None,
         }));
@@ -142,24 +151,22 @@ async fn run_loader<T: LoadableComponent>(entity: Entity, parameters: T::Paramet
         .map(|c| (c, context))
 }
 
-pub struct ComponentLoader<T: LoadableComponent> {
+pub struct ComponentLoader<T: LoadableComponent, F: FnOnce(BevyError, &mut EntityCommands<'_>)> {
     entity: Entity,
     task: Task<Result<(T, LoadContext<T::ContextData>)>>,
-    error_handler: fn(BevyError, &mut EntityCommands<'_>),
+    error_handler: Option<F>,
     component: Option<T>,
     context: Option<LoadContext<T::ContextData>>,
 }
 
 trait TypeErasedComponentLoader: Send + Sync {
-    fn entity(&self) -> Entity;
     fn load_component(&mut self, commands: &mut Commands<'_, '_>) -> bool;
 }
 
-impl<T: LoadableComponent + MaybeVirtualComponent> TypeErasedComponentLoader for ComponentLoader<T> {
-    fn entity(&self) -> Entity {
-        self.entity
-    }
-
+impl <
+    T: LoadableComponent + MaybeVirtualComponent, 
+    F: FnOnce(BevyError, &mut EntityCommands<'_>) + Send + Sync + 'static
+> TypeErasedComponentLoader for ComponentLoader<T, F> {
     fn load_component(&mut self, commands: &mut Commands<'_, '_>) -> bool {
         if self.component.is_none() {
             let Some(res) = block_on(poll_once(&mut self.task)) else {
@@ -170,13 +177,13 @@ impl<T: LoadableComponent + MaybeVirtualComponent> TypeErasedComponentLoader for
 
             let Ok((mut component, mut context)) = res else {
                 debug!("ComponentLoader: Error loading component for entity {:?}", self.entity);
-                (self.error_handler)(res.err().unwrap(), &mut entity_commands);
+                (self.error_handler.take().unwrap())(res.err().unwrap(), &mut entity_commands);
                 return true;
             };
 
             if let Err(e) = component.load_dependencies(&mut entity_commands, &mut context) {
                 debug!("ComponentLoader: Error loading dependencies for component for entity {:?}: {:?}", self.entity, e);
-                (self.error_handler)(e, &mut entity_commands);
+                (self.error_handler.take().unwrap())(e, &mut entity_commands);
                 return true;
             }
 
@@ -198,7 +205,7 @@ impl<T: LoadableComponent + MaybeVirtualComponent> TypeErasedComponentLoader for
 
                 if let Err(e) = component.on_load(&mut commands.entity(self.entity), self.context.take().unwrap().data) {
                     debug!("ComponentLoader: Error in on_load for component for entity {:?}: {:?}", self.entity, e);
-                    (self.error_handler)(e, &mut commands.entity(self.entity));
+                    (self.error_handler.take().unwrap())(e, &mut commands.entity(self.entity));
                     return true;
                 }
 

@@ -13,119 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
+use std::str::FromStr;
 
 use anyhow::anyhow;
-use bevy::{ecs::{entity::Entity, event::{EventReader, EventWriter}, hierarchy::ChildOf, query::{Added, Changed, Or, With, Without}, system::{Commands, In, Query, Res, ResMut}, world::World}, math::Vec3, state::state::NextState, time::{Time, Virtual}};
-use futures::future::join_all;
-use log::{debug, trace, warn};
+use bevy::{ecs::{entity::Entity, event::{EventReader, EventWriter}, hierarchy::ChildOf, query::{Added, Changed, Or, With, Without}, system::{Commands, In, Query, Res}, world::World}, math::Vec3,time::{Time, Virtual}};
+use log::debug;
 use mlua::{Function, Lua, Table};
-use obj_params::{Class, ContentRefList, EdnaFunction, GameObjectData, ItemEdna, NonClientBase, NpcOtherland, Player, tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, PlayerTag, StructureBaseTag}};
-use realm_api::{ObjectPlacement, ObjectTemplate};
-use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptCommandsExt, ScriptResult};
-use toolkit::{NativeParam, types::{AvatarId, AvatarType, Uuid}};
+use obj_params::{Class, GameObjectData, NonClientBase, Player, tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, PlayerTag, StructureBaseTag}};
+use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use toolkit::{NativeParam, types::{AvatarId,  Uuid}};
 
-use crate::{error::{WorldError, WorldResult}, instance::InstanceState, plugins::{Active, AvatarIdManager, Avatar, StaticObject, ContentInfo, CooldownGroups, DebugPlayer, DespawnAvatar, DynamicInstance, Factions, ForceSyncPositionUpdate, FutureCommands, HealthUpdateEvent, Inventory, ItemAbilities, ItemEdnaAbilities, MessageType, Movement, NpcAbilities, ParamValue, PlayerController, PlayerLocalSets, SpawnCallback, SpawnState}};
-
-pub(super) struct Abilities(Vec<Arc<ObjectTemplate>>);
-pub(super) struct Item {
-    item: Arc<ObjectTemplate>,
-    abilities: Vec<Arc<ObjectTemplate>>,
-}
-pub(super) struct Items(Vec<Item>);
-
-
-/*pub(super) fn ingest_content(
-    In(content): In<Vec<(ObjectPlacement, Arc<CacheEntry>, Abilities, Items)>>,
-    mut next_state: ResMut<NextState<InstanceState>>,
-    mut avatar_manager: ResMut<AvatarIdManager>,
-    cooldown_groups: Res<CooldownGroups>,
-    mut commands: Commands,
-) {
-    for (placement, template, abilities, items) in content {
-        // Skip disabled objects
-        if !*placement.data.get::<_, bool>(NonClientBase::EnableInGame).unwrap_or(&false) {
-            trace!("Skipping {}", placement.id);
-            continue;
-        } else {
-            trace!("Spawning {}", placement.id);
-        }
-
-        let entry = avatar_manager.new_avatar_entry(AvatarType::Npc);
-
-        let factions = if let Ok(faction) = placement.data.get_named::<ContentRefList>("Faction") {
-            let mut factions = Factions::default();
-
-            for faction in faction.iter() {
-                factions.add_faction(faction.id);
-            }
-
-            factions
-        } else {
-            Factions::default()
-        };
-
-        let instance = GameObjectData::instantiate(&Arc::new(placement.data));
-
-        let entity = commands.spawn((
-            Avatar {
-                id: *entry.key(),
-                name: placement.editor_name.clone(),
-            },
-            ContentInfo {
-                placement_id: placement.id,
-                template: template.clone(),
-            },
-            instance,
-            Active,
-            SpawnState::default(),
-            PlayerLocalSets::default(),
-            factions,
-        )).id();
-
-        entry.insert(entity);
-
-        if template.class == Class::NpcOtherland {
-            let mut inventory = Inventory::default();
-
-            items.0.into_iter()
-                .for_each(|item| {
-                    let instance = GameObjectData::instantiate(&item.item.data);
-
-                    let ent = commands
-                        .spawn((
-                            ContentInfo {
-                                placement_id: item.item.id,
-                                template: item.item.clone(),
-                            },
-                            ItemAbilities(
-                                item.abilities.into_iter()
-                                    .map(CachedObject)
-                                    .collect()
-                            ),
-                            instance,
-                            ChildOf(entity),
-                        ))
-                        .id(); 
-
-                    inventory.items.insert(item.item.id, ent);
-                });
-
-            commands.entity(entity)
-                .insert((
-                    NpcAbilities(
-                        abilities.0.into_iter()
-                            .map(|entry| (GameObjectData::instantiate(&entry.data), entry))
-                            .collect()
-                    ),
-                    cooldown_groups.create_cooldowns(),
-                    inventory,
-                ));
-        }
-    }
-
-    next_state.set(InstanceState::Initializing);
-}*/
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, AvatarIdManager, ComponentLoaderCommandsTrait, ContentCacheRef, ContentInfo, DebugPlayer, DespawnAvatar, DynamicInstance, ForceSyncPositionUpdate, HealthUpdateEvent, MessageType, Movement, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, ParamValue, PlayerController, SpawnState}};
 
 pub fn init_gameobjects(
     added: Query<(Entity, &GameObjectData), Added<GameObjectData>>,
@@ -273,49 +171,51 @@ pub fn insert_loader_api(
     runtime.register_native("loader", loader_api.clone()).unwrap();
 
     loader_api.set("RequestSpawnInstance", lua.create_bevy_function(world, |
-        In((owner, template, name, params, callback)): In<(Option<Table>, String, String, Table, Option<Function>)>,
-        //loader_systems: Res<LoaderSystems>,
+        In((owner, class, template, name, params, callback)): In<(Option<Table>, String, String, String, Table, Option<Function>)>,
         runtime: Res<LuaRuntime>,
         mut commands: Commands
     | -> WorldResult<()> {
-        todo!()
-        /*let lua = runtime.vm().clone();
+        let lua = runtime.vm().clone();
+        let class = Class::from_str(&class)?;
+        let mut instance = GameObjectData::new_for_class(class);
 
-        commands.run_system_async(async move {
-            let res = try {
-                let template = OBJECT_CACHE.wait()
-                    .get_object_by_name(&template).await?
-                    .ok_or(WorldError::Other(anyhow!("Template '{}' not found", template)))?;
+        for pair in params.pairs::<String, mlua::Value>() {
+            let (key, value) = pair.map_err(WorldError::LuaError)?;
 
-                let mut instance = GameObjectData::instantiate(&template.data);
-                for pair in params.pairs::<String, mlua::Value>() {
-                    let (key, value) = pair.map_err(WorldError::LuaError)?;
+            let attr = instance.class().get_attribute(&key)
+                .ok_or(mlua::Error::runtime("attribute not found"))
+                .map_err(WorldError::LuaError)?;
 
-                    let attr = instance.class().get_attribute(&key)
-                        .ok_or(mlua::Error::runtime("attribute not found"))
-                        .map_err(WorldError::LuaError)?;
+            let value = ParamValue::from_lua(attr, value, &lua)
+                .map_err(WorldError::LuaError)?;
 
-                    let value = ParamValue::from_lua(attr, value, &lua)
-                        .map_err(WorldError::LuaError)?;
+            instance.set_named(&key, value);
+        }
 
-                    instance.set_named(&key, value);
-                }
+        let owner = match owner {
+            Some(t) => Some(t.entity()?),
+            None => None,
+        };
 
-                let (abilities, items) = load_additional_content(&instance).await?;
+        commands
+            .spawn_empty()
+            .load_component_with_error_handler::<NonPlayerGameObjectLoader, _>(
+                NonPlayerGameObjectLoaderParams::Dynamic { 
+                    id: Uuid::new(), 
+                    owner, 
+                    name, 
+                    template: ContentCacheRef::Name(template), 
+                    data: instance, 
+                    callback: callback.clone(), 
+                }, 
+                move |e, commands| {
+                    if let Some(callback) = callback {
+                        commands
+                            .call_lua_method(callback, e.to_string());
+                    }
+                });
 
-                (instance, template, abilities, items)
-            };
-
-            (
-                owner.and_then(|t| t.entity().ok()),
-                res,
-                name,
-                params,
-                callback,
-            )
-        }, loader_systems.spawn_instance);
-
-        Ok(())*/
+        Ok(())
     })?)?;
 
     loader_api.set("DespawnAvatar", lua.create_bevy_function(world, |
@@ -333,187 +233,6 @@ pub fn insert_loader_api(
 
     Ok(())
 }
-
-/*pub(super) async fn load_additional_content(instance: &GameObjectData) -> WorldResult<(Abilities, Items)> {
-    let mut items: Vec<obj_params::ContentRef> = vec![];
-
-    if let Ok(weapons) = instance.get::<_, ContentRefList>(NpcOtherland::DefaultWeapon) {
-        items.extend_from_slice(weapons);
-    }
-
-    if let Ok(def_items) = instance.get::<_, ContentRefList>(NpcOtherland::DefaultItems) {
-        items.extend_from_slice(def_items);
-    }
-
-    let items = join_all(
-        items.into_iter()
-            .map(async |weapon| {
-                let item = OBJECT_CACHE.wait().get_object_by_guid(weapon.id).await?
-                    .ok_or(WorldError::Other(anyhow!("Item with GUID {} not found", weapon.id)))?;
-                
-                let mut item_abilities = vec![];
-
-                if 
-                    let Ok(abilities) = item.data.get::<_, serde_json::Value>(ItemEdna::Abilities) &&
-                    let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
-                {
-                    for ability in abilities.0 {
-                        if let Some(ability) = OBJECT_CACHE.wait().get_object_by_name(&ability.ability_name).await? {
-                            item_abilities.push(ability);
-                        }
-                    }
-                }
-
-                if 
-                    let Ok(skills) = item.data.get::<_, ContentRefList>(EdnaFunction::DefaultSkills)
-                {
-                    for skill in skills.iter() {
-                        if let Some(ability) = OBJECT_CACHE.wait().get_object_by_guid(skill.id).await? {
-                            item_abilities.push(ability);
-                        }
-                    }
-                }
-
-                Ok::<_, WorldError>(Item {
-                    item,
-                    abilities: item_abilities,
-                })
-            })
-        ).await
-        .into_iter()
-        .filter_map(|result| {
-            match result {
-                Ok(item) => Some(item),
-                Err(e) => {
-                    warn!("Failed to fetch item: {e}");
-                    None
-                }
-            }
-        })
-        .collect();
-
-    // Collect ability GUIDs from the placement data
-    let ability_guids = instance.get::<_, ContentRefList>(NpcOtherland::Abilities)
-        .map(|abilities| {
-            abilities
-                .iter()
-                .map(|content_ref| content_ref.id)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    // Fetch all abilities concurrently
-    let ability_futures = ability_guids.iter().map(|guid| {
-        OBJECT_CACHE.wait().get_object_by_guid(*guid)
-    });
-
-    let ability_results = join_all(ability_futures).await;
-    
-    // Filter out failed lookups and collect successful ones
-    let abilities: Vec<Arc<CacheEntry>> = ability_results
-        .into_iter()
-        .filter_map(|result| result.unwrap_or(None))
-        .collect();
-    
-    Ok((Abilities(abilities), Items(items)))
-}*/
-
-/*pub(super) fn spawn_instance(
-    In((owner, instance, name, params, callback)): In<(Option<Entity>, WorldResult<(GameObjectData, Arc<CacheEntry>, Abilities, Items)>, String, Table, Option<Function>)>,
-    mut avatar_manager: ResMut<AvatarIdManager>,
-    cooldown_groups: Res<CooldownGroups>,
-    mut commands: Commands,
-) {
-    let (instance, template, abilities, items) = match instance {
-        Ok(r) => r,
-        Err(e) => {
-            if let Some(callback) = callback {
-                commands.call_lua_method(callback, e.to_string());
-            }
-
-            return;
-        }
-    };
-
-    let entry = avatar_manager.new_avatar_entry(AvatarType::Npc);
-
-    let factions = if let Ok(faction) = instance.get_named::<ContentRefList>("Faction") {
-        let mut factions = Factions::default();
-
-        for faction in faction.iter() {
-            factions.add_faction(faction.id);
-        }
-
-        factions
-    } else {
-        Factions::default()
-    };
-
-    let ent = commands.spawn((
-        DynamicInstance,
-        Avatar {
-            id: *entry.key(),
-            name,
-        },
-        ContentInfo {
-            placement_id: Uuid::new(),
-            template: template.clone(),
-        },
-        instance,
-        factions,
-        Active,
-        SpawnState::default(),
-        PlayerLocalSets::default(),
-    )).id();
-
-    entry.insert(ent);
-
-    if let Some(callback) = callback {
-        commands.entity(ent).insert(SpawnCallback(callback));
-    }
-
-    if let Some(owner) = owner {
-        commands.entity(ent).insert(ChildOf(owner));
-    }
-
-    if template.class == Class::NpcOtherland {
-        let mut inventory = Inventory::default();
-
-        items.0.into_iter()
-            .for_each(|item| {
-                let instance = GameObjectData::instantiate(&item.item.data);
-
-                let ent = commands
-                    .spawn((
-                        ContentInfo {
-                            placement_id: item.item.id,
-                            template: item.item.clone(),
-                        },
-                        ItemAbilities(
-                            item.abilities.into_iter()
-                                .map(CachedObject)
-                                .collect()
-                        ),
-                        instance,
-                        ChildOf(ent),
-                    ))
-                    .id(); 
-
-                inventory.items.insert(item.item.id, ent);
-            });
-
-        commands.entity(ent)
-            .insert((
-                NpcAbilities(
-                    abilities.0.into_iter()
-                        .map(|entry| (GameObjectData::instantiate(&entry.data), entry))
-                        .collect()
-                ),
-                cooldown_groups.create_cooldowns(),
-                inventory,
-            ));
-    }
-}*/
 
 pub(super) fn cleanup_dynamic_instances(
     instances: Query<(Entity, &SpawnState), (Changed<SpawnState>, With<DynamicInstance>)>,

@@ -21,25 +21,25 @@ pub use npc_abilities::*;
 
 use std::{sync::Arc, time::{Duration, Instant}};
 
-use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{component::Component, event::{Event, EventReader}, message::Message, query::Changed, resource::Resource, system::{Commands, Res}, world::World}, platform::collections::HashMap, prelude::{Entity, In, Query}};
+use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{component::Component, message::{Message, MessageReader}, query::Changed, resource::Resource, system::{Commands, Res}, world::World}, platform::collections::HashMap, prelude::{Entity, In, Query}};
 use futures::TryStreamExt;
 use mlua::{FromLua, Function, IntoLua, Lua, Table, Value};
-use obj_params::{Class, GameObjectData};
-use protocol::{oaPktAbilityRequest, oaPktAbilityUse, oaPktCooldownUpdate, oaPktInteractionUpdate, AbilityEffect, CooldownEntry, CooldownUpdate, OaPktAbilityUseAbilityType, OaPktInteractionUpdateEventType, OaPktInteractionUpdateInteractionType};
+use obj_params::Class;
+use protocol::{oaPktAbilityRequest, oaPktCooldownUpdate, oaPktInteractionUpdate, CooldownEntry, CooldownUpdate, OaPktInteractionUpdateEventType, OaPktInteractionUpdateInteractionType};
 use realm_api::{ObjectTemplate, RealmApi};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
-use toolkit::{types::{AvatarId, Uuid}, QuatWrapper, Vec3Wrapper};
+use toolkit::{types::{AvatarId, Uuid}, QuatWrapper};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, plugins::{ConnectionState, ContentCache, ContentCacheRef, ParamValue, WeakCache}};
+use crate::{error::WorldResult, plugins::{ConnectionState, ContentCache, ContentCacheRef, WeakCache}};
 
-use super::{AvatarIdManager, Avatar, StaticObject, ContentInfo, CurrentState, Interests, NetworkExtPriv, PlayerController, SkillbookEntry};
+use super::{AvatarIdManager, Avatar, CurrentState, NetworkExtPriv, PlayerController};
 
 pub struct AbilitiesPlugin;
 
 impl Plugin for AbilitiesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<InteractionEvent>();
+        app.add_message::<InteractionEvent>();
 
         app.register_message_handler(handle_ability_request);
         app.add_systems(PostUpdate, send_cooldown_updates);
@@ -48,11 +48,6 @@ impl Plugin for AbilitiesPlugin {
         insert_cooldown_api(app.world_mut()).unwrap();
         insert_ability_api(app.world_mut()).unwrap();
     }
-}
-
-pub enum AbilityKind {
-    Item(Entity, StaticObject),
-    Skill(SkillbookEntry),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -146,7 +141,7 @@ impl IntoLua for Interaction {
     }
 }
 
-#[derive(Event, Message)]
+#[derive(Message)]
 pub struct InteractionEvent {
     pub source: Entity,
     pub target: Entity,
@@ -193,6 +188,7 @@ impl CooldownGroups {
 #[derive(Component)]
 pub struct Cooldowns(HashMap<Uuid, (Arc<ObjectTemplate>, CooldownState)>);
 
+#[allow(unused)]
 impl Cooldowns {
     pub fn insert(&mut self, group: Arc<ObjectTemplate>) {
         self.0.insert(group.id, (group, CooldownState::Ready));
@@ -379,7 +375,7 @@ fn send_cooldown_updates(
 
 
 fn send_interaction_events(
-    mut events: EventReader<InteractionEvent>,
+    mut events: MessageReader<InteractionEvent>,
     players: Query<(&Avatar, &PlayerController)>,
     targets: Query<(&Avatar, &ScriptObject)>,
     mut commands: Commands,

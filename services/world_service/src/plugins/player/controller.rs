@@ -186,7 +186,7 @@ pub fn process_join_requests(
                 SpawnState::Alive,
                 DynamicInstance,
             ))
-            .load_component_with_error_handler::<AvatarLoader>(
+            .load_component_with_error_handler::<AvatarLoader, _>(
                     AvatarLoaderParams::PlayerCharacter(*session_state.character()
                 ),
                 disconnect_player_error_handler

@@ -17,7 +17,6 @@ use std::sync::Arc;
 
 use bevy::{ecs::{component::Component, error::Result}, state::commands::CommandsStatesExt};
 use futures::TryStreamExt;
-use log::debug;
 use realm_api::{ObjectPlacement, RealmApi, Zone};
 
 use crate::{instance::InstanceState, plugins::{LoadContext, LoadableComponent, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, VirtualComponent}};
@@ -65,9 +64,7 @@ impl LoadableComponent for ZoneLoader {
 
                 context.load_cross_dependency::<NonPlayerGameObjectLoader>(
                     ent, 
-                    NonPlayerGameObjectLoaderParams {
-                        placement,
-                    });
+                    NonPlayerGameObjectLoaderParams::Placement(placement));
             });
 
         Ok(())
