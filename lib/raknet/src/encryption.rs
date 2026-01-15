@@ -97,7 +97,7 @@ impl Checksum {
 }
 
 pub fn aes_decrypt(key: u128, message: &mut Vec<u8>) -> Result<()> {
-    if message.len() % 16 != 0 {
+    if !message.len().is_multiple_of(16) {
         return Err(RakNetError::DecryptionFailed);
     }
 
@@ -151,7 +151,7 @@ pub fn aes_encrypt(key: u128, message: &[u8]) -> Vec<u8> {
     let mut checksum = Checksum::new();
     let mut message_buffer = vec![0; message.len() + 6 + padding_bytes];
 
-    if message_buffer.len() % 16 != 0 { panic!(); }
+    if !message_buffer.len().is_multiple_of(16) { panic!(); }
 
     // generate random based message part
     {

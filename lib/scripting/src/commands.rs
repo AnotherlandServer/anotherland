@@ -16,9 +16,9 @@
 use anyhow::anyhow;
 use bevy::{ecs::{system::{Command, Commands}, world::{EntityWorldMut, World}}, prelude::{EntityCommand, EntityCommands}};
 use log::{debug, error};
-use mlua::{Function, IntoLua, IntoLuaMulti, Table, Value};
+use mlua::{Function, IntoLua, IntoLuaMulti, Value};
 
-use crate::{LuaFunctionExt, LuaRuntime, ScriptError, ScriptObject, REG_WORLD};
+use crate::{LuaFunctionExt, LuaRuntime, ScriptError, ScriptObject};
 
 pub trait IntoLuaApiName {
     fn name(&self) -> &str;

@@ -15,7 +15,7 @@
 
 use std::{fmt::{Display, Formatter}, ops::{Deref, DerefMut}};
 
-use async_graphql::{connection::CursorType, InputType, ID};
+use async_graphql::{connection::CursorType, ID};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]

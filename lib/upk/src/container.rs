@@ -667,7 +667,7 @@ impl Container {
                     let objects = self.objects.lock().unwrap();
 
                     objects.values()
-                        .filter(|obj| (obj.is_class() || obj.class().name() == "ScriptStruct"))
+                        .filter(|obj| obj.is_class() || obj.class().name() == "ScriptStruct")
                         .cloned()
                         .collect::<Vec<_>>()
                 };

@@ -294,7 +294,7 @@ impl SendQ {
                     self.ordered_frame_index += 1;
                 } else {                 
                     let mut split_packets = buf.len() / max;
-                    if buf.len() % max != 0 {
+                    if !buf.len().is_multiple_of(max) {
                         split_packets += 1;
                     }
 
