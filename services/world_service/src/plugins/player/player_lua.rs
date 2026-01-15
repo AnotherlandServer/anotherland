@@ -24,7 +24,7 @@ use realm_api::{ObjectPlacement, RealmApi};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{Active, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, FutureCommands, MessageType, Movement, PlayerController, ServerAction, WeakCache, player::PlayerSystems}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{Active, AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_class_item_result, player_error_handler_system, travel_to_portal}, proto::TravelMode};
 
 pub(super) fn insert_player_api(
     world: &mut World,
@@ -70,7 +70,6 @@ pub(super) fn insert_player_api(
         |
             In((player, class_item, clear_inventory, callback)): In<(Table, String, bool, Option<Function>)>,
             query: Query<(Entity, &PlayerController)>,
-            systems: Res<PlayerSystems>,
             mut commands: Commands
         | -> WorldResult<()> {
             let (ent, controller) = query.get(player.entity()?)
@@ -78,9 +77,13 @@ pub(super) fn insert_player_api(
 
             let character_id = controller.character_id();
 
-            commands.run_system_async(async move {
-                (ent, RealmApi::get().character_apply_class_item(&character_id, &class_item, clear_inventory).await, callback)
-            }, systems.apply_class_item_result);
+            commands
+                .entity(ent)
+                .perform_async_operation(async move {
+                    Ok((RealmApi::get().character_apply_class_item(&character_id, &class_item, clear_inventory).await, callback))
+                })
+                .on_finish_run_system(apply_class_item_result)
+                .on_error_run_system(player_error_handler_system);
 
             Ok(())
         })?)?;
@@ -131,7 +134,6 @@ pub(super) fn insert_player_api(
     player_api.set("TravelToPortal", lua.create_bevy_function(world,
         |
             In((player, portal_guid)): In<(Table, String)>,
-            systems: Res<PlayerSystems>,
             mut commands: Commands
         | -> WorldResult<()> {
             let ent = player.entity()?;
@@ -150,21 +152,25 @@ pub(super) fn insert_player_api(
                 }
             }
 
-            commands.run_system_async(async move {
-                match load_object( portal_guid).await {
-                    Ok(Some(portal)) => {
-                        if let Ok(exit_point) = portal.data.get::<_, Uuid>(Portal::ExitPoint).cloned() {
-                            (ent, Ok(Some(portal)), load_object(exit_point).await)
-                        } else {
-                            (ent, Ok(Some(portal)), Ok(None))
+            commands
+                .entity(ent)
+                .perform_async_operation(async move {
+                    match load_object( portal_guid).await {
+                        Ok(Some(portal)) => {
+                            if let Ok(exit_point) = portal.data.get::<_, Uuid>(Portal::ExitPoint).cloned() {
+                                Ok((Ok(Some(portal)), load_object(exit_point).await))
+                            } else {
+                                Ok((Ok(Some(portal)), Ok(None)))
+                            }
+                        },
+                        Ok(None) => Ok((Ok(None), Ok(None))),
+                        Err(e) => {
+                            Ok((Err(e), Ok(None)))
                         }
-                    },
-                    Ok(None) => (ent, Ok(None), Ok(None)),
-                    Err(e) => {
-                        (ent, Err(e), Ok(None))
                     }
-                }
-            }, systems.travel_to_portal);
+                })
+                .on_finish_run_system(travel_to_portal)
+                .on_error_run_system(player_error_handler_system);
 
             Ok(())
         })?)?;

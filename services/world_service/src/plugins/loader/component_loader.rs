@@ -80,6 +80,10 @@ impl<D: Send + Sync + Sized> LoadContext<D> {
 
         self
     }
+
+    pub fn entity(&self) -> Entity {
+        self.entity
+    }
 }
 
 pub trait VirtualComponent: Sized {}

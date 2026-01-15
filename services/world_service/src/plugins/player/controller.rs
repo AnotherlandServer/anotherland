@@ -15,9 +15,9 @@
 
 use std::sync::Arc;
 
-use bevy::{app::SubApp, ecs::{component::Component, entity::Entity, message::{Message, MessageMutator}, query::With, system::{Commands, Query, Res, ResMut}}};
+use bevy::{app::SubApp, ecs::{component::Component, entity::Entity, error::BevyError, message::{Message, MessageMutator}, query::With, system::{Commands, In, Query, Res, ResMut}}};
 use core_api::Session;
-use log::{debug, warn};
+use log::{debug, error, warn};
 use protocol::{CPkt, CPktGameMsg, CPktResourceNotify, CpktGameMsgMsgType, CpktResourceNotifyResourceType, OaPktS2xconnectionStateState, OtherlandPacket, oaPktS2XConnectionState};
 use realm_api::{RealmApi, SessionState};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
@@ -270,5 +270,15 @@ pub fn handle_controller_events(
             },
             ControllerEvent::TravelRejected(_travel_reject_reason) => todo!(),
         }
+    }
+}
+
+pub fn player_error_handler_system(
+    In((ent, err)): In<(Entity, BevyError)>, 
+    query: Query<&PlayerController>,
+) {
+    if let Ok(controller) = query.get(ent) {
+        error!("Error in async operation for player {}: {:?}", controller.avatar_id(), err);
+        controller.close();
     }
 }

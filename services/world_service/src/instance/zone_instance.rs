@@ -15,7 +15,7 @@
 
 use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration, future::Future};
 
-use bevy::{app::{Last, Main, MainSchedulePlugin, PanicHandlerPlugin, PreStartup, SubApp, TaskPoolPlugin}, diagnostic::FrameCountPlugin, ecs::{component::Component, entity::Entity, message::MessageRegistry, query::With, resource::Resource, schedule::{IntoScheduleConfigs, ScheduleLabel}, system::Commands}, prelude::{AppExtStates, AppTypeRegistry,NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, condition::in_state, state::States}, tasks::futures_lite::StreamExt, time::{TimePlugin, common_conditions::on_timer}};
+use bevy::{app::{Last, Main, MainSchedulePlugin, PanicHandlerPlugin, PreStartup, SubApp, TaskPoolPlugin}, diagnostic::FrameCountPlugin, ecs::{component::Component, entity::Entity, message::MessageRegistry, resource::Resource, schedule::{IntoScheduleConfigs, ScheduleLabel}, system::Commands}, prelude::{AppExtStates, AppTypeRegistry,NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, state::States}, tasks::futures_lite::StreamExt, time::{TimePlugin, common_conditions::on_timer}};
 use core_api::CoreApi;
 use derive_builder::Builder;
 use log::{debug, trace, error};
@@ -28,7 +28,7 @@ use tokio::{runtime::Handle, task::JoinHandle};
 use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
-use crate::{ARGS, error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, plugins::{AbilitiesPlugin, AsyncLoaderPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, ComponentLoaderCommandsTrait, CooldownGroups, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LifetimePlugin, LoaderPlugin, LoadingComponents, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, NpcAiPlugin, PartitioningPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin, WorldSpace, ZoneLoader, ZoneLoaderParameter}};
+use crate::{ARGS, error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, plugins::{AbilitiesPlugin, AsyncOperationPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, CooldownGroups, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LifetimePlugin, LoaderPlugin, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, NpcAiPlugin, PartitioningPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin, WorldSpace}};
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct InstanceShutdown;
@@ -193,22 +193,13 @@ impl ZoneInstanceBuilder {
         app.add_plugins(PanicHandlerPlugin);
         app.add_plugins(TimePlugin);
 
-        /*app.add_systems(
-            First,
-            event_update_system
-                .in_set(EventUpdates)
-                .run_if(event_update_condition),
-        );*/
-
-        let zone = instance.zone.clone();
-
         // Instance setup
         app.init_state::<InstanceState>();
         app.insert_resource(instance);
 
         // Core plugins
         app.add_plugins((
-            AsyncLoaderPlugin,
+            AsyncOperationPlugin,
             NetworkPlugin,
             ScriptingPlugin,
             CommandsPlugin,

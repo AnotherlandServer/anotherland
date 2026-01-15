@@ -22,7 +22,7 @@ pub use item_loader::*;
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, query::Without, resource::Resource, schedule::IntoScheduleConfigs, system::{ResMut, SystemId}, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
+use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, query::Without, resource::Resource, schedule::IntoScheduleConfigs, system::ResMut, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all};
 use log::{debug, error, warn};
@@ -35,17 +35,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, StaticObject, WeakCache}};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, StaticObject, WeakCache, player_error_handler_system}};
 
-use super::{attach_scripts, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, FutureCommands, MessageType, NetworkExtPriv, PlayerController, StringBehavior};
-
-#[derive(Resource)]
-#[allow(clippy::type_complexity)]
-struct InventorySystems {
-    apply_storage_result: SystemId<In<(Entity, StorageResult)>>,
-    handle_purchase_result: SystemId<In<(Entity, StorageResult)>>,
-    apply_equipment_result: SystemId<In<(Entity, EquipmentResult)>>,
-}
+use super::{attach_scripts, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, MessageType, NetworkExtPriv, PlayerController, StringBehavior};
 
 #[derive(Default)]
 struct EquipmentResult {
@@ -153,13 +145,6 @@ pub struct InventoryPlugin;
 
 impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
-        let inventory_systems = InventorySystems {
-            apply_storage_result: app.register_system(apply_storage_result),
-            handle_purchase_result: app.register_system(handle_purchase_result),
-            apply_equipment_result: app.register_system(apply_equipment_result),
-        };        
-
-        app.insert_resource(inventory_systems);
         app.init_resource::<StorageRegistry>();
 
         app.add_systems(PreUpdate, insert_item_info.after(attach_scripts));
@@ -373,7 +358,6 @@ fn prepare_load_player_inventory(
 fn command_add_item(
     In((ent, args)): In<(Entity, Vec<NativeParam>)>,
     storage: Query<&Inventory>,
-    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
     let mut args = args.into_iter();
@@ -384,30 +368,33 @@ fn command_add_item(
     {
         let storage_id = storage.id;
 
-        commands.run_system_async(async move {
-            debug!("Try inserting item {item_name}");
+        commands
+            .entity(ent)
+            .perform_async_operation(async move {
+                debug!("Try inserting item {item_name}");
 
-            match RealmApi::get()
-                .item_storage_access(&storage_id)
-                .insert_item(ItemRef::Name(&item_name), Some(ent.to_string()))
-                .await
-            {
-                Ok(res) => {
-                    match StorageResult::from_result(res).await {
-                        Ok(result) => (ent, result),
-                        Err(e) => {
-                            error!("Failed to insert item: {e:?}");
-                            (ent, StorageResult::default())
+                match RealmApi::get()
+                    .item_storage_access(&storage_id)
+                    .insert_item(ItemRef::Name(&item_name), Some(ent.to_string()))
+                    .await
+                {
+                    Ok(res) => {
+                        match StorageResult::from_result(res).await {
+                            Ok(result) => Ok(result),
+                            Err(e) => {
+                                error!("Failed to insert item: {e:?}");
+                                Ok(StorageResult::default())
+                            }
                         }
+                    },
+                    Err(e) => {
+                        warn!("Failed to insert item: {e:?}");
+                        Ok(StorageResult::default())
                     }
-                },
-                Err(e) => {
-                    warn!("Failed to insert item: {e:?}");
-                    (ent, StorageResult::default())
                 }
-            }
-
-        }, systems.apply_storage_result);
+            })
+            .on_finish_run_system(apply_storage_result)
+            .on_error_run_system(player_error_handler_system);
     }
 }
 
@@ -440,8 +427,6 @@ struct DefaultEquipment {
 fn command_apply_class_preset(
     In((_ent, _args)): In<(Entity, Vec<NativeParam>)>,
     mut _players: Query<&mut Inventory>,
-    _instance: Res<ZoneInstance>,
-    _systems: Res<InventorySystems>,
     mut _commands: Commands,
 ) {
 }
@@ -459,7 +444,6 @@ fn apply_character_preset(
 fn behavior_inventory_item_pos(
     In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
     inventories: Query<&Inventory>,
-    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
     let mut args = behavior.args.into_iter();
@@ -471,31 +455,24 @@ fn behavior_inventory_item_pos(
     {
         let storage_id = storage.id;
 
-        commands.run_system_async(async move {
-            if let Ok(res) = RealmApi::get()
-                .item_storage_access(&storage_id)
-                .move_item(item_id, slot, Some(ent.to_string()))
-                .await
-            {
-                match StorageResult::from_result(res).await {
-                    Ok(result) => (ent, result),
-                    Err(e) => {
-                        error!("Failed to move item: {e}");
-                        (ent, StorageResult::default())
-                    }
-                }
-            } else {
-                (ent, StorageResult::default())
-            }
-
-        }, systems.apply_storage_result);
+        commands
+            .entity(ent)
+            .perform_async_operation(async move {
+                StorageResult::from_result(
+                    RealmApi::get()
+                        .item_storage_access(&storage_id)
+                        .move_item(item_id, slot, Some(ent.to_string()))
+                        .await?
+                ).await
+            })
+            .on_finish_run_system(apply_storage_result)
+            .on_error_run_system(player_error_handler_system);
     }
 }
 
 fn behavior_inventory_discard_item(
     In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
     inventories: Query<&Inventory>,
-    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
     let mut args = behavior.args.into_iter();
@@ -506,31 +483,33 @@ fn behavior_inventory_discard_item(
     {
         let storage_id = storage.id;
 
-        commands.run_system_async(async move {
-            if let Ok(res) = RealmApi::get()
-                .item_storage_access(&storage_id)
-                .destroy_item(item_id, Some(ent.to_string()))
-                .await
-            {
-                match StorageResult::from_result(res).await {
-                    Ok(result) => (ent, result),
-                    Err(e) => {
-                        error!("Failed to discard item: {e}");
-                        (ent, StorageResult::default())
+        commands
+            .entity(ent)
+            .perform_async_operation(async move {
+                if let Ok(res) = RealmApi::get()
+                    .item_storage_access(&storage_id)
+                    .destroy_item(item_id, Some(ent.to_string()))
+                    .await
+                {
+                    match StorageResult::from_result(res).await {
+                        Ok(result) => Ok(result),
+                        Err(e) => {
+                            error!("Failed to discard item: {e}");
+                            Ok(StorageResult::default())
+                        }
                     }
+                } else {
+                    Ok(StorageResult::default())
                 }
-            } else {
-                (ent, StorageResult::default())
-            }
-
-        }, systems.apply_storage_result);
+            })
+            .on_finish_run_system(apply_storage_result)
+            .on_error_run_system(player_error_handler_system);
     }
 }
 
 fn behavior_inventory_request_equip(
     In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
     inventories: Query<&Inventory>,
-    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
     let mut args = behavior.args.into_iter();
@@ -542,31 +521,33 @@ fn behavior_inventory_request_equip(
     {
         let storage_id = storage.id;
 
-        commands.run_system_async(async move {
-            if let Ok(res) = RealmApi::get()
-                .item_storage_access(&storage_id)
-                .equip_item(item_id, if slot != -1 { Some(slot) } else { None }, Some(ent.to_string()))
-                .await
-            {
-                match EquipmentResult::from_result(res).await {
-                    Ok(result) => (ent, result),
-                    Err(e) => {
-                        error!("Failed to equip item: {e}");
-                        (ent, EquipmentResult::default())
+        commands
+            .entity(ent)
+            .perform_async_operation(async move {
+                if let Ok(res) = RealmApi::get()
+                    .item_storage_access(&storage_id)
+                    .equip_item(item_id, if slot != -1 { Some(slot) } else { None }, Some(ent.to_string()))
+                    .await
+                {
+                    match EquipmentResult::from_result(res).await {
+                        Ok(result) => Ok(result),
+                        Err(e) => {
+                            error!("Failed to equip item: {e}");
+                            Ok(EquipmentResult::default())
+                        }
                     }
+                } else {
+                    Ok(EquipmentResult::default())
                 }
-            } else {
-                (ent, EquipmentResult::default())
-            }
-
-        }, systems.apply_equipment_result);
+            })
+            .on_finish_run_system(apply_equipment_result)
+            .on_error_run_system(player_error_handler_system);
     }
 }
 
 fn behavior_inventory_request_unequip(
     In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
     inventories: Query<&Inventory>,
-    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
     let mut args = behavior.args.into_iter();
@@ -577,31 +558,33 @@ fn behavior_inventory_request_unequip(
     {
         let storage_id = storage.id;
 
-        commands.run_system_async(async move {
-            if let Ok(res) = RealmApi::get()
-                .item_storage_access(&storage_id)
-                .unequip_item(item_id, Some(ent.to_string()))
-                .await
-            {
-                match EquipmentResult::from_result(res).await {
-                    Ok(result) => (ent, result),
-                    Err(e) => {
-                        error!("Failed to unequip item: {e}");
-                        (ent, EquipmentResult::default())
+        commands
+            .entity(ent)
+            .perform_async_operation(async move {
+                if let Ok(res) = RealmApi::get()
+                    .item_storage_access(&storage_id)
+                    .unequip_item(item_id, Some(ent.to_string()))
+                    .await
+                {
+                    match EquipmentResult::from_result(res).await {
+                        Ok(result) => Ok(result),
+                        Err(e) => {
+                            error!("Failed to unequip item: {e}");
+                            Ok(EquipmentResult::default())
+                        }
                     }
+                } else {
+                    Ok(EquipmentResult::default())
                 }
-            } else {
-                (ent, EquipmentResult::default())
-            }
-
-        }, systems.apply_equipment_result);
+            })
+            .on_finish_run_system(apply_equipment_result)
+            .on_error_run_system(player_error_handler_system);
     }
 }
 
 fn apply_equipment_result(
     In((instigator, result)): In<(Entity, EquipmentResult)>,
     mut players: Query<(&mut GameObjectData, &PlayerController), With<PlayerTag>>,
-    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
     if let Ok((mut player, controller)) = players.get_mut(instigator) {
@@ -614,7 +597,7 @@ fn apply_equipment_result(
         }
 
         for storage_result in result.storage_results {
-            commands.run_system_with(systems.apply_storage_result, (instigator, storage_result));
+            commands.run_system_cached_with(apply_storage_result, (instigator, storage_result));
         }
 
         commands.entity(instigator)
@@ -633,6 +616,8 @@ fn apply_storage_result(
     registry: Res<StorageRegistry>,
     mut commands: Commands,
 ) {
+    debug!("Applying storage result for storage ID {}", result.storage_id);
+
     let (storage_ent, mut storage) = if 
         let Some(storage_ent) = registry.0.get(&result.storage_id) &&
         let Ok(storage) = storages.get_mut(*storage_ent)
@@ -807,6 +792,8 @@ fn send_item_updates(
 ) {
     for (item, content, child_of) in item_updates.iter() {
         if let Ok(ctrl) = players.get(child_of.parent()) {
+            debug!("Sending item updates");
+
             let mut params = Vec::new();
             let mut writer = ByteWriter::endian(&mut params, LittleEndian);
             item.write_to_client(&mut writer).unwrap();
@@ -827,35 +814,38 @@ fn send_item_updates(
 fn handle_shop_cart_buy_request(
     In((ent, pkt)): In<(Entity, oaPktShopCartBuyRequest)>,
     query: Query<&Inventory>,
-    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
     if let Ok(storage) = query.get(ent) {
         let storage_id = storage.id;
 
         if let Some(entry) = pkt.shopping_cart.first().cloned() {
-            commands.run_system_async(async move {
-                match RealmApi::get()
-                    .item_storage_access(&storage_id)
-                    .purchase_item(ItemRef::Uuid(entry.id), None, Price::Bling(0))
-                    .await
-                {
-                    Ok(res) => {
-                        match StorageResult::from_result(res).await {
-                            Ok(result) => (ent, result),
-                            Err(e) => {
-                                error!("Failed to purchase item: {e}");
-                                (ent, StorageResult::default())
+            commands
+                .entity(ent)
+                .perform_async_operation(async move {
+                    match RealmApi::get()
+                        .item_storage_access(&storage_id)
+                        .purchase_item(ItemRef::Uuid(entry.id), None, Price::Bling(0))
+                        .await
+                    {
+                        Ok(res) => {
+                            match StorageResult::from_result(res).await {
+                                Ok(result) => Ok(result),
+                                Err(e) => {
+                                    error!("Failed to purchase item: {e}");
+                                    Ok(StorageResult::default())
+                                }
                             }
+                        },
+                        Err(e) => {
+                            error!("Failed to purchase item: {e:?}");
+                            Ok(StorageResult::error("#Shop.false_buymultiple#"))
                         }
-                    },
-                    Err(e) => {
-                        error!("Failed to purchase item: {e:?}");
-                        (ent, StorageResult::error("#Shop.false_buymultiple#"))
                     }
-                }
-    
-            }, systems.handle_purchase_result);
+        
+                })
+                .on_finish_run_system(handle_purchase_result)
+                .on_error_run_system(player_error_handler_system);
         }
     }
 }
@@ -863,7 +853,6 @@ fn handle_shop_cart_buy_request(
 fn handle_purchase_result(
     In((instigator, result)): In<(Entity, StorageResult)>,
     query: Query<&PlayerController>,
-    systems: Res<InventorySystems>,
     mut commands: Commands,
 ) {
     if let Ok(controller) = query.get(instigator) {
@@ -885,7 +874,7 @@ fn handle_purchase_result(
         });
     }
 
-    commands.run_system_with(systems.apply_storage_result, (instigator, result));
+    commands.run_system_cached_with(apply_storage_result, (instigator, result));
 }
 
 #[allow(clippy::type_complexity)]

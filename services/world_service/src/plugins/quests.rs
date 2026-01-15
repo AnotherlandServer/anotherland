@@ -28,7 +28,7 @@ use anyhow::anyhow;
 use tokio::task::block_in_place;
 use toolkit::{NativeParam};
 
-use crate::{error::{WorldError, WorldResult}, instance::{InstanceState, ZoneInstance}, plugins::{AvatarIdManager, Avatar, CommandExtPriv, DespawnAvatar, DialogueState, FutureCommands, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController}};
+use crate::{error::{WorldError, WorldResult}, instance::{InstanceState, ZoneInstance}, plugins::{AsyncOperationEntityCommandsExt, Avatar, AvatarIdManager, CommandExtPriv, DespawnAvatar, DialogueState, InterestState, InterestTransmitted, Interests, NetworkExtPriv, PlayerController, player_error_handler_system}};
 pub struct QuestsPlugin {
     quests_path: PathBuf,
 }
@@ -84,12 +84,6 @@ impl Plugin for QuestsPlugin {
         app.register_message_handler(handle_quest_request);
         app.register_message_handler(handle_quest_action_request);
 
-        let quest_systems = QuestSystems {
-            insert_questlog_for_player: app.register_system(insert_questlog_for_player),
-            quest_updated: app.register_system(handle_db_quest_update),
-        };
-
-        app.insert_resource(quest_systems);
         app.insert_resource(QuestRegistry::default());
 
         insert_questlog_api(app.world_mut()).unwrap();
@@ -224,13 +218,6 @@ pub struct FailQuest {
 pub struct ReturnQuest {
     pub player: Entity,
     pub quest_id: i32,
-}
-
-#[derive(Resource)]
-#[allow(clippy::type_complexity)]
-struct QuestSystems {
-    insert_questlog_for_player: SystemId<In<Option<(Entity, Vec<realm_api::QuestState>)>>>,
-    quest_updated: SystemId<In<(Entity, i32, Option<realm_api::QuestState>)>>,
 }
 
 pub struct Quest {
@@ -987,56 +974,42 @@ fn update_available_quests(
 
 fn load_questlogs_for_joined_players(
     players: Query<(Entity, &PlayerController), (Added<ScriptObject>, With<PlayerTag>)>,
-    instance: Res<ZoneInstance>,
-    systems: Res<QuestSystems>,
     mut commands: Commands,
 ) {
     for (entity, controller) in players.iter() {
         let controller = controller.clone();
 
-        commands.run_system_async(async move {
-            let Ok(mut res) = RealmApi::get()
-                .query_quest_states()
-                .character_id(controller.character_id())
-                .query()
-                .await 
-            else {
-                controller.close();
-                return None;
-            };
+        commands
+            .entity(entity)
+            .perform_async_operation(async move {
+                let mut res = RealmApi::get()
+                    .query_quest_states()
+                    .character_id(controller.character_id())
+                    .query()
+                    .await?;
 
-            let mut quests = vec![];
+                let mut quests = vec![];
 
-            loop {
-                match res.try_next().await {
-                    Ok(Some(quest_state)) => {
-                        quests.push(quest_state);
-                    },
-                    Ok(None) => break,
-                    Err(e) => {
-                        error!("Failed to load quest states for player {}: {}", controller.character_id(), e);
-                        controller.close();
-                        return None;
-                    }
+                while let Some(quest_state) = res.try_next().await? {
+                    quests.push(quest_state);
                 }
-            }
 
-            Some((entity, quests))
-        }, systems.insert_questlog_for_player);
+                Ok(quests)
+            })
+            .on_finish_run_system(insert_questlog_for_player)
+            .on_error_run_system(player_error_handler_system);
     }
 }
 
 fn insert_questlog_for_player(
-    In(data): In<Option<(Entity, Vec<realm_api::QuestState>)>>,
+    In((entity, quests)): In<(Entity, Vec<realm_api::QuestState>)>,
     quest_registry: Res<QuestRegistry>,
     mut commands: Commands,
 ) {
-    if let Some((entity, quests)) = data {
-        let mut quest_log = QuestLog {
-            quests: quests.into_iter()
-                .filter_map(|q| {
-                    let quest = quest_registry.0.get(&q.quest_id)?.clone();
-
+    let mut quest_log = QuestLog {
+        quests: quests.into_iter()
+            .filter_map(|q| {
+                let quest = quest_registry.0.get(&q.quest_id)?.clone();
                     Some((q.quest_id, QuestProgress {
                         template: quest,
                         state: Some(q),
@@ -1044,17 +1017,16 @@ fn insert_questlog_for_player(
                 })
                 .collect(),
             ..Default::default()
-        };
+    };
 
-        quest_log.update_fast_access_maps();
+    quest_log.update_fast_access_maps();
 
-        commands.entity(entity)
-            .insert(quest_log);
-    }
+    commands.entity(entity)
+        .insert(quest_log);
 }
 
 fn handle_db_quest_update(
-    In((player, quest_id, db_state)): In<(Entity, i32, Option<realm_api::QuestState>)>,
+    In((player, (quest_id, db_state))): In<(Entity, (i32, Option<realm_api::QuestState>))>,
     mut players: Query<(&ScriptObject, &PlayerController, &mut QuestLog)>,
     quests: Res<QuestRegistry>,
     mut commands: Commands,
@@ -1443,7 +1415,6 @@ fn quest_accepter(
     mut events: EventReader<AcceptQuest>,
     players: Query<(&QuestLog, &PlayerController)>,
     instance: Res<ZoneInstance>,
-    systems: Res<QuestSystems>,
     quests: Res<QuestRegistry>,
     mut commands: Commands,
 ) {
@@ -1480,20 +1451,16 @@ fn quest_accepter(
                 }
             }
 
-            commands.run_system_async(async move {
-                match RealmApi::get().create_queststate(&state).await {
-                    Ok(state) => {
-                        debug!("Player {} accepted quest {}", player, quest_id);
-
-                        (player, quest_id, Some(state))
-                    },
-                    Err(e) => {
-                        error!("Failed to save quest state for player {}: {}", controller.character_id(), e);
-                        controller.close();
-                        (player, quest_id, None)
-                    }
-                }
-            }, systems.quest_updated);
+            commands
+                .entity(player)
+                .perform_async_operation(async move {
+                    Ok((
+                        quest_id,
+                        Some(RealmApi::get().create_queststate(&state).await?)
+                    ))
+                })
+                .on_finish_run_system(handle_db_quest_update)
+                .on_error_run_system(player_error_handler_system);
         } else {
             warn!("Player {} tried to accept unavailable quest {}", player, quest_id);
         }
@@ -1503,7 +1470,6 @@ fn quest_accepter(
 fn quest_returner(
     mut events: EventReader<ReturnQuest>,
     players: Query<(&QuestLog, &PlayerController)>,
-    systems: Res<QuestSystems>,
     mut commands: Commands,
 ) {
     for &ReturnQuest { player, quest_id } in events.read() {
@@ -1519,20 +1485,18 @@ fn quest_returner(
             let controller = player_controller.clone();
             let mut state = state.clone();
 
-            commands.run_system_async(async move {
-                match state.update_state(QuestProgressionState::Finished).await {
-                    Ok(_) => {
-                        debug!("Player {} finished quest {}", player, quest_id);
+            commands
+                .entity(player)
+                .perform_async_operation(async move {
+                    state.update_state(QuestProgressionState::Finished).await?;
 
-                        (player, quest_id, Some(state))
-                    },
-                    Err(e) => {
-                        error!("Failed to save quest state for player {}: {}", controller.character_id(), e);
-                        controller.close();
-                        (player, quest_id, None)
-                    }
-                }
-            }, systems.quest_updated);
+                    Ok((
+                        quest_id,
+                        Some(state)
+                    ))
+                })
+                .on_finish_run_system(handle_db_quest_update)
+                .on_error_run_system(player_error_handler_system);
         } else {
             warn!("Player {} tried to finish uncompleted quest {}", player, quest_id);
         }
@@ -1542,7 +1506,6 @@ fn quest_returner(
 fn quest_abandoner(
     mut events: EventReader<AbandonQuest>,
     players: Query<(&QuestLog, &PlayerController)>,
-    systems: Res<QuestSystems>,
     mut commands: Commands,
 ) {
     for &AbandonQuest { player, quest_id } in events.read() {
@@ -1561,20 +1524,14 @@ fn quest_abandoner(
             let controller = player_controller.clone();
             let state = state.clone();
 
-            commands.run_system_async(async move {
-                match state.delete().await {
-                    Ok(_) => {
-                        debug!("Player {} abandoned quest {}", player, quest_id);
-
-                        (player, quest_id, None)
-                    },
-                    Err(e) => {
-                        error!("Failed to save quest state for player {}: {}", controller.character_id(), e);
-                        controller.close();
-                        (player, quest_id, None)
-                    }
-                }
-            }, systems.quest_updated);
+            commands
+                .entity(player)
+                .perform_async_operation(async move {
+                    state.delete().await?;
+                    Ok((quest_id, None))
+                })
+                .on_finish_run_system(handle_db_quest_update)
+                .on_error_run_system(player_error_handler_system);
         } else {
             warn!("Player {} tried to abandon unstarted quest {}", player, quest_id);
         }
@@ -1647,7 +1604,6 @@ fn handle_quest_action_request(
 fn handle_quest_condition_update(
     mut events: EventReader<QuestConditionUpdate>,
     players: Query<(&QuestLog, &PlayerController)>,
-    systems: Res<QuestSystems>,
     mut commands: Commands,
 ) {
     for &QuestConditionUpdate { player, quest_id, condition_id, update } in events.read() {
@@ -1661,32 +1617,25 @@ fn handle_quest_condition_update(
 
         let controller = controller.clone();
 
-        commands.run_system_async(async move {
-            let res = quest_state.update_condition(condition_id, 
-                match update {
-                    ConditionUpdate::Added(_) => realm_api::ConditionUpdate::Increment,
-                    ConditionUpdate::Removed(_) => realm_api::ConditionUpdate::Increment,
-                    ConditionUpdate::Set(_) => realm_api::ConditionUpdate::Set,
-                },
-                match update {
-                    ConditionUpdate::Added(v) => v,
-                    ConditionUpdate::Removed(v) => -v,
-                    ConditionUpdate::Set(v) => v,
-                }).await;
+        commands
+            .entity(player)
+            .perform_async_operation(async move {
+                quest_state.update_condition(condition_id, 
+                    match update {
+                        ConditionUpdate::Added(_) => realm_api::ConditionUpdate::Increment,
+                        ConditionUpdate::Removed(_) => realm_api::ConditionUpdate::Increment,
+                        ConditionUpdate::Set(_) => realm_api::ConditionUpdate::Set,
+                    },
+                    match update {
+                        ConditionUpdate::Added(v) => v,
+                        ConditionUpdate::Removed(v) => -v,
+                        ConditionUpdate::Set(v) => v,
+                    }).await?;
 
-            match res {
-                Ok(_) => {
-                    debug!("Updated quest condition {} for quest {} for player {}", condition_id, quest_id, player);
-
-                    (player, quest_id, Some(quest_state))
-                },
-                Err(e) => {
-                    error!("Failed to update quest condition {} for quest {} for player {}: {:#?}", condition_id, quest_id, player, e);
-                    controller.close();
-                    (player, quest_id, None)
-                }
-            }
-        }, systems.quest_updated);
+                Ok((quest_id, Some(quest_state)))
+            })
+            .on_finish_run_system(handle_db_quest_update)
+            .on_error_run_system(player_error_handler_system);
     }
 }
 

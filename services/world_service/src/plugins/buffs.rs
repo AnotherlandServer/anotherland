@@ -16,36 +16,24 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, entity::Entity, error::Result, hierarchy::{ChildOf, Children}, query::{Added, Changed, With, Without}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res, SystemId}, world::World}, time::{Real, Stopwatch, Time, Virtual}};
+use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, entity::Entity, error::Result, hierarchy::{ChildOf, Children}, query::{Added, Changed, With, Without}, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, time::{Real, Stopwatch, Time, Virtual}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::{debug, warn};
 use mlua::{Lua, Table};
-use obj_params::{ContentRef, GameObjectData, OaBuff2, ParamWriter};
+use obj_params::{GameObjectData, OaBuff2, ParamWriter};
 use protocol::{CPktBuffRequest, CPktBuffUpdate};
 use realm_api::ObjectTemplate;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use toolkit::types::Uuid;
 
-use crate::{error::WorldResult, plugins::{ContentCache, ContentCacheRef, FutureCommands, WeakCache}};
+use crate::{error::WorldResult, plugins::{AsyncOperationEntityCommandsExt, ContentCache, ContentCacheRef, WeakCache, player_error_handler_system}};
 
 use super::{attach_scripts, Avatar, ContentInfo, Interests, PlayerController};
-
-#[derive(Resource)]
-#[allow(clippy::type_complexity)]
-struct BuffSystems {
-    insert_buff: SystemId<In<(Entity, Option<Entity>, Result<Option<Arc<ObjectTemplate>>>, Uuid, Option<f32>, Option<f32>, Option<i32>)>>,
-}
 
 pub struct BuffsPlugin;
 
 impl Plugin for BuffsPlugin {
     fn build(&self, app: &mut App) {
-        let buff_systems = BuffSystems {
-            insert_buff: app.register_system(insert_buff),
-        };
-
-        app.insert_resource(buff_systems);
-
         insert_buff_api(app.world_mut()).unwrap();
 
         app.add_systems(PreUpdate, insert_buff_info.after(attach_scripts));
@@ -66,7 +54,6 @@ pub fn insert_buff_api(
 
     object_api.set("AddBuff", lua.create_bevy_function(world, |
         In((owner, instigator, id, duration, delay, stacks)): In<(Table, Option<Table>, String, Option<f32>, Option<f32>, Option<i32>)>,
-        systems: Res<BuffSystems>,
         mut commands: Commands
     | -> WorldResult<String> {
         let ent = owner.entity()?;
@@ -74,45 +61,50 @@ pub fn insert_buff_api(
         let id = id.parse()?;
         let instance_id = Uuid::new();
 
-        commands.run_system_async(async move {
-            (
-                ent,
-                instigator,
-                ContentCache::get(
-                    &ContentCacheRef::Uuid(id)
-                ).await,
-                instance_id,
-                duration,
-                delay,
-                stacks,
-            )
-        }, systems.insert_buff);
+        commands
+            .entity(ent)
+            .perform_async_operation(async move {
+                Ok((
+                    instigator,
+                    ContentCache::get(
+                        &ContentCacheRef::Uuid(id)
+                    ).await,
+                    instance_id,
+                    duration,
+                    delay,
+                    stacks,
+                ))
+            })
+            .on_finish_run_system(insert_buff)
+            .on_error_run_system(player_error_handler_system);
 
         Ok(instance_id.to_string())
     })?)?;
 
     object_api.set("AddBuffByName", lua.create_bevy_function(world, |
         In((owner, instigator, name, duration, delay, stacks)): In<(Table, Option<Table>, String, Option<f32>, Option<f32>, Option<i32>)>,
-        systems: Res<BuffSystems>,
         mut commands: Commands
     | -> WorldResult<String> {
         let ent = owner.entity()?;
         let instigator = instigator.map(|t| t.entity()).transpose()?;
         let instance_id = Uuid::new();
 
-        commands.run_system_async(async move {
-            (
-                ent,
-                instigator,
-                ContentCache::get(
-                    &ContentCacheRef::Name(name)
-                ).await,
-                instance_id,
-                duration,
-                delay,
-                stacks,
-            )
-        }, systems.insert_buff);
+        commands
+            .entity(ent)
+            .perform_async_operation(async move {
+                Ok((
+                    instigator,
+                    ContentCache::get(
+                        &ContentCacheRef::Name(name)
+                    ).await,
+                    instance_id,
+                    duration,
+                    delay,
+                    stacks,
+                ))
+            })
+            .on_finish_run_system(insert_buff)
+            .on_error_run_system(player_error_handler_system);
 
         Ok(instance_id.to_string())
     })?)?;
@@ -179,7 +171,7 @@ pub fn insert_buff_api(
 
 #[allow(clippy::type_complexity)]
 fn insert_buff(
-    In((ent, instigator, res, instance_id, duration, _delay, stacks)): In<(Entity, Option<Entity>, Result<Option<Arc<ObjectTemplate>>>, Uuid, Option<f32>, Option<f32>, Option<i32>)>,
+    In((ent, (instigator, res, instance_id, duration, _delay, stacks))): In<(Entity, (Option<Entity>, Result<Option<Arc<ObjectTemplate>>>, Uuid, Option<f32>, Option<f32>, Option<i32>))>,
     query: Query<&Avatar>,
     time: Res<Time<Real>>,
     mut commands: Commands,

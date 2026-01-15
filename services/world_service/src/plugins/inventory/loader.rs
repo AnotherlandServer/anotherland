@@ -38,7 +38,7 @@ impl LoadableComponent for Inventory {
                     .get_or_create_item_storage(owner, &name)
                     .await?;
 
-                let inventory = Inventory::new(
+                let mut inventory = Inventory::new(
                     storage.id, 
                     storage.name, 
                     storage.bling, 
@@ -59,6 +59,8 @@ impl LoadableComponent for Inventory {
                             })
                             .collect(),
                     );
+
+                inventory.observing_players.insert(context.entity());
     
                 Ok(inventory)
             }

@@ -13,7 +13,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::ecs::{entity::Entity, message::Message};
+mod operation;
+mod entity_operation;
+mod runner;
+mod noop_system;
 
-#[derive(Message)]
-pub struct DespawnAvatar(pub Entity);
+pub use operation::*;
+use bevy::app::{First, Plugin};
+pub use entity_operation::*;
+
+use crate::plugins::async_operation::runner::run_async_operations;
+
+pub struct AsyncOperationPlugin;
+
+impl Plugin for AsyncOperationPlugin {
+    fn build(&self, app: &mut bevy::prelude::App) {
+        app.add_systems(First, run_async_operations);
+    }
+}

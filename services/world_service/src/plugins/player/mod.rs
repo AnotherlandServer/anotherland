@@ -40,13 +40,6 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        let player_systems = PlayerSystems {
-            apply_class_item_result: app.register_system(apply_class_item_result),
-            travel_to_portal: app.register_system(travel_to_portal),
-        };
-
-        app.insert_resource(player_systems);
-
         app.add_message::<PlayerJoinRequested>();
 
         app.add_systems(First, 

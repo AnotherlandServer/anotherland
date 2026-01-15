@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{ecs::{message::MessageWriter, resource::Resource, system::SystemId}, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
+use bevy::{ecs::message::MessageWriter, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
 use log::{debug, error, trace, warn};
 use mlua::Function;
 use obj_params::{tags::PlayerTag, AttributeInfo, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, Player, Value};
@@ -129,15 +129,8 @@ pub fn cmd_instant_kill(
     event.write(HealthUpdateEvent::kill(ent, None));
 }
 
-#[derive(Resource)]
-#[allow(clippy::type_complexity)]
-pub(super) struct PlayerSystems {
-    pub(super) apply_class_item_result: SystemId<In<(Entity, RealmApiResult<EquipmentResult>, Option<Function>)>>,
-    pub(super) travel_to_portal: SystemId<In<(Entity, WorldResult<Option<ObjectPlacement>>, WorldResult<Option<ObjectPlacement>>)>>,
-}
-
 pub fn apply_class_item_result(
-    In((ent, result, callback)): In<(Entity, RealmApiResult<EquipmentResult>, Option<Function>)>,
+    In((ent, (result, callback))): In<(Entity, (RealmApiResult<EquipmentResult>, Option<Function>))>,
     mut query: Query<&mut GameObjectData>,
     mut commands: Commands,
 ) {
@@ -170,7 +163,7 @@ pub fn apply_class_item_result(
 
 #[allow(clippy::type_complexity)]
 pub fn travel_to_portal(
-    In((ent, portal, exit_point)): In<(Entity, WorldResult<Option<ObjectPlacement>>, WorldResult<Option<ObjectPlacement>>)>,
+    In((ent, (portal, exit_point))): In<(Entity, (WorldResult<Option<ObjectPlacement>>, WorldResult<Option<ObjectPlacement>>))>,
     mut query: Query<(&mut Movement, &PlayerController)>,
     instance: Res<ZoneInstance>,
 ) {

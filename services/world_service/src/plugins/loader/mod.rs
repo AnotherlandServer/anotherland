@@ -67,7 +67,7 @@ impl Plugin for LoaderPlugin {
         ));
         app.add_systems(Last, cleanup_dynamic_instances);
 
-        app.add_event::<DespawnAvatar>();
+        app.add_message::<DespawnAvatar>();
 
         app.register_command("get_avatar_info", command_get_avatar_info);
 

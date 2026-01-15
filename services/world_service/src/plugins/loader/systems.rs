@@ -16,7 +16,7 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use bevy::{ecs::{entity::Entity, event::{EventReader, EventWriter}, hierarchy::ChildOf, query::{Added, Changed, Or, With, Without}, system::{Commands, In, Query, Res}, world::World}, math::Vec3,time::{Time, Virtual}};
+use bevy::{ecs::{entity::Entity, hierarchy::ChildOf, message::{MessageReader, MessageWriter}, query::{Added, Changed, Or, With, Without}, system::{Commands, In, Query, Res}, world::World}, math::Vec3,time::{Time, Virtual}};
 use log::debug;
 use mlua::{Function, Lua, Table};
 use obj_params::{Class, GameObjectData, NonClientBase, Player, tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, PlayerTag, StructureBaseTag}};
@@ -37,7 +37,7 @@ pub fn init_gameobjects(
 #[allow(clippy::type_complexity)]
 pub fn update_spawn_state(
     mut entities: Query<(Entity, &GameObjectData, &mut SpawnState, &mut Movement), Or<(With<NpcBaseTag>, With<StructureBaseTag>)>>,
-    mut health_events: EventWriter<HealthUpdateEvent>,
+    mut health_events: MessageWriter<HealthUpdateEvent>,
     mut commands: Commands,
 ) {
     for (ent, obj, mut state, mut movement) in entities.iter_mut() {
@@ -58,7 +58,7 @@ pub fn update_spawn_state(
                 let despawn_delay = *obj.get::<_, f32>(NonClientBase::DespawnDelay).unwrap();
 
                 if instant.elapsed().as_secs_f32() >= despawn_delay {
-                    commands.send_event(DespawnAvatar(ent));
+                    commands.write_message(DespawnAvatar(ent));
                 }
             },
             SpawnState::Despawned(instant) => {
@@ -226,7 +226,7 @@ pub fn insert_loader_api(
             return Err(WorldError::Other(anyhow!("Invalid entity")));
         };
 
-        commands.send_event(DespawnAvatar(entity));
+        commands.write_message(DespawnAvatar(entity));
 
         Ok(())
     })?)?;
@@ -246,7 +246,7 @@ pub(super) fn cleanup_dynamic_instances(
 }
 
 pub(super) fn avatar_despawner(
-    mut events: EventReader<DespawnAvatar>,
+    mut events: MessageReader<DespawnAvatar>,
     mut query: Query<&mut SpawnState>,
     mut commands: Commands,
 ) {

@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use bevy::ecs::{component::Component, error::Result};
+use log::debug;
 use obj_params::{ContentRefList, EdnaFunction, GameObjectData, ItemEdna};
 use realm_api::ObjectTemplate;
 use serde_json::Value;
