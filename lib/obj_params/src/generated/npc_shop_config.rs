@@ -105,7 +105,7 @@ impl FromStr for NpcShopConfig {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         NPC_SHOP_CONFIG_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

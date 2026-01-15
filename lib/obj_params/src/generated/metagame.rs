@@ -71,7 +71,7 @@ impl AttributeInfo for Metagame {
 impl FromStr for Metagame {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        METAGAME_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        METAGAME_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for Metagame {

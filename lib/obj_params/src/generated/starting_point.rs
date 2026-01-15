@@ -1212,10 +1212,7 @@ impl AttributeInfo for StartingPoint {
 impl FromStr for StartingPoint {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        STARTING_POINT_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        STARTING_POINT_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for StartingPoint {

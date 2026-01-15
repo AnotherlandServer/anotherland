@@ -92,7 +92,7 @@ impl FromStr for OaCommonConfig {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         OA_COMMON_CONFIG_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

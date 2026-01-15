@@ -359,7 +359,7 @@ impl FromStr for CompinstMulticlusterAvatarLookup {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         COMPINST_MULTICLUSTER_AVATAR_LOOKUP_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

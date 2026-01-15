@@ -372,7 +372,7 @@ impl FromStr for CompinstDaemon {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         COMPINST_DAEMON_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

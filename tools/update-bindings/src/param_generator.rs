@@ -830,7 +830,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
 
                     fn from_str(s: &str) -> Result<Self, Self::Err> {
                         #enum_lookup_name.get(s)
-                            .map(|v| *v)
+                            .copied()
                             .ok_or(ParamError::UnknownAttributeName)
                     }
                 }

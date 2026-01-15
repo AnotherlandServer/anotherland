@@ -240,7 +240,7 @@ impl AttributeInfo for Mail {
 impl FromStr for Mail {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        MAIL_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        MAIL_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for Mail {

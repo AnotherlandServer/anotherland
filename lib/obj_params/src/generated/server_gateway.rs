@@ -1235,10 +1235,7 @@ impl AttributeInfo for ServerGateway {
 impl FromStr for ServerGateway {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        SERVER_GATEWAY_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        SERVER_GATEWAY_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for ServerGateway {

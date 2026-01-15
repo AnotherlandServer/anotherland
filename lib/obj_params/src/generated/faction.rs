@@ -148,7 +148,7 @@ impl AttributeInfo for Faction {
 impl FromStr for Faction {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        FACTION_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        FACTION_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for Faction {

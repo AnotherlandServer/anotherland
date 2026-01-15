@@ -357,10 +357,7 @@ impl AttributeInfo for GameSession {
 impl FromStr for GameSession {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        GAME_SESSION_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        GAME_SESSION_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for GameSession {

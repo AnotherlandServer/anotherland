@@ -412,7 +412,7 @@ impl FromStr for CompinstClustersrv {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         COMPINST_CLUSTERSRV_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

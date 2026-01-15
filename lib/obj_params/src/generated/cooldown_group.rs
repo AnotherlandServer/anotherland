@@ -90,10 +90,7 @@ impl AttributeInfo for CooldownGroup {
 impl FromStr for CooldownGroup {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        COOLDOWN_GROUP_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        COOLDOWN_GROUP_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for CooldownGroup {

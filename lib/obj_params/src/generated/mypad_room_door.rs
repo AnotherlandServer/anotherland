@@ -1210,7 +1210,7 @@ impl FromStr for MypadRoomDoor {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         MYPAD_ROOM_DOOR_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

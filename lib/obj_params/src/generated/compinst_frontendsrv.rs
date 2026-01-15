@@ -349,7 +349,7 @@ impl FromStr for CompinstFrontendsrv {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         COMPINST_FRONTENDSRV_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

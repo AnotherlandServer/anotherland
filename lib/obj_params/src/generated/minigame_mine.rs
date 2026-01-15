@@ -1267,10 +1267,7 @@ impl AttributeInfo for MinigameMine {
 impl FromStr for MinigameMine {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        MINIGAME_MINE_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        MINIGAME_MINE_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for MinigameMine {

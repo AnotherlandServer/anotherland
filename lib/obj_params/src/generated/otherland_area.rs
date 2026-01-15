@@ -217,10 +217,7 @@ impl AttributeInfo for OtherlandArea {
 impl FromStr for OtherlandArea {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        OTHERLAND_AREA_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        OTHERLAND_AREA_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for OtherlandArea {

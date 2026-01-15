@@ -1225,10 +1225,7 @@ impl AttributeInfo for VehicleBase {
 impl FromStr for VehicleBase {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        VEHICLE_BASE_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        VEHICLE_BASE_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for VehicleBase {

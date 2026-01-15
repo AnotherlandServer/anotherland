@@ -1226,7 +1226,7 @@ impl FromStr for InteractObject {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         INTERACT_OBJECT_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

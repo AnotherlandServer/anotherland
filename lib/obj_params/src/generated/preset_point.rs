@@ -1205,10 +1205,7 @@ impl AttributeInfo for PresetPoint {
 impl FromStr for PresetPoint {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        PRESET_POINT_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        PRESET_POINT_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for PresetPoint {

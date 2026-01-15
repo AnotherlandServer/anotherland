@@ -1108,10 +1108,7 @@ impl AttributeInfo for BilliardBall {
 impl FromStr for BilliardBall {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        BILLIARD_BALL_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        BILLIARD_BALL_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for BilliardBall {

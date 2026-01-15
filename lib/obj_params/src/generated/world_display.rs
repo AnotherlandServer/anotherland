@@ -1222,10 +1222,7 @@ impl AttributeInfo for WorldDisplay {
 impl FromStr for WorldDisplay {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        WORLD_DISPLAY_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        WORLD_DISPLAY_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for WorldDisplay {

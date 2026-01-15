@@ -3054,10 +3054,7 @@ impl AttributeInfo for EdnaFunction {
 impl FromStr for EdnaFunction {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        EDNA_FUNCTION_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        EDNA_FUNCTION_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for EdnaFunction {

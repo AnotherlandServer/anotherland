@@ -1031,7 +1031,7 @@ impl FromStr for MinigameScoreBoard {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         MINIGAME_SCORE_BOARD_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

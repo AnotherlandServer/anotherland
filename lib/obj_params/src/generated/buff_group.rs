@@ -102,7 +102,7 @@ impl AttributeInfo for BuffGroup {
 impl FromStr for BuffGroup {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        BUFF_GROUP_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        BUFF_GROUP_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for BuffGroup {

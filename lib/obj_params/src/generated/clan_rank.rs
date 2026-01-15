@@ -182,7 +182,7 @@ impl AttributeInfo for ClanRank {
 impl FromStr for ClanRank {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        CLAN_RANK_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        CLAN_RANK_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for ClanRank {

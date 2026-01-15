@@ -139,7 +139,7 @@ impl AttributeInfo for LootSystem {
 impl FromStr for LootSystem {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        LOOT_SYSTEM_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        LOOT_SYSTEM_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for LootSystem {

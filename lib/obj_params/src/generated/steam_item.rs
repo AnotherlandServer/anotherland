@@ -162,7 +162,7 @@ impl AttributeInfo for SteamItem {
 impl FromStr for SteamItem {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        STEAM_ITEM_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        STEAM_ITEM_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for SteamItem {

@@ -141,7 +141,7 @@ impl AttributeInfo for Instance {
 impl FromStr for Instance {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        INSTANCE_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        INSTANCE_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for Instance {

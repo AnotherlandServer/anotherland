@@ -1439,10 +1439,7 @@ impl AttributeInfo for MinigameInfo {
 impl FromStr for MinigameInfo {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        MINIGAME_INFO_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        MINIGAME_INFO_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for MinigameInfo {

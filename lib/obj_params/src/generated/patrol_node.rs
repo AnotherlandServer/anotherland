@@ -1184,7 +1184,7 @@ impl AttributeInfo for PatrolNode {
 impl FromStr for PatrolNode {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        PATROL_NODE_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        PATROL_NODE_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for PatrolNode {

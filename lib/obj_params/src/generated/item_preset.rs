@@ -112,7 +112,7 @@ impl AttributeInfo for ItemPreset {
 impl FromStr for ItemPreset {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        ITEM_PRESET_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        ITEM_PRESET_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for ItemPreset {

@@ -2791,7 +2791,7 @@ impl AttributeInfo for EdnaBase {
 impl FromStr for EdnaBase {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        EDNA_BASE_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        EDNA_BASE_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for EdnaBase {

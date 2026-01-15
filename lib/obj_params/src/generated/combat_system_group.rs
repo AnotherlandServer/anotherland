@@ -108,7 +108,7 @@ impl FromStr for CombatSystemGroup {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         COMBAT_SYSTEM_GROUP_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

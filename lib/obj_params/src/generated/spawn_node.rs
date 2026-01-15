@@ -1181,7 +1181,7 @@ impl AttributeInfo for SpawnNode {
 impl FromStr for SpawnNode {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        SPAWN_NODE_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        SPAWN_NODE_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for SpawnNode {

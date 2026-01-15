@@ -1226,7 +1226,7 @@ impl AttributeInfo for Door {
 impl FromStr for Door {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        DOOR_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        DOOR_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for Door {

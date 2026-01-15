@@ -1236,10 +1236,7 @@ impl AttributeInfo for CtfGameFlag {
 impl FromStr for CtfGameFlag {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        CTF_GAME_FLAG_ATTRIBUTES
-            .get(s)
-            .map(|v| *v)
-            .ok_or(ParamError::UnknownAttributeName)
+        CTF_GAME_FLAG_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for CtfGameFlag {

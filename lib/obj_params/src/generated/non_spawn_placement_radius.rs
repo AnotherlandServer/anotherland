@@ -163,7 +163,7 @@ impl FromStr for NonSpawnPlacementRadius {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         NON_SPAWN_PLACEMENT_RADIUS_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

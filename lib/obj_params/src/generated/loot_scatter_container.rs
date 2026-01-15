@@ -1367,7 +1367,7 @@ impl FromStr for LootScatterContainer {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         LOOT_SCATTER_CONTAINER_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

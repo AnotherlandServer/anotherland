@@ -1516,7 +1516,7 @@ impl FromStr for LocalTacticNode {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         LOCAL_TACTIC_NODE_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

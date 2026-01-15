@@ -994,7 +994,7 @@ impl FromStr for NonClientBase {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         NON_CLIENT_BASE_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

@@ -1274,7 +1274,7 @@ impl FromStr for ServerGatewayExitPhase {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         SERVER_GATEWAY_EXIT_PHASE_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

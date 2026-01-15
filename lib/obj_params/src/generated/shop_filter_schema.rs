@@ -95,7 +95,7 @@ impl FromStr for ShopFilterSchema {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         SHOP_FILTER_SCHEMA_ATTRIBUTES
             .get(s)
-            .map(|v| *v)
+            .copied()
             .ok_or(ParamError::UnknownAttributeName)
     }
 }

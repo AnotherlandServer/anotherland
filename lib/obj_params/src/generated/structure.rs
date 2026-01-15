@@ -1188,7 +1188,7 @@ impl AttributeInfo for Structure {
 impl FromStr for Structure {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        STRUCTURE_ATTRIBUTES.get(s).map(|v| *v).ok_or(ParamError::UnknownAttributeName)
+        STRUCTURE_ATTRIBUTES.get(s).copied().ok_or(ParamError::UnknownAttributeName)
     }
 }
 impl TryFrom<u16> for Structure {
