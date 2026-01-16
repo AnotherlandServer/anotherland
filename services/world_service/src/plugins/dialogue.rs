@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PreStartup, Update}, ecs::{component::Component, event::{Event, EventReader}, message::Message}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
+use bevy::{app::{Plugin, PreStartup, Update}, ecs::{component::Component, message::{Message, MessageReader}}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
 use log::debug;
 use mlua::{FromLua, Lua, Table};
 use obj_params::tags::{NpcOtherlandTag, PlayerTag};
@@ -36,12 +36,12 @@ impl Plugin for DialoguePlugin {
         app.register_message_handler(handle_dialogue_request);
         app.register_message_handler(handle_dialogue_choice);
 
-        app.add_event::<DialogueNodeSelected>();
-        app.add_event::<DialogueEnd>();
+        app.add_message::<DialogueNodeSelected>();
+        app.add_message::<DialogueEnd>();
     }
 }
 
-#[derive(Event, Message)]
+#[derive(Message)]
 pub struct DialogueNodeSelected {
     pub player: Entity,
     pub speaker: Entity,
@@ -49,7 +49,7 @@ pub struct DialogueNodeSelected {
     pub index: usize,
 }
 
-#[derive(Event, Message)]
+#[derive(Message)]
 pub struct DialogueEnd {
     pub player: Entity,
 }
@@ -197,7 +197,7 @@ fn lua_exec_dialogue(
             },
         });
 
-    commands.send_event(DialogueNodeSelected {
+    commands.write_message(DialogueNodeSelected {
         player: player.entity()?,
         speaker: speaker.entity()?,
         id: quest_id,
@@ -212,7 +212,7 @@ fn lua_abort_dialogue(
     //players: Query<(&DialogueState, &PlayerController)>,
     mut commands: Commands,
 ) -> mlua::Result<()> {
-    commands.send_event(DialogueEnd {
+    commands.write_message(DialogueEnd {
         player: player.entity()?
     });
 
@@ -244,32 +244,32 @@ fn handle_dialogue_choice(
     };
 
     if let Ok(index) = pkt.dialog_choice_serial.parse() {
-        commands.send_event(DialogueNodeSelected {
+        commands.write_message(DialogueNodeSelected {
             player: ent,
             speaker,
             id: pkt.dialog_id,
             index,
         });
     } else {
-        commands.send_event(DialogueEnd {
+        commands.write_message(DialogueEnd {
             player: ent
         });
     }
 }
 
 fn send_dialogue_nodes(
-    mut events: EventReader<DialogueNodeSelected>,
+    mut messages: MessageReader<DialogueNodeSelected>,
     mut players: Query<(&mut DialogueState, &PlayerController)>,
     speakers: Query<&Avatar, With<NpcOtherlandTag>>,
     mut commands: Commands,
 ) {
-    for event in events.read() {
+    for event in messages.read() {
         let Ok((mut state, controller)) = players.get_mut(event.player) else {
             continue;
         };
 
         let Ok(speaker_info) = speakers.get(event.speaker) else {
-            commands.send_event(DialogueEnd {
+            commands.write_message(DialogueEnd {
                 player: event.player
             });
             continue;
@@ -321,13 +321,13 @@ fn send_dialogue_nodes(
 
             controller.send_packet(pkt);
         } else if state.quest_finisher {
-            commands.send_event(ReturnQuest {
+            commands.write_message(ReturnQuest {
                 player: event.player,
                 quest_id: state.quest_id,
             });
         } else {
             // Node not found, end dialogue
-            commands.send_event(DialogueEnd {
+            commands.write_message(DialogueEnd {
                 player: event.player
             });
         }
@@ -335,11 +335,11 @@ fn send_dialogue_nodes(
 }
 
 fn send_dialogue_end(
-    mut events: EventReader<DialogueEnd>,
+    mut messages: MessageReader<DialogueEnd>,
     players: Query<&PlayerController>,
     mut commands: Commands,
 ) {
-    for event in events.read() {
+    for event in messages.read() {
         let Ok(controller) = players.get(event.player) else {
             continue;
         };

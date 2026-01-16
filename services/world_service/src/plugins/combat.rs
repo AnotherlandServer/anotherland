@@ -15,7 +15,7 @@
 
 use std::{sync::atomic::AtomicI32, time::Duration};
 
-use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader, EventWriter}, message::Message, schedule::IntoScheduleConfigs, world::World}, prelude::{Added, App, Changed, Commands, Component, Entity, In, Mut, Or, Query, With}, time::common_conditions::on_timer};
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{message::{Message, MessageReader, MessageWriter}, schedule::IntoScheduleConfigs, world::World}, prelude::{Added, App, Changed, Commands, Component, Entity, In, Mut, Or, Query, With}, time::common_conditions::on_timer};
 use mlua::{Integer, Lua, Table};
 use obj_params::{tags::{EdnaContainerTag, EdnaReceptorTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, SpawnerTag, StructureTag, VehicleBaseTag}, GameObjectData, Player};
 use protocol::{oaPkt_Combat_HpUpdate, CPktTargetRequest};
@@ -38,7 +38,7 @@ impl Plugin for CombatPlugin {
             update_energy.run_if(on_timer(Duration::from_secs(1))),
         ));
 
-        app.add_event::<HealthUpdateEvent>();
+        app.add_message::<HealthUpdateEvent>();
 
         insert_combat_api(app.world_mut()).unwrap();
     }
@@ -46,7 +46,7 @@ impl Plugin for CombatPlugin {
 
 static LAST_HEALTH_UPDATE_ID: AtomicI32 = AtomicI32::new(0);
 
-#[derive(Event, Message)]
+#[derive(Message)]
 pub struct HealthUpdateEvent {
     entity: Entity,
     source: Option<Entity>,
@@ -111,7 +111,7 @@ impl HealthUpdateEvent {
     }
 
     #[allow(dead_code)]
-    pub fn send(self, writer: &mut EventWriter<Self>) -> i32 {
+    pub fn send(self, writer: &mut MessageWriter<Self>) -> i32 {
         let id = self.id;
         writer.write(self);
         id
@@ -182,13 +182,13 @@ fn store_health(
 
 #[allow(clippy::type_complexity)]
 pub fn process_health_events(
-    mut events: EventReader<HealthUpdateEvent>,
+    mut messages: MessageReader<HealthUpdateEvent>,
     mut target: Query<(&Avatar, &mut Health, &mut GameObjectData), Or<(With<PlayerTag>, With<NpcBaseTag>)>>,
     script_objects: Query<&ScriptObject>,
     receivers: Query<(&PlayerController, &Interests)>,
     mut commands: Commands,
 ) {
-    for event in events.read() {
+    for event in messages.read() {
         if let Ok((avatar, mut health, mut obj)) = target.get_mut(event.entity) {
             // Apply update
             match event.update {
@@ -299,28 +299,28 @@ fn insert_combat_api(
     combat_api.set("Damage", lua.create_bevy_function(world, 
         |
             In((target, source, amount)): In<(Table, Option<Table>, Integer)>,
-            mut health_events: EventWriter<HealthUpdateEvent>,
+            mut health_messages: MessageWriter<HealthUpdateEvent>,
         | -> WorldResult<i32> {
             let ent = target.entity()
                 .map_err(|_| anyhow!("entity not found"))?;
 
             Ok(
                 HealthUpdateEvent::damage(ent, source.and_then(|t| t.entity().ok()), amount as i32)
-                    .send(&mut health_events)
+                    .send(&mut health_messages)
             )
         })?)?;
 
     combat_api.set("Heal", lua.create_bevy_function(world, 
         |
             In((target, source, amount)): In<(Table, Option<Table>, Integer)>,
-            mut health_events: EventWriter<HealthUpdateEvent>,
+            mut health_messages: MessageWriter<HealthUpdateEvent>,
         | -> WorldResult<i32> {
             let ent = target.entity()
                 .map_err(|_| anyhow!("entity not found"))?;
 
             Ok(
                 HealthUpdateEvent::heal(ent, source.and_then(|t| t.entity().ok()), amount as i32)
-                    .send(&mut health_events)
+                    .send(&mut health_messages)
             )
         })?)?;
 

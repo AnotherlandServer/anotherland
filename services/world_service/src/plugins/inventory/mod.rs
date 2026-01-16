@@ -400,6 +400,7 @@ fn command_add_item(
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
+#[allow(unused)]
 struct DefaultEquipment {
     #[serde(rename = "CombatStyle")]
     combat_style: Option<i32>,

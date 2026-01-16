@@ -24,7 +24,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use toolkit::{anyhow::anyhow, types::Uuid, NativeParam};
 
-use crate::{db::{ItemStorage, ObjectTemplate, StorageOwner}, equipment_slots::{EquipmentType, SlotType, EQUIPMENT_SLOTS}, node_registry};
+use crate::{db::{ItemStorage, ObjectTemplate, StorageOwner}, equipment_slots::{EquipmentType, SlotType, EQUIPMENT_SLOTS}};
 
 #[derive(Error, Debug)]
 pub enum ItemStorageSessionError {

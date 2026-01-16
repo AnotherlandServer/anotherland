@@ -129,6 +129,7 @@ pub struct Faction {
     relations: Vec<Relation>,
 }
 
+#[allow(unused)]
 impl Faction {
     pub fn id(&self) -> Uuid {
         self.id

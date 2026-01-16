@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Last, Plugin, PostUpdate}, ecs::query::{Or, With}, prelude::{Changed, DetectChangesMut, Entity, Query}};
+use bevy::{app::{Last, Plugin, PostUpdate}, ecs::query::Or, prelude::{Changed, DetectChangesMut, Entity, Query}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::trace;
 use obj_params::{GameObjectData, GenericParamSet, ParamFlag, ParamWriter};

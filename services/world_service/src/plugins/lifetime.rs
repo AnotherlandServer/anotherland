@@ -15,7 +15,7 @@
 
 use std::time::Instant;
 
-use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{component::Component, entity::Entity, query::{Added, Changed}, system::{Commands, Query}}};
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{component::Component, entity::Entity, query::Changed, system::{Commands, Query}}};
 use obj_params::GameObjectData;
 
 use crate::plugins::{DespawnAvatar, SpawnState};
@@ -60,7 +60,7 @@ fn check_lifetime(
             let Ok(lifetime) = obj.get_named::<f32>("aliveTime") &&
             tracker.created.elapsed().as_secs_f32() > *lifetime
         {
-            commands.send_event(DespawnAvatar(entity));
+            commands.write_message(DespawnAvatar(entity));
         }
     }
 }

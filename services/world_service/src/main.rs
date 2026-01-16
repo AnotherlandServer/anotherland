@@ -26,14 +26,14 @@ use tokio_util::sync::CancellationToken;
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use bevy::{MinimalPlugins, app::App, asset::{AssetApp, AssetMetaCheck, AssetMode, AssetPlugin}};
+use bevy::{MinimalPlugins, app::App};
 use clap::Parser;
 use cluster::{Endpoint, PeerIdentity};
 use core_api::CoreApi;
 use error::WorldResult;
 use log::{debug, info, warn, error};
 use manager::{InstanceEvent, InstanceManager};
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use proto::{ClusterMessage, WorldMessage, WorldRequest, WorldResponse, WorldServer};
 use realm_api::{proto::{NodeAddress, NodeType, RealmClient, RealmNotification, RealmRequest, RealmResponse}, RealmApi};
 use reqwest::Url;

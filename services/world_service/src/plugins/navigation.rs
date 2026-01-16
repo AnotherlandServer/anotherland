@@ -16,12 +16,12 @@
 use std::{ops::Div, sync::Mutex};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{component::Component, entity::Entity, event::EventReader, lifecycle::RemovedComponents, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::{Quat, Vec3, Vec3A, bounding::Aabb3d}, time::{Time, Virtual}};
+use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{component::Component, entity::Entity, lifecycle::RemovedComponents, message::MessageReader, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::{Quat, Vec3, Vec3A, bounding::Aabb3d}, time::{Time, Virtual}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use futures::{TryStreamExt};
 use log::{debug, error};
 use mlua::{Lua, Table};
-use obj_params::{tags::NonClientBaseTag, GameObjectData, NonClientBase};
+use obj_params::{tags::NonClientBaseTag, GameObjectData};
 use protocol::{CPktAvatarBehaviors, NetworkVec3};
 use realm_api::{RealmApi, WorldDef};
 use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshParams, DtNavMeshQuery, DtPolyRef, DtQueryFilter, DtTileRef}, detour_crowd::DtPathCorridor};
@@ -615,7 +615,7 @@ fn replicate_changed_paths_on_clients(
 }
 
 fn replicate_paths_on_clients(
-    mut transmitted_interests: EventReader<InterestTransmitted>,
+    mut transmitted_interests: MessageReader<InterestTransmitted>,
     agents: Query<(&Avatar, &Pathing, &Movement)>,
     clients: Query<&PlayerController>,
     time: Res<Time<Virtual>>,

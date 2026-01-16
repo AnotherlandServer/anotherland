@@ -157,7 +157,7 @@ impl QuestStateExtMutationRoot {
                 {
                     let mut inventory_session = ItemStorageSession::with_session(&db, session, rewards.storage_id).await?;
 
-                    if rewards.items.len() > 0 {
+                    if !rewards.items.is_empty() {
                         debug!("Giving quest rewards items: {:?}", rewards.items);
 
                         for item_id in rewards.items {

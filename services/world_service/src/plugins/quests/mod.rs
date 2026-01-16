@@ -15,8 +15,7 @@
 
 use std::{collections::HashMap, ops::Deref, path::PathBuf, sync::Arc};
 
-use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{event::{Event, EventReader}, hierarchy::{ChildOf, Children}, lifecycle::RemovedComponents, message::Message, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ParamSet, Res, ResMut, SystemId}, world::World}, math::Vec3, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, state::state::OnEnter};
-// use bonsai_bt::Status::Running;
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{hierarchy::{ChildOf, Children}, lifecycle::RemovedComponents, message::{Message, MessageReader}, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ParamSet, Res, ResMut}, world::World}, math::Vec3, platform::collections::HashSet, prelude::{Added, App, Commands, Component, Entity, Query}, state::state::OnEnter};
 use futures::TryStreamExt;
 use log::{debug, error, info, warn};
 use mlua::{FromLua, Function, IntoLua, Lua, Table, Value};
@@ -69,12 +68,12 @@ impl Plugin for QuestsPlugin {
             ).chain().after(handle_quest_state_changes),
         ));
 
-        app.add_event::<QuestStateUpdated>();
-        app.add_event::<QuestConditionUpdate>();
-        app.add_event::<AcceptQuest>();
-        app.add_event::<AbandonQuest>();
-        app.add_event::<ReturnQuest>();
-        app.add_event::<RequestNextQuest>();
+        app.add_message::<QuestStateUpdated>();
+        app.add_message::<QuestConditionUpdate>();
+        app.add_message::<AcceptQuest>();
+        app.add_message::<AbandonQuest>();
+        app.add_message::<ReturnQuest>();
+        app.add_message::<RequestNextQuest>();
 
         app.register_command("accept_quest", command_accept_quest);
         app.register_command("complete_quest", command_complete_quest);
@@ -196,25 +195,25 @@ impl From<AvatarFilterLua> for AvatarFilter {
     }
 }
 
-#[derive(Event, Message)]
+#[derive(Message)]
 pub struct AcceptQuest {
     pub player: Entity,
     pub quest_id: i32,
 }
 
-#[derive(Event, Message)]
+#[derive(Message)]
 pub struct AbandonQuest {
     pub player: Entity,
     pub quest_id: i32,
 }
 
-#[derive(Event, Message)]
+#[derive(Message)]
 pub struct FailQuest {
     pub player: Entity,
     pub quest_id: i32,
 }
 
-#[derive(Event, Message)]
+#[derive(Message)]
 pub struct ReturnQuest {
     pub player: Entity,
     pub quest_id: i32,
@@ -240,14 +239,14 @@ pub enum QuestState {
     Finished,
 }
 
-#[derive(Event, Message)]
+#[derive(Message)]
 pub struct QuestStateUpdated {
     pub player: Entity,
     pub quest_id: i32,
     pub state: QuestState,
 }
 
-#[derive(Event, Message, Clone, Copy)]
+#[derive(Message, Clone, Copy)]
 pub struct QuestConditionUpdate {
     pub player: Entity,
     pub quest_id: i32,
@@ -262,7 +261,7 @@ pub enum ConditionUpdate {
     Set(i32),
 }
 
-#[derive(Event, Message)]
+#[derive(Message)]
 pub struct RequestNextQuest {
     pub player: Entity,
 }
@@ -362,7 +361,7 @@ impl QuestLog {
 }
 
 fn hot_reload_quests(
-    mut events: EventReader<LuaScriptReloaded>,
+    mut events: MessageReader<LuaScriptReloaded>,
     quests: Res<QuestRegistry>,
     mut commands: Commands,
 ) {
@@ -408,7 +407,7 @@ fn init_quest_entities(
 
 
 fn sync_quest_state(
-    mut events: EventReader<QuestStateUpdated>,
+    mut events: MessageReader<QuestStateUpdated>,
     players: Query<&PlayerController>,
 ) {
     for &QuestStateUpdated { player, state, quest_id } in events.read() {
@@ -469,7 +468,7 @@ fn sync_quest_state(
 
 #[allow(clippy::type_complexity)]
 pub fn update_quest_markers(
-    mut interest_events: EventReader<InterestTransmitted>,
+    mut interest_events: MessageReader<InterestTransmitted>,
     updated_questlogs: Query<Entity, Changed<QuestLog>>,
     players: Query<(&QuestLog, &ScriptObject, &Interests), With<PlayerTag>>,
     entities: Query<&ScriptObject, With<NonClientBaseTag>>,
@@ -583,7 +582,7 @@ pub fn insert_questlog_api(
         In((owner, quest_id)): In<(Table, i32)>,
         mut commands: Commands,
     | -> WorldResult<()> {
-        commands.send_event(FailQuest { 
+        commands.write_message(FailQuest { 
             player: owner.entity()?,
             quest_id,
         });
@@ -736,7 +735,7 @@ pub fn insert_questlog_api(
         In((player_obj, quest_id, condition_id, action, value)): In<(Table, i32, i32, String, i32)>,
         mut commands: Commands,
     | -> WorldResult<()> {
-        commands.send_event(QuestConditionUpdate {
+        commands.write_message(QuestConditionUpdate {
             player: player_obj.entity()?,
             quest_id,
             condition_id,
@@ -839,7 +838,7 @@ pub fn insert_questlog_api(
             return Err(WorldError::Other(anyhow!("Quest does not have a valid id")));
         };
 
-        commands.send_event(ReturnQuest { player: player.entity()?, quest_id });
+        commands.write_message(ReturnQuest { player: player.entity()?, quest_id });
 
         Ok(())
     })?)?;
@@ -854,7 +853,7 @@ fn command_accept_quest(
     let mut args = args.into_iter();
 
     if let Some(NativeParam::Int(quest_id)) = args.next() {
-        commands.send_event(AcceptQuest { 
+        commands.write_message(AcceptQuest { 
             player: ent,
             quest_id,
         });
@@ -878,7 +877,7 @@ fn command_finish_quest(
     let mut args = args.into_iter();
 
     if let Some(NativeParam::Int(quest_id)) = args.next() {
-        commands.send_event(ReturnQuest { 
+        commands.write_message(ReturnQuest { 
             player: ent,
             quest_id,
         });
@@ -892,7 +891,7 @@ fn command_fail_quest(
     let mut args = args.into_iter();
 
     if let Some(NativeParam::Int(quest_id)) = args.next() {
-        commands.send_event(FailQuest { 
+        commands.write_message(FailQuest { 
             player: ent,
             quest_id,
         });
@@ -901,7 +900,7 @@ fn command_fail_quest(
 
 #[allow(clippy::type_complexity)]
 fn update_available_quests(
-    mut events: EventReader<QuestStateUpdated>,
+    mut events: MessageReader<QuestStateUpdated>,
     mut players: ParamSet<(
         Query<(&mut QuestLog, &ScriptObject)>,
         Query<Entity, Added<QuestLog>>,
@@ -1053,7 +1052,7 @@ fn handle_db_quest_update(
                 QuestProgressionState::Failed => QuestState::Failed,
             };
 
-            commands.send_event(QuestStateUpdated {
+            commands.write_message(QuestStateUpdated {
                 player,
                 quest_id,
                 state: quest_state,
@@ -1084,7 +1083,7 @@ fn handle_db_quest_update(
         if progress.state.is_some() {
             // Quest was removed from DB, but player had it in progress
             // Mark it as abandoned
-            commands.send_event(QuestStateUpdated {
+            commands.write_message(QuestStateUpdated {
                 player,
                 quest_id,
                 state: QuestState::Abandoned,
@@ -1377,25 +1376,25 @@ fn handle_quest_request(
             player_controller.send_packet(pkt);
         },
         OaPktQuestRequestRequest::Accept => {
-            commands.send_event(AcceptQuest {
+            commands.write_message(AcceptQuest {
                 player: ent,
                 quest_id: pkt.quest_id,
             });
         },
         OaPktQuestRequestRequest::Abandon => {
-            commands.send_event(AbandonQuest {
+            commands.write_message(AbandonQuest {
                 player: ent,
                 quest_id: pkt.quest_id,
             });
         },
         OaPktQuestRequestRequest::Return => {
-            commands.send_event(ReturnQuest {
+            commands.write_message(ReturnQuest {
                 player: ent,
                 quest_id: pkt.quest_id,
             });
         },
         OaPktQuestRequestRequest::RequestNext => {
-            commands.send_event(RequestNextQuest {
+            commands.write_message(RequestNextQuest {
                 player: ent,
             });
         }
@@ -1412,7 +1411,7 @@ pub struct QuestAvailable;
 pub struct QuestPlayer(Entity);
 
 fn quest_accepter(
-    mut events: EventReader<AcceptQuest>,
+    mut events: MessageReader<AcceptQuest>,
     players: Query<(&QuestLog, &PlayerController)>,
     instance: Res<ZoneInstance>,
     quests: Res<QuestRegistry>,
@@ -1468,7 +1467,7 @@ fn quest_accepter(
 }
 
 fn quest_returner(
-    mut events: EventReader<ReturnQuest>,
+    mut events: MessageReader<ReturnQuest>,
     players: Query<(&QuestLog, &PlayerController)>,
     mut commands: Commands,
 ) {
@@ -1504,7 +1503,7 @@ fn quest_returner(
 }
 
 fn quest_abandoner(
-    mut events: EventReader<AbandonQuest>,
+    mut events: MessageReader<AbandonQuest>,
     players: Query<(&QuestLog, &PlayerController)>,
     mut commands: Commands,
 ) {
@@ -1539,7 +1538,7 @@ fn quest_abandoner(
 }
 
 fn handle_quest_state_changes(
-    mut events: EventReader<QuestStateUpdated>,
+    mut events: MessageReader<QuestStateUpdated>,
     players: Query<&ScriptObject>,
     quests: Res<QuestRegistry>,
     mut commands: Commands,
@@ -1563,7 +1562,7 @@ fn handle_quest_state_changes(
         };
 
         if let QuestState::Finished = state {
-            commands.send_event(RequestNextQuest { player });
+            commands.write_message(RequestNextQuest { player });
         }
 
         let Ok(func) = quest.table.get::<Function>(func_name) else {
@@ -1602,7 +1601,7 @@ fn handle_quest_action_request(
 }
 
 fn handle_quest_condition_update(
-    mut events: EventReader<QuestConditionUpdate>,
+    mut events: MessageReader<QuestConditionUpdate>,
     players: Query<(&QuestLog, &PlayerController)>,
     mut commands: Commands,
 ) {
@@ -1640,7 +1639,7 @@ fn handle_quest_condition_update(
 }
 
 fn quest_segue_handler(
-    mut events: EventReader<RequestNextQuest>,
+    mut events: MessageReader<RequestNextQuest>,
     query: Query<(&ScriptObject, &DialogueState), With<PlayerTag>>,
     mut commands: Commands,
 ) {
@@ -1691,7 +1690,7 @@ fn attach_active_quests(
 }
 
 fn attach_or_detach_quest_on_state_change(
-    mut events: EventReader<QuestStateUpdated>,
+    mut events: MessageReader<QuestStateUpdated>,
     players: Query<(&ScriptObject, &PlayerController)>,
     quests: Res<QuestRegistry>,
     mut commands: Commands,
@@ -1737,7 +1736,7 @@ fn attach_or_detach_quest_on_state_change(
 }
 
 fn detach_from_despawned_player(
-    mut events: EventReader<DespawnAvatar>,
+    mut events: MessageReader<DespawnAvatar>,
     players: Query<(&ScriptObject, &QuestLog)>,
     mut commands: Commands,
 ) {
