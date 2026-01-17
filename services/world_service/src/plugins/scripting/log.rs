@@ -50,24 +50,24 @@ fn lua_log(lua: &Lua, level: log::Level, args: MultiValue) -> Result<(), mlua::E
         .collect::<Result<Vec<String>, mlua::Error>>()?
         .concat();
 
-    let debug = lua.inspect_stack(1).unwrap();
-
-    let target = if let Some(source) = debug.source().source {
-        if debug.source().what.is_empty() {
-            &format!("lua::{source}")
+    lua.inspect_stack(1, move |debug| {
+        let target = if let Some(source) = debug.source().source {
+            if debug.source().what.is_empty() {
+                &format!("lua::{source}")
+            } else {
+                &format!("lua::{source}::{}", debug.source().what)
+            }
         } else {
-            &format!("lua::{source}::{}", debug.source().what)
-        }
-    } else {
-        "lua"
-    };
+            "lua"
+        };
 
-    logger().log(&RecordBuilder::new()
-        .target(target)
-        .line(Some(debug.curr_line() as u32))
-        .level(level)
-        .args(format_args!("{msg}"))
-        .build());
+        logger().log(&RecordBuilder::new()
+            .target(target)
+            .line(Some(debug.current_line().unwrap_or_default() as u32))
+            .level(level)
+            .args(format_args!("{msg}"))
+            .build());
+    });
 
     Ok(())
 }
