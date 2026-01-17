@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{marker::PhantomData, result::Result};
+use std::{any::TypeId, marker::PhantomData, result::Result};
 
-use bevy::ecs::{component::{CheckChangeTicks, Tick}, query::FilteredAccessSet, system::{In, IntoSystem, IsFunctionSystem, RunSystemError, System, SystemParamValidationError}, world::{DeferredWorld, World, unsafe_world_cell::UnsafeWorldCell}};
+use bevy::ecs::{change_detection::{CheckChangeTicks, Tick}, query::FilteredAccessSet, system::{In, IntoSystem, IsFunctionSystem, RunSystemError, System, SystemParamValidationError, SystemStateFlags}, world::{DeferredWorld, World, unsafe_world_cell::UnsafeWorldCell}};
 
 pub struct NoOpSystem<T: Send + Sync + 'static>(PhantomData<T>);
 
@@ -27,7 +27,7 @@ impl<T: Send + Sync + 'static> System for NoOpSystem<T> {
         unreachable!()
     }
 
-    fn flags(&self) -> bevy::ecs::system::SystemStateFlags {
+    fn flags(&self) -> SystemStateFlags {
         unreachable!()
     }
 
@@ -67,6 +67,46 @@ impl<T: Send + Sync + 'static> System for NoOpSystem<T> {
     }
 
     fn set_last_run(&mut self, _last_run: Tick) {
+        unreachable!()
+    }
+    
+    fn type_id(&self) -> TypeId {
+        unreachable!()
+    }
+    
+    fn is_send(&self) -> bool {
+        unreachable!()
+    }
+    
+    fn is_exclusive(&self) -> bool {
+        unreachable!()
+    }
+    
+    fn has_deferred(&self) -> bool {
+        unreachable!()
+    }
+    
+    fn run(
+        &mut self,
+        input: bevy::ecs::system::SystemIn<'_, Self>,
+        world: &mut World,
+    ) -> Result<Self::Out, RunSystemError> {
+        unreachable!()
+    }
+    
+    fn run_without_applying_deferred(
+        &mut self,
+        input: bevy::ecs::system::SystemIn<'_, Self>,
+        world: &mut World,
+    ) -> Result<Self::Out, RunSystemError> {
+        unreachable!()
+    }
+    
+    fn validate_param(&mut self, world: &World) -> Result<(), SystemParamValidationError> {
+        unreachable!()
+    }
+    
+    fn default_system_sets(&self) -> Vec<bevy::ecs::schedule::InternedSystemSet> {
         unreachable!()
     }
 }
