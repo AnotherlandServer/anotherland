@@ -3337,7 +3337,7 @@ dependencies = [
 name = "macros"
 version = "0.1.0"
 dependencies = [
- "darling 0.21.3",
+ "darling 0.23.0",
  "proc-macro2",
  "quote",
  "syn 2.0.114",
