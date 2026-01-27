@@ -27,12 +27,15 @@ derive_builder.workspace = true
 futures-util = { workspace = true }
 log = { workspace = true }
 mongodb = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-full = { workspace = true }
 obj_params = { workspace = true }
 poem = { workspace = true }
-rand.workspace = true
+rand = { workspace = true }
 reqwest = { workspace = true }
-saphyr.workspace = true
 serde = { workspace = true }
+saphyr = { workspace = true }
+serde-saphyr = "0.0.16"
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

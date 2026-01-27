@@ -74,6 +74,10 @@ struct GraphqlCrudFieldOps {
     #[darling(default)]
     serialize_as: Option<ExprPath>,
     #[darling(default)]
+    input_object: Option<ExprPath>,
+    #[darling(default)]
+    output_object: Option<ExprPath>,
+    #[darling(default)]
     validator: Option<String>,
     #[darling(default)]
     filter: bool,
@@ -129,6 +133,8 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 
         if field_opts.skip {
             None
+        } else if let Some(output_object) = &field_opts.output_object {
+            Some(quote!{ #vis #ident: #output_object })
         } else if let Some(serialize_as) = &field_opts.serialize_as {
             Some(quote!{ #vis #ident: #serialize_as })
         } else {
@@ -155,6 +161,11 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 
         if field_opts.skip || field_opts.readonly {
             None
+        } else if let Some(input_object) = &field_opts.input_object {
+            Some(quote!{
+                #attr
+                #vis #ident: #input_object 
+            })
         } else if let Some(serialize_as) = &field_opts.serialize_as {
             Some(quote!{
                 #attr
@@ -180,7 +191,9 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
             let ident = &field.ident;
             let ty = &field.ty;
 
-            if let Some(serialize_as) = &field_opts.serialize_as {
+            if let Some(input_object) = &field_opts.input_object {
+                Some(quote!{ pub #ident: Option<#input_object> })
+            } else if let Some(serialize_as) = &field_opts.serialize_as {
                 Some(quote!{ pub #ident: Option<#serialize_as> })
             } else {
                 Some(quote!{ pub #ident: Option<#ty> })
@@ -257,7 +270,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 
         if field_opts.skip {
             None
-        } else if field_opts.serialize_as.is_some() {
+        } else if field_opts.output_object.is_some() || field_opts.serialize_as.is_some() {
             Some(quote!{ #field_name: value.#field_name.try_into()? })
         } else {
             Some(quote!{ #field_name: value.#field_name })
@@ -277,7 +290,7 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 
         if field_opts.skip || field_opts.readonly {
             quote!{ #field_name: <#field_ty as Default>::default() }
-        } else if field_opts.serialize_as.is_some() {
+        } else if field_opts.input_object.is_some() || field_opts.serialize_as.is_some() {
             quote!{ #field_name: value.#field_name.try_into()? }
         } else {
             quote!{ #field_name: value.#field_name }

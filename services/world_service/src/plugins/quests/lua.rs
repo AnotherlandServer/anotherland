@@ -26,7 +26,6 @@ use tokio::task::block_in_place;
 
 use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AttachedQuest, ConditionUpdate, FailQuest, PlayerController, Quest, QuestAvailable, QuestConditionUpdate, QuestLog, QuestPlayer, QuestRegistry, ReturnQuest, quests::send_quest}};
 
-
 #[derive(Clone)]
 pub struct AvatarFilterLua(protocol::AvatarFilter);
 

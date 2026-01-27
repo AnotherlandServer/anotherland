@@ -15,10 +15,13 @@
 
 use std::sync::Arc;
 
-use bevy::{ecs::component::Component, platform::collections::{HashMap, HashSet}};
-use realm_api::QuestProgressionState;
+use bevy::{ecs::{component::Component, entity::Entity, query::{Added, With}, system::{Commands, In, Query, Res}}, platform::collections::{HashMap, HashSet}};
+use futures::TryStreamExt;
+use obj_params::tags::PlayerTag;
+use realm_api::{QuestProgressionState, RealmApi};
+use scripting::ScriptObject;
 
-use crate::plugins::{Quest, QuestProgress};
+use crate::plugins::{AsyncOperationEntityCommandsExt, PlayerController, Quest, QuestProgress, QuestRegistry, player_error_handler_system};
 
 #[derive(Component, Default)]
 pub struct QuestLog {
@@ -67,4 +70,57 @@ impl QuestLog {
             }
         }
     }
+}
+
+pub(super) fn load_questlogs_for_joined_players(
+    players: Query<(Entity, &PlayerController), (Added<ScriptObject>, With<PlayerTag>)>,
+    mut commands: Commands,
+) {
+    for (entity, controller) in players.iter() {
+        let controller = controller.clone();
+
+        commands
+            .entity(entity)
+            .perform_async_operation(async move {
+                let mut res = RealmApi::get()
+                    .query_quest_states()
+                    .character_id(controller.character_id())
+                    .query()
+                    .await?;
+
+                let mut quests = vec![];
+
+                while let Some(quest_state) = res.try_next().await? {
+                    quests.push(quest_state);
+                }
+
+                Ok(quests)
+            })
+            .on_finish_run_system(insert_questlog_for_player)
+            .on_error_run_system(player_error_handler_system);
+    }
+}
+
+pub(super) fn insert_questlog_for_player(
+    In((entity, quests)): In<(Entity, Vec<realm_api::QuestState>)>,
+    quest_registry: Res<QuestRegistry>,
+    mut commands: Commands,
+) {
+    let mut quest_log = QuestLog {
+        quests: quests.into_iter()
+            .filter_map(|q| {
+                let quest = quest_registry.0.get(&q.quest_id)?.clone();
+                    Some((q.quest_id, QuestProgress {
+                        template: quest,
+                        state: Some(q),
+                    }))
+                })
+                .collect(),
+            ..Default::default()
+    };
+
+    quest_log.update_fast_access_maps();
+
+    commands.entity(entity)
+        .insert(quest_log);
 }

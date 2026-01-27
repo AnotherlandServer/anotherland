@@ -28,7 +28,9 @@ mod skillbook;
 mod ability_bar;
 mod navmesh;
 mod navmesh_tile;
-mod queststate;
+mod quest_state;
+mod quest_template;
+mod quest_dialogue;
 
 pub use character::*;
 pub use premium_currency::*;
@@ -45,4 +47,6 @@ pub use skillbook::*;
 pub use ability_bar::*;
 pub use navmesh::*;
 pub use navmesh_tile::*;
-pub use queststate::*;
+pub use quest_state::*;
+pub use quest_template::*;
+pub use quest_dialogue::*;
