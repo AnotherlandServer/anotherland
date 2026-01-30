@@ -15,7 +15,7 @@
 
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
-use obj_params::{AsGameObjectDataRef, Class, GameObjectData, GameObjectParent};
+use obj_params::{AsGameObjectDataRef, Class, GameObjectData};
 use object_placement_graphql::{BatchCreateObjectPlacements, BatchCreateObjectPlacementsVariables, CreateObjectPlacement, CreateObjectPlacementVariables, DeleteObjectPlacement, DeleteObjectPlacementVariables, GetObjectPlacement, GetObjectPlacementVariables, GetObjectPlacements, GetObjectPlacementsVariables, ObjectPlacementFilter, ObjectPlacementInput};
 use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
 
