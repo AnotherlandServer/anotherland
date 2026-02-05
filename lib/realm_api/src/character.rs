@@ -17,7 +17,7 @@ use character_graphql::{CreateCharacterInAccount, CreateCharacterInAccountVariab
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use log::debug;
 use obj_params::{GameObjectData, GenericParamSet};
-use toolkit::types::Uuid;
+use toolkit::{anyhow::{self, anyhow}, types::Uuid};
 
 use crate::{schema, EquipmentResult, RealmApi, RealmApiError, RealmApiResult};
 
@@ -56,6 +56,37 @@ impl From<CombatStyle> for character_graphql::CombatStyle {
             CombatStyle::Hacker => character_graphql::CombatStyle::Hacker,
             CombatStyle::Cyber => character_graphql::CombatStyle::Cyber,
             CombatStyle::None => character_graphql::CombatStyle::None,
+        }
+    }
+}
+
+impl From<CombatStyle> for i32 {
+    fn from(style: CombatStyle) -> Self {
+        match style {
+            CombatStyle::Rage => 0,
+            CombatStyle::Tech => 1,
+            CombatStyle::Assassin => 2,
+            CombatStyle::Energizer => 3,
+            CombatStyle::Hacker => 4,
+            CombatStyle::Cyber => 5,
+            CombatStyle::None => 6,
+        }
+    }
+}
+
+impl TryFrom<i32> for CombatStyle {
+    type Error = anyhow::Error;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(CombatStyle::Rage),
+            1 => Ok(CombatStyle::Tech),
+            2 => Ok(CombatStyle::Assassin),
+            3 => Ok(CombatStyle::Energizer),
+            4 => Ok(CombatStyle::Hacker),
+            5 => Ok(CombatStyle::Cyber),
+            6 => Ok(CombatStyle::None),
+            _ => Err(anyhow!("Invalid combat style value: {}", value)),
         }
     }
 }

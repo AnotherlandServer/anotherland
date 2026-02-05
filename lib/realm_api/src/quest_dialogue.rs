@@ -57,6 +57,7 @@ impl From<Choice> for quest_dialogue_graphql::Choice {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DialogueLine {
+    pub serial: i32,
     pub line_id: i32,
     pub animation_name: Option<String>,
     pub choice: Option<Choice>,
@@ -66,6 +67,7 @@ pub struct DialogueLine {
 impl DialogueLine {
     fn from_graphql(other: quest_dialogue_graphql::DialogueLine) -> Self {
         Self {
+            serial: other.serial,
             line_id: other.line_id,
             animation_name: other.animation_name,
             choice: other.choice.map(Choice::from),
@@ -75,6 +77,7 @@ impl DialogueLine {
 
     fn as_graphql(&self) -> quest_dialogue_graphql::DialogueLineInput<'_> {
         quest_dialogue_graphql::DialogueLineInput {
+            serial: self.serial,
             line_id: self.line_id,
             animation_name: self.animation_name.as_deref(),
             choice: self.choice.map(|c| c.into()),
@@ -89,6 +92,7 @@ pub struct DialogueBranchSelector {
     pub quests_in_progress: Vec<i32>,
     pub quests_complete: Vec<i32>,
     pub quests_finished: Vec<i32>,
+    pub quests_upcoming: Vec<i32>,
     pub level: i32,
     pub combat_style: Option<CombatStyle>,
 }
@@ -100,6 +104,7 @@ impl DialogueBranchSelector {
             quests_in_progress: other.quests_in_progress,
             quests_complete: other.quests_complete,
             quests_finished: other.quests_finished,
+            quests_upcoming: other.quests_upcoming,
             level: other.level,
             combat_style: other.combat_style.map(|cs| cs.into()),
         }
@@ -111,6 +116,7 @@ impl DialogueBranchSelector {
             quests_in_progress: self.quests_in_progress.clone(),
             quests_complete: self.quests_complete.clone(),
             quests_finished: self.quests_finished.clone(),
+            quests_upcoming: self.quests_upcoming.clone(),
             level: self.level,
             combat_style: self.combat_style.map(|cs| cs.into()),
         }
@@ -368,6 +374,7 @@ pub(crate) mod quest_dialogue_graphql {
         pub quests_in_progress: Vec<i32>,
         pub quests_complete: Vec<i32>,
         pub quests_finished: Vec<i32>,
+        pub quests_upcoming: Vec<i32>,
         pub level: i32,
         pub combat_style: Option<CombatStyle>,
     }
@@ -375,6 +382,7 @@ pub(crate) mod quest_dialogue_graphql {
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct DialogueLine {
+        pub serial: i32,
         pub line_id: i32,
         pub animation_name: Option<String>,
         pub choice: Option<Choice>,
@@ -425,6 +433,7 @@ pub(crate) mod quest_dialogue_graphql {
         pub quests_in_progress: Vec<i32>,
         pub quests_complete: Vec<i32>,
         pub quests_finished: Vec<i32>,
+        pub quests_upcoming: Vec<i32>,
         pub level: i32,
         pub combat_style: Option<CombatStyle>,
     }
@@ -432,6 +441,7 @@ pub(crate) mod quest_dialogue_graphql {
     #[derive(cynic::InputObject, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct DialogueLineInput<'a> {
+        pub serial: i32,
         pub line_id: i32,
         pub animation_name: Option<&'a str>,
         pub choice: Option<Choice>,

@@ -19,11 +19,11 @@ use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types:
 
 use crate::{CombatStyle, RealmApi, RealmApiError, RealmApiResult};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub enum AvatarSelector {
     ContentId(Uuid),
     InstanceId(Uuid),
-    QuestTags(Vec<String>),
+    QuestTag(i32),
     LootItem(Uuid),
     DialogId(i32),
 }
@@ -34,8 +34,8 @@ impl AvatarSelector {
             Ok(Self::ContentId(content_id))
         } else if let Some(instance_id) = other.instance_id {
             Ok(Self::InstanceId(instance_id))
-        } else if let Some(quest_tags) = other.quest_tags {
-            Ok(Self::QuestTags(quest_tags))
+        } else if let Some(quest_tag) = other.quest_tag {
+            Ok(Self::QuestTag(quest_tag))
         } else if let Some(loot_item) = other.loot_item {
             Ok(Self::LootItem(loot_item))
         } else if let Some(dialog_id) = other.dialog_id {
@@ -50,35 +50,35 @@ impl AvatarSelector {
             Self::ContentId(id) => quest_template_graphql::AvatarSelector {
                 content_id: Some(*id),
                 instance_id: None,
-                quest_tags: None,
+                quest_tag: None,
                 loot_item: None,
                 dialog_id: None,
             },
             Self::InstanceId(id) => quest_template_graphql::AvatarSelector {
                 content_id: None,
                 instance_id: Some(*id),
-                quest_tags: None,
+                quest_tag: None,
                 loot_item: None,
                 dialog_id: None,
             },
-            Self::QuestTags(tags) => quest_template_graphql::AvatarSelector {
+            Self::QuestTag(tag) => quest_template_graphql::AvatarSelector {
                 content_id: None,
                 instance_id: None,
-                quest_tags: Some(tags.clone()),
+                quest_tag: Some(*tag),
                 loot_item: None,
                 dialog_id: None,
             },
             Self::LootItem(id) => quest_template_graphql::AvatarSelector {
                 content_id: None,
                 instance_id: None,
-                quest_tags: None,
+                quest_tag: None,
                 loot_item: Some(*id),
                 dialog_id: None,
             },
             Self::DialogId(id) => quest_template_graphql::AvatarSelector {
                 content_id: None,
                 instance_id: None,
-                quest_tags: None,
+                quest_tag: None,
                 loot_item: None,
                 dialog_id: Some(*id),
             },
@@ -87,100 +87,87 @@ impl AvatarSelector {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct InteractCondition {
-    pub id: i32,
-    pub required_count: i32,
-    pub avatar_selector: AvatarSelector,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct DialogueCondition {
-    pub id: i32,
-    pub beacon: Option<Uuid>,
-    pub required_count: i32,
-    pub dialogue_id: i32,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct WaitCondition {
-    pub id: i32,
-    pub wait_time_seconds: f64,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct KillCondition {
-    pub id: i32,
-    pub beacon: Option<Uuid>,
-    pub required_count: i32,
-    pub avatar_selector: AvatarSelector,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LootCondition {
-    pub id: i32,
-    pub beacon: Option<Uuid>,
-    pub required_count: i32,
-    pub item_id: Uuid,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum Condition {
-    Interact(InteractCondition),
-    Dialogue(DialogueCondition),
-    Wait(WaitCondition),
-    Kill(KillCondition),
-    Loot(LootCondition),
+    Interact {
+        id: i32,
+        beacon: Option<Uuid>,
+        required_count: i32,
+        avatar_selector: AvatarSelector,
+    },
+    Dialogue {
+        id: i32,
+        beacon: Option<Uuid>,
+        required_count: i32,
+        dialogue_id: i32,
+    },
+    Wait {
+        id: i32,
+        wait_time_seconds: f64,
+    },
+    Kill {
+        id: i32,
+        beacon: Option<Uuid>,
+        required_count: i32,
+        avatar_selector: AvatarSelector,
+    },
+    Loot {
+        id: i32,
+        beacon: Option<Uuid>,
+        required_count: i32,
+        item_id: Uuid,
+    },
 }
 
 impl Condition {
     pub fn id(&self) -> i32 {
         match self {
-            Self::Interact(c) => c.id,
-            Self::Dialogue(c) => c.id,
-            Self::Wait(c) => c.id,
-            Self::Kill(c) => c.id,
-            Self::Loot(c) => c.id,
+            Self::Interact { id, .. } => *id,
+            Self::Dialogue { id, .. } => *id,
+            Self::Wait { id, .. } => *id,
+            Self::Kill { id, .. } => *id,
+            Self::Loot { id, .. } => *id,
         }
     }
 
     fn from_graphql(other: quest_template_graphql::ConditionInterface) -> RealmApiResult<Self> {
         match other {
             quest_template_graphql::ConditionInterface::InteractCondition(c) => {
-                Ok(Self::Interact(InteractCondition {
+                Ok(Self::Interact {
                     id: c.id,
+                    beacon: c.beacon,
                     required_count: c.required_count,
                     avatar_selector: AvatarSelector::from_graphql(c.avatar_selector)?,
-                }))
+                })
             }
             quest_template_graphql::ConditionInterface::DialogueCondition(c) => {
-                Ok(Self::Dialogue(DialogueCondition {
+                Ok(Self::Dialogue {
                     id: c.id,
                     beacon: c.beacon,
                     required_count: c.required_count,
                     dialogue_id: c.dialogue_id,
-                }))
+                })
             }
             quest_template_graphql::ConditionInterface::WaitCondition(c) => {
-                Ok(Self::Wait(WaitCondition {
+                Ok(Self::Wait {
                     id: c.id,
                     wait_time_seconds: c.wait_time_seconds,
-                }))
+                })
             }
             quest_template_graphql::ConditionInterface::KillCondition(c) => {
-                Ok(Self::Kill(KillCondition {
+                Ok(Self::Kill {
                     id: c.id,
                     beacon: c.beacon,
                     required_count: c.required_count,
                     avatar_selector: AvatarSelector::from_graphql(c.avatar_selector)?,
-                }))
+                })
             }
             quest_template_graphql::ConditionInterface::LootCondition(c) => {
-                Ok(Self::Loot(LootCondition {
+                Ok(Self::Loot {
                     id: c.id,
                     beacon: c.beacon,
                     required_count: c.required_count,
                     item_id: c.item_id,
-                }))
+                })
             }
             quest_template_graphql::ConditionInterface::Unknown => {
                 Err(RealmApiError::Other(toolkit::anyhow::anyhow!("Unknown Condition type")))
@@ -190,58 +177,62 @@ impl Condition {
 
     fn as_graphql(&self) -> quest_template_graphql::ConditionInput {
         match self {
-            Self::Interact(c) => quest_template_graphql::ConditionInput {
+            Self::Interact { id, beacon, required_count, avatar_selector } => quest_template_graphql::ConditionInput {
                 interact: Some(quest_template_graphql::InteractConditionInput {
-                    id: c.id,
-                    required_count: c.required_count,
-                    avatar_selector: c.avatar_selector.as_graphql(),
+                    id: *id,
+                    beacon: *beacon,
+                    required_count: *required_count,
+                    avatar_selector: avatar_selector.as_graphql(),
                 }),
                 dialogue: None,
                 wait: None,
                 kill: None,
                 loot: None,
             },
-            Self::Dialogue(c) => quest_template_graphql::ConditionInput {
+            Self::Dialogue { id, beacon, required_count, dialogue_id } => quest_template_graphql::ConditionInput {
                 interact: None,
                 dialogue: Some(quest_template_graphql::DialogueConditionInput {
-                    id: c.id,
-                    required_count: c.required_count,
-                    dialogue_id: c.dialogue_id,
+                    id: *id,
+                    beacon: *beacon,
+                    required_count: *required_count,
+                    dialogue_id: *dialogue_id,
                 }),
                 wait: None,
                 kill: None,
                 loot: None,
             },
-            Self::Wait(c) => quest_template_graphql::ConditionInput {
+            Self::Wait { id, wait_time_seconds } => quest_template_graphql::ConditionInput {
                 interact: None,
                 dialogue: None,
                 wait: Some(quest_template_graphql::WaitConditionInput {
-                    id: c.id,
-                    wait_time_seconds: c.wait_time_seconds,
+                    id: *id,
+                    wait_time_seconds: *wait_time_seconds,
                 }),
                 kill: None,
                 loot: None,
             },
-            Self::Kill(c) => quest_template_graphql::ConditionInput {
+            Self::Kill { id, beacon, required_count, avatar_selector } => quest_template_graphql::ConditionInput {
                 interact: None,
                 dialogue: None,
                 wait: None,
                 kill: Some(quest_template_graphql::KillConditionInput {
-                    id: c.id,
-                    required_count: c.required_count,
-                    avatar_selector: c.avatar_selector.as_graphql(),
+                    id: *id,
+                    beacon: *beacon,
+                    required_count: *required_count,
+                    avatar_selector: avatar_selector.as_graphql(),
                 }),
                 loot: None,
             },
-            Self::Loot(c) => quest_template_graphql::ConditionInput {
+            Self::Loot { id, beacon, required_count, item_id } => quest_template_graphql::ConditionInput {
                 interact: None,
                 dialogue: None,
                 wait: None,
                 kill: None,
                 loot: Some(quest_template_graphql::LootConditionInput {
-                    id: c.id,
-                    required_count: c.required_count,
-                    item_id: c.item_id,
+                    id: *id,
+                    beacon: *beacon,
+                    required_count: *required_count,
+                    item_id: *item_id,
                 }),
             },
         }
@@ -249,14 +240,14 @@ impl Condition {
 }
 
 #[derive(Clone, Default, PartialEq)]
-pub struct Preconditions {
+pub struct Prerequisites {
     pub level: Option<i32>,
     pub combat_style: Option<CombatStyle>,
     pub quests_finished: Option<Vec<i32>>,
 }
 
-impl Preconditions {
-    fn from_graphql(other: quest_template_graphql::Preconditions) -> Self {
+impl Prerequisites {
+    fn from_graphql(other: quest_template_graphql::Prerequisites) -> Self {
         Self {
             level: other.level,
             combat_style: other.combat_style.map(|cs| cs.into()),
@@ -264,8 +255,8 @@ impl Preconditions {
         }
     }
 
-    fn as_graphql(&self) -> quest_template_graphql::PreconditionsInput {
-        quest_template_graphql::PreconditionsInput {
+    fn as_graphql(&self) -> quest_template_graphql::PrerequisitesInput {
+        quest_template_graphql::PrerequisitesInput {
             level: self.level,
             combat_style: self.combat_style.map(|cs| cs.into()),
             quests_finished: self.quests_finished.clone(),
@@ -352,7 +343,7 @@ pub struct QuestTemplate {
     #[builder(setter(strip_option), default)]
     pub completion_dialogue_id: Option<i32>,
     #[builder(setter(strip_option), default)]
-    pub preconditions: Option<Preconditions>,
+    pub prerequisites: Option<Prerequisites>,
     #[builder(default)]
     pub conditions: Vec<Condition>,
 }
@@ -390,7 +381,7 @@ impl QuestTemplate {
             available_dialogue_id: other.available_dialogue_id,
             progress_dialogue_id: other.progress_dialogue_id,
             completion_dialogue_id: other.completion_dialogue_id,
-            preconditions: other.preconditions.map(Preconditions::from_graphql),
+            prerequisites: other.prerequisites.map(Prerequisites::from_graphql),
             conditions: other.conditions.into_iter()
                 .map(Condition::from_graphql)
                 .collect::<Result<Vec<_>, _>>()?,
@@ -408,7 +399,7 @@ impl QuestTemplate {
             available_dialogue_id: self.available_dialogue_id,
             progress_dialogue_id: self.progress_dialogue_id,
             completion_dialogue_id: self.completion_dialogue_id,
-            preconditions: self.preconditions.as_ref().map(Preconditions::as_graphql),
+            prerequisites: self.prerequisites.as_ref().map(Prerequisites::as_graphql),
             conditions: self.conditions.iter().map(Condition::as_graphql).collect(),
         }
     }
@@ -551,13 +542,13 @@ pub(crate) mod quest_template_graphql {
         pub available_dialogue_id: Option<i32>,
         pub progress_dialogue_id: Option<i32>,
         pub completion_dialogue_id: Option<i32>,
-        pub preconditions: Option<Preconditions>,
+        pub prerequisites: Option<Prerequisites>,
         pub conditions: Vec<ConditionInterface>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service")]
-    pub struct Preconditions {
+    pub struct Prerequisites {
         pub level: Option<i32>,
         pub combat_style: Option<CombatStyle>,
         pub quests_finished: Option<Vec<i32>>,
@@ -579,6 +570,7 @@ pub(crate) mod quest_template_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct InteractCondition {
         pub id: i32,
+        pub beacon: Option<Uuid>,
         pub required_count: i32,
         pub avatar_selector: AvatarSelectorOutput,
     }
@@ -587,6 +579,7 @@ pub(crate) mod quest_template_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct DialogueCondition {
         pub id: i32,
+        pub beacon: Option<Uuid>,
         pub required_count: i32,
         pub dialogue_id: i32,
     }
@@ -602,6 +595,7 @@ pub(crate) mod quest_template_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct KillCondition {
         pub id: i32,
+        pub beacon: Option<Uuid>,
         pub required_count: i32,
         pub avatar_selector: AvatarSelectorOutput,
     }
@@ -610,6 +604,7 @@ pub(crate) mod quest_template_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct LootCondition {
         pub id: i32,
+        pub beacon: Option<Uuid>,
         pub required_count: i32,
         pub item_id: Uuid,
     }
@@ -619,7 +614,7 @@ pub(crate) mod quest_template_graphql {
     pub struct AvatarSelectorOutput {
         pub content_id: Option<Uuid>,
         pub instance_id: Option<Uuid>,
-        pub quest_tags: Option<Vec<String>>,
+        pub quest_tag: Option<i32>,
         pub loot_item: Option<Uuid>,
         pub dialog_id: Option<i32>,
     }
@@ -659,7 +654,7 @@ pub(crate) mod quest_template_graphql {
         pub available_dialogue_id: Option<i32>,
         pub progress_dialogue_id: Option<i32>,
         pub completion_dialogue_id: Option<i32>,
-        pub preconditions: Option<PreconditionsInput>,
+        pub prerequisites: Option<PrerequisitesInput>,
         pub conditions: Vec<ConditionInput>,
     }
 
@@ -671,7 +666,7 @@ pub(crate) mod quest_template_graphql {
 
     #[derive(cynic::InputObject, Debug)]
     #[cynic(schema = "realm_manager_service")]
-    pub struct PreconditionsInput {
+    pub struct PrerequisitesInput {
         pub level: Option<i32>,
         pub combat_style: Option<CombatStyle>,
         pub quests_finished: Option<Vec<i32>>,
@@ -691,6 +686,7 @@ pub(crate) mod quest_template_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct InteractConditionInput {
         pub id: i32,
+        pub beacon: Option<Uuid>,
         pub required_count: i32,
         pub avatar_selector: AvatarSelector,
     }
@@ -699,6 +695,7 @@ pub(crate) mod quest_template_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct DialogueConditionInput {
         pub id: i32,
+        pub beacon: Option<Uuid>,
         pub required_count: i32,
         pub dialogue_id: i32,
     }
@@ -714,6 +711,7 @@ pub(crate) mod quest_template_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct KillConditionInput {
         pub id: i32,
+        pub beacon: Option<Uuid>,
         pub required_count: i32,
         pub avatar_selector: AvatarSelector,
     }
@@ -722,6 +720,7 @@ pub(crate) mod quest_template_graphql {
     #[cynic(schema = "realm_manager_service")]
     pub struct LootConditionInput {
         pub id: i32,
+        pub beacon: Option<Uuid>,
         pub required_count: i32,
         pub item_id: Uuid,
     }
@@ -731,7 +730,7 @@ pub(crate) mod quest_template_graphql {
     pub struct AvatarSelector {
         pub content_id: Option<Uuid>,
         pub instance_id: Option<Uuid>,
-        pub quest_tags: Option<Vec<String>>,
+        pub quest_tag: Option<i32>,
         pub loot_item: Option<Uuid>,
         pub dialog_id: Option<i32>,
     }
