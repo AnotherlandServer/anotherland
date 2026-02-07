@@ -13,18 +13,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
 
 use anyhow::anyhow;
-use bevy::ecs::{hierarchy::{ChildOf, Children}, message::MessageReader, query::With, system::{Commands, In, Query, Res, ResMut}, world::World};
+use bevy::ecs::{hierarchy::{ChildOf, Children}, message::MessageReader, query::With, system::{Commands, In, Query, Res}, world::World};
 use mlua::{FromLua, Function, IntoLua, Lua, Table};
-use obj_params::{GameObjectData, tags::NonClientBaseTag};
+use obj_params::{tags::NonClientBaseTag};
 use protocol::AvatarFilter;
 use realm_api::QuestProgressionState;
 use scripting::{LuaExt, LuaRuntime, LuaScriptReloaded, LuaTableExt, ScriptCommandsExt, ScriptResult};
-use tokio::task::block_in_place;
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AttachedQuest, ConditionUpdate, FailQuest, PlayerController, Quest, QuestAvailable, QuestConditionUpdate, QuestLog, QuestPlayer, QuestRegistry, ReturnQuest, quests::send_quest}};
+use crate::{error::{WorldError, WorldResult}, plugins::{AttachedQuest, ConditionUpdate, FailQuest, QuestAvailable, QuestConditionUpdate, QuestLog, QuestPlayer, QuestProgress, Quests, ReturnQuest}};
 
 #[derive(Clone)]
 pub struct AvatarFilterLua(protocol::AvatarFilter);
@@ -99,17 +98,17 @@ impl From<AvatarFilterLua> for AvatarFilter {
 
 pub fn hot_reload_quests(
     mut events: MessageReader<LuaScriptReloaded>,
-    quests: Res<QuestRegistry>,
+    quests: Res<Quests>,
     mut commands: Commands,
 ) {
     for _ in events.read() {
-        for (_, quest) in quests.0.iter() {
+        for quest in quests.values() {
             if 
-                let Ok(true) = quest.table.get::<bool>("__hot_reload") &&
-                let Ok(func) = quest.table.get::<Function>("HotReload")
+                let Ok(true) = quest.obj.get::<bool>("__hot_reload") &&
+                let Ok(func) = quest.obj.get::<Function>("HotReload")
             {
                     commands
-                        .call_lua_method(func, quest.table.clone());
+                        .call_lua_method(func, quest.obj.clone());
                 }
             }
     }
@@ -145,23 +144,6 @@ pub fn insert_questlog_api(
     let quest_api = lua.create_table().unwrap();
     runtime.register_native("questlog", quest_api.clone()).unwrap();
 
-    quest_api.set("MarkQuestAvailable", lua.create_bevy_function(world, |
-        In((owner, quest_id)): In<(Table, i32)>,
-        mut questlogs: Query<&mut QuestLog>,
-        quests: Res<QuestRegistry>,
-    | -> WorldResult<()> {
-        let mut log = questlogs.get_mut(owner.entity()?)
-            .map_err(|_| anyhow!("object not found"))?;
-
-        let Some(quest) = quests.0.get(&quest_id) else {
-            return Err(WorldError::Other(anyhow!("unknown quest id: {}", quest_id)));
-        };
-
-        log.mark_available(quest.clone());
-
-        Ok(())
-    })?)?;
-
     quest_api.set("FailQuest", lua.create_bevy_function(world, |
         In((owner, quest_id)): In<(Table, i32)>,
         mut commands: Commands,
@@ -177,23 +159,28 @@ pub fn insert_questlog_api(
     quest_api.set("GetQuestState", lua.create_bevy_function(world, |
         In((owner, quest_id)): In<(Table, i32)>,
         questlogs: Query<&QuestLog>,
+        quests: Query<&QuestProgress>,
     | -> WorldResult<LuaQuestState> {
         let questlog = questlogs.get(owner.entity()?)
             .map_err(|e| WorldError::Other(anyhow!("Failed to get quest log: {}", e)))?;
 
-        let Some(quest) = questlog.quests.get(&quest_id) else {
-            return Ok(LuaQuestState::Unavailable);
+        let Some(quest_ent) = questlog.quests.get(&quest_id) else {
+            if questlog.available.contains(&quest_id) {
+                return Ok(LuaQuestState::Available);
+            } else {
+                return Ok(LuaQuestState::Unavailable);
+            }
         };
 
-        match quest.state.as_ref() {
-            None => Ok(LuaQuestState::Available),
-            Some(state) => 
-                match state.state {
-                    QuestProgressionState::Active => Ok(LuaQuestState::InProgress),
-                    QuestProgressionState::Completed => Ok(LuaQuestState::Completed),
-                    QuestProgressionState::Finished => Ok(LuaQuestState::Finished),
-                    QuestProgressionState::Failed => Ok(LuaQuestState::Unavailable),
-                }
+        let Ok(progress) = quests.get(*quest_ent) else {
+            return Err(WorldError::Other(anyhow!("Failed to get quest progress")));
+        };
+
+        match progress.state().state {
+            QuestProgressionState::Active => Ok(LuaQuestState::InProgress),
+            QuestProgressionState::Completed => Ok(LuaQuestState::Completed),
+            QuestProgressionState::Finished => Ok(LuaQuestState::Finished),
+            QuestProgressionState::Failed => Ok(LuaQuestState::Unavailable),
         }
     })?)?;
 
@@ -241,80 +228,6 @@ pub fn insert_questlog_api(
         Ok(())
     })?)?;
 
-    quest_api.set("GetAttachedQuests", lua.create_bevy_function(world, |
-        In((target, player)): In<(Table, Table)>,
-        quest_target: Query<&Children, With<NonClientBaseTag>>,
-        markers: Query<(&QuestPlayer, &AttachedQuest)>,
-        quests: Res<QuestRegistry>,
-    | -> WorldResult<Vec<Table>> {
-        let children = quest_target.get(target.entity()?)
-            .map_err(|e| WorldError::Other(anyhow!("Failed to get quest target children: {}", e)))?;
-
-        let mut result = vec![];
-        for &child in children.iter() {
-            if 
-                let Ok((quest_player, quest_marker)) = markers.get(child) &&
-                quest_player.0 == player.entity()? &&
-                let Some(quest) = quests.0.get(&quest_marker.quest_id)
-            {
-                result.push(quest.table.clone());
-            }
-        }
-
-        Ok(result)
-    })?)?;
-
-    quest_api.set("UpdateQuest", lua.create_bevy_function(world, |
-        In(quest): In<Table>,
-        mut players: Query<(&mut QuestLog, &PlayerController)>,
-        mut quests: ResMut<QuestRegistry>,
-        beacon_query: Query<&GameObjectData>,
-        runtime: Res<LuaRuntime>,
-        zone: Res<ZoneInstance>,
-    | -> WorldResult<()> {
-        let info: Result<(i32, String), mlua::Error> = try {
-            (
-                quest.get::<i32>("id")?,
-                quest.get::<String>("world")?,
-            )
-        };
-
-        match info {
-            Ok((id, world)) => {
-                // Update global quest registry
-                let Some(world_def) = block_in_place(|| zone.manager.get_world_def_by_name(&world)) else {
-                    return Err(WorldError::Other(anyhow!("Quest references unknown world: {}", world)));
-                };
-
-                let template = Arc::new(Quest {
-                    id,
-                    table: quest,
-                    owned: world == world_def.name(),
-                    world_def,
-                });
-
-                quests.0.insert(id, template.clone());
-
-                // Update clients
-                for (mut quest_log, controller) in players.iter_mut() {
-                    if 
-                        let Some(progress) = quest_log.quests.get_mut(&id) &&
-                        progress.state.is_some()
-                    {
-                        progress.template = template.clone();
-
-                        send_quest(runtime.vm(), controller, &template, &zone, &beacon_query);
-                    }
-                }
-            },
-            Err(err) => {
-                return Err(WorldError::Other(anyhow!("Quest does not have a valid id: {:?}", err)));
-            }
-        }
-
-        Ok(())
-    })?)?;
-
     quest_api.set("UpdateQuestProgress", lua.create_bevy_function(world, |
         In((player_obj, quest_id, condition_id, action, value)): In<(Table, i32, i32, String, i32)>,
         mut commands: Commands,
@@ -337,6 +250,7 @@ pub fn insert_questlog_api(
     quest_api.set("GetConditionProgress", lua.create_bevy_function(world, |
         In((quest, player, condition_id)): In<(Table, Table, i32)>,
         players: Query<&QuestLog>,
+        quests: Query<&QuestProgress>,
     | -> WorldResult<i32> {
         let Ok(quest_id) = quest.get::<i32>("id") else {
             return Err(WorldError::Other(anyhow!("Quest does not have a valid id")));
@@ -346,58 +260,25 @@ pub fn insert_questlog_api(
             return Err(WorldError::Other(anyhow!("Player does not have a valid quest log")));
         };
 
-        let Some(progress) = quest_log.quests.get(&quest_id).and_then(|q| q.state.as_ref()) else {
+        let Some(quest_ent) = quest_log.quests.get(&quest_id) else {
             return Err(WorldError::Other(anyhow!("Player has not started quest {}", quest_id)));
         };
 
-        let Some(condition) = progress.conditions.iter().find(|c| c.id == condition_id) else {
+        let Ok(progress) = quests.get(*quest_ent) else {
+            return Err(WorldError::Other(anyhow!("Player has not started quest {}", quest_id)));
+        };
+
+        let Some(condition) = progress.state().conditions.iter().find(|c| c.id == condition_id) else {
             return Err(WorldError::Other(anyhow!("Quest {} does not have condition {}", quest_id, condition_id)));
         };
 
         Ok(condition.current_count)
     })?)?;
 
-    /*quest_api.set("MarkAsTimedQuest", lua.create_bevy_function(world, |
-        In((quest, player)): In<(Table, Table)>,
-        mut players: Query<&mut QuestLog>,
-    | -> WorldResult<()> {
-        let Ok(quest_id) = quest.get::<i32>("id") else {
-            return Err(WorldError::Other(anyhow!("Quest does not have a valid id")));
-        };
-
-        let Ok(mut quest_log) = players.get_mut(player.entity()?) else {
-            return Err(WorldError::Other(anyhow!("Player does not have a valid quest log")));
-        };
-
-        if !quest_log.quests.contains_key(&quest_id) {
-            return Err(WorldError::Other(anyhow!("Player has not started quest {}", quest_id)));
-        };
-
-        quest_log.timed_quests.insert(quest_id);
-
-        Ok(())
-    })?)?;
-
-    quest_api.set("UnmarkAsTimedQuest", lua.create_bevy_function(world, |
-        In((quest, player)): In<(Table, Table)>,
-        mut players: Query<&mut QuestLog>,
-    | -> WorldResult<()> {
-        let Ok(quest_id) = quest.get::<i32>("id") else {
-            return Err(WorldError::Other(anyhow!("Quest does not have a valid id")));
-        };
-
-        let Ok(mut quest_log) = players.get_mut(player.entity()?) else {
-            return Err(WorldError::Other(anyhow!("Player does not have a valid quest log")));
-        };
-
-        quest_log.timed_quests.remove(&quest_id);
-
-        Ok(())
-    })?)?;*/
-
     quest_api.set("GetLastConditionUpdateTime", lua.create_bevy_function(world, |
         In((quest, player)): In<(Table, Table)>,
         players: Query<&QuestLog>,
+        quests: Query<&QuestProgress>,
     | -> WorldResult<i64> {
         let Ok(quest_id) = quest.get::<i32>("id") else {
             return Err(WorldError::Other(anyhow!("Quest does not have a valid id")));
@@ -407,11 +288,15 @@ pub fn insert_questlog_api(
             return Err(WorldError::Other(anyhow!("Player does not have a valid quest log")));
         };
 
-        let Some(progress) = quest_log.quests.get(&quest_id).and_then(|q| q.state.as_ref()) else {
+        let Some(quest_ent) = quest_log.quests.get(&quest_id) else {
             return Err(WorldError::Other(anyhow!("Player has not started quest {}", quest_id)));
         };
 
-        Ok(progress.last_condition_update.timestamp())
+        let Ok(progress) = quests.get(*quest_ent) else {
+            return Err(WorldError::Other(anyhow!("Player has not started quest {}", quest_id)));
+        };
+
+        Ok(progress.state().last_condition_update.timestamp())
     })?)?;
 
     quest_api.set("ReturnQuest", lua.create_bevy_function(world, |

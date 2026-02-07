@@ -15,14 +15,16 @@
 
 use std::sync::Arc;
 
-use bevy::{ecs::{component::Component, error::Result}, state::commands::CommandsStatesExt};
+use bevy::{ecs::{component::Component, error::Result, system::EntityCommands}, state::commands::CommandsStatesExt};
 use futures::TryStreamExt;
 use realm_api::{ObjectPlacement, RealmApi, Zone};
 
 use crate::{instance::InstanceState, plugins::{LoadContext, LoadableComponent, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, VirtualComponent}};
 
 #[derive(Component)]
-pub struct ZoneLoader {
+pub struct ZoneLoader;
+
+pub struct ZoneLoaderContext {
     placements: Vec<ObjectPlacement>,
 }
 
@@ -34,28 +36,37 @@ impl VirtualComponent for ZoneLoader {}
 
 impl LoadableComponent for ZoneLoader {
     type Parameters = ZoneLoaderParameter;
+    type ContextData = ZoneLoaderContext;
 
-    async fn load(parameters: Self::Parameters, _context: &mut LoadContext<Self::ContextData>) -> Result<Self> {
+    async fn load(parameters: Self::Parameters, context: &mut LoadContext<Self::ContextData>) -> Result<Self> {
         let mut query = RealmApi::get()
             .query_object_placements()
             .zone_guid(*parameters.zone.guid())
             .query()
             .await?;
 
-        let mut content = vec![];
+        let mut placements = vec![];
         
         while let Some(placement) = query.try_next().await? {
-            content.push(placement);
+            placements.push(placement);
         }
 
-        Ok(ZoneLoader {
-            placements: content,
-        })
+        context.set_data(ZoneLoaderContext {
+            placements 
+        });
+
+        Ok(ZoneLoader)
     }
 
-    fn load_dependencies(&mut self, commands: &mut bevy::ecs::system::EntityCommands<'_>, context: &mut LoadContext<Self::ContextData>) -> Result<()> {
-        self.placements
+    fn load_dependencies(&mut self, commands: &mut EntityCommands<'_>, context: &mut LoadContext<Self::ContextData>) -> Result<()> {
+        context
+            .data_mut()
+            .as_mut()
+            .unwrap()
+            .placements
             .drain(..)
+            .collect::<Vec<_>>()
+            .into_iter()
             .for_each(|placement| {
                 let ent = commands
                     .commands()
@@ -70,7 +81,7 @@ impl LoadableComponent for ZoneLoader {
         Ok(())
     }
 
-    fn on_load(&mut self, commands: &mut bevy::ecs::system::EntityCommands<'_>, _data: Option<Self::ContextData>) -> Result<()> {
+    fn post_load(&mut self, commands: &mut EntityCommands<'_>, _data: Option<Self::ContextData>) -> Result<()> {
         commands
             .commands()
             .set_state(InstanceState::Initializing);

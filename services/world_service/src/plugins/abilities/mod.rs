@@ -114,7 +114,7 @@ impl IntoLua for Interaction {
         metatable.set("__index", interaction)?;
 
         let table = lua.create_table()?;
-        table.set_metatable(Some(metatable));
+        table.set_metatable(Some(metatable))?;
 
         match self {
             Interaction::Interact { duration } => {

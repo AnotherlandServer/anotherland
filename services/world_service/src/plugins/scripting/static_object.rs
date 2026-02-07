@@ -62,7 +62,7 @@ impl StaticObject {
         metatable.set("__index", base)?;
 
         let table = runtime.vm().create_table()?;
-        table.set_metatable(Some(metatable));
+        table.set_metatable(Some(metatable))?;
         table.set("__static_object", self.clone())?;
 
         table.set("template_guid", self.id.to_string())?;

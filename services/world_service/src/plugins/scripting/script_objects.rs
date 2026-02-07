@@ -194,7 +194,7 @@ pub fn load_class_script(runtime: &mut LuaRuntime, class: Class, name: Option<&s
         let Some(script_name) = name &&
         !script_name.is_empty()
     {
-        match runtime.load_script(&format!("{}.{}", class.name().to_case(Case::Snake), script_name)) {
+        match runtime.load_class(&format!("{}.{}", class.name().to_case(Case::Snake), script_name)) {
             Ok(lua_class) => {
                 return Ok(lua_class);
             },
@@ -218,7 +218,7 @@ pub fn load_class_script(runtime: &mut LuaRuntime, class: Class, name: Option<&s
     object_scripts.push("global.base.entity".to_string());
 
     for script_name in &object_scripts {
-        match runtime.load_script(script_name) {
+        match runtime.load_class(script_name) {
             Ok(lua_class) => {
                 return Ok(lua_class);
             },

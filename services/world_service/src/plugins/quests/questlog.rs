@@ -13,114 +13,121 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
-
-use bevy::{ecs::{component::Component, entity::Entity, query::{Added, With}, system::{Commands, In, Query, Res}}, platform::collections::{HashMap, HashSet}};
+use bevy::{ecs::{component::Component, entity::Entity, error::Result, hierarchy::ChildOf, system::EntityCommands}, platform::collections::{HashMap, HashSet}};
 use futures::TryStreamExt;
-use obj_params::tags::PlayerTag;
+use log::debug;
 use realm_api::{QuestProgressionState, RealmApi};
-use scripting::ScriptObject;
+use toolkit::types::Uuid;
 
-use crate::plugins::{AsyncOperationEntityCommandsExt, PlayerController, Quest, QuestProgress, QuestRegistry, player_error_handler_system};
+use crate::plugins::{LoadContext, LoadableComponent, QuestProgress, QuestState, UpdateAvailableQuests, quests::network::QuestGiverStatus};
 
 #[derive(Component, Default)]
 pub struct QuestLog {
-    // Quests ids per status, for fast access when determining interests
     pub available: HashSet<i32>,
     pub completed: HashSet<i32>,
     pub finished: HashSet<i32>,
     pub in_progress: HashSet<i32>,
 
-    pub quests: HashMap<i32, QuestProgress>,
+    pub quests: HashMap<i32, Entity>,
+}
+
+impl LoadableComponent for QuestLog {
+    type Parameters = Uuid;
+    type ContextData = Vec<realm_api::QuestState>;
+
+    async fn load(character_id: Self::Parameters, context: &mut LoadContext<Self::ContextData>) -> Result<Self> {
+        let mut res = RealmApi::get()
+            .query_quest_states()
+            .character_id(character_id)
+            .query()
+            .await?;
+
+        let mut states = vec![];
+        let mut questlog = QuestLog::default();
+
+        while let Some(state) = res.try_next().await? {
+            match state.state {
+                QuestProgressionState::Active => {
+                    questlog.in_progress.insert(state.quest_id);
+                },
+                QuestProgressionState::Completed => {
+                    questlog.completed.insert(state.quest_id);
+                },
+                QuestProgressionState::Finished => {
+                    questlog.finished.insert(state.quest_id);
+                },
+                QuestProgressionState::Failed => {
+                    // Failed quests are not tracked in fast access maps
+                }
+            }
+
+            states.push(state);
+        }
+
+        context.set_data(states);
+
+        Ok(questlog)
+    }
+
+    fn post_load(&mut self, commands: &mut EntityCommands<'_>, data: Option<Self::ContextData>) -> Result<()> {
+        let ent = commands.id();
+
+        commands
+            .insert(QuestGiverStatus::default());
+
+        for state in data.unwrap().drain(..) {
+            let id = state.quest_id;
+            let player = commands.id();
+            let ent = 
+                commands
+                    .commands()
+                    .spawn((
+                        ChildOf(player),
+                        QuestProgress::from_state(state)
+                    ))
+                    .id();
+
+            debug!("Inserted quest progress for quest {} into questlog", id);
+
+            self.quests.insert(id, ent);
+        }
+
+        commands
+            .commands()
+            .write_message(UpdateAvailableQuests(ent));
+        
+        Ok(())
+    }
 }
 
 impl QuestLog {
-    pub fn mark_available(&mut self, quest: Arc<Quest>) {
-        let id = quest.id;
-        self.quests.entry(id).or_insert(QuestProgress {
-            template: quest,
-            state: None,
-        });
-        self.update_fast_access_maps();
+    pub fn clear_available(&mut self) {
+        self.available.clear();
     }
 
-    pub fn update_fast_access_maps(&mut self) {
-        self.available.clear();
-        self.completed.clear();
-        self.finished.clear();
-        self.in_progress.clear();
+    pub fn mark_available(&mut self, id: i32) {
+        self.available.insert(id);
+    }
 
-        for (&id, progress) in &self.quests {
-            match progress.state.as_ref().map(|s| s.state) {
-                Some(QuestProgressionState::Active) => {
-                    self.in_progress.insert(id);
-                }
-                Some(QuestProgressionState::Completed) => {
-                    self.completed.insert(id);
-                }
-                Some(QuestProgressionState::Finished) => {
-                    self.finished.insert(id);
-                }
-                Some(QuestProgressionState::Failed) => {
-                    // Failed quests are not tracked in fast access maps
-                }
-                None => {
-                    self.available.insert(id);
-                }
+    pub fn update_state(&mut self, id: i32, state: QuestState) {
+        self.available.remove(&id);
+        self.in_progress.remove(&id);
+        self.completed.remove(&id);
+        self.finished.remove(&id);
+
+        match state {
+            QuestState::Accepted => {
+                self.in_progress.insert(id);
+            },
+            QuestState::Completed => {
+                self.completed.insert(id);
+            },
+            QuestState::Finished => {
+                self.finished.insert(id);
+            },
+            QuestState::Abandoned | QuestState::Failed => {
+                // untracked
             }
         }
     }
-}
-
-pub(super) fn load_questlogs_for_joined_players(
-    players: Query<(Entity, &PlayerController), (Added<ScriptObject>, With<PlayerTag>)>,
-    mut commands: Commands,
-) {
-    for (entity, controller) in players.iter() {
-        let controller = controller.clone();
-
-        commands
-            .entity(entity)
-            .perform_async_operation(async move {
-                let mut res = RealmApi::get()
-                    .query_quest_states()
-                    .character_id(controller.character_id())
-                    .query()
-                    .await?;
-
-                let mut quests = vec![];
-
-                while let Some(quest_state) = res.try_next().await? {
-                    quests.push(quest_state);
-                }
-
-                Ok(quests)
-            })
-            .on_finish_run_system(insert_questlog_for_player)
-            .on_error_run_system(player_error_handler_system);
-    }
-}
-
-pub(super) fn insert_questlog_for_player(
-    In((entity, quests)): In<(Entity, Vec<realm_api::QuestState>)>,
-    quest_registry: Res<QuestRegistry>,
-    mut commands: Commands,
-) {
-    let mut quest_log = QuestLog {
-        quests: quests.into_iter()
-            .filter_map(|q| {
-                let quest = quest_registry.0.get(&q.quest_id)?.clone();
-                    Some((q.quest_id, QuestProgress {
-                        template: quest,
-                        state: Some(q),
-                    }))
-                })
-                .collect(),
-            ..Default::default()
-    };
-
-    quest_log.update_fast_access_maps();
-
-    commands.entity(entity)
-        .insert(quest_log);
 }

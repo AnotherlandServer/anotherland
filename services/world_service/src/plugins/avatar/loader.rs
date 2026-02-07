@@ -69,7 +69,7 @@ impl LoadableComponent for AvatarLoader {
         ret
     }
 
-    fn on_load(&mut self, commands: &mut EntityCommands<'_>, _data: Option<Self::ContextData>) -> Result<()> {
+    fn post_load(&mut self, commands: &mut EntityCommands<'_>, _data: Option<Self::ContextData>) -> Result<()> {
         match self.data.take() {
             Some(AvatarLoaderData::PlayerCharacter(character)) => self.on_load_player_character(commands, character),
             None => unreachable!(),

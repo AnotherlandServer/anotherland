@@ -36,7 +36,7 @@ pub struct QuestTemplate {
     pub available_dialogue_id: Option<i32>,
     pub progress_dialogue_id: Option<i32>,
     pub completion_dialogue_id: Option<i32>,
-    pub preconditions: Option<Preconditions>,
+    pub prerequisites: Option<Prerequisites>,
     pub conditions: Vec<Condition>,
 }
 
@@ -76,8 +76,8 @@ impl DatabaseRecord for QuestTemplate {
 }
 
 #[derive(Serialize, Deserialize, SimpleObject, InputObject)]
-#[graphql(input_name = "PreconditionsInput")]
-pub struct Preconditions {
+#[graphql(input_name = "PrerequisitesInput")]
+pub struct Prerequisites {
     pub level: Option<i32>,
     pub combat_style: Option<CombatStyle>,
     pub quests_finished: Option<Vec<i32>>,
@@ -87,7 +87,7 @@ pub struct Preconditions {
 pub struct AvatarSelectorOutput {
     pub content_id: Option<Uuid>,
     pub instance_id: Option<Uuid>,
-    pub quest_tags: Option<Vec<String>>,
+    pub quest_tag: Option<i32>,
     pub loot_item: Option<Uuid>,
     pub dialog_id: Option<i32>,
 }
@@ -98,35 +98,35 @@ impl From<AvatarSelector> for AvatarSelectorOutput {
             AvatarSelector::ContentId(id) => AvatarSelectorOutput {
                 content_id: Some(id),
                 instance_id: None,
-                quest_tags: None,
+                quest_tag: None,
                 loot_item: None,
                 dialog_id: None,
             },
             AvatarSelector::InstanceId(id) => AvatarSelectorOutput {
                 content_id: None,
                 instance_id: Some(id),
-                quest_tags: None,
+                quest_tag: None,
                 loot_item: None,
                 dialog_id: None,
             },
-            AvatarSelector::QuestTags(tags) => AvatarSelectorOutput {
+            AvatarSelector::QuestTag(tag) => AvatarSelectorOutput {
                 content_id: None,
                 instance_id: None,
-                quest_tags: Some(tags),
+                quest_tag: Some(tag),
                 loot_item: None,
                 dialog_id: None,
             },
             AvatarSelector::LootItem(item) => AvatarSelectorOutput {
                 content_id: None,
                 instance_id: None,
-                quest_tags: None,
+                quest_tag: None,
                 loot_item: Some(item),
                 dialog_id: None,
             },
             AvatarSelector::DialogId(id) => AvatarSelectorOutput {
                 content_id: None,
                 instance_id: None,
-                quest_tags: None,
+                quest_tag: None,
                 loot_item: None,
                 dialog_id: Some(id),
             },
@@ -138,7 +138,7 @@ impl From<AvatarSelector> for AvatarSelectorOutput {
 pub enum AvatarSelector {
     ContentId(Uuid),
     InstanceId(Uuid),
-    QuestTags(Vec<String>),
+    QuestTag(i32),
     LootItem(Uuid),
     DialogId(i32),
 }
@@ -147,6 +147,7 @@ pub enum AvatarSelector {
 #[graphql(complex, input_name = "InteractConditionInput")]
 pub struct InteractCondition {
     pub id: i32,
+    pub beacon: Option<Uuid>,
     pub required_count: i32,
     #[graphql(skip_output)]
     pub avatar_selector: AvatarSelector,
@@ -163,6 +164,7 @@ impl InteractCondition {
 #[graphql(input_name = "DialogueConditionInput")]
 pub struct DialogueCondition {
     pub id: i32,
+    pub beacon: Option<Uuid>,
     pub required_count: i32,
     pub dialogue_id: i32,
 }
@@ -184,6 +186,7 @@ pub struct WaitCondition {
 #[graphql(complex, input_name = "KillConditionInput")]
 pub struct KillCondition {
     pub id: i32,
+    pub beacon: Option<Uuid>,
     pub required_count: i32,
     #[graphql(skip_output)]
     pub avatar_selector: AvatarSelector,
@@ -200,6 +203,7 @@ impl KillCondition {
 #[graphql(input_name = "LootConditionInput")]
 pub struct LootCondition {
     pub id: i32,
+    pub beacon: Option<Uuid>,
     pub required_count: i32,
     pub item_id: Uuid,
 }

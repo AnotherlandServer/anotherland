@@ -43,7 +43,7 @@ impl LoadableComponent for InitialInventoryTransfer {
         Ok(())
     }
 
-    fn on_load(&mut self, commands: &mut EntityCommands<'_>, _data: Option<Self::ContextData>) -> Result<()> {
+    fn post_load(&mut self, commands: &mut EntityCommands<'_>, _data: Option<Self::ContextData>) -> Result<()> {
         commands
             .queue(|mut ent: EntityWorldMut<'_>| {
                 let items = ent.get::<Inventory>().unwrap()

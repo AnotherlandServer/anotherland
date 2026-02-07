@@ -21,7 +21,7 @@ mod commands_component_loader;
 mod component_loader;
 mod cache;
 
-use bevy::{app::{First, Last, Plugin, PostStartup, PreUpdate, Update}, ecs::{lifecycle::HookContext, schedule::IntoScheduleConfigs, system::Commands}};
+use bevy::{app::{First, Last, Plugin, PreUpdate, Update}, ecs::{lifecycle::HookContext, schedule::IntoScheduleConfigs, system::Commands}, state::state::OnEnter};
 pub use components::*;
 pub use events::*;
 pub use resources::*;
@@ -30,7 +30,7 @@ pub use commands_component_loader::*;
 pub use component_loader::*;
 pub use cache::*;
 
-use crate::{instance::ZoneInstance, plugins::{CommandExtPriv, ZoneLoader, ZoneLoaderParameter, navigation}};
+use crate::{instance::{InstanceState, ZoneInstance}, plugins::{CommandExtPriv, ZoneLoader, ZoneLoaderParameter, navigation}};
 
 pub struct LoaderPlugin;
 
@@ -77,7 +77,7 @@ impl Plugin for LoaderPlugin {
 
         let instance = app.world().get_resource::<ZoneInstance>().unwrap();
         let zone = instance.zone.clone();
-        app.add_systems(PostStartup, move |mut commands: Commands| {
+        app.add_systems(OnEnter(InstanceState::ObjectLoad), move |mut commands: Commands| {
             commands
                 .spawn_empty()
                 .load_component::<ZoneLoader>(ZoneLoaderParameter {

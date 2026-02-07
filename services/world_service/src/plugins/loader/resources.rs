@@ -25,7 +25,6 @@ pub struct LoaderSystems {
 pub struct InstanceManager(pub(super) HashMap<Uuid, Entity>);
 
 impl InstanceManager {
-    #[allow(dead_code)]
     pub fn find_instance(&self, id: Uuid) -> Option<Entity> {
         self.0.get(&id).cloned()
     }

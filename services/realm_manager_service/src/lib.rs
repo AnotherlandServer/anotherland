@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![feature(exclusive_wrapper)]
+#![recursion_limit = "256"]
 
 use std::sync::OnceLock;
 

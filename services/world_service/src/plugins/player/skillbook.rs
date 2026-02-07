@@ -79,7 +79,7 @@ impl SkillbookEntry {
         metatable.set("__index", base)?;
 
         let table = runtime.vm().create_table()?;
-        table.set_metatable(Some(metatable));
+        table.set_metatable(Some(metatable))?;
         table.set("__skill", self.clone())?;
 
         table.set("instance_guid", self.id.to_string())?;

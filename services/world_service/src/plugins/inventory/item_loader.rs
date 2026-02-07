@@ -89,7 +89,7 @@ impl LoadableComponent for Item {
         Ok(())
     }
 
-    fn on_load(&mut self, commands: &mut bevy::ecs::system::EntityCommands<'_>, data: Option<Self::ContextData>) -> Result<()> {
+    fn post_load(&mut self, commands: &mut bevy::ecs::system::EntityCommands<'_>, data: Option<Self::ContextData>) -> Result<()> {
         let (instance, template) = data.unwrap();
 
         commands

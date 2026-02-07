@@ -1,3 +1,5 @@
+cargo-features = ["profile-rustflags"]
+
 [workspace]
 resolver = "2"
 members = [ 
@@ -25,7 +27,7 @@ members = [
     "lib/pepkg",
     "tools/update-bindings"
 ]
-package.rust-version = "1.90"
+package.rust-version = "1.93"
 
 [workspace.dependencies]
 bytes = "1.9.0"
@@ -98,8 +100,13 @@ indicatif = { version = "0.18.0", features = ["tokio"] }
 debug = "line-tables-only"
 incremental = true
 opt-level = 3
+rustflags = ["-Znext-solver"]
+
+[profile.release]
+rustflags = ["-Znext-solver"]
 
 [profile.test]
 debug = "line-tables-only"
 incremental = true
 opt-level = 3
+rustflags = ["-Znext-solver"]

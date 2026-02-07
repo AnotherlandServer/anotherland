@@ -82,7 +82,8 @@ impl TryFrom<i32> for InstanceType {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, States)]
 pub enum InstanceState {
     #[default]
-    Loading,
+    QuestInit,
+    ObjectLoad,
     Initializing,
     Running,
 }
@@ -237,7 +238,7 @@ impl ZoneInstanceBuilder {
 
         app.add_plugins((
             SpecialEventsPlugin::new(world_def.name()).await?,
-            QuestsPlugin::new(content_path.join("lua").join("quests")),
+            QuestsPlugin,
             ChatPlugin,
             AbilitiesPlugin,
             CombatPlugin,
@@ -282,7 +283,7 @@ fn spawn_world_controller(
     controller_scripts.push("core.base_world".to_string());
 
     for script_name in &controller_scripts {
-        match runtime.load_script(script_name) {
+        match runtime.load_class(script_name) {
             Ok(lua_class) => {
                 let obj = ScriptObject::new(&runtime, Some(lua_class)).unwrap();
 

@@ -151,7 +151,7 @@ impl QuestStateExtMutationRoot {
 
                 // Give out rewards when quest is finished
                 if 
-                    prev_quest_state.state == QuestProgressionState::Completed &&
+                    prev_quest_state.state != QuestProgressionState::Finished &&
                     quest_state.state == QuestProgressionState::Finished &&
                     let Some(rewards) = rewards 
                 {

@@ -15,7 +15,7 @@
 
 use std::collections::LinkedList;
 
-use bevy::{ecs::{component::Component, entity::Entity, error::{BevyError, Result}, resource::Resource, system::{Commands, EntityCommands, ResMut}}, tasks::{IoTaskPool, Task, block_on, poll_once}};
+use bevy::{ecs::{component::Component, entity::Entity, error::{BevyError, Result}, resource::Resource, system::{Commands, EntityCommands, ResMut}, world::EntityWorldMut}, tasks::{IoTaskPool, Task, block_on, poll_once}};
 use log::{debug, error};
 
 pub struct LoadContext<T: Send + Sync + Sized> {
@@ -110,7 +110,8 @@ pub trait LoadableComponent: Component + Sized + Send + Sync {
 
     async fn load(parameters: Self::Parameters, context: &mut LoadContext<Self::ContextData>) -> Result<Self>;
     fn load_dependencies(&mut self, _commands: &mut EntityCommands<'_>, _context: &mut LoadContext<Self::ContextData>) -> Result<()> { Ok(()) }
-    fn on_load(&mut self, _commands: &mut EntityCommands<'_>, _data: Option<Self::ContextData>) -> Result<()> { Ok(()) }
+    fn post_load(&mut self, _commands: &mut EntityCommands<'_>, _data: Option<Self::ContextData>) -> Result<()> { Ok(()) }
+    fn post_insert(_entity: EntityWorldMut<'_>) {}
 }
 
 #[derive(Resource, Default)]
@@ -207,7 +208,7 @@ impl <
             if context.dependant_loaders.is_empty() {
                 let mut component = self.component.take().unwrap();
 
-                if let Err(e) = component.on_load(&mut commands.entity(self.entity), self.context.take().unwrap().data) {
+                if let Err(e) = component.post_load(&mut commands.entity(self.entity), self.context.take().unwrap().data) {
                     debug!("ComponentLoader: Error in on_load for component for entity {:?}: {:?}", self.entity, e);
                     (self.error_handler.take().unwrap())(e, &mut commands.entity(self.entity));
                     return true;
@@ -216,7 +217,8 @@ impl <
                 if !T::is_virtual() {
                     commands
                         .entity(self.entity)
-                        .insert(component);
+                        .insert(component)
+                        .queue(T::post_insert);
                 }
                 
                 true

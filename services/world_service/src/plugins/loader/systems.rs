@@ -129,7 +129,7 @@ pub(super) fn sync_debug_pos(
 }
 
 pub(super) fn command_get_avatar_info(
-    In((ent, args)): In<(Entity, Vec<NativeParam>)>,
+    In((ent, _args)): In<(Entity, Vec<NativeParam>)>,
     player: Query<(&GameObjectData, &PlayerController), With<PlayerTag>>,
     avatars: Query<(&Avatar, &ContentInfo)>,
     avatar_manager: Res<AvatarIdManager>,

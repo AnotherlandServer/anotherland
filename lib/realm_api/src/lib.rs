@@ -58,6 +58,8 @@ pub use queststate::*;
 pub use quest_template::*;
 pub use quest_dialogue::*;
 
+pub(crate) use quest_template::quest_template_graphql;
+
 // reexport
 pub use realm_manager_service::proto;
 pub use cluster::{ClusterResult, Error as ClusterError};

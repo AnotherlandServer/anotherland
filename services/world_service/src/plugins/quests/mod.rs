@@ -20,64 +20,53 @@ mod quest;
 mod network;
 mod conditions;
 mod lifecycle;
-mod tags;
+mod objects;
 mod actions;
 mod cache;
+mod progress;
 
+use futures::TryStreamExt;
+use log::error;
 pub use questlog::*;
 pub use quest::*;
 use network::*;
 pub use conditions::*;
 use lifecycle::*;
-pub use tags::*;
+use realm_api::{QuestTemplate, RealmApi};
+use scripting::LuaRuntime;
+pub use objects::*;
 pub use actions::*;
-use cache::*;
+pub use progress::*;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
-use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{schedule::IntoScheduleConfigs, system::{Res, ResMut}}, prelude::{App, Commands}, state::state::OnEnter};
-use log::{error, info};
-use mlua::Function;
-use scripting::{LuaRuntime, ScriptCommandsExt};
+use bevy::{app::{Plugin, PostStartup, PreUpdate, Update}, ecs::{error::Result, schedule::IntoScheduleConfigs, system::{In, Res, ResMut}}, platform::collections::HashMap, prelude::{App, Commands}, state::commands::CommandsStatesExt};
 
-use crate::{instance::{InstanceState, ZoneInstance}, plugins::{CommandExtPriv, NetworkExtPriv, quests::{commands::{command_accept_quest, command_complete_quest, command_fail_quest, command_finish_quest}, lua::{hot_reload_quests, insert_questlog_api}}}};
-pub struct QuestsPlugin {
-    quests_path: PathBuf,
-}
-
-impl QuestsPlugin {
-    pub fn new(quests_path: PathBuf) -> Self {
-        Self { quests_path }
-    }
-}
-
-// (unused) QuestSettings removed
+use crate::{instance::{InstanceState, ZoneInstance}, plugins::{AsyncOperationCommandsExt, CommandExtPriv, NetworkExtPriv, WeakCache, quests::{cache::QuestTemplateCache, commands::{command_accept_quest, command_complete_quest, command_fail_quest, command_finish_quest}, lua::{hot_reload_quests, insert_questlog_api}}}};
+pub struct QuestsPlugin;
 
 impl Plugin for QuestsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreUpdate, (
-            cleanup_quest_markers,
             hot_reload_quests,
-            init_quest_entities, 
-            load_questlogs_for_joined_players,
+            init_quest_visibility, 
             quest_accepter,
             quest_abandoner,
             quest_returner,
+            add_npc_quest_tags,
         ));
 
         app.add_systems(Update, (
             transmit_questlog,
             handle_quest_state_changes,
             handle_quest_condition_update,
-            attach_active_quests,
-            attach_or_detach_quest_on_state_change,
-            detach_from_despawned_player,
+            interaction_event_listener,
+            updated_timed_conditions,
+            auto_return_quests,
             sync_quest_state.after(handle_quest_state_changes), 
             (
                 update_available_quests, 
-                update_quest_markers, 
                 sync_quest_markers,
-                quest_segue_handler,
             ).chain().after(handle_quest_state_changes),
         ));
 
@@ -86,7 +75,9 @@ impl Plugin for QuestsPlugin {
         app.add_message::<AcceptQuest>();
         app.add_message::<AbandonQuest>();
         app.add_message::<ReturnQuest>();
-        app.add_message::<RequestNextQuest>();
+        app.add_message::<UpdateAvailableQuests>();
+
+        app.init_resource::<Quests>();
 
         app.register_command("accept_quest", command_accept_quest);
         app.register_command("complete_quest", command_complete_quest);
@@ -96,43 +87,81 @@ impl Plugin for QuestsPlugin {
         app.register_message_handler(handle_quest_request);
         app.register_message_handler(handle_quest_action_request);
 
-        app.insert_resource(QuestRegistry::default());
-
         insert_questlog_api(app.world_mut()).unwrap();
 
-        let quests_path = self.quests_path.clone();
-
-        app.add_systems(OnEnter(InstanceState::Initializing), 
+        app.add_systems(PostStartup, 
             move |
-                _instance: Res<ZoneInstance>,
-                mut runtime: ResMut<LuaRuntime>,
-                mut commands: Commands,
+                instance: Res<ZoneInstance>,
+                commands: Commands,
             | {
-                // We probably shouldn't load all quests on a per-instance basis.
-                // Refactor to cache the majority of them once for the service and only load 
-                // those quests that are needed for the specific map.
-                info!("Loading quests from {:?}", quests_path);
-                match quests_path.read_dir() {
-                    Ok(entries) => {
-                        for entry in entries.flatten() {
-                            match runtime.load_script(&format!("quests.{}", entry.path().file_stem().unwrap().to_str().unwrap())) {
-                                Ok(quest) => {
-                                    let Ok(init_fn) = quest.get::<Function>("Init") else {
-                                        continue;
+                let world = instance.world_def.clone();
+
+                commands
+                    .perform_async_operation(async move {
+                        let mut quests = RealmApi::get()
+                            .query_quest_templates()
+                            .world_id(*world.id())
+                            .query()
+                            .await?;
+
+                        let mut templates = vec![];
+
+                        while let Some(quest) = quests.try_next().await? {
+                            templates.push(
+                                QuestTemplateCache::get(&quest.id).await?
+                                    .unwrap()
+                            );
+                        }
+
+                        Ok(templates)
+                    })
+                    .on_finish_run_system(|
+                        In(templates): In<Vec<Arc<QuestTemplate>>>, 
+                        mut runtime: ResMut<LuaRuntime>,
+                        mut commands: Commands
+                    | {
+                        commands.insert_resource(Quests::new(
+                            templates.into_iter()
+                                .map(|template| {
+                                    let specific_script = format!("quests.{}", template.id);
+
+                                    let script = if runtime.is_script_file(&specific_script) {
+                                        specific_script.as_str()
+                                    } else {
+                                        "core.base_quest"
                                     };
 
-                                    commands.call_lua_method(init_fn, quest);
-                                }
-                                Err(err) => {
-                                    error!("Failed to load quest {:?}: {:?}", entry.path(), err);
-                                }
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        error!("Failed to read quest directory: {:?}", err);
-                    }
-                }
+                                    let class = runtime.load_class(script) 
+                                            .and_then(|class| {
+                                                let meta = runtime.vm().create_table()?;
+                                                meta.set("__index", class)?;
+
+                                                Ok(meta)
+                                            })?;
+
+                                    let obj = runtime.vm().create_table()?;
+
+                                    obj.set_metatable(Some(class))?;
+
+                                    Ok(Quest {
+                                        id: template.id,
+                                        obj,
+                                        template,
+                                    })
+                                })
+                                .filter_map(|res: Result<Quest>| {
+                                    match res {
+                                        Ok(quest) => Some((quest.id, quest)),
+                                        Err(e) => {
+                                            error!("Failed to load quest: {}", e);
+                                            None
+                                        }
+                                    }
+                                })
+                                .collect::<HashMap<_, _>>()
+                        ));
+                        commands.set_state(InstanceState::ObjectLoad);
+                    });
             });
     }
 }

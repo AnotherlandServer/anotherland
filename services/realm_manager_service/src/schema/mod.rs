@@ -23,7 +23,7 @@ use premium_currency::{PremiumCurrencyMutationRoot, PremiumCurrencyRoot};
 use session_state::{SessionStateMutationRoot, SessionStateRoot};
 use skillbook_ext::SkillbookExtMutationRoot;
 
-use crate::{db, schema::queststate_ext::QuestStateExtMutationRoot};
+use crate::{db, schema::{object_placements_ext::ObjectPlacementsExtRoot, queststate_ext::QuestStateExtMutationRoot}};
 
 mod character_ext;
 mod premium_currency;
@@ -35,6 +35,7 @@ mod item_storage_ext;
 mod skillbook_ext;
 mod abilitybar_ext;
 mod queststate_ext;
+mod object_placements_ext;
 
 pub use types::*;
 
@@ -61,6 +62,7 @@ pub struct QueryRoot(
     pub db::QuestStateQueryRoot,
     pub db::QuestTemplateQueryRoot,
     pub db::QuestDialogueQueryRoot,
+    pub ObjectPlacementsExtRoot,
 );
 
 #[derive(MergedObject, Default)]

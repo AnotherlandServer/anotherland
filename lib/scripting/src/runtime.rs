@@ -163,7 +163,19 @@ impl LuaRuntime {
         Ok(())
     }
 
-    pub fn load_script(&mut self, name: &str) -> ScriptResult<Table> {
+    pub fn is_script_file(&self, name: &str) -> bool {
+        self.require_lookup_directories.iter()
+            .flat_map(|p| {
+                [
+                    p.join(format!("{}.lua", name.replace('.', std::path::MAIN_SEPARATOR_STR))),
+                    p.join(format!("{}/init.lua", name.replace('.', std::path::MAIN_SEPARATOR_STR)))
+                ]
+            })
+            .find(|p| p.is_file())
+            .is_some()
+    }
+
+    pub fn load_class(&mut self, name: &str) -> ScriptResult<Table> {
         let loaded = self.lua.named_registry_value::<Table>("_LOADED")?;
         if let Ok(script) = loaded.get::<Table>(name) {
             return Ok(script);
@@ -197,7 +209,8 @@ impl LuaRuntime {
                         paths.set(file_path.display().to_string(), name)?;
 
                         let indirect_base = self.lua.create_table()?;
-                        indirect_base.set_metatable(Some(create_hotreload_indirection(&self.lua, base)?));
+                        indirect_base.set_metatable(Some(create_hotreload_indirection(&self.lua, base)?))
+                            .expect("failed to add hot-reload indirection");
 
                         base = indirect_base;
                     }
@@ -235,7 +248,7 @@ impl LuaRuntime {
         }
     }
 
-    fn hot_reload_script(&mut self, path: &Path) -> ScriptResult<()> {
+    fn hot_reload_class(&mut self, path: &Path) -> ScriptResult<()> {
         let paths = self.lua.named_registry_value::<Table>("_MODULE_PATHS")?;
         let loaded = self.lua.named_registry_value::<Table>("_LOADED")?;
 
@@ -353,7 +366,7 @@ pub(crate) fn hot_reload(
 
     // Ingest all events
     while let Ok(path) = recv.0.try_recv() {
-        if let Err(e) = runtime.hot_reload_script(&path.canonicalize().unwrap()) {
+        if let Err(e) = runtime.hot_reload_class(&path.canonicalize().unwrap()) {
             error!("Hot-reload failed: {e:?}");
         }
 

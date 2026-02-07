@@ -15,23 +15,18 @@
 
 use std::sync::Arc;
 
-use bevy::{ecs::{component::Component, entity::Entity, message::Message, resource::Resource}, platform::collections::HashMap};
+use bevy::{ecs::{component::Component, entity::Entity, message::Message, resource::Resource}, platform::collections::{hash_map, HashMap}};
 use mlua::Table;
-use realm_api::WorldDef;
+use realm_api::QuestTemplate;
 
 pub struct Quest {
-    pub(super) table: Table,
     pub(super) id: i32,
-    pub(super) owned: bool,
-    pub(super) world_def: Arc<WorldDef>,
+    pub(super) obj: Table,
+    pub(super) template: Arc<QuestTemplate>,
 }
-
-#[derive(Resource, Default)]
-pub struct QuestRegistry(pub HashMap<i32, Arc<Quest>>);
 
 #[derive(Clone, Copy)]
 pub enum QuestState {
-    Available,
     Abandoned,
     Accepted,
     Failed,
@@ -70,11 +65,6 @@ pub struct ReturnQuest {
     pub quest_id: i32,
 }
 
-pub struct QuestProgress {
-    pub(super) template: Arc<Quest>,
-    pub(super) state: Option<realm_api::QuestState>,
-}
-
 #[derive(Component)]
 pub struct AttachedQuest { 
     pub(super) quest_id: i32 
@@ -85,4 +75,46 @@ pub struct QuestAvailable;
 
 #[derive(Component)]
 pub struct QuestPlayer(pub Entity);
+
+#[derive(Component)]
+pub struct AutoReturnQuest;
+
+#[derive(Component)]
+pub struct QuestStatePending;
+
+#[derive(Message)]
+pub struct UpdateAvailableQuests(pub Entity);
+
+#[derive(Resource, Default)]
+pub struct Quests(HashMap<i32, Quest>);
+
+impl Quests {
+    pub fn new(quests: HashMap<i32, Quest>) -> Self {
+        Self(quests)
+    }
+
+    pub fn get(&self, id: &i32) -> Option<&Quest> {
+        self.0.get(id)
+    }
+
+    pub fn update(&mut self, quest: Quest) {
+        self.0.insert(quest.template.id, quest);
+    }
+
+    pub fn iter(&self) -> hash_map::Iter<'_, i32, Quest> {
+        self.0.iter()
+    }
+
+    pub fn values(&self) -> hash_map::Values<'_, i32, Quest> {
+        self.0.values()
+    }
+}
+
+#[derive(Component)]
+pub struct ActiveQuest {
+    pub obj: Table,
+    pub template: Arc<QuestTemplate>,
+}
+
+
 

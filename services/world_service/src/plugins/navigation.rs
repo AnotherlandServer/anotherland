@@ -278,12 +278,12 @@ struct PathSegment {
 pub fn update(
     navmesh: Res<Navmesh>,
     time: Res<Time<Virtual>>,
-    mut query: Query<(Entity, &mut Movement, &GameObjectData, &NavTarget, &mut PathCorridor), With<PathCorridor>>,
+    mut query: Query<(Entity, &mut Movement, &NavTarget, &mut PathCorridor), With<PathCorridor>>,
     mut commands: Commands,
 ) {
     let mut recast = navmesh.recast.lock().unwrap();
 
-    for (ent, mut movement, data, target, mut corridor) in query.iter_mut() {
+    for (ent, mut movement, target, mut corridor) in query.iter_mut() {
         match corridor.segment.as_mut() {
             Some(lerp) => {
                 // Send pathing update to the client
@@ -616,20 +616,15 @@ fn replicate_changed_paths_on_clients(
 
 fn replicate_paths_on_clients(
     mut transmitted_interests: MessageReader<InterestTransmitted>,
-    agents: Query<(&Avatar, &Pathing, &Movement)>,
+    agents: Query<(&Avatar, &Pathing)>,
     clients: Query<&PlayerController>,
-    time: Res<Time<Virtual>>,
 ) {
     for InterestTransmitted(target, ent) in transmitted_interests.read() {
         if 
             let Ok(controller) = clients.get(*target) &&
-            let Ok((info, pathing, movement)) = agents.get(*ent)
+            let Ok((info, pathing)) = agents.get(*ent)
         {
             debug!("Replicating pathing data for newly added agent {} to client {}", info.id, controller.avatar_id());
-
-            //let mut pathing = pathing.clone();
-            //pathing.start_time = time.elapsed_secs();
-            //pathing.start_pos = movement.position.into();
 
             let data = pathing.to_bytes()
                 .expect("Failed to serialize Pathing data");

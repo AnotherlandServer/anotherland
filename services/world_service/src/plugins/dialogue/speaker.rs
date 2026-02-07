@@ -13,10 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod zone_loader;
-mod non_player_loader;
-mod selector;
+use bevy::ecs::{component::Component, entity::Entity};
 
-pub use zone_loader::*;
-pub use non_player_loader::*;
-pub use selector::*;
+#[derive(Component)]
+#[relationship(relationship_target = Dialogues)]
+pub struct Speaker(pub Entity);
+
+#[derive(Component)]
+#[relationship_target(relationship = Speaker, linked_spawn)]
+pub struct Dialogues(Vec<Entity>);

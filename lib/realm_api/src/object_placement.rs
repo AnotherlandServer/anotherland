@@ -15,11 +15,12 @@
 
 use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
+use log::debug;
 use obj_params::{AsGameObjectDataRef, Class, GameObjectData};
-use object_placement_graphql::{BatchCreateObjectPlacements, BatchCreateObjectPlacementsVariables, CreateObjectPlacement, CreateObjectPlacementVariables, DeleteObjectPlacement, DeleteObjectPlacementVariables, GetObjectPlacement, GetObjectPlacementVariables, GetObjectPlacements, GetObjectPlacementsVariables, ObjectPlacementFilter, ObjectPlacementInput};
+use object_placement_graphql::{BatchCreateObjectPlacements, BatchCreateObjectPlacementsVariables, CreateObjectPlacement, CreateObjectPlacementVariables, DeleteObjectPlacement, DeleteObjectPlacementVariables, GetObjectPlacement, GetObjectPlacementVariables, GetObjectPlacements, GetObjectPlacementsVariables, ObjectPlacementFilter, ObjectPlacementInput, QueryPlacementsBySelector, QueryPlacementsBySelectorVariables};
 use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
 
-use crate::{schema, RealmApi, RealmApiError, RealmApiResult};
+use crate::{schema, RealmApi, RealmApiError, RealmApiResult, quest_template::AvatarSelector};
 
 #[derive(Builder)]
 #[builder(pattern = "owned", build_fn(private))]
@@ -213,6 +214,35 @@ impl RealmApi {
             unreachable!()
         }
     }
+
+    pub async fn query_placements_by_selector(
+        &self,
+        world_id: Option<i32>,
+        zone_id: Option<Uuid>,
+        selector: AvatarSelector,
+    ) -> RealmApiResult<Vec<ObjectPlacement>> {
+        debug!("Querying placements by selector: world_id={:?}, zone_id={:?}, selector={:?}", world_id, zone_id, selector.as_graphql());
+
+        let response = self.0.client
+            .post(self.0.base_url.clone())
+            .run_graphql(QueryPlacementsBySelector::build(QueryPlacementsBySelectorVariables {
+                query: object_placement_graphql::ObjectPlacementSelector {
+                    world_id,
+                    zone_id,
+                    selector: selector.as_graphql(),
+                }
+            })).await?;
+
+        if let Some(QueryPlacementsBySelector { query_placements_by_selector }) = response.data {
+            query_placements_by_selector.into_iter()
+                .map(|placement| ObjectPlacement::from_graphql(self, placement))
+                .collect()
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
 }
 
 pub(crate) mod object_placement_graphql {
@@ -329,5 +359,25 @@ pub(crate) mod object_placement_graphql {
         pub zone_guid: Option<Uuid>,
         pub class: Option<Class>,
         pub phase_tag: Option<&'a str>,
+    }
+
+    #[derive(cynic::QueryVariables, Debug)]
+    pub struct QueryPlacementsBySelectorVariables {
+        pub query: ObjectPlacementSelector,
+    }
+
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "QueryRoot", variables = "QueryPlacementsBySelectorVariables")]
+    pub struct QueryPlacementsBySelector {
+        #[arguments(query: $query)]
+        pub query_placements_by_selector: Vec<ObjectPlacement>,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct ObjectPlacementSelector {
+        pub world_id: Option<i32>,
+        pub zone_id: Option<Uuid>,
+        pub selector: crate::quest_template_graphql::AvatarSelector,
     }
 }

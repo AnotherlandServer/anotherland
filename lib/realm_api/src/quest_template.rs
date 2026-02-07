@@ -45,7 +45,7 @@ impl AvatarSelector {
         }
     }
 
-    fn as_graphql(&self) -> quest_template_graphql::AvatarSelector {
+    pub(crate) fn as_graphql(&self) -> quest_template_graphql::AvatarSelector {
         match self {
             Self::ContentId(id) => quest_template_graphql::AvatarSelector {
                 content_id: Some(*id),
@@ -728,10 +728,15 @@ pub(crate) mod quest_template_graphql {
     #[derive(cynic::InputObject, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct AvatarSelector {
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub content_id: Option<Uuid>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub instance_id: Option<Uuid>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub quest_tag: Option<i32>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub loot_item: Option<Uuid>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub dialog_id: Option<i32>,
     }
 }

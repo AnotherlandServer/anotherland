@@ -15,30 +15,30 @@
 
 use std::sync::{OnceLock, Weak};
 
-use bevy::{ecs::error::Result, platform::collections::HashMap};
-use realm_api::{QuestTemplate, RealmApi};
+use bevy::platform::collections::HashMap;
+use realm_api::QuestDialogue;
 use tokio::sync::RwLock;
 
 use crate::plugins::{Cache, WeakCache};
 
-pub struct QuestTemplateCache;
+pub struct DialogueCache;
 
-impl Cache for QuestTemplateCache {
+impl Cache for DialogueCache {
     type CacheKey = i32;
-    type CacheData = QuestTemplate;
+    type CacheData = QuestDialogue;
 
-    async fn load(key: &Self::CacheKey) -> Result<Option<Self::CacheData>> {
+    async fn load(key: &Self::CacheKey) -> bevy::ecs::error::Result<Option<Self::CacheData>> {
         Ok(
-            RealmApi::get()
-                .get_quest_template(*key)
+            realm_api::RealmApi::get()
+                .get_quest_dialogue(*key)
                 .await?
         )
     }
 }
 
-impl WeakCache for QuestTemplateCache {
+impl WeakCache for DialogueCache {
     fn cache() -> &'static RwLock<HashMap<<Self as Cache>::CacheKey, Weak<<Self as Cache>::CacheData>>> {
-        static CACHE: OnceLock<RwLock<HashMap<i32, Weak<QuestTemplate>>>> = OnceLock::new();
+        static CACHE: OnceLock<RwLock<HashMap<i32, Weak<QuestDialogue>>>> = OnceLock::new();
         CACHE.get_or_init(|| RwLock::new(HashMap::new()))
     }
 }

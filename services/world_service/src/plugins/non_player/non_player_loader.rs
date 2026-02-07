@@ -22,7 +22,7 @@ use obj_params::{Class, ContentRefList, GameObjectData, NpcOtherland};
 use realm_api::{ObjectPlacement, ObjectTemplate};
 use toolkit::types::{AvatarType, Uuid};
 
-use crate::plugins::{Active, Avatar, AvatarIdManager, ContentCache, ContentCacheRef, ContentInfo, CooldownGroups, DynamicInstance, Factions, FactionsParameters, Inventory, InventoryParameter, LoadContext, LoadableComponent, NpcAbilities, PlayerLocalSets, SpawnCallback, SpawnState, VirtualComponent, WeakCache};
+use crate::plugins::{Active, Avatar, AvatarIdManager, ContentCache, ContentCacheRef, ContentInfo, CooldownGroups, Dialogue, DynamicInstance, Factions, FactionsParameters, Inventory, InventoryParameter, LoadContext, LoadableComponent, NpcAbilities, PlayerLocalSets, SpawnCallback, SpawnState, Speaker, VirtualComponent, WeakCache};
 
 #[derive(Component)]
 pub struct NonPlayerGameObjectLoader;
@@ -104,14 +104,16 @@ impl LoadableComponent for NonPlayerGameObjectLoader {
         Ok(NonPlayerGameObjectLoader)
     }
 
-    fn load_dependencies(&mut self, _commands: &mut EntityCommands<'_>, context: &mut LoadContext<Self::ContextData>) -> Result<()> {
+    fn load_dependencies(&mut self, commands: &mut EntityCommands<'_>, context: &mut LoadContext<Self::ContextData>) -> Result<()> {
         let object = &context.data().as_ref().unwrap().object;
         
         if object.class() == Class::NpcOtherland {
+            let npc_ent = commands.id();
             let factions = object.get::<_, ContentRefList>(NpcOtherland::Faction)?.clone();
             let weapons = object.get::<_, ContentRefList>(NpcOtherland::DefaultWeapon)?.clone();
             let items = object.get::<_, ContentRefList>(NpcOtherland::DefaultItems)?.clone();
             let abilities = object.get::<_, ContentRefList>(NpcOtherland::Abilities)?.clone();
+            let dialogues = object.get::<_, Vec<i32>>(NpcOtherland::Dialogs)?.clone();
 
             context
                 .load_dependency::<Factions>(FactionsParameters {
@@ -122,12 +124,23 @@ impl LoadableComponent for NonPlayerGameObjectLoader {
                     items,
                 })
                 .load_dependency::<NpcAbilities>(abilities);
+
+            for dialog_id in dialogues {
+                let ent = commands
+                    .commands()
+                    .spawn((
+                        Speaker(npc_ent),
+                    ))
+                    .id();
+
+                context.load_cross_dependency::<Dialogue>(ent, dialog_id);
+            }
         }
 
         Ok(())
     }
 
-    fn on_load(&mut self, commands: &mut EntityCommands<'_>, mut data: Option<Self::ContextData>) -> Result<()> {
+    fn post_load(&mut self, commands: &mut EntityCommands<'_>, mut data: Option<Self::ContextData>) -> Result<()> {
         let placement = data.take().unwrap();
         let owner = placement.owner;
         let is_dynamic = placement.is_dynamic;

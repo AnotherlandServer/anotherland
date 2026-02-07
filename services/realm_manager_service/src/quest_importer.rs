@@ -39,12 +39,12 @@ struct YamlQuestTemplate {
     progress_dialogue_id: Option<i32>,
     completion_dialogue_id: Option<i32>,
     world: String,
-    preconditions: Option<YamlQuestPreconditions>,
+    prerequisites: Option<YamlQuestPrerequisites>,
     conditions: Vec<YamlQuestCondition>,
 }
 
 #[derive(Deserialize, Default)]
-struct YamlQuestPreconditions {
+struct YamlQuestPrerequisites {
     quests_finished: Option<Vec<i32>>,
     combat_style: Option<String>,
     level: Option<i32>,
@@ -53,6 +53,7 @@ struct YamlQuestPreconditions {
 #[derive(Deserialize)]
 struct YamlQuestCondition {
     id: i32,
+    beacon: Option<Uuid>,
     required_count: i32,
     trigger: YamlQuestTrigger,
 }
@@ -62,7 +63,7 @@ struct YamlQuestCondition {
 enum YamlAvatarSelector {
     Instance { instance_guid: Uuid },
     Content { content_guid: Uuid },
-    QuestTags { quest_tags: Vec<String> },
+    QuestTag { quest_tag: i32 },
     Item { item_id: Uuid },
     Dialogue { dialogue_id: i32 },
 }
@@ -86,7 +87,7 @@ impl TryFrom<YamlAvatarSelector> for AvatarSelector {
         match value {
             YamlAvatarSelector::Instance { instance_guid } => Ok(AvatarSelector::InstanceId(instance_guid)),
             YamlAvatarSelector::Content { content_guid } => Ok(AvatarSelector::ContentId(content_guid)),
-            YamlAvatarSelector::QuestTags { quest_tags } => Ok(AvatarSelector::QuestTags(quest_tags)),
+            YamlAvatarSelector::QuestTag { quest_tag } => Ok(AvatarSelector::QuestTag(quest_tag)),
             YamlAvatarSelector::Item { item_id } => Ok(AvatarSelector::LootItem(item_id)),
             YamlAvatarSelector::Dialogue { dialogue_id } => Ok(AvatarSelector::DialogId(dialogue_id)),
         }
@@ -119,9 +120,9 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
         .await?
         .ok_or(RealmError::Other(anyhow!("world not found")))?;
     
-    let preconditions = doc.preconditions
+    let prerequisites = doc.prerequisites
         .and_then(|c| {
-            let conditions = crate::db::Preconditions {
+            let conditions = crate::db::Prerequisites {
                 level: c.level,
                 combat_style: c.combat_style.and_then(|s| {
                     match s.to_lowercase().as_str() {
@@ -158,12 +159,13 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
         progress_dialogue_id: doc.progress_dialogue_id,
         completion_dialogue_id: doc.completion_dialogue_id,
         world_id: world.id,
-        preconditions,
+        prerequisites,
         conditions: doc.conditions.into_iter().map(|c| -> RealmResult<Condition> {
             match c.trigger {
                 YamlQuestTrigger::Interact { interact } => {
                     Ok(Condition::Interact(InteractCondition {
                         id: c.id,
+                        beacon: c.beacon,
                         required_count: c.required_count,
                         avatar_selector: interact.try_into()?,
                     }))
@@ -171,6 +173,7 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
                 YamlQuestTrigger::Dialogue { dialogue } => {
                     Ok(Condition::Dialogue(DialogueCondition {
                         id: c.id,
+                        beacon: c.beacon,
                         required_count: c.required_count,
                         dialogue_id: dialogue,
                     }))
@@ -184,6 +187,7 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
                 YamlQuestTrigger::Kill { kill } => {
                     Ok(Condition::Kill(KillCondition {
                         id: c.id,
+                        beacon: c.beacon,
                         required_count: c.required_count,
                         avatar_selector: kill.try_into()?,
                     }))
@@ -191,6 +195,7 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
                 YamlQuestTrigger::Loot { loot } => {
                     Ok(Condition::Loot(LootCondition { 
                         id: c.id,
+                        beacon: c.beacon,
                         required_count: c.required_count,
                         item_id: loot,
                     }))

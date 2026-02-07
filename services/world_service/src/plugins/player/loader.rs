@@ -22,7 +22,7 @@ use protocol::{AbilityBarReference, CPktAvatarUpdate, CPktBlob, CPktServerNotify
 use realm_api::{Character, RealmApi};
 use toolkit::{OtherlandQuatExt, types::Uuid};
 
-use crate::{instance::ZoneInstance, plugins::{Avatar, AvatarLoader, CombatStyle, ContentInfo, CooldownGroups, Factions, FactionsParameters, LoadContext, LoadableComponent, Movement, Navmesh, PlayerController, Skillbook, SkillbookParams}, proto::TravelMode};
+use crate::{instance::ZoneInstance, plugins::{Avatar, AvatarLoader, CombatStyle, ComponentLoaderCommandsTrait, ContentInfo, CooldownGroups, Factions, FactionsParameters, LoadContext, LoadableComponent, Movement, Navmesh, PlayerController, QuestLog, Skillbook, SkillbookParams}, proto::TravelMode};
 
 impl AvatarLoader {
     pub async fn load_player_character(character_id: Uuid) -> Result<Character> {
@@ -78,6 +78,8 @@ impl AvatarLoader {
     }
 
     pub fn on_load_player_character(&mut self, commands: &mut EntityCommands<'_>, mut character: Character) -> Result<()> {
+        let id = *character.id();
+
         commands
             .queue(|mut entity: EntityWorldMut<'_>| {
                 Self::prepare_character_spawn(&mut entity, &mut character);
@@ -112,7 +114,8 @@ impl AvatarLoader {
                     movement,
                 ));
             })
-            .queue(Self::begin_loading_sequence);
+            .queue(Self::begin_loading_sequence)
+            .load_component::<QuestLog>(id);
 
         Ok(())
     }

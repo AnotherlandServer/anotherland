@@ -13,37 +13,73 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{ecs::{entity::Entity, hierarchy::ChildOf, lifecycle::RemovedComponents, query::{Added, Changed}, system::{Commands, In, Query, Res}}, math::Vec3, platform::collections::{HashMap, HashSet}};
-use log::{debug, error, warn};
-use mlua::Table;
-use obj_params::GameObjectData;
+use anyhow::anyhow;
+use bevy::{ecs::{change_detection::DetectChanges, component::Component, entity::Entity, query::Added, relationship::RelationshipTarget, system::{Commands, In, Query}, world::Ref}, math::Vec3, platform::collections::HashSet};
+use futures::TryStreamExt;
+use log::debug;
 use protocol::{AvatarFilter, CPktStream_165_2, CPktStream_165_7, OaPktQuestRequestRequest, OaQuestConditionKind, QuestUpdateData, oaPktQuestGiverStatus, oaPktQuestRequest, oaPktQuestUpdate, oaQuestBeacon, oaQuestCondition, oaQuestTemplate};
-use realm_api::{QuestCondition, QuestProgressionState};
-use scripting::{LuaRuntime, LuaTableExt};
+use realm_api::{AvatarSelector, Condition, QuestCondition, QuestProgressionState, RealmApi};
+use toolkit::types::AvatarId;
 
-use crate::{instance::ZoneInstance, plugins::{AbandonQuest, AcceptQuest, Avatar, PlayerController, Quest, QuestAvailable, QuestLog, QuestPlayer, QuestRegistry, RequestNextQuest, ReturnQuest, quests::lua::AvatarFilterLua}};
+use crate::{plugins::{AbandonQuest, AcceptQuest, AsyncOperationEntityCommandsExt, ContentCache, ContentCacheRef, Interests, PlayerController, QuestGiver, QuestLog, QuestProgress, QuestTags, ReturnQuest, WeakCache, player_error_handler_system, quests::cache::QuestTemplateCache}};
+
+pub struct AvatarFilterConverter(AvatarSelector);
+
+impl Into<AvatarFilter> for AvatarFilterConverter {
+    fn into(self) -> AvatarFilter {
+        let mut filter = AvatarFilter::default();
+
+        match self.0 {
+            AvatarSelector::ContentId(id) => {
+                filter.kind = 1;
+                filter.filter = id.to_string();
+            },
+            AvatarSelector::InstanceId(id) => {
+                filter.kind = 2;
+                filter.filter = id.to_string();
+            },
+            AvatarSelector::QuestTag(tag) => {
+                filter.kind = 3;
+                filter.filter = tag.to_string();
+            },
+            AvatarSelector::LootItem(item) => {
+                filter.kind = 4;
+                filter.filter = item.to_string();
+            },
+            AvatarSelector::DialogId(id) => {
+                filter.kind = 5;
+                filter.filter = id.to_string();
+            },
+        }
+
+        filter
+    }
+}
 
 pub(super) fn transmit_questlog(
-    query: Query<(&QuestLog, &PlayerController), Added<QuestLog>>,
+    players: Query<(&PlayerController, &QuestLog), Added<QuestLog>>,
+    quests: Query<&QuestProgress>,
 ) {
-    for (quest_log, controller) in query.iter() {
-        for (_, quest) in quest_log.quests.iter() {
+    for (controller, quest_log) in players.iter() {
+        for quest_ent in quest_log.quests.values() {
             if 
-                let Some(state) = &quest.state &&
-                !matches!(state.state, QuestProgressionState::Finished)
+                let Ok(progress) = quests.get(*quest_ent) &&
+                !matches!(progress.state().state, QuestProgressionState::Finished)
             {
+                debug!("Sending quest update for quest {} to player {}", progress.state().quest_id, controller.character_id());
+
                 controller.send_packet(oaPktQuestUpdate {
                     player: controller.avatar_id(),
-                    quest_id: quest.template.id as u32,
-                    entry_count: state.conditions.len() as u32,
-                    conditions: state.conditions.iter()
+                    quest_id: progress.state().quest_id as u32,
+                    entry_count: progress.state().conditions.len() as u32,
+                    conditions: progress.state().conditions.iter()
                         .map(|&QuestCondition { id, current_count, .. }| QuestUpdateData {
                             condition_id: id,
                             count: current_count,
                             ..Default::default()
                         }).collect(),
-                    quest_failed: matches!(state.state, QuestProgressionState::Failed),
-                    accepted_time: state.accepted_time.timestamp_millis(),
+                    quest_failed: matches!(progress.state().state, QuestProgressionState::Failed),
+                    accepted_time: progress.state().accepted_time.timestamp_millis(),
                     ..Default::default()
                 });
             }
@@ -51,226 +87,241 @@ pub(super) fn transmit_questlog(
     }
 }
 
+#[derive(Component, Default)]
+pub struct QuestGiverStatus(HashSet<(Entity, AvatarId)>);
+
 pub(super) fn sync_quest_markers(
-    changed_markers: Query<Entity, Changed<QuestAvailable>>,
-    avatars: Query<&Avatar>,
-    players: Query<&PlayerController>,
-    markers: Query<(&ChildOf, &QuestPlayer)>,
-    mut removed_markers: RemovedComponents<QuestAvailable>,
-    mut commands: Commands,
+    mut players: Query<(&PlayerController, Ref<QuestLog>, Ref<Interests>, &mut QuestGiverStatus)>,
+    questgiver_tags: Query<&QuestGiver>,
+    npcs: Query<&QuestTags>,
 ) {
-    let mut added_avatars = HashMap::new();
-    let mut removed_avatars = HashMap::new();
+    for (controller, questlog, interests, mut status) in players.iter_mut() {
+        if questlog.is_changed() || interests.is_changed() {
+            let mut questgivers = HashSet::new();
 
-    for marker_ent in changed_markers.iter() {
-        let Ok((ChildOf(parent), QuestPlayer(player))) = markers.get(marker_ent) else {
-            continue;
-        };
-
-        let Ok(avatar) = avatars.get(*parent) else {
-            continue;
-        };
-
-        added_avatars
-            .entry(*player)
-            .or_insert_with(Vec::new)
-            .push(avatar.id);
-    }
-
-    for marker_ent in removed_markers.read() {
-        let Ok((ChildOf(parent), QuestPlayer(player))) = markers.get(marker_ent) else {
-            continue;
-        };
-
-        let Ok(avatar) = avatars.get(*parent) else {
-            continue;
-        };
-
-        removed_avatars
-            .entry(*player)
-            .or_insert_with(Vec::new)
-            .push(avatar.id);
-
-        commands.entity(marker_ent).despawn();
-    }
-
-    let players_to_notify = added_avatars.keys()
-        .chain(removed_avatars.keys())
-        .copied()
-        .collect::<HashSet<_>>();
-
-    for player_ent in players_to_notify {
-        let Ok(player_controller) = players.get(player_ent) else {
-            continue;
-        };
-
-        let added_avatars = added_avatars.get(&player_ent).cloned().unwrap_or_default();
-        let mut removed_avatars = removed_avatars.get(&player_ent).cloned().unwrap_or_default();
-
-        removed_avatars.retain(|id| !added_avatars.contains(id));
-
-        debug!("Quest markers updated for player {}: added: {:?}, removed: {:?}", player_ent, added_avatars, removed_avatars);
-
-        player_controller.send_packet(oaPktQuestGiverStatus {
-            avatar_count1: added_avatars.len() as u32,
-            avatar_count2: removed_avatars.len() as u32,
-            enable_questmarker_for_avatars: added_avatars,
-            disable_questmarker_for_avatars: removed_avatars,
-            ..Default::default()
-        });
-    }
-}
-
-
-pub(super) fn send_quest(_lua: &mlua::Lua, controller: &PlayerController, quest: &Quest, zone: &ZoneInstance, beacon_query: &Query<&GameObjectData>) {
-    let conditions = quest.table.get::<Table>("conditions").ok()
-        .and_then(|table| {
-            let mut conditions = vec![];
-
-            for pair in table.pairs::<i32, Table>() {
-                let (_, condition_table) = pair.ok()?;
-
-                let kind = match condition_table.get::<String>("type").ok()?.as_str() {
-                        "loot" => OaQuestConditionKind::Loot,
-                        "interact" => OaQuestConditionKind::Interact,
-                        "dialog" => OaQuestConditionKind::Dialog,
-                        "wait" => OaQuestConditionKind::Wait,
-                        _ => {
-                            warn!("Unknown quest condition type: {}", condition_table.get::<String>("type").ok()?);
-                            continue;
-                        }
-                    };
-
-                let beacon = if 
-                        let Ok(beacon) = condition_table.get::<Table>("beacon") && 
-                        let Ok(ent) = beacon.entity() &&
-                        let Ok(data) = beacon_query.get(ent)
-                    {
-                        oaQuestBeacon {
-                            world_guid: *zone.world_def.guid(),
-                            zone_guid: *zone.zone.guid(),
-                            position: data.get_named::<Vec3>("pos").copied().unwrap_or_default().into(),
-                            height: data.get_named::<i32>("BeaconHeight").copied().unwrap_or_default() as u32,
-                            radius: data.get_named::<i32>("BeaconRadius").copied().unwrap_or_default() as u32,
-                        }
-                    } else {
-                        oaQuestBeacon::default()
-                    };
-
-                let (filter1, filter2) = match kind {
-                    OaQuestConditionKind::Unk0 | 
-                    OaQuestConditionKind::Unk2 | 
-                    OaQuestConditionKind::Unk6 | 
-                    OaQuestConditionKind::Unk7 | 
-                    OaQuestConditionKind::Unk8 | 
-                    OaQuestConditionKind::Interact => {
-                        (
-                            condition_table.get::<AvatarFilterLua>("avatar_filter").ok()
-                            .map(|f| f.into())
-                            .unwrap_or_default(),
-                            AvatarFilter::default()
-                        )
-                    },
-                    OaQuestConditionKind::Dialog => {
-                        (
-                            AvatarFilter::default(),
-                            AvatarFilter {
-                                kind: condition_table.get::<i32>("dialog").unwrap_or(0),
-                                ..Default::default()
-                            }
-                        )
-                    },
-                    OaQuestConditionKind::Loot => {
-                        (
-                            AvatarFilter::default(),
-                            AvatarFilter {
-                                kind: 4,
-                                filter: condition_table.get::<String>("item").unwrap_or_default(),
-                            }
-                        )
-                    },
-                    OaQuestConditionKind::Unk5 => {
-                        (
-                            AvatarFilter::default(),
-                            condition_table.get::<AvatarFilterLua>("avatar_filter").ok()
-                            .map(|f| f.into())
-                            .unwrap_or_default()
-                        )
-                    },
-                    OaQuestConditionKind::Unk17 => {
-                        (
-                            AvatarFilter::default(),
-                            condition_table.get::<AvatarFilterLua>("avatar_filter").ok()
-                            .map(|f| f.into())
-                            .unwrap_or_default()
-                        )
-                    },
-                    OaQuestConditionKind::Wait => (AvatarFilter::default(), AvatarFilter::default()),
+            'npc_loop: for (&ent, (avatar, _)) in interests.iter() {
+                let Ok(tags) = npcs.get(ent).map(|tags| tags.collection()) else {
+                    continue;
                 };
 
-                let condition = oaQuestCondition {
-                    quest_id: quest.id,
-                    condition_id: condition_table.get::<i32>("id").ok()?,
-                    kind,
-                    filter1,
-                    filter2,
-                    required_count: condition_table.get::<i32>("required_count").ok()?,
-                    waypoint: beacon,
-                    ..Default::default()
-                };
+                for tag_ent in tags {
+                    let Ok(questgiver) = questgiver_tags.get(*tag_ent) else {
+                        continue;
+                    };
 
-                conditions.push(condition);
+                    if questlog.available.contains(&questgiver.template.id) {
+                        questgivers.insert((ent, *avatar));
+                        continue 'npc_loop;
+                    }
+                }
             }
 
-            Some(conditions)
-        })
-        .unwrap_or_default();
+            let added_avatars = questgivers.difference(&status.0)
+                .map(|(_, avatar)| *avatar)
+                .collect::<Vec<_>>();
+            let removed_avatars = status.0.difference(&questgivers)
+                .map(|(_, avatar)| *avatar)
+                .collect::<Vec<_>>();
 
-    let pkt = CPktStream_165_2 {
-        field_1: oaQuestTemplate {
-            quest_id: quest.id,
-            world_guid: *quest.world_def.guid(),
-            level: quest.table.get::<i32>("level").unwrap_or(0),
-            bit_reward: quest.table.get::<i32>("bit_reward").unwrap_or(0),
-            exp_reward: quest.table.get::<i32>("exp_reward").unwrap_or(0),
-            progress_dialogue: quest.table.get::<i32>("progress_dialogue").unwrap_or_default(),
-            completion_dialogue: quest.table.get::<i32>("completion_dialogue").unwrap_or_default(),
-            system_flags: 16,
-            ..Default::default()
-        },
-        conditions: conditions.len() as u32,
-        field_3: conditions,
-        ..Default::default()
-    };
+            if added_avatars.is_empty() && removed_avatars.is_empty() {
+                continue;
+            }
 
-    debug!("Sending quest {} to player {}: {:#?}", quest.id, controller.character_id(), pkt);
+            status.0 = questgivers;
 
-    controller.send_packet(pkt);
+            controller.send_packet(oaPktQuestGiverStatus {
+                avatar_count1: added_avatars.len() as u32,
+                avatar_count2: removed_avatars.len() as u32,
+                enable_questmarker_for_avatars: added_avatars,
+                disable_questmarker_for_avatars: removed_avatars,
+                ..Default::default()
+            });
+        }
+    }
 }
 
 pub(super) fn handle_quest_request(
     In((ent, pkt)): In<(Entity, oaPktQuestRequest)>,
     players: Query<(&QuestLog, &PlayerController)>,
-    quests: Res<QuestRegistry>,
-    runtime: Res<LuaRuntime>,
-    zone: Res<ZoneInstance>,
-    beacon_query: Query<&GameObjectData>,
+    //quests: Res<QuestRegistry>,
+    //runtime: Res<LuaRuntime>,
+    //zone: Res<ZoneInstance>,
+    //beacon_query: Query<&GameObjectData>,
     mut commands: Commands,
 ) {
     debug!("Received quest request from player {}: {:?}", ent, pkt);
 
     match pkt.request {
         OaPktQuestRequestRequest::Request => {
-            let Some(quest) = quests.0.get(&pkt.quest_id) else {
-                error!("Player {} requested unknown quest {}", ent, pkt.quest_id);
-                return;
-            };
-
             let Ok((_, player_controller)) = players.get(ent) else {
                 return;
             };
 
-            send_quest(runtime.vm(), player_controller, quest, &zone, &beacon_query);
+            let player_controller = player_controller.clone();
+
+            commands
+                .entity(ent)
+                .perform_async_operation(async move {
+                    let Some(template) = QuestTemplateCache::get(&pkt.quest_id).await? 
+                    else {
+                        return Err(anyhow!("Quest template not found for quest id: {}", pkt.quest_id).into());
+                    };
+
+                    let Some(world) = RealmApi::get()
+                        .get_worlddef(template.world_id as u16)
+                        .await? 
+                    else {
+                        return Err(anyhow!("World definition not found for world id: {}", template.world_id).into());
+                    };
+
+                    let mut response = CPktStream_165_2 {
+                        field_1: oaQuestTemplate {
+                            quest_id: template.id,
+                            world_guid: *world.guid(),
+                            level: template.level,
+                            bit_reward: template.bit_reward.unwrap_or_default(),
+                            exp_reward: template.exp_reward.unwrap_or_default(),
+                            progress_dialogue: template.progress_dialogue_id.unwrap_or_default(),
+                            completion_dialogue: template.completion_dialogue_id.unwrap_or_default(),
+                            system_flags: 16,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    };
+
+                    for condition in &template.conditions {
+                        let beacon = {
+                            let beacon_selector = match *condition {
+                                Condition::Dialogue { beacon, dialogue_id, .. } => {
+                                    if let Some(id) = beacon {
+                                        Some(AvatarSelector::InstanceId(id))
+                                    } else {
+                                        Some(AvatarSelector::DialogId(dialogue_id))
+                                    }
+                                },
+                                Condition::Interact { beacon, avatar_selector, .. } => {
+                                    if let Some(id) = beacon {
+                                        Some(AvatarSelector::InstanceId(id))
+                                    } else {
+                                        Some(avatar_selector)
+                                    }
+                                },
+                                Condition::Kill { beacon, avatar_selector, .. } => {
+                                    if let Some(id) = beacon {
+                                        Some(AvatarSelector::InstanceId(id))
+                                    } else {
+                                        Some(avatar_selector)
+                                    }
+                                },
+                                Condition::Loot { beacon, item_id, .. } => {
+                                    if let Some(id) = beacon {
+                                        Some(AvatarSelector::InstanceId(id))
+                                    } else {
+                                        Some(AvatarSelector::LootItem(item_id))
+                                    }
+                                },
+                                _ => None,
+                            };
+
+                            if 
+                                let Some(selector) = beacon_selector &&
+                                let Some(mut placement) = RealmApi::get()
+                                    .query_placements_by_selector(Some(template.world_id), None, selector).await?
+                                    .into_iter()
+                                    .next() &&
+                                let Some(content) = ContentCache::get(&ContentCacheRef::Uuid(placement.content_guid)).await?
+                            {
+                                placement.data.set_parent(Some(content));
+
+                                Some(oaQuestBeacon {
+                                    world_guid: *world.guid(),
+                                    zone_guid: placement.zone_guid,
+                                    position: placement.data.get_named::<Vec3>("pos").copied().unwrap_or_default().into(),
+                                    height: placement.data.get_named::<i32>("BeaconHeight").copied().unwrap_or_default() as u32,
+                                    radius: placement.data.get_named::<i32>("BeaconRadius").copied().unwrap_or_default() as u32,
+                                })
+                            } else {
+                                None
+                            }
+                        };
+
+                        match *condition {
+                            Condition::Dialogue { id, required_count, dialogue_id, .. } => {
+                                response.field_3.push(oaQuestCondition {
+                                    quest_id: template.id,
+                                    condition_id: id,
+                                    kind: OaQuestConditionKind::Dialog,
+                                    filter1: AvatarFilter::default(),
+                                    filter2: AvatarFilter {
+                                        kind: dialogue_id, // Dialogue id must be written into the kind field,
+                                                            // because of an implementation quirk in the client.
+                                        ..Default::default()
+                                    },
+                                    required_count,
+                                    waypoint: beacon.clone().unwrap_or_default(),
+                                                                    ..Default::default()
+                                });
+                            },
+                            Condition::Interact { id, required_count, avatar_selector, .. } => {
+                                response.field_3.push(oaQuestCondition {
+                                    quest_id: template.id,
+                                    condition_id: id,
+                                    kind: OaQuestConditionKind::Interact,
+                                    filter1: AvatarFilterConverter(avatar_selector).into(),
+                                    filter2: AvatarFilter::default(),
+                                    required_count,
+                                    waypoint: beacon.clone().unwrap_or_default(),
+                                    ..Default::default()
+                                });
+                            },
+                            Condition::Kill { id, required_count, avatar_selector, .. } => {
+                                response.field_3.push(oaQuestCondition {
+                                    quest_id: template.id,
+                                    condition_id: id,
+                                    kind: OaQuestConditionKind::Unk2,
+                                    filter1: AvatarFilterConverter(avatar_selector).into(),
+                                    filter2: AvatarFilter::default(),
+                                    required_count,
+                                    waypoint: beacon.clone().unwrap_or_default(),
+                                    ..Default::default()
+                                });
+                            },
+                            Condition::Loot { id, required_count, item_id, .. } => {
+                                response.field_3.push(oaQuestCondition {
+                                    quest_id: template.id,
+                                    condition_id: id,
+                                    kind: OaQuestConditionKind::Loot,
+                                    filter1: AvatarFilter::default(),
+                                    filter2: AvatarFilterConverter(AvatarSelector::LootItem(item_id)).into(),
+                                    required_count,
+                                    waypoint: beacon.clone().unwrap_or_default(),
+                                    ..Default::default()
+                                });
+                            },
+                            Condition::Wait { id, .. } => {
+                                response.field_3.push(oaQuestCondition {
+                                    quest_id: template.id,
+                                    condition_id: id,
+                                    kind: OaQuestConditionKind::Wait,
+                                    filter1: AvatarFilter::default(),
+                                    filter2: AvatarFilter::default(),
+                                    required_count: 1,
+                                    waypoint: beacon.clone().unwrap_or_default(),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    }
+
+                    response.conditions = response.field_3.len() as u32;
+
+                    debug!("Sending quest {} to player {}: {:#?}", template.id, player_controller.character_id(), response);
+
+                    player_controller.send_packet(response);
+
+                    Ok(())
+                })
+                .on_error_run_system(player_error_handler_system);
         },
         OaPktQuestRequestRequest::QueryActive => {
             let Ok((questlog, player_controller)) = players.get(ent) else {
@@ -283,11 +334,7 @@ pub(super) fn handle_quest_request(
                 ..Default::default()
             };
 
-            for (&quest_id, progress) in &questlog.quests {
-                if progress.state.is_none() || !(0..=9999).contains(&quest_id) {
-                    continue;
-                }
-
+            for &quest_id in questlog.quests.keys() {
                 pkt.quest_list[(quest_id / 8) as usize] |= 1 << (quest_id % 8);
             }
 
@@ -314,9 +361,9 @@ pub(super) fn handle_quest_request(
             });
         },
         OaPktQuestRequestRequest::RequestNext => {
-            commands.write_message(RequestNextQuest {
+            /*commands.write_message(RequestNextQuest {
                 player: ent,
-            });
+            });*/
         }
     }
 }

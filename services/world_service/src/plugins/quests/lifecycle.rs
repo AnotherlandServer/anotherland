@@ -13,19 +13,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::ecs::{entity::Entity, message::MessageReader, query::Added, system::{Commands, In, Query, Res}};
-use log::{debug, error, warn};
-use mlua::{Function, Table, Value};
+use anyhow::anyhow;
+use bevy::{ecs::{entity::Entity, hierarchy::ChildOf, message::MessageReader, query::{With, Without}, system::{Commands, In, Query, Res}}};
+use log::{debug, warn};
+use mlua::Function;
+use obj_params::{GameObjectData, Player};
 use protocol::{OaPktQuestEventEvent, QuestUpdateData, oaPktQuestEvent, oaPktQuestUpdate};
-use realm_api::{QuestCondition, QuestProgressionState, RealmApi};
+use realm_api::{Condition, QuestCondition, QuestProgressionState, RealmApi};
 use scripting::{ScriptCommandsExt, ScriptObject};
 
-use crate::{plugins::{AbandonQuest, AcceptQuest, AsyncOperationEntityCommandsExt, DespawnAvatar, PlayerController, QuestLog, QuestRegistry, QuestState, QuestStateUpdated, RequestNextQuest, ReturnQuest, player_error_handler_system}};
+use crate::plugins::{AbandonQuest, AcceptQuest, AsyncOperationEntityCommandsExt, AutoReturnQuest, PlayerController, Quest, QuestLog, QuestProgress, QuestState, QuestStatePending, QuestStateUpdated, Quests, ReturnQuest, RunDeferredQuestDialogues, UpdateAvailableQuests, WeakCache, player_error_handler_system, quests::cache::QuestTemplateCache};
 
 pub(super) fn quest_accepter(
     mut events: MessageReader<AcceptQuest>,
     players: Query<(&QuestLog, &PlayerController)>,
-    quests: Res<QuestRegistry>,
     mut commands: Commands,
 ) {
     for &AcceptQuest { player, quest_id } in events.read() {
@@ -33,37 +34,38 @@ pub(super) fn quest_accepter(
             continue;
         };
 
-        let Some(quest) = quests.0.get(&quest_id).cloned() else {
-            warn!("Player {} tried to accept unknown quest {}", player, quest_id);
-            continue;
-        };
-
-        debug!("Player {} is trying to accept quest {}", player, quest_id);
+        let controller = player_controller.clone();
 
         if questlog.available.contains(&quest_id) {
-            let controller = player_controller.clone();
-
-            let mut state = RealmApi::get()
-                .create_empty_queststate(controller.character_id(), quest_id, QuestProgressionState::Active);
-
-            // Init quest conditions on accept
-            if let Ok(conditions) = quest.table.get::<Table>("conditions") {
-                for pairs in conditions.pairs::<Value, Table>() {
-                    let Ok((_, condition)) = pairs else {
-                        continue;
-                    };
-
-                    state.conditions.push(QuestCondition {
-                        id: condition.get::<i32>("id").unwrap_or(0),
-                        required_count: condition.get::<i32>("required_count").unwrap_or(1),
-                        current_count: 0,
-                    });
-                }
-            }
-
             commands
                 .entity(player)
                 .perform_async_operation(async move {
+                    let Some(quest) = QuestTemplateCache::get(&quest_id).await? else {
+                        return Err(anyhow!("Quest with ID {} not found", quest_id).into());
+                    };
+
+                    debug!("Player {} is trying to accept quest {}", player, quest_id);
+                
+                    let mut state = RealmApi::get()
+                        .create_empty_queststate(controller.character_id(), quest_id, QuestProgressionState::Active);
+
+                    // Init quest conditions on accept
+                    for condition in quest.conditions.iter() {
+                        state.conditions.push(
+                        match *condition {
+                            Condition::Interact { id, required_count, .. } => 
+                                QuestCondition { id, current_count: 0, required_count },
+                            Condition::Dialogue { id, required_count, .. } => 
+                                QuestCondition { id, current_count: 0, required_count },
+                            Condition::Wait { id, .. } => 
+                                QuestCondition { id, current_count: 0, required_count: 1 },
+                            Condition::Kill { id, required_count, .. } => 
+                                QuestCondition { id, current_count: 0, required_count },
+                            Condition::Loot { id, required_count, .. } => 
+                                QuestCondition { id, current_count: 0, required_count },
+                        });
+                    }
+
                     Ok((
                         quest_id,
                         Some(RealmApi::get().create_queststate(&state).await?)
@@ -80,6 +82,7 @@ pub(super) fn quest_accepter(
 pub(super) fn quest_returner(
     mut events: MessageReader<ReturnQuest>,
     players: Query<&QuestLog>,
+    quests: Query<&QuestProgress>,
     mut commands: Commands,
 ) {
     for &ReturnQuest { player, quest_id } in events.read() {
@@ -88,11 +91,15 @@ pub(super) fn quest_returner(
         };
 
         if 
-            let Some(quest) = questlog.quests.get(&quest_id) &&
-            let Some(state) = &quest.state &&
-            matches!(state.state, QuestProgressionState::Completed)
+            let Some(quest_ent) = questlog.quests.get(&quest_id) &&
+            let Ok(progress) = quests.get(*quest_ent) &&
+            matches!(progress.state().state, QuestProgressionState::Completed)
         {
-            let mut state = state.clone();
+            let mut state = progress.state().clone();
+
+            commands
+                .entity(*quest_ent)
+                .insert(QuestStatePending);
 
             commands
                 .entity(player)
@@ -115,6 +122,7 @@ pub(super) fn quest_returner(
 pub(super) fn quest_abandoner(
     mut events: MessageReader<AbandonQuest>,
     players: Query<&QuestLog>,
+    quests: Query<&QuestProgress>,
     mut commands: Commands,
 ) {
     for &AbandonQuest { player, quest_id } in events.read() {
@@ -123,15 +131,19 @@ pub(super) fn quest_abandoner(
         };
 
         if 
-            let Some(quest) = questlog.quests.get(&quest_id) &&
-            let Some(state) = &quest.state &&
+            let Some(quest_ent) = questlog.quests.get(&quest_id) &&
+            let Ok(progress) = quests.get(*quest_ent) &&
+
             (
-                matches!(state.state, QuestProgressionState::Active) ||
-                matches!(state.state, QuestProgressionState::Completed)
+                matches!(progress.state().state, QuestProgressionState::Active) ||
+                matches!(progress.state().state, QuestProgressionState::Completed)
             )
         {
-            let state = state.clone();
+            commands
+                .entity(*quest_ent)
+                .insert(QuestStatePending);
 
+            let state = progress.state().clone();
             commands
                 .entity(player)
                 .perform_async_operation(async move {
@@ -148,25 +160,41 @@ pub(super) fn quest_abandoner(
 
 pub(super) fn handle_db_quest_update(
     In((player, (quest_id, db_state))): In<(Entity, (i32, Option<realm_api::QuestState>))>,
-    mut players: Query<(&ScriptObject, &PlayerController, &mut QuestLog)>,
-    quests: Res<QuestRegistry>,
+    mut players: Query<(Entity, &PlayerController, &mut QuestLog)>,
+    mut quests: Query<&mut QuestProgress>,
     mut commands: Commands,
 ) {
-    let Ok((script_object, controller, mut quest_log)) = players.get_mut(player) else {
+    let Ok((player_ent, controller, mut quest_log)) = players.get_mut(player) else {
         return;
     };
 
-    let Some(quest_template) = quests.0.get(&quest_id) else {
-        error!("Received quest update for unknown quest id: {}", quest_id);
-        return;
-    };
+    if let Some(state) = &db_state {
+        if
+            let Some(quest_ent) = quest_log.quests.get_mut(&quest_id) &&
+            let Ok(mut progress) = quests.get_mut(*quest_ent)
+        {
+            if progress.state().state != state.state {
+                // Quest state changed
+                let quest_state = match state.state {
+                    QuestProgressionState::Active => QuestState::Accepted,
+                    QuestProgressionState::Completed => QuestState::Completed,
+                    QuestProgressionState::Finished => QuestState::Finished,
+                    QuestProgressionState::Failed => QuestState::Failed,
+                };
 
-    if 
-        let Some(state) = &db_state &&
-        let Some(progress) = quest_log.quests.get_mut(&quest_id) 
-    {
-        if progress.state.as_ref().map(|s| s.state != state.state).unwrap_or(true) {
-            // Quest state changed
+                commands.write_message(QuestStateUpdated {
+                    player,
+                    quest_id,
+                    state: quest_state,
+                });
+            }
+
+            progress.replace(state.clone());
+
+            commands
+                .entity(*quest_ent)
+                .remove::<QuestStatePending>();
+        } else {
             let quest_state = match state.state {
                 QuestProgressionState::Active => QuestState::Accepted,
                 QuestProgressionState::Completed => QuestState::Completed,
@@ -179,6 +207,15 @@ pub(super) fn handle_db_quest_update(
                 quest_id,
                 state: quest_state,
             });
+
+            let quest_ent = commands
+                .spawn((
+                    ChildOf(player_ent),
+                    QuestProgress::from_state(state.clone()),
+                ))
+                .id();
+
+            quest_log.quests.insert(quest_id, quest_ent);
         }
 
         controller.send_packet(oaPktQuestUpdate {
@@ -194,56 +231,51 @@ pub(super) fn handle_db_quest_update(
                     ..Default::default()
                 }).collect(),
             ..Default::default()
-        });
-
-        progress.state = db_state;
-        quest_log.update_fast_access_maps();
+        });        
     } else if 
         db_state.is_none() &&
-        let Some(progress) = quest_log.quests.remove(&quest_id) 
+        let Some(quest_ent) = quest_log.quests.remove(&quest_id)
     {
-        if progress.state.is_some() {
-            // Quest was removed from DB, but player had it in progress
-            // Mark it as abandoned
-            commands.write_message(QuestStateUpdated {
-                player,
-                quest_id,
-                state: QuestState::Abandoned,
-            });
-        }
+        commands
+            .entity(quest_ent)
+            .despawn();
 
-        quest_log.update_fast_access_maps();
+        // Quest was removed from DB, but player had it in progress
+        // Mark it as abandoned
+        commands.write_message(QuestStateUpdated {
+            player,
+            quest_id,
+            state: QuestState::Abandoned,
+        });
     }
 
-    let Ok(func) = quest_template.table.get::<Function>("StateUpdated") else {
-        error!("Failed to get StateUpdated function for quest: {}", quest_template.id);
-        return;
-    };
-
-    commands.call_lua_method(
-        func,
-        (quest_template.table.clone(), script_object.object().clone())
-    );
+    commands
+        .write_message(RunDeferredQuestDialogues{
+            player
+        });
 }
 
 
 pub(super) fn handle_quest_state_changes(
     mut events: MessageReader<QuestStateUpdated>,
-    players: Query<&ScriptObject>,
-    quests: Res<QuestRegistry>,
+    mut players: Query<(&ScriptObject, &mut QuestLog)>,
+    quests: Res<Quests>,
     mut commands: Commands,
 ) {
     for &QuestStateUpdated { player, quest_id, state } in events.read() {
-        let Ok(script_object) = players.get(player) else {
+        let Ok((script_object, mut quest_log)) = players.get_mut(player) else {
             continue;
         };
 
-        let Some(quest) = quests.0.get(&quest_id) else {
+        quest_log.update_state(quest_id, state);
+        commands
+            .write_message(UpdateAvailableQuests(player));
+
+        let Some(quest) = quests.get(&quest_id) else {
             continue;
         };
 
         let func_name = match state {
-            QuestState::Available => "OnQuestAvailable",
             QuestState::Accepted => "OnQuestAccepted",
             QuestState::Completed => "OnQuestCompleted",
             QuestState::Finished => "OnQuestFinished",
@@ -251,114 +283,14 @@ pub(super) fn handle_quest_state_changes(
             QuestState::Abandoned => "OnQuestAbandoned",
         };
 
-        if let QuestState::Finished = state {
-            commands.write_message(RequestNextQuest { player });
-        }
-
-        let Ok(func) = quest.table.get::<Function>(func_name) else {
+        let Ok(func) = quest.obj.get::<Function>(func_name) else {
             continue;
         };
 
         commands.call_lua_method(
             func, 
-            (quest.table.clone(), script_object.object().clone())
+            (quest.obj.clone(), script_object.object().clone())
         );
-    }
-}
-
-
-pub(super) fn attach_active_quests(
-    players: Query<(&QuestLog, &ScriptObject), Added<QuestLog>>,
-    mut commands: Commands,
-) {
-    for (quest_log, script_object) in players.iter() {
-        for (_, progress) in quest_log.quests.iter() {
-            if progress.state.as_ref().map(|s| s.state) == Some(QuestProgressionState::Active) {
-                let Ok(attach_quest_to_player) = progress.template.table.get::<Function>("AttachToPlayer") else {
-                    error!("Failed to get AttachToPlayer function for quest: {}", progress.template.id);
-                    continue;
-                };
-
-                // Newly accepted quest, attach to player
-                commands.call_lua_method(
-                    attach_quest_to_player.clone(),
-                    (progress.template.table.clone(), script_object.object().clone())
-                );
-            }
-        }
-    }
-}
-
-pub(super) fn attach_or_detach_quest_on_state_change(
-    mut events: MessageReader<QuestStateUpdated>,
-    players: Query<(&ScriptObject, &PlayerController)>,
-    quests: Res<QuestRegistry>,
-    mut commands: Commands,
-) {
-    for &QuestStateUpdated { player, quest_id, state } in events.read() {
-        let Ok((script_object, _controller)) = players.get(player) else {
-            continue;
-        };
-
-        let Some(quest_template) = quests.0.get(&quest_id) else {
-            error!("Received quest update for unknown quest id: {}", quest_id);
-            return;
-        };
-
-        match state {
-            QuestState::Accepted => {
-                let Ok(attach_quest_to_player) = quest_template.table.get::<Function>("AttachToPlayer") else {
-                    error!("Failed to get AttachToPlayer function for quest: {}", quest_template.id);
-                    return;
-                };
-
-                // Newly accepted quest, attach to player
-                commands.call_lua_method(
-                    attach_quest_to_player.clone(),
-                    (quest_template.table.clone(), script_object.object().clone())
-                );
-            },
-            QuestState::Completed | QuestState::Finished | QuestState::Failed | QuestState::Abandoned => {
-                let Ok(detach_quest_from_player) = quest_template.table.get::<Function>("DetachFromPlayer") else {
-                    error!("Failed to get DetachFromPlayer function for quest: {}", quest_template.id);
-                    return;
-                };
-
-                // Quest finished/failed/abandoned, detach from player
-                commands.call_lua_method(
-                    detach_quest_from_player.clone(),
-                    (quest_template.table.clone(), script_object.object().clone())
-                );
-            },
-            _ => { /* No action needed for other states */ }
-        }
-    }
-}
-
-pub(super) fn detach_from_despawned_player(
-    mut events: MessageReader<DespawnAvatar>,
-    players: Query<(&ScriptObject, &QuestLog)>,
-    mut commands: Commands,
-) {
-    for &DespawnAvatar(ent) in events.read() {
-        let Ok((script_object, quest_log)) = players.get(ent) else {
-            continue;
-        };
-
-        quest_log.quests.iter()
-            .filter(|(_, progress)| progress.state.as_ref().map(|s| s.state) == Some(QuestProgressionState::Active))
-            .for_each(|(_, progress)| {
-                let Ok(detach_quest_from_player) = progress.template.table.get::<Function>("DetachFromPlayer") else {
-                    error!("Failed to get DetachFromPlayer function for quest: {}", progress.template.id);
-                    return;
-                };
-
-                // Player despawned, detach active quests
-                commands.call_lua_method(
-                    detach_quest_from_player.clone(),
-                    (progress.template.table.clone(), script_object.object().clone())
-                );
-            });
     }
 }
 
@@ -372,9 +304,6 @@ pub(super) fn sync_quest_state(
         };
 
         match state {
-            QuestState::Available => {
-                debug!("Player {} updated quest {} to available", player_controller.character_id(), quest_id);
-            },
             QuestState::Abandoned => {
                 debug!("Player {} abandoned quest {}", player_controller.character_id(), quest_id);
 
@@ -418,6 +347,102 @@ pub(super) fn sync_quest_state(
                     ..Default::default()
                 });
             },
+        }
+    }
+}
+
+pub(super) fn update_available_quests(
+    mut events: MessageReader<UpdateAvailableQuests>,
+    quests: Res<Quests>,
+    mut players: Query<(&GameObjectData, &mut QuestLog)>,
+) {
+    for &UpdateAvailableQuests(player) in events.read() {
+        let Ok((object, mut quest_log)) = players.get_mut(player) else {
+            continue;
+        };
+
+        quest_log.clear_available();
+
+        for quest in quests.values() {
+            // Skip if quest is already active in any way. 
+            if quest_log.quests.contains_key(&quest.id) {
+                debug!("Player {} already has quest {} in progress, skipping availability check", player, quest.id);
+                continue;
+            }
+
+            if 
+                verify_combat_style_prerequisite(quest, object) &&
+                verify_level_prerequisite(quest, object) &&
+                verify_quests_finished_prerequisite(quest, &quest_log)
+            {
+                debug!("Marking quest {} as available for player {}", quest.id, player);
+
+                // If all preconditions are met, mark quest as available
+                quest_log.mark_available(quest.id);
+            } else {
+                debug!("Quest {} is not available for player {}", quest.id, player);
+            }
+        }
+    }
+
+}
+
+fn verify_combat_style_prerequisite(quest: &Quest, object: &GameObjectData) -> bool {
+    if 
+        let Some(prerequisites) = &quest.template.prerequisites &&
+        let Some(required_style) = prerequisites.combat_style
+    {
+        if let Ok(&player_combat_style) = object.get::<_, i32>(Player::CombatStyle) {
+            return player_combat_style == i32::from(required_style);
+        } else {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn verify_level_prerequisite(quest: &Quest, object: &GameObjectData) -> bool {
+    if 
+        let Some(prerequisites) = &quest.template.prerequisites &&
+        let Some(level) = prerequisites.level
+    {
+        if let Ok(&player_level) = object.get::<_, i32>(Player::Lvl) {
+            return player_level >= level;
+        } else {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn verify_quests_finished_prerequisite(quest: &Quest, quest_log: &QuestLog) -> bool {
+    if 
+        let Some(prerequisites) = &quest.template.prerequisites &&
+        let Some(required_finished_quests) = &prerequisites.quests_finished
+    {
+        for &required_quest_id in required_finished_quests.iter() {
+            if !quest_log.finished.contains(&required_quest_id) {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+pub fn auto_return_quests(
+    progress: Query<(&ChildOf, &QuestProgress), (With<AutoReturnQuest>, Without<QuestStatePending>)>,
+    mut commands: Commands,
+) {
+    for (child_of, progress) in progress.iter() {
+        if matches!(progress.state().state, QuestProgressionState::Completed) {
+            commands
+                .write_message(ReturnQuest {
+                    player: child_of.parent(),
+                    quest_id: progress.state().quest_id
+                });
         }
     }
 }

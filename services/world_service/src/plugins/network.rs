@@ -287,7 +287,7 @@ pub fn handle_cluster_client_to_cluster_node(
                     return;
                 };
 
-                let Some(NativeParam::Bool(active)) = args.get(0) else {
+                let Some(NativeParam::Bool(active)) = args.first() else {
                     warn!("Invalid quest tracker update packet");
                     controller.close();
                     return;

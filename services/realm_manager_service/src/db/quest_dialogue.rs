@@ -77,6 +77,7 @@ pub enum Choice {
 #[derive(Serialize, Deserialize, SimpleObject, InputObject)]
 #[graphql(input_name = "DialogueLineInput")]
 pub struct DialogueLine {
+    pub serial: i32,
     pub line_id: i32,
     pub animation_name: Option<String>,
     pub choice: Option<Choice>,
@@ -90,6 +91,7 @@ pub struct DialogueBranchSelector {
     pub quests_in_progress: Vec<i32>,
     pub quests_complete: Vec<i32>,
     pub quests_finished: Vec<i32>,
+    pub quests_upcoming: Vec<i32>,
     pub level: i32,
     pub combat_style: Option<CombatStyle>,
 }

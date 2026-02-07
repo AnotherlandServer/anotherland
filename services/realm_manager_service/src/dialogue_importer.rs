@@ -44,6 +44,7 @@ struct YamlDialogueSelector {
     quests_in_progress: Option<Vec<i32>>,
     quests_completed: Option<Vec<i32>>,
     quests_finished: Option<Vec<i32>>,
+    quests_upcoming: Option<Vec<i32>>,
     combat_style: Option<String>,
     level: Option<i32>,
 }
@@ -84,6 +85,8 @@ pub async fn import_dialogue_file(db: Database, path: impl AsRef<Path>) -> Realm
 }
 
 async fn import_dialogue_yaml(db: Database, doc: YamlDialogue) -> RealmResult<()> {
+    let mut dialogue_serial = 0;
+
     let dialogue = QuestDialogue {
         id: doc.id,
         branches: doc.branches.into_iter().map(|branch| {
@@ -93,6 +96,7 @@ async fn import_dialogue_yaml(db: Database, doc: YamlDialogue) -> RealmResult<()
                 quests_in_progress: selector.quests_in_progress.unwrap_or_default(),
                 quests_complete: selector.quests_completed.unwrap_or_default(),
                 quests_finished: selector.quests_finished.unwrap_or_default(),
+                quests_upcoming: selector.quests_upcoming.unwrap_or_default(),
                 level: selector.level.unwrap_or(0),
                 combat_style: selector.combat_style.and_then(|s| {
                     match s.to_lowercase().as_str() {
@@ -111,12 +115,20 @@ async fn import_dialogue_yaml(db: Database, doc: YamlDialogue) -> RealmResult<()
             let lines = branch.lines.into_iter().map(|line| {
                 match line {
                     YamlDialogueLine::Simple(line_id) => crate::db::DialogueLine {
+                        serial: {
+                            dialogue_serial += 1;
+                            dialogue_serial
+                        },
                         line_id,
                         animation_name: None,
                         choice: None,
                         quest_id: None,
                     },
                     YamlDialogueLine::Extended(ext) => crate::db::DialogueLine {
+                        serial: {
+                            dialogue_serial += 1;
+                            dialogue_serial
+                        },
                         line_id: ext.line,
                         animation_name: ext.animation,
                         choice: ext.choice.and_then(|c| {
@@ -141,6 +153,7 @@ async fn import_dialogue_yaml(db: Database, doc: YamlDialogue) -> RealmResult<()
                 && dialogue_selector.quests_in_progress.is_empty()
                 && dialogue_selector.quests_complete.is_empty()
                 && dialogue_selector.quests_finished.is_empty()
+                && dialogue_selector.quests_upcoming.is_empty()
             {
                 crate::db::DialogueBranch {
                     selector: None,

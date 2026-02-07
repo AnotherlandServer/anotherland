@@ -13,18 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::ecs::{entity::Entity, message::{Message, MessageReader}, query::With, system::{Commands, In, Query, Res}};
+use bevy::ecs::{entity::Entity, system::{Commands, In, Query, Res}};
 use log::warn;
-use obj_params::tags::PlayerTag;
 use protocol::{OaPktRequestQuestActionKind, oaPktRequestQuestAction};
 use scripting::{EntityScriptCommandsExt, ScriptObject};
 
-use crate::plugins::{AvatarIdManager, DialogueState};
-
-#[derive(Message)]
-pub struct RequestNextQuest {
-    pub player: Entity,
-}
+use crate::plugins::AvatarIdManager;
 
 pub(super) fn handle_quest_action_request(
     In((ent, pkt)): In<(Entity, oaPktRequestQuestAction)>,
@@ -48,17 +42,4 @@ pub(super) fn handle_quest_action_request(
                 target.object().clone()
             ));
     }    
-}
-
-pub(super) fn quest_segue_handler(
-    mut events: MessageReader<RequestNextQuest>,
-    query: Query<(&ScriptObject, &DialogueState), With<PlayerTag>>,
-    mut commands: Commands,
-) {
-    for &RequestNextQuest { player } in events.read() {
-        if let Ok((script_object, dialogue_state)) = query.get(player) {
-            commands.entity(dialogue_state.speaker)
-                .call_named_lua_method("RequestDialogue", script_object.object().clone());
-        }
-    }
 }

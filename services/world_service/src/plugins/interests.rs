@@ -27,7 +27,7 @@ use anyhow::anyhow;
 
 use crate::{error::WorldResult, plugins::{ContentInfo, DebugPlayer, WorldSpace}};
 
-use super::{Active, Avatar, ConnectionState, CurrentState, Movement, PlayerController, QuestEntity, QuestLog};
+use super::{Active, Avatar, ConnectionState, CurrentState, Movement, PlayerController, QuestVisibility, QuestLog};
 
 pub struct InterestsPlugin;
 
@@ -259,7 +259,7 @@ fn transmit_entities_to_players(
 fn update_interest_list(
     world_space: Res<WorldSpace>,
     mut players: Query<(Entity, &GameObjectData, &Movement, &mut Interests, Option<&PlayerController>, Option<&QuestLog>), With<Interests>>,
-    potential_interests: Query<(&GameObjectData, Option<&QuestEntity>, Option<&DebugPlayer>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
+    potential_interests: Query<(&GameObjectData, Option<&QuestVisibility>, Option<&DebugPlayer>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
     avatar_info: Query<&Avatar>,
     mut interest_added_message: MessageWriter<InterestAdded>,
     mut interest_removed_message: MessageWriter<InterestRemoved>,

@@ -41,7 +41,7 @@ impl ScriptObject {
             let meta = runtime.vm().create_table()?;
             meta.set("__index", base.clone())?;
 
-            object.set_metatable(Some(meta));
+            object.set_metatable(Some(meta))?;
         }
 
         Ok(Self {
