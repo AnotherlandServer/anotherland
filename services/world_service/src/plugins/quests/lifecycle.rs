@@ -63,6 +63,8 @@ pub(super) fn quest_accepter(
                                 QuestCondition { id, current_count: 0, required_count },
                             Condition::Loot { id, required_count, .. } => 
                                 QuestCondition { id, current_count: 0, required_count },
+                            Condition::Proximity { id, required_count, .. } => 
+                                QuestCondition { id, current_count: 0, required_count },
                         });
                     }
 

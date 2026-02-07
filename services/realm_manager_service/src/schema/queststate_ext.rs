@@ -21,7 +21,7 @@ use log::debug;
 use mongodb::{bson::{self, doc, oid::ObjectId}, options::{ReadConcern, ReadPreference, ReturnDocument, SelectionCriteria, TransactionOptions, WriteConcern}, Database};
 use toolkit::types::Uuid;
 
-use crate::{db::{QuestProgressionState, QuestState, QuestStateOutput}, item_storage_session::ItemStorageSession, schema::item_storage_ext::{find_item, send_inventory_update_notifications, EquipmentResult, ItemRef}};
+use crate::{db::{QuestProgressionState, QuestState, QuestStateOutput, QuestTemplate}, item_storage_session::ItemStorageSession, schema::item_storage_ext::{EquipmentResult, ItemRef, find_item, send_inventory_update_notifications}};
 
 #[derive(Default)]
 pub struct QuestStateExtMutationRoot;
@@ -49,7 +49,7 @@ pub struct QuestStateChangeResult {
 
 #[Object]
 impl QuestStateExtMutationRoot {
-    async fn update_condition(&self, ctx: &Context<'_>, state_id: ID, condition_id: u32, update: ConditionUpdate, value: i32) -> Result<Option<QuestStateChangeResult>, Error> {
+    async fn update_condition(&self, ctx: &Context<'_>, state_id: ID, condition_idx: u32, update: ConditionUpdate, value: i32) -> Result<Option<QuestStateChangeResult>, Error> {
         let db = ctx.data::<Database>()?.clone();
         let mut session = db.client().start_session()
             .default_transaction_options(TransactionOptions::builder()
@@ -60,18 +60,18 @@ impl QuestStateExtMutationRoot {
             )
             .causal_consistency(true)
             .await?;
-        session.start_transaction().await?;
+        session.start_transaction().await?;           
 
         let quest_state_id: ObjectId = state_id.parse()?;
         let mut quest_state = QuestState::collection(&db)
             .find_one_and_update(doc! { "_id": quest_state_id }, match update {
                 ConditionUpdate::Increment => doc! { 
-                    "$inc": { format!("conditions.{}.current_count", condition_id): value },
+                    "$inc": { format!("conditions.{}.current_count", condition_idx): value },
                     "$set": { "last_condition_update": chrono::Utc::now().to_rfc3339() }
                 },
                 ConditionUpdate::Set => doc! { 
                     "$set": { 
-                        format!("conditions.{}.current_count", condition_id): value, 
+                        format!("conditions.{}.current_count", condition_idx): value, 
                         "last_condition_update": chrono::Utc::now().to_rfc3339() 
                     }
                 },

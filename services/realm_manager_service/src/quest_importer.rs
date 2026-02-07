@@ -26,7 +26,7 @@ use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debou
 use serde::Deserialize;
 use tokio::{runtime::Handle, task};
 use toolkit::types::Uuid;
-use crate::{db::{AvatarSelector, CombatStyle, Condition, DialogueCondition, InteractCondition, KillCondition, LootCondition, QuestTemplate, WaitCondition, WorldDef}, error::{RealmError, RealmResult}};
+use crate::{db::{AvatarSelector, CombatStyle, Condition, DialogueCondition, InteractCondition, KillCondition, LootCondition, ProximityCondition, QuestTemplate, WaitCondition, WorldDef}, error::{RealmError, RealmResult}};
 
 #[derive(Deserialize, Default)]
 struct YamlQuestTemplate {
@@ -40,7 +40,7 @@ struct YamlQuestTemplate {
     completion_dialogue_id: Option<i32>,
     world: String,
     prerequisites: Option<YamlQuestPrerequisites>,
-    conditions: Vec<YamlQuestCondition>,
+    stages: Vec<Vec<YamlQuestCondition>>,
 }
 
 #[derive(Deserialize, Default)]
@@ -73,11 +73,17 @@ enum YamlAvatarSelector {
 enum YamlQuestTrigger {
     Interact { interact: YamlAvatarSelector },
     Kill { kill: YamlAvatarSelector },
-    Proximity { proximity: YamlAvatarSelector },
+    Proximity { proximity: ProximityTrigger },
     Sojourn { sojourn: YamlAvatarSelector },
     Dialogue { dialogue: i32 },
     Timeout { timeout: f32 },
     Loot { loot: Uuid },
+}
+
+#[derive(Deserialize)]
+pub struct ProximityTrigger {
+    pub avatar: YamlAvatarSelector,
+    pub radius: f32,
 }
 
 impl TryFrom<YamlAvatarSelector> for AvatarSelector {
@@ -160,51 +166,78 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
         completion_dialogue_id: doc.completion_dialogue_id,
         world_id: world.id,
         prerequisites,
-        conditions: doc.conditions.into_iter().map(|c| -> RealmResult<Condition> {
-            match c.trigger {
-                YamlQuestTrigger::Interact { interact } => {
-                    Ok(Condition::Interact(InteractCondition {
-                        id: c.id,
-                        beacon: c.beacon,
-                        required_count: c.required_count,
-                        avatar_selector: interact.try_into()?,
-                    }))
-                },
-                YamlQuestTrigger::Dialogue { dialogue } => {
-                    Ok(Condition::Dialogue(DialogueCondition {
-                        id: c.id,
-                        beacon: c.beacon,
-                        required_count: c.required_count,
-                        dialogue_id: dialogue,
-                    }))
-                },
-                YamlQuestTrigger::Timeout { timeout } => {
-                    Ok(Condition::Wait(WaitCondition {
-                        id: c.id,
-                        wait_time_seconds: timeout,
-                    }))
-                },
-                YamlQuestTrigger::Kill { kill } => {
-                    Ok(Condition::Kill(KillCondition {
-                        id: c.id,
-                        beacon: c.beacon,
-                        required_count: c.required_count,
-                        avatar_selector: kill.try_into()?,
-                    }))
-                },
-                YamlQuestTrigger::Loot { loot } => {
-                    Ok(Condition::Loot(LootCondition { 
-                        id: c.id,
-                        beacon: c.beacon,
-                        required_count: c.required_count,
-                        item_id: loot,
-                    }))
-                },
-                _ => {
-                    unimplemented!("Quest trigger type not implemented yet")
-                }
-            }
-        }).collect::<Result<_, _>>()?,
+        conditions: doc.stages
+            .into_iter()
+            .enumerate()
+            .map(|(stage, conditions)| -> RealmResult<Vec<Condition>> {
+                    conditions
+                        .into_iter()
+                        .map(|c| {
+                            match c.trigger {
+                                YamlQuestTrigger::Interact { interact } => {
+                                    Ok(Condition::Interact(InteractCondition {
+                                        id: c.id,
+                                        stage: stage as i32,
+                                        beacon: c.beacon,
+                                        required_count: c.required_count,
+                                        avatar_selector: interact.try_into()?,
+                                    }))
+                                },
+                                YamlQuestTrigger::Dialogue { dialogue } => {
+                                    Ok(Condition::Dialogue(DialogueCondition {
+                                        id: c.id,
+                                        stage: stage as i32,
+                                        beacon: c.beacon,
+                                        required_count: c.required_count,
+                                        dialogue_id: dialogue,
+                                    }))
+                                },
+                                YamlQuestTrigger::Timeout { timeout } => {
+                                    Ok(Condition::Wait(WaitCondition {
+                                        id: c.id,
+                                        stage: stage as i32,
+                                        wait_time_seconds: timeout,
+                                    }))
+                                },
+                                YamlQuestTrigger::Kill { kill } => {
+                                    Ok(Condition::Kill(KillCondition {
+                                        id: c.id,
+                                        stage: stage as i32,
+                                        beacon: c.beacon,
+                                        required_count: c.required_count,
+                                        avatar_selector: kill.try_into()?,
+                                    }))
+                                },
+                                YamlQuestTrigger::Loot { loot } => {
+                                    Ok(Condition::Loot(LootCondition { 
+                                        id: c.id,
+                                        stage: stage as i32,
+                                        beacon: c.beacon,
+                                        required_count: c.required_count,
+                                        item_id: loot,
+                                    }))
+                                },
+                                YamlQuestTrigger::Proximity { proximity: ProximityTrigger { avatar, radius } } => {
+                                    Ok(Condition::Proximity(ProximityCondition {
+                                        id: c.id,
+                                        stage: stage as i32,
+                                        beacon: c.beacon,
+                                        required_count: c.required_count,
+                                        avatar_selector: avatar.try_into()?,
+                                        radius,
+                                    }))
+                                },
+                                _ => {
+                                    unimplemented!("Quest trigger type not implemented yet")
+                                }
+                            }
+                        })
+                        .collect::<RealmResult<Vec<_>>>()
+            })
+            .collect::<RealmResult<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
     };
 
     QuestTemplate::collection(&db)

@@ -601,7 +601,7 @@ fn replicate_changed_paths_on_clients(
             .expect("Failed to serialize Pathing data");
 
         for (interests, controller) in clients.iter() {
-            if interests.contains_key(&ent) {
+            if interests.contains(&ent) {
                 debug!("Replicating pathing data for agent {} to client {}", info.id, controller.avatar_id());
 
                 controller.send_packet(CPktAvatarBehaviors {

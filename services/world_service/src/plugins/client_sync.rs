@@ -37,7 +37,7 @@ fn sync_avatar_data(
 ) {
     for (entity, obj_avatar, obj, local_obj) in changes.iter() {
         for (player_ent, player_avatar, interests, controller) in players.iter() {
-            if let Some(interests) = interests && interests.contains_key(&entity) {
+            if let Some(interests) = interests && interests.contains(&entity) {
                 let mut param_buffer = Vec::new();
                 let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 

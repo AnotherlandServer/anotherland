@@ -99,7 +99,7 @@ pub(super) fn sync_quest_markers(
         if questlog.is_changed() || interests.is_changed() {
             let mut questgivers = HashSet::new();
 
-            'npc_loop: for (&ent, (avatar, _)) in interests.iter() {
+            'npc_loop: for (&ent, (avatar, _)) in interests.collection().iter() {
                 let Ok(tags) = npcs.get(ent).map(|tags| tags.collection()) else {
                     continue;
                 };
@@ -174,6 +174,26 @@ pub(super) fn handle_quest_request(
                         return Err(anyhow!("World definition not found for world id: {}", template.world_id).into());
                     };
 
+                    let completed_beacon = if 
+                        let Some(id) = template.completion_dialogue_id &&
+                        let Some(mut placement) = RealmApi::get()
+                            .query_placements_by_selector(Some(template.world_id), None, AvatarSelector::DialogId(id)).await?
+                            .into_iter()
+                            .next() &&
+                        let Some(content) = ContentCache::get(&ContentCacheRef::Uuid(placement.content_guid)).await?
+                    {
+                        placement.data.set_parent(Some(content));
+
+                        Some(oaQuestBeacon {
+                            world_guid: *world.guid(),
+                            zone_guid: placement.zone_guid,
+                            position: placement.data.get_named::<Vec3>("pos").copied().unwrap_or_default().into(),
+                            ..Default::default()
+                        })
+                    } else {
+                        None
+                    };
+
                     let mut response = CPktStream_165_2 {
                         field_1: oaQuestTemplate {
                             quest_id: template.id,
@@ -183,6 +203,7 @@ pub(super) fn handle_quest_request(
                             exp_reward: template.exp_reward.unwrap_or_default(),
                             progress_dialogue: template.progress_dialogue_id.unwrap_or_default(),
                             completion_dialogue: template.completion_dialogue_id.unwrap_or_default(),
+                            completed_beacon: completed_beacon.unwrap_or_default(),
                             system_flags: 16,
                             ..Default::default()
                         },
@@ -220,6 +241,13 @@ pub(super) fn handle_quest_request(
                                         Some(AvatarSelector::LootItem(item_id))
                                     }
                                 },
+                                Condition::Proximity { beacon, avatar_selector, .. } => {
+                                    if let Some(id) = beacon {
+                                        Some(AvatarSelector::InstanceId(id))
+                                    } else {
+                                        Some(avatar_selector)
+                                    }
+                                }
                                 _ => None,
                             };
 
@@ -246,7 +274,7 @@ pub(super) fn handle_quest_request(
                         };
 
                         match *condition {
-                            Condition::Dialogue { id, required_count, dialogue_id, .. } => {
+                            Condition::Dialogue { id, stage, required_count, dialogue_id, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -258,11 +286,13 @@ pub(super) fn handle_quest_request(
                                         ..Default::default()
                                     },
                                     required_count,
+                                    stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
-                                                                    ..Default::default()
+                                    flags: 2,
+                                    ..Default::default()
                                 });
                             },
-                            Condition::Interact { id, required_count, avatar_selector, .. } => {
+                            Condition::Interact { id, stage, required_count, avatar_selector, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -270,11 +300,13 @@ pub(super) fn handle_quest_request(
                                     filter1: AvatarFilterConverter(avatar_selector).into(),
                                     filter2: AvatarFilter::default(),
                                     required_count,
+                                    stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
+                                    flags: 2,
                                     ..Default::default()
                                 });
                             },
-                            Condition::Kill { id, required_count, avatar_selector, .. } => {
+                            Condition::Kill { id, stage, required_count, avatar_selector, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -282,11 +314,13 @@ pub(super) fn handle_quest_request(
                                     filter1: AvatarFilterConverter(avatar_selector).into(),
                                     filter2: AvatarFilter::default(),
                                     required_count,
+                                    stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
+                                    flags: 2,
                                     ..Default::default()
                                 });
                             },
-                            Condition::Loot { id, required_count, item_id, .. } => {
+                            Condition::Loot { id, stage, required_count, item_id, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -294,11 +328,13 @@ pub(super) fn handle_quest_request(
                                     filter1: AvatarFilter::default(),
                                     filter2: AvatarFilterConverter(AvatarSelector::LootItem(item_id)).into(),
                                     required_count,
+                                    stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
+                                    flags: 2,
                                     ..Default::default()
                                 });
                             },
-                            Condition::Wait { id, .. } => {
+                            Condition::Wait { id, stage, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -306,7 +342,23 @@ pub(super) fn handle_quest_request(
                                     filter1: AvatarFilter::default(),
                                     filter2: AvatarFilter::default(),
                                     required_count: 1,
+                                    stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
+                                    flags: 2,
+                                    ..Default::default()
+                                });
+                            },
+                            Condition::Proximity { id, stage, .. } => {
+                                response.field_3.push(oaQuestCondition {
+                                    quest_id: template.id,
+                                    condition_id: id,
+                                    kind: OaQuestConditionKind::Unk0,
+                                    filter1: AvatarFilter::default(),
+                                    filter2: AvatarFilter::default(),
+                                    required_count: 1,
+                                    stage,
+                                    waypoint: beacon.clone().unwrap_or_default(),
+                                    flags: 2,
                                     ..Default::default()
                                 });
                             }

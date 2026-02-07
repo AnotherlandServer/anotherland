@@ -76,7 +76,7 @@ fn insert_interests_api(
 
             let result = runtime.vm().create_table()?;
 
-            for ent in interests.keys() {
+            for ent in interests.collection().keys() {
                 if let Ok(obj) = objects.get(*ent) {
                     result.push(obj.object().clone())?;
                 }
@@ -101,11 +101,17 @@ pub struct Interests {
     interests: HashMap<Entity, (AvatarId, InterestState)>,
 }
 
-impl Deref for Interests {
-    type Target = HashMap<Entity, (AvatarId, InterestState)>;
-
-    fn deref(&self) -> &Self::Target {
+impl Interests {
+    pub fn collection(&self) -> &HashMap<Entity, (AvatarId, InterestState)> {
         &self.interests
+    }
+
+    pub fn collection_mut(&mut self) -> &mut HashMap<Entity, (AvatarId, InterestState)> {
+        &mut self.interests
+    }
+
+    pub fn contains(&self, ent: &Entity) -> bool {
+        self.interests.contains_key(ent)
     }
 }
 
@@ -298,7 +304,7 @@ fn update_interest_list(
 
         // update interests
         for ent in &found_interests {
-            if !interests.contains_key(ent) {
+            if !interests.contains(ent) {
                 interests.interests.insert(*ent, (
                     avatar_info.get(*ent).unwrap().id, 
                     InterestState::Initial

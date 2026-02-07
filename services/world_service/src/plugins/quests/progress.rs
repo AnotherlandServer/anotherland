@@ -43,12 +43,16 @@ impl QuestProgress {
     }
 
     pub fn active_condition(&self) -> Option<&QuestCondition> {
+        if self.0.state != QuestProgressionState::Active { return None; }
+
         self.0.conditions
             .iter()
             .find(|condition| condition.current_count < condition.required_count)
     }
 
     pub fn active_condition_mut(&mut self) -> Option<&mut QuestCondition> {
+        if self.0.state != QuestProgressionState::Active { return None; }
+        
         self.0.conditions
             .iter_mut()
             .find(|condition| condition.current_count < condition.required_count)

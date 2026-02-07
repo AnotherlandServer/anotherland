@@ -252,7 +252,7 @@ pub fn process_health_events(
             };
 
             for (controller, interests) in receivers.iter() {
-                if interests.contains_key(&event.entity) || avatar.id == controller.avatar_id() {
+                if interests.contains(&event.entity) || avatar.id == controller.avatar_id() {
                     controller.send_packet(pkt.clone());
                 }
             }

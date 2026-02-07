@@ -26,11 +26,11 @@ use bevy::{app::{Plugin, PreStartup, Update}, ecs::{message::{Message, MessageRe
 use log::{debug, warn};
 use mlua::{Lua, Table};
 use obj_params::{GameObjectData, Player, tags::PlayerTag};
-use protocol::{CPktStream_166_2, DialogStructure, OaPktDialogListKind, oaDialogNode, oaDialogQuestPrototype, oaPktDialogChoice, oaPktDialogEnd, oaPktDialogList};
+use protocol::{CPktStream_166_2, DialogStructure, OaDialogQuestPrototypeMode, OaPktDialogListKind, oaDialogNode, oaDialogQuestPrototype, oaPktDialogChoice, oaPktDialogEnd, oaPktDialogList};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt};
 use toolkit::types::AvatarId;
 
-use crate::{error::WorldResult, plugins::{Avatar, InstanceManager, QuestLog, QuestProgress, ReturnQuest}};
+use crate::{error::WorldResult, plugins::{ActiveQuest, Avatar, InstanceManager, QuestLog, QuestProgress, ReturnQuest}};
 
 use super::{AvatarIdManager, NetworkExtPriv, PlayerController};
 
@@ -47,6 +47,7 @@ impl Plugin for DialoguePlugin {
         app.add_message::<DialogueEnd>();
         app.add_message::<RunDialogue>();
         app.add_message::<RunDeferredQuestDialogues>();
+        app.add_message::<DialogueFinished>();
     }
 }
 
@@ -60,6 +61,12 @@ pub struct RunDialogue {
 #[derive(Message)]
 pub struct DialogueEnd {
     pub player: Entity,
+}
+
+#[derive(Message)]
+pub struct DialogueFinished {
+    pub player: Entity,
+    pub dialogue_id: i32,
 }
 
 #[derive(Message)]
@@ -154,6 +161,16 @@ fn handle_dialogue_choice(
         let Ok(index) = pkt.dialog_choice_serial.parse()
     {
         if index == 0 {
+            commands
+                .write_message(DialogueFinished {
+                    player: ent,
+                    dialogue_id: pkt.dialog_id,
+                })                        
+                .entity(ent)
+                .insert(DeferredQuestDialogueResponse {
+                    speaker
+                });
+
             for quest in quest_log.quests.values() {
                 if 
                     let Ok(quest_progress) = quests.get(*quest) &&
@@ -172,6 +189,8 @@ fn handle_dialogue_choice(
                     return;
                 }
             }
+
+            return;
         }
 
         commands
@@ -214,19 +233,42 @@ fn run_dialogues(
     mut messages: MessageReader<RunDialogue>,
     player: Query<(&PlayerController, &GameObjectData, &QuestLog), With<PlayerTag>>,
     target: Query<(&Avatar, &Dialogues)>,
-    dialogues: Query<&Dialogue>,
+    dialogues: Query<(&Dialogue, Option<&QuestDialogue>)>,
+    progress: Query<&QuestProgress, With<ActiveQuest>>,
+    mut commands: Commands,
 ) {
-
-    for &RunDialogue { player: player_ent, speaker, serial } in messages.read() {
+    'events: for &RunDialogue { player: player_ent, speaker, serial } in messages.read() {
 
         if 
             let Ok((target, dialogue_ents)) = target.get(speaker) &&
             let Ok((controller, object, questlog)) = player.get(player_ent)
         {
             'dialogue: for dialogue in dialogue_ents.collection() {
-                let Ok(dialogue) = dialogues.get(*dialogue) else {
+                let Ok((dialogue, quest_dialogue)) = dialogues.get(*dialogue) else {
                     continue;
                 };
+
+                // Check if dialogue is attached to a quest condition and skip over it,
+                // if the condition is not active.
+                if 
+                    let Some(quest_dialogue) = quest_dialogue &&
+                    let Some(progress) = questlog.quests.values()
+                        .find_map(|quest| {
+                            if 
+                                let Ok(progress) = progress.get(*quest) &&
+                                progress.state().quest_id == quest_dialogue.quest_id
+                            {
+                                Some(progress)
+                            } else {
+                                None
+                            }
+                        }) &&
+                    let Some(condition) = progress.active_condition() &&
+                    condition.id != quest_dialogue.condition_id
+                {
+                    // This dialogue is for a quest condition that is not currently active, skip it.
+                    continue 'dialogue;
+                }
 
                 let branches = dialogue.0.branches
                     .iter()
@@ -309,6 +351,11 @@ fn run_dialogues(
                             quest_prototype: match current_line.quest_id {
                                 Some(id) => oaDialogQuestPrototype {
                                     quest_id: id as u32,
+                                    mode: if questlog.quests.contains_key(&id) {
+                                        OaDialogQuestPrototypeMode::Return
+                                    } else {
+                                        OaDialogQuestPrototypeMode::Offer
+                                    },
                                     ..Default::default()
                                 },
                                 None => oaDialogQuestPrototype::default(),
@@ -320,10 +367,14 @@ fn run_dialogues(
                     debug!("Sending dialogue to player {}: {:#?}", controller.avatar_id(), pkt);
 
                     controller.send_packet(pkt);
-                    break 'dialogue;
+                    continue 'events;
                 }
             }
         }
+
+        commands.write_message(DialogueEnd {
+            player: player_ent
+        });
     }
 }
 

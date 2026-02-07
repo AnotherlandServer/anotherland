@@ -20,9 +20,9 @@ use mlua::Table;
 use realm_api::QuestTemplate;
 
 pub struct Quest {
-    pub(super) id: i32,
-    pub(super) obj: Table,
-    pub(super) template: Arc<QuestTemplate>,
+    pub id: i32,
+    pub obj: Table,
+    pub template: Arc<QuestTemplate>,
 }
 
 #[derive(Clone, Copy)]

@@ -221,7 +221,7 @@ pub fn send_position_updates(
     for (entity, avatar, pos) in positions.iter() {
         // check player interest list to dispatch updates
         for (interests, controller) in players.iter() {
-            if interests.contains_key(&entity) {
+            if interests.contains(&entity) {
                 controller.send_packet(oaPktMoveManagerPosUpdate {
                     avatar_id: avatar.id,
                     pos: pos.position.into(),

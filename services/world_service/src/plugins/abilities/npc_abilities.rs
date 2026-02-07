@@ -288,8 +288,8 @@ pub fn insert_ability_api(
             for (ent, controller, interests) in players.iter() {
                 if 
                     ent == source_ent ||
-                    interests.contains_key(&source_ent) ||
-                    target_ent.map(|t| interests.contains_key(&t)).unwrap_or(false)
+                    interests.contains(&source_ent) ||
+                    target_ent.map(|t| interests.contains(&t)).unwrap_or(false)
                 {
                     controller.send_packet(oaPktAbilityUse {
                         player: source.id,

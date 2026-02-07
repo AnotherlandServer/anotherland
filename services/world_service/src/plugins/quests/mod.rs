@@ -61,7 +61,8 @@ impl Plugin for QuestsPlugin {
             handle_quest_state_changes,
             handle_quest_condition_update,
             interaction_event_listener,
-            updated_timed_conditions,
+            update_passive_conditions,
+            update_dialogue_conditions,
             auto_return_quests,
             sync_quest_state.after(handle_quest_state_changes), 
             (

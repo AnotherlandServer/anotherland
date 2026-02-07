@@ -15,10 +15,11 @@
 
 use bevy::{ecs::{entity::Entity, hierarchy::ChildOf, message::{Message, MessageReader}, query::{With, Without}, system::{Commands, Query, Res}}};
 use chrono::Utc;
-use obj_params::GameObjectData;
+use log::debug;
+use obj_params::{GameObjectData, Player, tags::PlayerTag};
 use realm_api::Condition;
 
-use crate::plugins::{ActiveQuest, AsyncOperationEntityCommandsExt, AvatarSelectorMatcher, ContentInfo, Interaction, InteractionEvent, QuestLog, QuestProgress, QuestStatePending, Quests, player_error_handler_system, quests::handle_db_quest_update};
+use crate::plugins::{ActiveQuest, AsyncOperationEntityCommandsExt, AvatarSelectorMatcher, ContentInfo, DialogueFinished, Interaction, InteractionEvent, Interests, Movement, QuestLog, QuestProgress, QuestStatePending, Quests, player_error_handler_system, quests::handle_db_quest_update};
 
 #[derive(Message, Clone, Copy)]
 pub struct QuestConditionUpdate {
@@ -54,6 +55,10 @@ pub(super) fn handle_quest_condition_update(
             continue;
         };
 
+        let Some((condition_idx, _)) = quest_state.conditions.iter().enumerate().find(|(_, c)| c.id == condition_id) else {
+            continue;
+        };
+
         commands
             .entity(*quest_ent)
             .insert(QuestStatePending);
@@ -61,7 +66,7 @@ pub(super) fn handle_quest_condition_update(
         commands
             .entity(player)
             .perform_async_operation(async move {
-                quest_state.update_condition(condition_id, 
+                quest_state.update_condition(condition_idx as i32, 
                     match update {
                         ConditionUpdate::Added(_) => realm_api::ConditionUpdate::Increment,
                         ConditionUpdate::Removed(_) => realm_api::ConditionUpdate::Increment,
@@ -133,12 +138,14 @@ pub(super) fn interaction_event_listener(
     }
 }
 
-pub fn updated_timed_conditions(
-    progress: Query<(&ChildOf, &QuestProgress), (With<ActiveQuest>, Without<QuestStatePending>)>,
+pub fn update_passive_conditions(
+    progress: Query<(Entity, &ChildOf, &QuestProgress), (With<ActiveQuest>, Without<QuestStatePending>)>,
+    player: Query<(&Movement, &Interests)>,
+    targets: Query<(&ContentInfo, &GameObjectData, &Movement)>,
     quests: Res<Quests>,
     mut commands: Commands,
 ) {
-    for (child_of, progress) in progress.iter() {
+    for (quest_ent, child_of, progress) in progress.iter() {
         let Some(condition) = progress.active_condition() else {
             continue;
         };
@@ -151,19 +158,91 @@ pub fn updated_timed_conditions(
             continue;
         };
 
-        if 
-            let &Condition::Wait { id, wait_time_seconds } = condition_tpl &&
-            Utc::now()
-                .signed_duration_since(progress.state().last_condition_update)
-                .as_seconds_f64() >= wait_time_seconds
-        {
-            commands
-                .write_message(QuestConditionUpdate {
-                    player: child_of.parent(),
-                    quest_id: progress.state().quest_id,
-                    condition_id: id,
-                    update: ConditionUpdate::Added(1),
-                });
+        match *condition_tpl {
+            Condition::Wait { id, wait_time_seconds, .. } => {
+                if
+                    Utc::now()
+                        .signed_duration_since(progress.state().last_condition_update)
+                        .as_seconds_f64() >= wait_time_seconds
+                {
+                    commands
+                        .entity(quest_ent)
+                        .insert(QuestStatePending);
+
+                    commands
+                        .write_message(QuestConditionUpdate {
+                            player: child_of.parent(),
+                            quest_id: progress.state().quest_id,
+                            condition_id: id,
+                            update: ConditionUpdate::Added(1),
+                        });
+                }
+            },
+            Condition::Proximity { avatar_selector, radius, .. } => {
+                let Ok((player_movement, interests)) = player.get(child_of.parent()) else {
+                    continue;
+                };
+
+                for ent in interests.collection().keys() {
+                    let Ok((target_info, target_data, target_movement)) = targets.get(*ent) else {
+                        continue;
+                    };
+
+                    if 
+                        avatar_selector.matches(target_info, target_data) &&
+                        player_movement.position.distance(target_movement.position) <= radius as f32
+                    {
+                        commands
+                            .entity(quest_ent)
+                            .insert(QuestStatePending);
+
+                        commands
+                            .write_message(QuestConditionUpdate {
+                                player: child_of.parent(),
+                                quest_id: progress.state().quest_id,
+                                condition_id: condition.id,
+                                update: ConditionUpdate::Added(1),
+                            });
+                    }
+                }
+            },
+            _ => {}
+        }
+
+    }
+}
+
+pub fn update_dialogue_conditions(
+    mut events: MessageReader<DialogueFinished>,
+    quests: Res<Quests>,
+    players: Query<&QuestLog>,
+    active_quests: Query<&QuestProgress, With<ActiveQuest>>,
+    mut commands: Commands,
+) {
+    for &DialogueFinished { player, dialogue_id } in events.read() {
+        let Ok(quest_log) = players.get(player) else {
+            continue;
+        };
+
+        for quest_ent in quest_log.quests.values() {
+            let Ok(quest_progress) = active_quests.get(*quest_ent) else {
+                continue;
+            };
+
+            if 
+                let Some(condition) = quest_progress.active_condition() && 
+                let Some(quest) = quests.get(&quest_progress.state().quest_id) &&
+                let Some(Condition::Dialogue { dialogue_id: cond_dialogue_id, .. }) = quest.template.conditions.iter().find(|c| c.id() == condition.id) &&
+                *cond_dialogue_id == dialogue_id
+            {
+                commands
+                    .write_message(QuestConditionUpdate {
+                        player,
+                        quest_id: quest_progress.state().quest_id,
+                        condition_id: condition.id,
+                        update: ConditionUpdate::Added(1),
+                    });
+            }
         }
     }
 }

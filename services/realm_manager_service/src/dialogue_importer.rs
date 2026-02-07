@@ -34,7 +34,7 @@ struct YamlDialogue {
 
 #[derive(Deserialize, Default)]
 struct YamlDialogueBranch {
-    selector: YamlDialogueSelector,
+    selector: Option<YamlDialogueSelector>,
     lines: Vec<YamlDialogueLine>,
 }
 
@@ -90,7 +90,7 @@ async fn import_dialogue_yaml(db: Database, doc: YamlDialogue) -> RealmResult<()
     let dialogue = QuestDialogue {
         id: doc.id,
         branches: doc.branches.into_iter().map(|branch| {
-            let selector = branch.selector;
+            let selector = branch.selector.unwrap_or_default();
             let dialogue_selector = crate::db::DialogueBranchSelector {
                 quests_available: selector.quests_available.unwrap_or_default(),
                 quests_in_progress: selector.quests_in_progress.unwrap_or_default(),

@@ -266,7 +266,7 @@ fn send_buff_update(
             for (ent, interests, controller) in players.iter() {
                 debug!("Checking interests for {ent:?}");
 
-                if child_of.parent() == ent || interests.contains_key(&child_of.parent()) {
+                if child_of.parent() == ent || interests.contains(&child_of.parent()) {
                     debug!("Sending buff update to {ent:?}");
 
                     controller.send_packet(CPktBuffUpdate {
@@ -360,7 +360,7 @@ fn remove_buffs(
 
         if let Ok(avatar) = avatar_query.get(child_of.parent()) {
             for (ent, interests, controller) in players.iter() {
-                if child_of.parent() == ent || interests.contains_key(&child_of.parent()) {
+                if child_of.parent() == ent || interests.contains(&child_of.parent()) {
                     controller.send_packet(CPktBuffRequest {
                         avatar_id: avatar.id,
                         instance_id: content.placement_id,

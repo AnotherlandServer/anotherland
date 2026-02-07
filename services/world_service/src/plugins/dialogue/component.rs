@@ -16,13 +16,20 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use bevy::ecs::{component::Component, entity::Entity, error::Result};
-use realm_api::QuestDialogue;
+use bevy::ecs::{component::Component, entity::Entity, error::Result, lifecycle::HookContext, world::DeferredWorld};
+use realm_api::Condition;
 
-use crate::plugins::{LoadContext, LoadableComponent, WeakCache, dialogue::cache::DialogueCache};
+use crate::plugins::{LoadContext, LoadableComponent, Quests, WeakCache, dialogue::cache::DialogueCache};
 
 #[derive(Component)]
-pub struct Dialogue(pub Arc<QuestDialogue>);
+#[component(on_add = on_dialogue_add)]
+pub struct Dialogue(pub Arc<realm_api::QuestDialogue>);
+
+#[derive(Component)]
+pub struct QuestDialogue {
+    pub quest_id: i32,
+    pub condition_id: i32,
+}
 
 impl LoadableComponent for Dialogue {
     type Parameters = i32;
@@ -40,4 +47,39 @@ impl LoadableComponent for Dialogue {
 #[derive(Component)]
 pub struct DeferredQuestDialogueResponse {
     pub speaker: Entity,
+}
+
+fn on_dialogue_add(mut world: DeferredWorld, context: HookContext) {
+    let quests = world.resource::<Quests>();
+    let my_dialogue_id = world.get::<Dialogue>(context.entity)
+        .map(|d| d.0.id)
+        .unwrap();
+
+    for (_, quest) in quests.iter() {
+        let relevant_condition_id = quest.template.conditions
+            .iter()
+            .find_map(|c| {
+                if 
+                    let Condition::Dialogue { id, dialogue_id, .. } = c &&
+                    *dialogue_id == my_dialogue_id
+                {
+                    Some(*id)
+                } else {
+                    None
+                }
+            });
+        
+        if let Some(condition_id) = relevant_condition_id {
+            let quest_id = quest.id;
+            world
+                .commands()
+                .entity(context.entity)
+                .insert(QuestDialogue {
+                    quest_id,
+                    condition_id
+                });
+            
+            return;
+        }
+    }
 }

@@ -147,6 +147,7 @@ pub enum AvatarSelector {
 #[graphql(complex, input_name = "InteractConditionInput")]
 pub struct InteractCondition {
     pub id: i32,
+    pub stage: i32,
     pub beacon: Option<Uuid>,
     pub required_count: i32,
     #[graphql(skip_output)]
@@ -164,6 +165,7 @@ impl InteractCondition {
 #[graphql(input_name = "DialogueConditionInput")]
 pub struct DialogueCondition {
     pub id: i32,
+    pub stage: i32,
     pub beacon: Option<Uuid>,
     pub required_count: i32,
     pub dialogue_id: i32,
@@ -179,6 +181,7 @@ pub struct RemovedCondition {
 #[graphql(input_name = "WaitConditionInput")]
 pub struct WaitCondition {
     pub id: i32,
+    pub stage: i32,
     pub wait_time_seconds: f32,
 }
 
@@ -186,6 +189,7 @@ pub struct WaitCondition {
 #[graphql(complex, input_name = "KillConditionInput")]
 pub struct KillCondition {
     pub id: i32,
+    pub stage: i32,
     pub beacon: Option<Uuid>,
     pub required_count: i32,
     #[graphql(skip_output)]
@@ -203,9 +207,29 @@ impl KillCondition {
 #[graphql(input_name = "LootConditionInput")]
 pub struct LootCondition {
     pub id: i32,
+    pub stage: i32,
     pub beacon: Option<Uuid>,
     pub required_count: i32,
     pub item_id: Uuid,
+}
+
+#[derive(Serialize, Deserialize, SimpleObject, InputObject)]
+#[graphql(complex, input_name = "ProximityConditionInput")]
+pub struct ProximityCondition {
+    pub id: i32,
+    pub stage: i32,
+    pub beacon: Option<Uuid>,
+    pub required_count: i32,
+    #[graphql(skip_output)]
+    pub avatar_selector: AvatarSelector,
+    pub radius: f32,
+}
+
+#[ComplexObject]
+impl ProximityCondition {
+    async fn avatar_selector(&self) -> AvatarSelectorOutput {
+        self.avatar_selector.clone().into()
+    }
 }
 
 #[derive(Serialize, Deserialize, Interface, OneofObject)]
@@ -220,4 +244,5 @@ pub enum Condition {
     Wait(WaitCondition),
     Kill(KillCondition),
     Loot(LootCondition),
+    Proximity(ProximityCondition),
 }
