@@ -243,12 +243,12 @@ impl QuestState {
         Ok(())
     }
 
-    pub async fn update_condition(&mut self, condition_id: i32, update: ConditionUpdate, value: i32) -> RealmApiResult<()> {
+    pub async fn update_condition(&mut self, condition_idx: i32, update: ConditionUpdate, value: i32) -> RealmApiResult<()> {
         if 
             let Some(api_base) = &self.api_base &&
             let Some(graphql_id) = &self.id &&
             let Some(updated) = api_base
-                .update_condition(graphql_id, condition_id, update, value)
+                .update_condition(graphql_id, condition_idx, update, value)
                 .await?
         {
             *self = updated;
@@ -356,7 +356,7 @@ impl RealmApi {
     pub async fn update_condition(
         &self,
         state_id: &Id,
-        condition_id: i32,
+        condition_idx: i32,
         update: ConditionUpdate,
         value: i32,
     ) -> RealmApiResult<Option<QuestState>> {
@@ -367,7 +367,7 @@ impl RealmApi {
             .run_graphql(queststate_graphql::UpdateCondition::build(
                 queststate_graphql::UpdateConditionVariables {
                     state_id: state_id.clone(),
-                    condition_id,
+                    condition_idx,
                     update: update.into(),
                     value,
                 },
@@ -564,7 +564,7 @@ pub(crate) mod queststate_graphql {
     #[derive(cynic::QueryVariables, Debug)]
     pub struct UpdateConditionVariables {
         pub state_id: ID,
-        pub condition_id: i32,
+        pub condition_idx: i32,
         pub update: ConditionUpdate,
         pub value: i32,
     }
@@ -573,7 +573,7 @@ pub(crate) mod queststate_graphql {
     #[derive(cynic::QueryFragment)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateConditionVariables")]
     pub struct UpdateCondition {
-        #[arguments(stateId: $state_id, conditionId: $condition_id, update: $update, value: $value)]
+        #[arguments(stateId: $state_id, conditionIdx: $condition_idx, update: $update, value: $value)]
         pub update_condition: Option<QuestStateChangeResult>,
     }
 
