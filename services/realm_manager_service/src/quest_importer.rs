@@ -55,6 +55,8 @@ struct YamlQuestCondition {
     id: i32,
     beacon: Option<Uuid>,
     required_count: i32,
+    #[serde(default)]
+    hidden: bool,
     trigger: YamlQuestTrigger,
 }
 
@@ -179,6 +181,7 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
                                         id: c.id,
                                         stage: stage as i32,
                                         beacon: c.beacon,
+                                        hidden: c.hidden,
                                         required_count: c.required_count,
                                         avatar_selector: interact.try_into()?,
                                     }))
@@ -188,6 +191,7 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
                                         id: c.id,
                                         stage: stage as i32,
                                         beacon: c.beacon,
+                                        hidden: c.hidden,
                                         required_count: c.required_count,
                                         dialogue_id: dialogue,
                                     }))
@@ -196,6 +200,7 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
                                     Ok(Condition::Wait(WaitCondition {
                                         id: c.id,
                                         stage: stage as i32,
+                                        hidden: c.hidden,
                                         wait_time_seconds: timeout,
                                     }))
                                 },
@@ -204,6 +209,7 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
                                         id: c.id,
                                         stage: stage as i32,
                                         beacon: c.beacon,
+                                        hidden: c.hidden,
                                         required_count: c.required_count,
                                         avatar_selector: kill.try_into()?,
                                     }))
@@ -213,6 +219,7 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
                                         id: c.id,
                                         stage: stage as i32,
                                         beacon: c.beacon,
+                                        hidden: c.hidden,
                                         required_count: c.required_count,
                                         item_id: loot,
                                     }))
@@ -222,6 +229,7 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
                                         id: c.id,
                                         stage: stage as i32,
                                         beacon: c.beacon,
+                                        hidden: c.hidden,
                                         required_count: c.required_count,
                                         avatar_selector: avatar.try_into()?,
                                         radius,

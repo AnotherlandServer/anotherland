@@ -40,10 +40,10 @@ use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperation
 use super::{attach_scripts, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, MessageType, NetworkExtPriv, PlayerController, StringBehavior};
 
 #[derive(Default)]
-struct EquipmentResult {
-    error: Option<(String, Option<NativeParam>)>,
-    character_update: Option<Box<dyn GenericParamSet>>,
-    storage_results: Vec<StorageResult>,
+pub struct EquipmentResult {
+    pub error: Option<(String, Option<NativeParam>)>,
+    pub character_update: Option<Box<dyn GenericParamSet>>,
+    pub storage_results: Vec<StorageResult>,
 }
 
 impl EquipmentResult {
@@ -583,7 +583,7 @@ fn behavior_inventory_request_unequip(
     }
 }
 
-fn apply_equipment_result(
+pub fn apply_equipment_result(
     In((instigator, result)): In<(Entity, EquipmentResult)>,
     mut players: Query<(&mut GameObjectData, &PlayerController), With<PlayerTag>>,
     mut commands: Commands,
@@ -607,7 +607,7 @@ fn apply_equipment_result(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn apply_storage_result(
+pub fn apply_storage_result(
     In((instigator, result)): In<(Entity, StorageResult)>,
     mut storages: Query<&mut Inventory>,
     controllers: Query<&PlayerController>,

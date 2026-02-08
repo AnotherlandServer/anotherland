@@ -24,7 +24,7 @@ use realm_api::{ObjectPlacement, RealmApi};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{Active, AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_class_item_result, player_error_handler_system, travel_to_portal}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{Active, AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_class_item_result, player_error_handler_system, travel_to_portal}, proto::TravelMode};
 
 pub(super) fn insert_player_api(
     world: &mut World,
@@ -80,7 +80,17 @@ pub(super) fn insert_player_api(
             commands
                 .entity(ent)
                 .perform_async_operation(async move {
-                    Ok((RealmApi::get().character_apply_class_item(&character_id, &class_item, clear_inventory).await, callback))
+                    Ok((
+                        EquipmentResult::from_result(
+                            RealmApi::get()
+                                .character_apply_class_item(
+                                    &character_id, 
+                                    &class_item, 
+                                    clear_inventory
+                                ).await?
+                        ).await?, 
+                        callback
+                    ))
                 })
                 .on_finish_run_system(apply_class_item_result)
                 .on_error_run_system(player_error_handler_system);

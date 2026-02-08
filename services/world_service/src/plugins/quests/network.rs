@@ -274,7 +274,7 @@ pub(super) fn handle_quest_request(
                         };
 
                         match *condition {
-                            Condition::Dialogue { id, stage, required_count, dialogue_id, .. } => {
+                            Condition::Dialogue { id, stage, hidden, required_count, dialogue_id, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -288,11 +288,11 @@ pub(super) fn handle_quest_request(
                                     required_count,
                                     stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
-                                    flags: 2,
+                                    flags: if hidden { 0 } else { 2 },
                                     ..Default::default()
                                 });
                             },
-                            Condition::Interact { id, stage, required_count, avatar_selector, .. } => {
+                            Condition::Interact { id, stage, hidden, required_count, avatar_selector, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -302,11 +302,11 @@ pub(super) fn handle_quest_request(
                                     required_count,
                                     stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
-                                    flags: 2,
+                                    flags: if hidden { 0 } else { 2 },
                                     ..Default::default()
                                 });
                             },
-                            Condition::Kill { id, stage, required_count, avatar_selector, .. } => {
+                            Condition::Kill { id, stage, hidden, required_count, avatar_selector, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -316,11 +316,11 @@ pub(super) fn handle_quest_request(
                                     required_count,
                                     stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
-                                    flags: 2,
+                                    flags: if hidden { 0 } else { 2 },
                                     ..Default::default()
                                 });
                             },
-                            Condition::Loot { id, stage, required_count, item_id, .. } => {
+                            Condition::Loot { id, stage, hidden, required_count, item_id, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -330,11 +330,11 @@ pub(super) fn handle_quest_request(
                                     required_count,
                                     stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
-                                    flags: 2,
+                                    flags: if hidden { 0 } else { 2 },
                                     ..Default::default()
                                 });
                             },
-                            Condition::Wait { id, stage, .. } => {
+                            Condition::Wait { id, stage, hidden, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -344,11 +344,11 @@ pub(super) fn handle_quest_request(
                                     required_count: 1,
                                     stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
-                                    flags: 2,
+                                    flags: if hidden { 0 } else { 2 },
                                     ..Default::default()
                                 });
                             },
-                            Condition::Proximity { id, stage, .. } => {
+                            Condition::Proximity { id, stage, hidden, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
@@ -358,7 +358,7 @@ pub(super) fn handle_quest_request(
                                     required_count: 1,
                                     stage,
                                     waypoint: beacon.clone().unwrap_or_default(),
-                                    flags: 2,
+                                    flags: if hidden { 0 } else { 2 },
                                     ..Default::default()
                                 });
                             }

@@ -13,16 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{ecs::message::MessageWriter, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
+use bevy::{ecs::{message::MessageWriter, world::World}, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
 use log::{debug, error, trace, warn};
 use mlua::Function;
 use obj_params::{tags::PlayerTag, AttributeInfo, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, Player, Value};
 use protocol::{oaAbilityBarReferences, CPktAvatarUpdate};
-use realm_api::{AbilitySlot, EquipmentResult, ObjectPlacement, RealmApi, RealmApiResult};
+use realm_api::{AbilitySlot, ObjectPlacement, RealmApi, RealmApiResult};
 use scripting::{EntityScriptCommandsExt, ScriptObject};
 use toolkit::{NativeParam, OtherlandQuatExt};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{ConnectionState, CurrentState, HealthUpdateEvent, InitialInventoryTransfer, MessageType, Movement, PlayerController, ServerAction}, proto::TravelMode};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{ConnectionState, CurrentState, EquipmentResult, HealthUpdateEvent, InitialInventoryTransfer, Inventory, MessageType, Movement, PlayerController, ServerAction, apply_equipment_result}, proto::TravelMode};
 
 #[allow(clippy::type_complexity)]
 pub fn spawn_player(
@@ -130,34 +130,42 @@ pub fn cmd_instant_kill(
 }
 
 pub fn apply_class_item_result(
-    In((ent, (result, callback))): In<(Entity, (RealmApiResult<EquipmentResult>, Option<Function>))>,
-    mut query: Query<&mut GameObjectData>,
+    In((ent, (result, callback))): In<(Entity, (EquipmentResult, Option<Function>))>,
+    mut query: Query<(&mut GameObjectData, Option<&Inventory>)>,
     mut commands: Commands,
 ) {
-    match result {
-        Ok(res) => {
-            if let Some(mut changes) = res.character_update {
-                if let Ok(mut data) = query.get_mut(ent) {
-                    data.apply(changes.as_mut());
-                } else {
-                    error!("Player not found!");
-                }
-
-                if let Some(callback) = callback {
-                    commands
-                        .entity(ent)
-                        .call_lua_method(callback, ());
-                } else {
-                    debug!("No callback")
-                }
-            }
-        },
-        Err(e) => {
-            error!("Failed to apply class item: {e:?}");
+    if let Ok((mut data, inventory)) = query.get_mut(ent) {
+        if inventory.is_some() {
             commands
-                .entity(ent)
-                .despawn();
+                .run_system_cached_with(apply_equipment_result, (
+                    ent,
+                    result,
+                ));
+            
+            if let Some(callback) = callback {
+                commands
+                    .queue(move |world: &mut World| {
+                        world
+                            .commands()
+                            .entity(ent)
+                            .call_lua_method(callback, ());
+                    });
+            }
+        } else {
+            if let Some(mut changes) = result.character_update {
+                data.apply(changes.as_mut());
+            }
+
+            if let Some(callback) = callback {
+                commands
+                    .entity(ent)
+                    .call_lua_method(callback, ());
+            } else {
+                debug!("No callback")
+            }
         }
+    } else {
+        error!("Player not found!");
     }
 }
 

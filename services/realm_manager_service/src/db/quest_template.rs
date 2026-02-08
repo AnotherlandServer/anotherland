@@ -148,6 +148,7 @@ pub enum AvatarSelector {
 pub struct InteractCondition {
     pub id: i32,
     pub stage: i32,
+    pub hidden: bool,
     pub beacon: Option<Uuid>,
     pub required_count: i32,
     #[graphql(skip_output)]
@@ -166,6 +167,7 @@ impl InteractCondition {
 pub struct DialogueCondition {
     pub id: i32,
     pub stage: i32,
+    pub hidden: bool,
     pub beacon: Option<Uuid>,
     pub required_count: i32,
     pub dialogue_id: i32,
@@ -182,6 +184,7 @@ pub struct RemovedCondition {
 pub struct WaitCondition {
     pub id: i32,
     pub stage: i32,
+    pub hidden: bool,
     pub wait_time_seconds: f32,
 }
 
@@ -190,6 +193,7 @@ pub struct WaitCondition {
 pub struct KillCondition {
     pub id: i32,
     pub stage: i32,
+    pub hidden: bool,
     pub beacon: Option<Uuid>,
     pub required_count: i32,
     #[graphql(skip_output)]
@@ -208,6 +212,7 @@ impl KillCondition {
 pub struct LootCondition {
     pub id: i32,
     pub stage: i32,
+    pub hidden: bool,
     pub beacon: Option<Uuid>,
     pub required_count: i32,
     pub item_id: Uuid,
@@ -218,6 +223,7 @@ pub struct LootCondition {
 pub struct ProximityCondition {
     pub id: i32,
     pub stage: i32,
+    pub hidden: bool,
     pub beacon: Option<Uuid>,
     pub required_count: i32,
     #[graphql(skip_output)]

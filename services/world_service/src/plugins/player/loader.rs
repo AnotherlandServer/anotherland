@@ -58,6 +58,12 @@ impl AvatarLoader {
             },
         }.to_bytes());
 
+        // Reset character hp on first time spawn.
+        if *character.data().get::<_, bool>(Player::FirstTimeSpawn)? {
+            let hp = *character.data().get::<_, i32>(Player::HpMax)?;
+            character.data_mut().set(Player::HpCur, hp);
+        }
+
         Ok(character)
     }
 
@@ -156,7 +162,6 @@ impl AvatarLoader {
         if *obj.get(Player::FirstTimeSpawn).unwrap() {
             obj.set(Player::Pos, (0u32, entrypoint_pos));
             obj.set(Player::Rot, entrypoint_rot);
-            obj.set(Player::FirstTimeSpawn, false);
             obj.set(Player::SpawnMode, 1);
         } else {
             let controller = entity.get::<PlayerController>().unwrap();
