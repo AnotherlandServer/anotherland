@@ -1,0 +1,21 @@
+[package]
+name = "quest-compiler"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+content = { version = "0.1.0", path = "../../lib/content" }
+futures-util.workspace = true
+log.workspace = true
+notify.workspace = true
+notify-debouncer-full.workspace = true
+realm_api = { workspace = true }
+reqwest.workspace = true
+serde.workspace = true
+serde-saphyr.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true }
+toolkit = { workspace = true }

@@ -169,7 +169,7 @@ impl RecordQuery for QuestDialogueQuery {
                 at_end: !quest_dialogues.page_info.has_next_page,
                 last_cursor: quest_dialogues.page_info.end_cursor,
                 records: quest_dialogues.nodes.into_iter()
-                    .map(|d| QuestDialogue::from_graphql(&self.api_base, d))
+                    .map(QuestDialogue::from_graphql)
                     .collect(),
             })
         } else if let Some(errors) = response.errors {
@@ -189,38 +189,51 @@ impl QuestDialogueQueryBuilder {
 #[derive(Builder, Clone)]
 #[builder(pattern = "owned")]
 pub struct QuestDialogue {
-    #[builder(setter(skip))]
-    api_base: Option<RealmApi>,
-
     pub id: i32,
     #[builder(default)]
     pub branches: Vec<DialogueBranch>,
 }
 
 impl QuestDialogue {
-    pub async fn delete(&self) -> RealmApiResult<()> {
-        if let Some(api_base) = &self.api_base {
-            let response = api_base.0.client
-                .post(api_base.0.base_url.clone())
-                .run_graphql(quest_dialogue_graphql::DeleteQuestDialogue::build(quest_dialogue_graphql::DeleteQuestDialogueVariables {
-                    id: self.id
-                })).await?;
+    pub async fn save(&self) -> RealmApiResult<QuestDialogue> {
+        let response = RealmApi::get().0.client
+            .post(RealmApi::get().0.base_url.clone())
+            .run_graphql(quest_dialogue_graphql::UpdateQuestDialogue::build(quest_dialogue_graphql::UpdateQuestDialogueVariables {
+                id: self.id,
+                input: self.as_graphql(),
+            })).await?;
 
-            if let Some(quest_dialogue_graphql::DeleteQuestDialogue { .. }) = response.data {
-                Ok(())
-            } else if let Some(errors) = response.errors {
-                Err(RealmApiError::GraphQl(errors))
+        if let Some(quest_dialogue_graphql::UpdateQuestDialogue { update_quest_dialogue }) = response.data {
+            if let Some(dialogue) = update_quest_dialogue {
+                Ok(QuestDialogue::from_graphql(dialogue))
             } else {
-                unreachable!()
+                Err(RealmApiError::Other(toolkit::anyhow::anyhow!("Quest dialogue not found")))
             }
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
         } else {
-            Ok(())
+            unreachable!()
         }
     }
 
-    fn from_graphql(api: &RealmApi, other: quest_dialogue_graphql::QuestDialogue) -> Self {
+    pub async fn delete(&self) -> RealmApiResult<()> {
+        let response = RealmApi::get().0.client
+            .post(RealmApi::get().0.base_url.clone())
+            .run_graphql(quest_dialogue_graphql::DeleteQuestDialogue::build(quest_dialogue_graphql::DeleteQuestDialogueVariables {
+                id: self.id
+            })).await?;
+
+        if let Some(quest_dialogue_graphql::DeleteQuestDialogue { .. }) = response.data {
+            Ok(())
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn from_graphql(other: quest_dialogue_graphql::QuestDialogue) -> Self {
         Self {
-            api_base: Some(api.clone()),
             id: other.id,
             branches: other.branches.into_iter().map(DialogueBranch::from_graphql).collect(),
         }
@@ -244,7 +257,7 @@ impl RealmApi {
 
         if let Some(quest_dialogue_graphql::GetQuestDialogue { quest_dialogue }) = response.data {
             if let Some(dialogue) = quest_dialogue {
-                Ok(Some(QuestDialogue::from_graphql(self, dialogue)))
+                Ok(Some(QuestDialogue::from_graphql(dialogue)))
             } else {
                 Ok(None)
             }
@@ -268,7 +281,7 @@ impl RealmApi {
             })).await?;
 
         if let Some(quest_dialogue_graphql::CreateQuestDialogue { create_quest_dialogue }) = response.data {
-            Ok(QuestDialogue::from_graphql(self, create_quest_dialogue))
+            Ok(QuestDialogue::from_graphql(create_quest_dialogue))
         } else if let Some(errors) = response.errors {
             Err(RealmApiError::GraphQl(errors))
         } else {
@@ -323,6 +336,12 @@ pub(crate) mod quest_dialogue_graphql {
     #[derive(cynic::QueryVariables, Debug)]
     pub struct DeleteQuestDialogueVariables {
         pub id: i32,
+    }
+
+    #[derive(cynic::QueryVariables, Debug)]
+    pub struct UpdateQuestDialogueVariables<'a> {
+        pub id: i32,
+        pub input: QuestDialogueInput<'a>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]
@@ -395,6 +414,13 @@ pub(crate) mod quest_dialogue_graphql {
         #[arguments(id: $id)]
         #[allow(dead_code)]
         pub delete_quest_dialogue: Option<QuestDialogue>,
+    }
+
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateQuestDialogueVariables")]
+    pub struct UpdateQuestDialogue {
+        #[arguments(id: $id, input: $input)]
+        pub update_quest_dialogue: Option<QuestDialogue>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]

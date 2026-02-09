@@ -376,7 +376,7 @@ impl RecordQuery for QuestTemplateQuery {
                 at_end: !quest_templates.page_info.has_next_page,
                 last_cursor: quest_templates.page_info.end_cursor,
                 records: quest_templates.nodes.into_iter()
-                    .map(|t| QuestTemplate::from_graphql(&self.api_base, t))
+                    .map(QuestTemplate::from_graphql)
                     .collect::<Result<Vec<_>, Self::Error>>()?,
             })
         } else if let Some(errors) = response.errors {
@@ -393,12 +393,9 @@ impl QuestTemplateQueryBuilder {
     }
 }
 
-#[derive(Builder, Clone)]
+#[derive(Builder, Clone, Default)]
 #[builder(pattern = "owned")]
 pub struct QuestTemplate {
-    #[builder(setter(skip))]
-    api_base: Option<RealmApi>,
-
     pub id: i32,
     #[builder(setter(strip_option), default)]
     pub chain_id: Option<i32>,
@@ -421,29 +418,45 @@ pub struct QuestTemplate {
 }
 
 impl QuestTemplate {
-    pub async fn delete(&self) -> RealmApiResult<()> {
-        if let Some(api_base) = &self.api_base {
-            let response = api_base.0.client
-                .post(api_base.0.base_url.clone())
-                .run_graphql(quest_template_graphql::DeleteQuestTemplate::build(quest_template_graphql::DeleteQuestTemplateVariables {
-                    id: self.id
-                })).await?;
+    pub async fn save(&self) -> RealmApiResult<QuestTemplate> {
+        let response = RealmApi::get().0.client
+            .post(RealmApi::get().0.base_url.clone())
+            .run_graphql(quest_template_graphql::UpdateQuestTemplate::build(quest_template_graphql::UpdateQuestTemplateVariables {
+                id: self.id,
+                input: self.as_graphql(),
+            })).await?;
 
-            if let Some(quest_template_graphql::DeleteQuestTemplate { .. }) = response.data {
-                Ok(())
-            } else if let Some(errors) = response.errors {
-                Err(RealmApiError::GraphQl(errors))
+        if let Some(quest_template_graphql::UpdateQuestTemplate { update_quest_template }) = response.data {
+            if let Some(template) = update_quest_template {
+                Ok(QuestTemplate::from_graphql(template)?)
             } else {
-                unreachable!()
+                Err(RealmApiError::Other(toolkit::anyhow::anyhow!("Quest template not found")))
             }
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
         } else {
-            Ok(())
+            unreachable!()
         }
     }
 
-    fn from_graphql(api: &RealmApi, other: quest_template_graphql::QuestTemplate) -> RealmApiResult<Self> {
+    pub async fn delete(&self) -> RealmApiResult<()> {
+        let response = RealmApi::get().0.client
+            .post(RealmApi::get().0.base_url.clone())
+            .run_graphql(quest_template_graphql::DeleteQuestTemplate::build(quest_template_graphql::DeleteQuestTemplateVariables {
+                id: self.id
+            })).await?;
+
+        if let Some(quest_template_graphql::DeleteQuestTemplate { .. }) = response.data {
+            Ok(())
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn from_graphql(other: quest_template_graphql::QuestTemplate) -> RealmApiResult<Self> {
         Ok(Self {
-            api_base: Some(api.clone()),
             id: other.id,
             chain_id: other.chain_id,
             level: other.level,
@@ -491,7 +504,7 @@ impl RealmApi {
 
         if let Some(quest_template_graphql::GetQuestTemplate { quest_template }) = response.data {
             if let Some(template) = quest_template {
-                Ok(Some(QuestTemplate::from_graphql(self, template)?))
+                Ok(Some(QuestTemplate::from_graphql(template)?))
             } else {
                 Ok(None)
             }
@@ -515,7 +528,7 @@ impl RealmApi {
             })).await?;
 
         if let Some(quest_template_graphql::CreateQuestTemplate { create_quest_template }) = response.data {
-            Ok(QuestTemplate::from_graphql(self, create_quest_template)?)
+            Ok(QuestTemplate::from_graphql(create_quest_template)?)
         } else if let Some(errors) = response.errors {
             Err(RealmApiError::GraphQl(errors))
         } else {
@@ -572,6 +585,12 @@ pub(crate) mod quest_template_graphql {
     #[derive(cynic::QueryVariables, Debug)]
     pub struct DeleteQuestTemplateVariables {
         pub id: i32,
+    }
+
+    #[derive(cynic::QueryVariables, Debug)]
+    pub struct UpdateQuestTemplateVariables {
+        pub id: i32,
+        pub input: QuestTemplateInput,
     }
 
     #[derive(cynic::QueryFragment, Debug)]
@@ -723,6 +742,13 @@ pub(crate) mod quest_template_graphql {
     }
 
     #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateQuestTemplateVariables")]
+    pub struct UpdateQuestTemplate {
+        #[arguments(id: $id, input: $input)]
+        pub update_quest_template: Option<QuestTemplate>,
+    }
+
+    #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "CreateQuestTemplateVariables")]
     pub struct CreateQuestTemplate {
         #[arguments(input: $input)]
@@ -770,11 +796,17 @@ pub(crate) mod quest_template_graphql {
     #[derive(cynic::InputObject, Debug)]
     #[cynic(schema = "realm_manager_service")]
     pub struct ConditionInput {
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub interact: Option<InteractConditionInput>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub dialogue: Option<DialogueConditionInput>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub wait: Option<WaitConditionInput>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub kill: Option<KillConditionInput>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub loot: Option<LootConditionInput>,
+        #[cynic(skip_serializing_if="Option::is_none")]
         pub proximity: Option<ProximityConditionInput>,
     }
 

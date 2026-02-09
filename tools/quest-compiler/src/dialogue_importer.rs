@@ -16,15 +16,15 @@
 use std::{fs, path::Path, sync::OnceLock, time::Duration};
 
 use content::get_content_path;
-use database::DatabaseRecord;
 use futures_util::future::try_join_all;
-use log::{debug, error, info};
-use mongodb::{Database, bson::doc};
+use log::{error, info};
 use notify::{EventKind, ReadDirectoryChangesWatcher, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
+use realm_api::{Choice, CombatStyle, DialogueBranch, DialogueBranchSelector, DialogueLine, QuestDialogue, RealmApi};
 use serde::Deserialize;
 use tokio::{runtime::Handle, task};
-use crate::{db::{Choice, CombatStyle, QuestDialogue}, error::{RealmError, RealmResult}};
+
+use crate::{QuestCompilerError, Result};
 
 #[derive(Deserialize, Default)]
 struct YamlDialogue {
@@ -64,34 +64,34 @@ struct YamlDialogueLineEx {
     quest: Option<i32>,
 }
 
-pub async fn import_dialogue_file(db: Database, path: impl AsRef<Path>) -> RealmResult<()> {
-    debug!("Importing dialogue file {:?}", path.as_ref());
+pub async fn import_dialogue_file(path: impl AsRef<Path>) -> Result<()> {
+    info!("Importing dialogue file {:?}", path.as_ref());
 
     let content = fs::read(path)
-        .map_err(|e| RealmError::Other(e.into()))?;
+        .map_err(|e| QuestCompilerError::Other(e.into()))?;
 
     try_join_all(
         serde_saphyr::from_multiple::<YamlDialogue>(
             str::from_utf8(&content)
-                .map_err(|e| RealmError::Other(e.into()))?
+                .map_err(|e| QuestCompilerError::Other(e.into()))?
         )
-        .map_err(|e| RealmError::Other(e.into()))?
+        .map_err(|e| QuestCompilerError::Other(e.into()))?
         .into_iter()
-        .map(|doc| import_dialogue_yaml(db.clone(), doc))
+        .map(import_dialogue_yaml)
         .collect::<Vec<_>>()
     ).await?;
 
     Ok(())
 }
 
-async fn import_dialogue_yaml(db: Database, doc: YamlDialogue) -> RealmResult<()> {
+async fn import_dialogue_yaml(doc: YamlDialogue) -> Result<()> {
     let mut dialogue_serial = 0;
-
+       
     let dialogue = QuestDialogue {
         id: doc.id,
         branches: doc.branches.into_iter().map(|branch| {
             let selector = branch.selector.unwrap_or_default();
-            let dialogue_selector = crate::db::DialogueBranchSelector {
+            let dialogue_selector = DialogueBranchSelector {
                 quests_available: selector.quests_available.unwrap_or_default(),
                 quests_in_progress: selector.quests_in_progress.unwrap_or_default(),
                 quests_complete: selector.quests_completed.unwrap_or_default(),
@@ -114,7 +114,7 @@ async fn import_dialogue_yaml(db: Database, doc: YamlDialogue) -> RealmResult<()
 
             let lines = branch.lines.into_iter().map(|line| {
                 match line {
-                    YamlDialogueLine::Simple(line_id) => crate::db::DialogueLine {
+                    YamlDialogueLine::Simple(line_id) => DialogueLine {
                         serial: {
                             dialogue_serial += 1;
                             dialogue_serial
@@ -124,7 +124,7 @@ async fn import_dialogue_yaml(db: Database, doc: YamlDialogue) -> RealmResult<()
                         choice: None,
                         quest_id: None,
                     },
-                    YamlDialogueLine::Extended(ext) => crate::db::DialogueLine {
+                    YamlDialogueLine::Extended(ext) => DialogueLine {
                         serial: {
                             dialogue_serial += 1;
                             dialogue_serial
@@ -155,12 +155,12 @@ async fn import_dialogue_yaml(db: Database, doc: YamlDialogue) -> RealmResult<()
                 && dialogue_selector.quests_finished.is_empty()
                 && dialogue_selector.quests_upcoming.is_empty()
             {
-                crate::db::DialogueBranch {
+                DialogueBranch {
                     selector: None,
                     lines,
                 }
             } else {
-                crate::db::DialogueBranch {
+                DialogueBranch {
                     selector: Some(dialogue_selector),
                     lines,
                 }
@@ -168,17 +168,26 @@ async fn import_dialogue_yaml(db: Database, doc: YamlDialogue) -> RealmResult<()
         }).collect(),
     };
 
-    debug!("Importing dialogue ID {}", dialogue.id);
+    if RealmApi::get()
+        .get_quest_dialogue(doc.id)
+        .await?
+        .is_some()
+    {
+        info!("Updating dialogue ID {}", dialogue.id);
 
-    QuestDialogue::collection(&db)
-        .find_one_and_replace(doc! { "id": dialogue.id }, &dialogue)
-        .upsert(true)
-        .await?;
+        dialogue.save().await?;
+    } else {
+        info!("Importing dialogue ID {}", dialogue.id);
+
+        RealmApi::get()
+            .create_quest_dialogue(dialogue)
+            .await?;
+    }
 
     Ok(())
 }
 
-pub async fn import_dialogues(db: Database) -> RealmResult<()> {
+pub async fn import_dialogues() -> Result<()> {
     let dialogue_folder = get_content_path("dialogue")?;
 
     info!("Updating dialogues from folder {:?}", dialogue_folder);
@@ -186,16 +195,16 @@ pub async fn import_dialogues(db: Database) -> RealmResult<()> {
     try_join_all(
         dialogue_folder
             .read_dir()
-                .map_err(|e| RealmError::Other(e.into()))?
+                .map_err(|e| QuestCompilerError::Other(e.into()))?
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("yaml"))
-            .map(|entry| import_dialogue_file(db.clone(), entry.path()))
+            .map(|entry| import_dialogue_file(entry.path()))
     ).await?;
 
     Ok(())
 }
 
-pub fn watch_dialogue_changes(db: Database) -> RealmResult<()> {
+pub fn watch_dialogue_changes() -> Result<()> {
     let dialogue_folder = get_content_path("dialogue")?;
     let handle = Handle::current();
 
@@ -212,9 +221,8 @@ pub fn watch_dialogue_changes(db: Database) -> RealmResult<()> {
                             || matches!(ev.event.kind, EventKind::Create(_))
                         {
                             for path in ev.event.paths {
-                                let db = db.clone();
                                 task::spawn(async move {
-                                    if let Err(e) = import_dialogue_file(db, &path).await {
+                                    if let Err(e) = import_dialogue_file(&path).await {
                                         error!("Failed to import dialogue file {:?}: {:?}", path, e)
                                     }
                                 });

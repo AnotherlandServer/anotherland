@@ -49,8 +49,6 @@ use tokio::time;
 use toolkit::print_banner;
 
 use crate::db::{Navmesh, NavmeshTile, QuestDialogue, QuestState, QuestTemplate};
-use crate::dialogue_importer::{import_dialogues, watch_dialogue_changes};
-use crate::quest_importer::{import_quest_templates, watch_quest_template_changes};
 
 mod schema;
 mod db;
@@ -62,8 +60,6 @@ mod session_manager;
 mod chat_router;
 mod item_storage_session;
 mod equipment_slots;
-mod dialogue_importer;
-mod quest_importer;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -88,18 +84,6 @@ pub struct Args {
 
     #[arg(long, env = "REALM_ID")]
     realm_id: i32,
-
-    #[arg(long, env = "IMPORT_DIALOGUES", default_value_t = false)]
-    import_dialogues: bool,
-
-    #[arg(long, env = "IMPORT_QUESTS", default_value_t = false)]
-    import_quests: bool,
-
-    #[arg(long, default_value_t = false)]
-    hot_reload_dialogues: bool,
-
-    #[arg(long, default_value_t = false)]
-    hot_reload_quests: bool,
 }
 
 pub static NODE_REGISTRY: OnceLock<NodeRegistry> = OnceLock::new();
@@ -155,22 +139,6 @@ async fn main() -> RealmResult<()> {
 
     // Read content
     LazyLock::force(&EQUIPMENT_SLOTS);
-
-    if args.import_dialogues {
-        import_dialogues(db.clone()).await?;
-    }
-
-    if args.hot_reload_dialogues {
-        watch_dialogue_changes(db.clone())?;
-    }
-
-    if args.import_quests {
-        import_quest_templates(db.clone()).await?;
-    }
-
-    if args.hot_reload_quests {
-        watch_quest_template_changes(db.clone())?;
-    }
 
     // Connect to core service
     let (core_client, core_notifications) = CoreClient::connect(&args.core_zmq_addr).await

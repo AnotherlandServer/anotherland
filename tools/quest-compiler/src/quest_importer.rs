@@ -17,16 +17,16 @@ use std::{fs, path::Path, sync::OnceLock, time::Duration};
 
 use anyhow::anyhow;
 use content::get_content_path;
-use database::DatabaseRecord;
-use futures_util::future::try_join_all;
-use log::{debug, error, info};
-use mongodb::{Database, bson::doc};
+use futures_util::{TryStreamExt, future::try_join_all};
+use log::{error, info};
 use notify::{EventKind, ReadDirectoryChangesWatcher, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
+use realm_api::{AvatarSelector, CombatStyle, Condition, Prerequisites, QuestTemplate, RealmApi};
 use serde::Deserialize;
 use tokio::{runtime::Handle, task};
 use toolkit::types::Uuid;
-use crate::{db::{AvatarSelector, CombatStyle, Condition, DialogueCondition, InteractCondition, KillCondition, LootCondition, ProximityCondition, QuestTemplate, WaitCondition, WorldDef}, error::{RealmError, RealmResult}};
+
+use crate::{QuestCompilerError, Result};
 
 #[derive(Deserialize, Default)]
 struct YamlQuestTemplate {
@@ -62,7 +62,7 @@ struct YamlQuestCondition {
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum YamlAvatarSelector {
+pub enum YamlAvatarSelector {
     Instance { instance_guid: Uuid },
     Content { content_guid: Uuid },
     QuestTag { quest_tag: i32 },
@@ -72,11 +72,11 @@ enum YamlAvatarSelector {
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum YamlQuestTrigger {
+pub enum YamlQuestTrigger {
     Interact { interact: YamlAvatarSelector },
     Kill { kill: YamlAvatarSelector },
     Proximity { proximity: ProximityTrigger },
-    Sojourn { sojourn: YamlAvatarSelector },
+    Sojourn { _sojourn: YamlAvatarSelector },
     Dialogue { dialogue: i32 },
     Timeout { timeout: f32 },
     Loot { loot: Uuid },
@@ -89,9 +89,9 @@ pub struct ProximityTrigger {
 }
 
 impl TryFrom<YamlAvatarSelector> for AvatarSelector {
-    type Error = RealmError;
+    type Error = QuestCompilerError;
 
-    fn try_from(value: YamlAvatarSelector) -> Result<Self, Self::Error> {
+    fn try_from(value: YamlAvatarSelector) -> Result<Self> {
         match value {
             YamlAvatarSelector::Instance { instance_guid } => Ok(AvatarSelector::InstanceId(instance_guid)),
             YamlAvatarSelector::Content { content_guid } => Ok(AvatarSelector::ContentId(content_guid)),
@@ -102,35 +102,37 @@ impl TryFrom<YamlAvatarSelector> for AvatarSelector {
     }
 }
 
-pub async fn import_quest_template_file(db: Database, path: impl AsRef<Path>) -> RealmResult<()> {
-    debug!("Importing quest template file {:?}", path.as_ref());
+pub async fn import_quest_template_file(path: impl AsRef<Path>) -> Result<()> {
+    info!("Importing quest template file {:?}", path.as_ref());
 
     let content = fs::read(path)
-        .map_err(|e| RealmError::Other(e.into()))?;
+        .map_err(|e| QuestCompilerError::Other(e.into()))?;
 
     try_join_all(
         serde_saphyr::from_multiple::<YamlQuestTemplate>(
             str::from_utf8(&content)
-                .map_err(|e| RealmError::Other(e.into()))?
+                .map_err(|e| QuestCompilerError::Other(e.into()))?
         )
-        .map_err(|e| RealmError::Other(e.into()))?
+        .map_err(|e| QuestCompilerError::Other(e.into()))?
         .into_iter()
-        .map(|doc| import_quest_template_yaml(db.clone(), doc))
+        .map(import_quest_template_yaml)
         .collect::<Vec<_>>()
     ).await?;
 
     Ok(())
 }
 
-async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> RealmResult<()> {
-    let world = WorldDef::collection(&db)
-        .find_one(doc! { "name": doc.world })
-        .await?
-        .ok_or(RealmError::Other(anyhow!("world not found")))?;
+async fn import_quest_template_yaml(doc: YamlQuestTemplate) -> Result<()> {
+    let world = RealmApi::get()
+        .query_worlddefs()
+        .name(doc.world.clone())
+        .query().await?
+        .try_next().await?
+        .ok_or(QuestCompilerError::Other(anyhow!("world not found")))?;
     
     let prerequisites = doc.prerequisites
         .and_then(|c| {
-            let conditions = crate::db::Prerequisites {
+            let conditions = Prerequisites {
                 level: c.level,
                 combat_style: c.combat_style.and_then(|s| {
                     match s.to_lowercase().as_str() {
@@ -166,97 +168,107 @@ async fn import_quest_template_yaml(db: Database, doc: YamlQuestTemplate) -> Rea
         available_dialogue_id: doc.available_dialogue_id,
         progress_dialogue_id: doc.progress_dialogue_id,
         completion_dialogue_id: doc.completion_dialogue_id,
-        world_id: world.id,
+        world_id: *world.id() as i32,
         prerequisites,
         conditions: doc.stages
             .into_iter()
             .enumerate()
-            .map(|(stage, conditions)| -> RealmResult<Vec<Condition>> {
+            .map(|(stage, conditions)| -> Result<Vec<Condition>> {
                     conditions
                         .into_iter()
                         .map(|c| {
                             match c.trigger {
                                 YamlQuestTrigger::Interact { interact } => {
-                                    Ok(Condition::Interact(InteractCondition {
+                                    Ok(Condition::Interact {
                                         id: c.id,
                                         stage: stage as i32,
                                         beacon: c.beacon,
                                         hidden: c.hidden,
                                         required_count: c.required_count,
                                         avatar_selector: interact.try_into()?,
-                                    }))
+                                    })
                                 },
                                 YamlQuestTrigger::Dialogue { dialogue } => {
-                                    Ok(Condition::Dialogue(DialogueCondition {
+                                    Ok(Condition::Dialogue {
                                         id: c.id,
                                         stage: stage as i32,
                                         beacon: c.beacon,
                                         hidden: c.hidden,
                                         required_count: c.required_count,
                                         dialogue_id: dialogue,
-                                    }))
+                                    })
                                 },
                                 YamlQuestTrigger::Timeout { timeout } => {
-                                    Ok(Condition::Wait(WaitCondition {
+                                    Ok(Condition::Wait {
                                         id: c.id,
                                         stage: stage as i32,
                                         hidden: c.hidden,
-                                        wait_time_seconds: timeout,
-                                    }))
+                                        wait_time_seconds: timeout as f64,
+                                    })
                                 },
                                 YamlQuestTrigger::Kill { kill } => {
-                                    Ok(Condition::Kill(KillCondition {
+                                    Ok(Condition::Kill {
                                         id: c.id,
                                         stage: stage as i32,
                                         beacon: c.beacon,
                                         hidden: c.hidden,
                                         required_count: c.required_count,
                                         avatar_selector: kill.try_into()?,
-                                    }))
+                                    })
                                 },
                                 YamlQuestTrigger::Loot { loot } => {
-                                    Ok(Condition::Loot(LootCondition { 
+                                    Ok(Condition::Loot { 
                                         id: c.id,
                                         stage: stage as i32,
                                         beacon: c.beacon,
                                         hidden: c.hidden,
                                         required_count: c.required_count,
                                         item_id: loot,
-                                    }))
+                                    })
                                 },
                                 YamlQuestTrigger::Proximity { proximity: ProximityTrigger { avatar, radius } } => {
-                                    Ok(Condition::Proximity(ProximityCondition {
+                                    Ok(Condition::Proximity {
                                         id: c.id,
                                         stage: stage as i32,
                                         beacon: c.beacon,
                                         hidden: c.hidden,
                                         required_count: c.required_count,
                                         avatar_selector: avatar.try_into()?,
-                                        radius,
-                                    }))
+                                        radius: radius as f64,
+                                    })
                                 },
                                 _ => {
                                     unimplemented!("Quest trigger type not implemented yet")
                                 }
                             }
                         })
-                        .collect::<RealmResult<Vec<_>>>()
+                        .collect::<Result<Vec<_>>>()
             })
-            .collect::<RealmResult<Vec<_>>>()?
+            .collect::<Result<Vec<_>>>()?
             .into_iter()
             .flatten()
             .collect::<Vec<_>>(),
     };
 
-    QuestTemplate::collection(&db)
-        .find_one_and_replace(doc! { "id": quest_template.id }, &quest_template)
-        .upsert(true)
-        .await?;
+    if RealmApi::get()
+        .get_quest_template(doc.id)
+        .await?
+        .is_some()
+    {
+        info!("Updating quest template ID {}", quest_template.id);
+
+        quest_template.save().await?;
+    } else {
+        info!("Importing quest template ID {}", quest_template.id);
+        RealmApi::get()
+            .create_quest_template(quest_template)
+            .await?;
+    }
 
     Ok(())
 }
 
-pub async fn import_quest_templates(db: Database) -> RealmResult<()> {
+pub async fn import_quest_templates() -> Result<()> {
     let quest_template_folder = get_content_path("quests")?;
 
     info!("Updating quest templates from folder {:?}", quest_template_folder);
@@ -264,16 +276,16 @@ pub async fn import_quest_templates(db: Database) -> RealmResult<()> {
     try_join_all(
         quest_template_folder
             .read_dir()
-                .map_err(|e| RealmError::Other(e.into()))?
+                .map_err(|e| QuestCompilerError::Other(e.into()))?
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("yaml"))
-            .map(|entry| import_quest_template_file(db.clone(), entry.path()))
+            .map(|entry| import_quest_template_file(entry.path()))
     ).await?;
 
     Ok(())
 }
 
-pub fn watch_quest_template_changes(db: Database) -> RealmResult<()> {
+pub fn watch_quest_template_changes() -> Result<()> {
     let quest_template_folder = get_content_path("quests")?;
     let handle = Handle::current();
 
@@ -290,9 +302,8 @@ pub fn watch_quest_template_changes(db: Database) -> RealmResult<()> {
                             || matches!(ev.event.kind, EventKind::Create(_))
                         {
                             for path in ev.event.paths {
-                                let db = db.clone();
                                 task::spawn(async move {
-                                    if let Err(e) = import_quest_template_file(db, &path).await {
+                                    if let Err(e) = import_quest_template_file(&path).await {
                                         error!("Failed to import quest template {:?}: {:?}", path, e)
                                     }
                                 });

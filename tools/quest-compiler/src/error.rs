@@ -13,27 +13,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
-use anyhow::anyhow;
-use once_cell::sync::OnceCell;
+use realm_api::RealmApiError;
+use thiserror::Error;
 
-mod combat_style;
-pub mod error;
+#[derive(Error, Debug)]
+pub enum QuestCompilerError {
+    #[error("realm api error")]
+    RealmApi(#[from] RealmApiError),
 
-pub use combat_style::*;
+    #[error("yaml error")]
+    Yaml(#[from] serde_saphyr::Error),
 
-pub(crate) static CONTENT_PATH: OnceCell<PathBuf> = OnceCell::new();
+    #[error("uuid error")]
+    Uuid(#[from] toolkit::types::Error),
 
-pub fn set_content_path(path: PathBuf) -> Result<(), error::Error> {
-    let path = path.canonicalize()?;
+    #[error(transparent)]
+    Content(#[from] content::error::Error),
 
-    CONTENT_PATH.set(path)
-        .map_err(|_| error::Error::Other(anyhow!("content path already set")))
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }
 
-pub fn get_content_path(relative: impl Into<PathBuf>) -> Result<PathBuf, error::Error> {
-    let content_path = CONTENT_PATH.get()
-        .ok_or(error::Error::ContentPathNotSet)?;
-    
-    Ok(content_path.join(relative.into()))
-}
+pub type Result<T> = std::result::Result<T, QuestCompilerError>;
