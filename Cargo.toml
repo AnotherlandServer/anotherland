@@ -28,7 +28,7 @@ members = [
     "tools/update-bindings", 
     "tools/quest-compiler"
 ]
-package.rust-version = "1.93"
+package.rust-version = "1.95"
 
 [workspace.dependencies]
 bytes = "1.11.1"
