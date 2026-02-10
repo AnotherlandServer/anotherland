@@ -7,7 +7,7 @@ Welcome to the **Anotherland Server Emulator** project, a community-driven initi
 
 ## Prerequisites
 Before you begin, ensure you have the following installed:
-- **Rust 1.89.0-nightly** (use rustup to automatically install the correct toolchain)
+- **Rust 1.95.0-nightly** (use rustup to automatically install the correct toolchain)
 - **MongoDB** (configured with a replica set so that transactions work)
 
 ## Compilation
@@ -74,9 +74,10 @@ graph LR
 2. Use the `createRealm` mutation to create your first realm.  
 3. Start the `realm_manager_service` with the `--realm-id` parameter, specifying the ID of the realm you just created.  
 4. Once the service is fully started, use the `seed-realm` tool to seed the realm database by extracting content from the *Otherland* client files.  
-5. After seeding the realm, build navmeshes using `navmesh_builder generate-mesh`.  
-6. After completing these steps, start the remaining services (`login_server`, `world_service`, `frontend_server`, and `cluster_server`) and connect to your realm.
-7. For subsequent starts, launching the services in this order is sufficient. There is no need to seed the realm again or build navmeshes (unless you add another realm).
+5. After seeding the realm, build the quests and dialogue trees using `quest-compiler`.
+6. After that, build navmeshes using `navmesh_builder generate-mesh`.  
+7. After completing these steps, start the remaining services (`login_server`, `world_service`, `frontend_server`, and `cluster_server`) and connect to your realm.
+8. For subsequent starts, launching the services in this order is sufficient. There is no need to seed the realm again or build navmeshes (unless you add another realm).
 
 ### General Notes
 - Use the `--help` argument with each process to view available options and default values.  
