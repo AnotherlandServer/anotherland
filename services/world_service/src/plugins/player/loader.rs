@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{ecs::{error::{BevyError, Result}, query::With, system::EntityCommands, world::EntityWorldMut}, math::{Quat, Vec3}, time::{Time, Virtual}};
+use bevy::{ecs::{component::Component, error::{BevyError, Result}, query::With, system::EntityCommands, world::EntityWorldMut}, math::{Quat, Vec3}, time::{Time, Virtual}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::{debug, error, warn};
 use obj_params::{ContentRefList, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamWriter, Player, Portal, tags::{PortalTag, SpawnNodeTag, StartingPointTag}};
@@ -23,6 +23,9 @@ use realm_api::{Character, RealmApi};
 use toolkit::{OtherlandQuatExt, types::Uuid};
 
 use crate::{instance::ZoneInstance, plugins::{Avatar, AvatarLoader, CombatStyle, ComponentLoaderCommandsTrait, ContentInfo, CooldownGroups, Factions, FactionsParameters, LoadContext, LoadableComponent, Movement, Navmesh, PlayerController, QuestLog, Skillbook, SkillbookParams}, proto::TravelMode};
+
+#[derive(Component)]
+pub struct InGame;
 
 impl AvatarLoader {
     pub async fn load_player_character(character_id: Uuid) -> Result<Character> {

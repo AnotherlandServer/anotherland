@@ -15,14 +15,16 @@
 
 mod loader;
 mod item_loader;
+mod loot;
 
 pub use loader::*;
 pub use item_loader::*;
+pub use loot::*;
 
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, query::Without, resource::Resource, schedule::IntoScheduleConfigs, system::ResMut, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
+use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, query::Without, resource::Resource, schedule::IntoScheduleConfigs, spawn, system::ResMut, world::World}, math::Vec3, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, state::commands, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all};
 use log::{debug, error, warn};
@@ -35,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, StaticObject, WeakCache, player_error_handler_system}};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, Movement, StaticObject, WeakCache, player_error_handler_system}};
 
 use super::{attach_scripts, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, MessageType, NetworkExtPriv, PlayerController, StringBehavior};
 
@@ -64,7 +66,7 @@ impl EquipmentResult {
 
 #[derive(Default)]
 #[allow(clippy::complexity)]
-struct StorageResult {
+pub struct StorageResult {
     storage_id: Uuid,
     bling: Option<i32>,
     game_cash: Option<i32>,
@@ -139,7 +141,7 @@ pub struct ItemEdnaAbility {
 }
 
 #[derive(Resource, Default)]
-struct StorageRegistry(HashMap<Uuid, Entity>);
+pub struct StorageRegistry(HashMap<Uuid, Entity>);
 
 pub struct InventoryPlugin;
 
@@ -296,6 +298,51 @@ fn insert_inventory_api(
             Ok(())
         })?)?;
         
+    inventory_api.set("DropItem", lua.create_bevy_function(world, 
+                |
+            In((source, allow_avatar, _allow_party, item, quantity)): In<(Table, Option<Table>, Option<Table>, String, i32)>,
+            player: Query<&Avatar>,
+            spawner: Query<(&Avatar, &ContentInfo, &Movement)>,
+            mut commands: Commands
+        | -> WorldResult<()> {
+            let source_ent = source.entity()?;
+            let Ok((avatar, content, movement)) = spawner.get(source_ent) else {
+                return Err(anyhow!("source not found").into());
+            };
+
+            let spawner_id = avatar.id;
+            let spawner_guid = content.placement_id;
+            let pos = movement.position;
+
+            commands
+                .spawn_empty()
+                .load_component::<LootLoader>(LootParams {
+                    spawner: (spawner_id, spawner_guid),
+                    allow_player: allow_avatar
+                        .and_then(|tbl| tbl.entity().ok())
+                        .and_then(|ent| {
+                            player
+                                .get(ent)
+                                .map(|avatar| avatar.id)
+                                .ok()
+                        }),
+                    allow_party: None,
+                    loot: Loot::Item(item, quantity),
+                    pos,
+                });
+
+            Ok(())
+        })?)?;
+
+    inventory_api.set("DropSoma", lua.create_bevy_function(world, 
+                |
+            In((allow_avatar, _allow_party, item, quantity)): In<(Option<Table>, Option<Table>, String, i32)>
+        | -> WorldResult<()> {
+
+
+            todo!()
+        })?)?;
+
     Ok(())
 }
 

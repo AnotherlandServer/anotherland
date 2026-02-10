@@ -234,11 +234,13 @@ pub(super) fn handle_quest_request(
                                         Some(avatar_selector)
                                     }
                                 },
-                                Condition::Loot { beacon, item_id, .. } => {
+                                Condition::Loot { beacon, ref item_name, .. } => {
                                     if let Some(id) = beacon {
                                         Some(AvatarSelector::InstanceId(id))
+                                    } else if let Some(item) = ContentCache::get(&ContentCacheRef::Name(item_name.clone())).await? {
+                                        Some(AvatarSelector::LootItem(item.id))
                                     } else {
-                                        Some(AvatarSelector::LootItem(item_id))
+                                        None
                                     }
                                 },
                                 Condition::Proximity { beacon, avatar_selector, .. } => {
@@ -320,13 +322,15 @@ pub(super) fn handle_quest_request(
                                     ..Default::default()
                                 });
                             },
-                            Condition::Loot { id, stage, hidden, required_count, item_id, .. } => {
+                            Condition::Loot { id, stage, hidden, required_count, ref item_name, .. } => {
                                 response.field_3.push(oaQuestCondition {
                                     quest_id: template.id,
                                     condition_id: id,
                                     kind: OaQuestConditionKind::Loot,
-                                    filter1: AvatarFilter::default(),
-                                    filter2: AvatarFilterConverter(AvatarSelector::LootItem(item_id)).into(),
+                                    filter1: ContentCache::get(&ContentCacheRef::Name(item_name.clone())).await? 
+                                        .map(|item| AvatarFilterConverter(AvatarSelector::LootItem(item.id)).into())
+                                        .unwrap_or_default(),
+                                    filter2: AvatarFilter::default(),
                                     required_count,
                                     stage,
                                     waypoint: beacon.clone().unwrap_or_default(),

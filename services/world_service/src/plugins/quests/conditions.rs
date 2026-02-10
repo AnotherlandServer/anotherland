@@ -13,13 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{ecs::{entity::Entity, hierarchy::ChildOf, message::{Message, MessageReader}, query::{With, Without}, system::{Commands, Query, Res}}};
+use bevy::ecs::{entity::Entity, hierarchy::ChildOf, message::{Message, MessageReader}, query::{Changed, With, Without}, system::{Commands, Query, Res}};
 use chrono::Utc;
 use log::debug;
-use obj_params::{GameObjectData, Player, tags::PlayerTag};
+use obj_params::{GameObjectData, Player, tags::{ItemBaseTag, PlayerTag}};
 use realm_api::Condition;
+use spart::kd_tree;
 
-use crate::plugins::{ActiveQuest, AsyncOperationEntityCommandsExt, AvatarSelectorMatcher, ContentInfo, DialogueFinished, Interaction, InteractionEvent, Interests, Movement, QuestLog, QuestProgress, QuestStatePending, Quests, player_error_handler_system, quests::handle_db_quest_update};
+use crate::plugins::{ActiveQuest, AsyncOperationEntityCommandsExt, AvatarKilled, AvatarSelectorMatcher, ContentInfo, DialogueFinished, Interaction, InteractionEvent, Interests, Inventory, Movement, QuestLog, QuestProgress, QuestStatePending, Quests, player_error_handler_system, quests::handle_db_quest_update};
 
 #[derive(Message, Clone, Copy)]
 pub struct QuestConditionUpdate {
@@ -241,6 +242,115 @@ pub fn update_dialogue_conditions(
                         quest_id: quest_progress.state().quest_id,
                         condition_id: condition.id,
                         update: ConditionUpdate::Added(1),
+                    });
+            }
+        }
+    }
+}
+
+pub fn update_kill_conditions(
+    mut events: MessageReader<AvatarKilled>,
+    quests: Res<Quests>,
+    players: Query<&QuestLog>,
+    active_quests: Query<&QuestProgress, With<ActiveQuest>>,
+    targets: Query<(&ContentInfo, &GameObjectData)>,
+    mut commands: Commands,
+) {
+    for &AvatarKilled { entity: killed_entity, killer } in events.read() {
+        let Some(killer) = killer else {
+            continue;
+        };
+
+        let Ok(quest_log) = players.get(killer) else {
+            continue;
+        };
+
+        let Ok((killed_info, killed_data)) = targets.get(killed_entity) else {
+            continue;
+        };
+
+        for quest_ent in quest_log.quests.values() {
+            let Ok(quest_progress) = active_quests.get(*quest_ent) else {
+                continue;
+             };
+
+            let Some(condition) = quest_progress.active_condition() else {
+                continue;
+            };
+
+            let Some(quest) = quests.get(&quest_progress.state().quest_id) else {
+                continue;
+            };
+
+            let Some(Condition::Kill { avatar_selector, .. }) = quest.template.conditions.iter().find(|c| c.id() == condition.id) else {
+                continue;
+            };
+
+            if avatar_selector.matches(killed_info, killed_data) {
+                commands
+                    .entity(*quest_ent)
+                    .insert(QuestStatePending);
+
+                commands
+                    .write_message(QuestConditionUpdate {
+                        player: killer,
+                        quest_id: quest_progress.state().quest_id,
+                        condition_id: condition.id,
+                        update: ConditionUpdate::Added(1),
+                    });
+            }
+        }
+    }
+}
+
+pub fn update_loot_conditions(
+    players: Query<(Entity, &Inventory, &QuestLog), Changed<Inventory>>,
+    items: Query<&ContentInfo>,
+    progress: Query<(&ActiveQuest, &QuestProgress)>,
+    mut commands: Commands,
+) {
+    for (entity, inventory, questlog) in players.iter() {
+        for quest_ent in questlog.quests.values() {
+            let Ok((active_quest, quest_progress)) = progress.get(*quest_ent) else {
+                continue;
+            };
+
+            let Some(condition) = quest_progress.active_condition() else {
+                continue;
+            };
+
+            let Some(Condition::Loot { item_name, .. }) = active_quest.template.conditions.iter()
+                .find(|c| c.id() == condition.id) 
+            else {
+                continue;
+            };
+
+            // Count items in inventory
+            let mut item_count = 0;
+
+            for item in inventory.items.values() {
+                let Ok(item_info) = items.get(*item) else {
+                    continue;
+                };
+
+                debug!("Checking item {:?} for loot condition, looking for {item_name}", item_info.template.name);
+
+                if &item_info.template.name == item_name {
+                    item_count += 1;
+                }
+            }
+
+            if item_count != condition.current_count {
+                commands
+                    .entity(*quest_ent)
+                    .insert(QuestStatePending);
+
+                commands
+                    .write_message(QuestConditionUpdate {
+                        player: entity,
+                        quest_id: quest_progress.state().quest_id,
+                        condition_id: condition.id,
+                        update: ConditionUpdate::Set(item_count),
                     });
             }
         }

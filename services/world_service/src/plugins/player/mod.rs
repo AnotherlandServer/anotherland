@@ -22,19 +22,17 @@ mod skillbook_lua;
 mod controller;
 mod portalbook_lua;
 mod initial_inventory_transfer;
+mod bevariors;
 
-use bevy::{app::{First, Last, Plugin, Update}, ecs::{entity::Entity, schedule::IntoScheduleConfigs, system::{In, Query}}, math::Vec3, state::condition::in_state};
+use bevy::{app::{First, Last, Plugin, Update}, ecs::schedule::IntoScheduleConfigs, state::condition::in_state};
 pub use controller::*;
 pub use localset::*;
-use log::{debug, error};
 use obj_params::Class;
 pub use systems::*;
-use protocol::{oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit};
-use regex::Regex;
 pub use skillbook::*;
 pub use initial_inventory_transfer::*;
 
-use crate::{instance::{InstanceShutdown, InstanceState}, plugins::{BehaviorExt, CommandExtPriv, NetworkExtPriv, StringBehavior, clear_obj_changes}};
+use crate::{instance::{InstanceShutdown, InstanceState}, plugins::{BehaviorExt, CommandExtPriv, NetworkExtPriv, clear_obj_changes, player::bevariors::{behavior_flight_tube, behavior_loot_avatar}}};
 
 pub struct PlayerPlugin;
 
@@ -66,49 +64,8 @@ impl Plugin for PlayerPlugin {
 
         app.register_command("instantKill", cmd_instant_kill);
 
-        app.register_string_behavior(Class::Player, "FlightTube", 
-            |
-                In((ent, _, behavior)): In<(Entity, Entity, StringBehavior)>,
-                query: Query<&PlayerController>,
-            | {
-                debug!("FlightTube beahavior: {:?}", behavior.args);
-
-                let re = Regex::new(r"SplineID=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) InverseTravel=([0-1]) Loc=\[ -?(\d+\.?\d*) -?(\d+\.?\d*) -?(\d+\.?\d*) \]").unwrap();
-                if let Some(captures) = re.captures(&behavior.args.join(" ")) {
-                    let spline_id = captures[1].parse().unwrap();
-                    let inverse_travel = &captures[2] == "1";
-                    let loc = Vec3::new(
-                        captures[3].parse().unwrap(), 
-                        captures[4].parse().unwrap(), 
-                        captures[5].parse().unwrap(),
-                    );
-        
-
-                    if let Ok(controller) = query.get(ent) {
-                        controller.send_packet(
-                            oaPkt_SplineSurfing_Acknowledge {
-                                avatar_id: controller.avatar_id(),
-                                spline_id,
-                                acknowledged: true,
-                                inverse_travel,
-                                loc: loc.into(),
-                                ..Default::default()
-                            }
-                        );
-
-                        controller.send_packet(
-                            oaPkt_SplineSurfing_Exit {
-                                avatar_id: controller.avatar_id(),
-                                spline_id,
-                                ..Default::default()
-                            }
-                        );
-                    }
-                } else {
-                    error!("Failed to parse FlightTube behavior: {:?}", behavior.args);
-                }
-            }
-        );
+        app.register_string_behavior(Class::Player, "FlightTube", behavior_flight_tube);
+        app.register_binary_behavior(Class::Player, "lootavatar", behavior_loot_avatar);
 
         skillbook_lua::insert_skillbook_api(app.world_mut())
             .expect("failed to insert skillbook api");

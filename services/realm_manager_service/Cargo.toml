@@ -35,7 +35,7 @@ rand = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 saphyr = { workspace = true }
-serde-saphyr = "0.0.16"
+serde-saphyr.workspace = true
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

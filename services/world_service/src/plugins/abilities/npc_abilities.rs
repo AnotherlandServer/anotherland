@@ -16,7 +16,8 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use bevy::ecs::{component::Component, entity::Entity, error::Result, system::{Commands, In, Query, Res}, world::World};
+use bevy::ecs::{component::Component, entity::Entity, error::Result, query::With, system::{Commands, In, Query, Res}, world::World};
+use log::debug;
 use mlua::{IntoLua, Lua, Table, Value};
 use obj_params::{Class, ContentRefList, GameObjectData};
 use protocol::{AbilityEffect, OaPktAbilityUseAbilityType, oaPktAbilityUse};
@@ -24,7 +25,7 @@ use realm_api::ObjectTemplate;
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{QuatWrapper, Vec3Wrapper, types::Uuid};
 
-use crate::{error::WorldResult, plugins::{Avatar, ContentCache, ContentCacheRef, ContentInfo, Interaction, InteractionEvent, Interests, LoadContext, LoadableComponent, ParamValue, PlayerController, SkillbookEntry, StaticObject, WeakCache}};
+use crate::{error::WorldResult, plugins::{Active, Avatar, ContentCache, ContentCacheRef, ContentInfo, Interaction, InteractionEvent, Interests, LoadContext, LoadableComponent, ParamValue, PlayerController, SkillbookEntry, StaticObject, WeakCache}};
 
 #[derive(Component)]
 pub struct NpcAbilities(pub Vec<(GameObjectData, Arc<ObjectTemplate>)>);
@@ -163,7 +164,7 @@ pub fn insert_ability_api(
     ability_api.set("FireEvent", lua.create_bevy_function(world, 
         |
             In(params): In<Table>,
-            players: Query<(Entity, &PlayerController, &Interests)>,
+            players: Query<(Entity, &PlayerController, &Interests), With<Active>>,
             npc_abilities: Query<&NpcAbilities>,
             content: Query<&ContentInfo>,
             targets: Query<&Avatar>,

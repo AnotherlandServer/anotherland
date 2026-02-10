@@ -19,7 +19,7 @@ mod runner;
 mod noop_system;
 
 pub use operation::*;
-use bevy::app::{First, Plugin};
+use bevy::app::{First, Last, Plugin};
 pub use entity_operation::*;
 
 use crate::plugins::async_operation::runner::run_async_operations;
@@ -28,6 +28,6 @@ pub struct AsyncOperationPlugin;
 
 impl Plugin for AsyncOperationPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.add_systems(First, run_async_operations);
+        app.add_systems(Last, run_async_operations);
     }
 }

@@ -39,6 +39,7 @@ impl Plugin for CombatPlugin {
         ));
 
         app.add_message::<HealthUpdateEvent>();
+        app.add_message::<AvatarKilled>();
 
         insert_combat_api(app.world_mut()).unwrap();
     }
@@ -116,6 +117,12 @@ impl HealthUpdateEvent {
         writer.write(self);
         id
     }
+}
+
+#[derive(Message)]
+pub struct AvatarKilled {
+    pub entity: Entity,
+    pub killer: Option<Entity>,
 }
 
 fn handle_ability_request(
@@ -198,6 +205,11 @@ pub fn process_health_events(
 
                     if health.current <= health.min {
                         health.alive = false;
+                        commands
+                            .write_message(AvatarKilled { 
+                                entity: event.entity, 
+                                killer: event.source,
+                            });
                     }
 
                     if let Some(source) = event.source.and_then(|s| script_objects.get(s).ok()) {
@@ -221,6 +233,12 @@ pub fn process_health_events(
                 HealthUpdateType::Kill => {
                     health.current = health.min;
                     health.alive = false;
+
+                    commands
+                        .write_message(AvatarKilled { 
+                            entity: event.entity, 
+                            killer: event.source,
+                        });
                 },
                 HealthUpdateType::Revive(hitpoints) => {
                     // Force value update after revive, by setting it explicitly to false here

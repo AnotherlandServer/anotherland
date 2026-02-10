@@ -215,7 +215,7 @@ pub struct LootCondition {
     pub hidden: bool,
     pub beacon: Option<Uuid>,
     pub required_count: i32,
-    pub item_id: Uuid,
+    pub item_name: String,
 }
 
 #[derive(Serialize, Deserialize, SimpleObject, InputObject)]

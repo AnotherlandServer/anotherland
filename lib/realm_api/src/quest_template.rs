@@ -124,7 +124,7 @@ pub enum Condition {
         hidden: bool,
         beacon: Option<Uuid>,
         required_count: i32,
-        item_id: Uuid,
+        item_name: String,
     },
     Proximity {
         id: i32,
@@ -196,7 +196,7 @@ impl Condition {
                     hidden: c.hidden,
                     beacon: c.beacon,
                     required_count: c.required_count,
-                    item_id: c.item_id,
+                    item_name: c.item_name,
                 })
             },
             quest_template_graphql::ConditionInterface::ProximityCondition(c) => {
@@ -276,7 +276,7 @@ impl Condition {
                 loot: None,
                 proximity: None,
             },
-            Self::Loot { id, stage, hidden, beacon, required_count, item_id } => quest_template_graphql::ConditionInput {
+            Self::Loot { id, stage, hidden, beacon, required_count, ref item_name } => quest_template_graphql::ConditionInput {
                 interact: None,
                 dialogue: None,
                 wait: None,
@@ -287,7 +287,7 @@ impl Condition {
                     hidden,
                     beacon,
                     required_count,
-                    item_id,
+                    item_name: item_name.clone(),
                 }),
                 proximity: None,
             },
@@ -708,7 +708,7 @@ pub(crate) mod quest_template_graphql {
         pub hidden: bool,
         pub beacon: Option<Uuid>,
         pub required_count: i32,
-        pub item_id: Uuid,
+        pub item_name: String,
     }
 
     #[derive(cynic::QueryFragment, Debug)]
@@ -860,7 +860,7 @@ pub(crate) mod quest_template_graphql {
         pub hidden: bool,
         pub beacon: Option<Uuid>,
         pub required_count: i32,
-        pub item_id: Uuid,
+        pub item_name: String,
     }
 
     #[derive(cynic::InputObject, Debug)]

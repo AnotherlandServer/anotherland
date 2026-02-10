@@ -25,33 +25,10 @@ use scripting::{LuaExt, LuaFunctionExt, LuaRuntime, LuaTableExt, ScriptObject, S
 
 use crate::{error::{WorldError, WorldResult}, plugins::{process_health_events, Active}};
 
-pub struct NpcAiPlugin;
-
-impl Plugin for NpcAiPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<AiStates>();
-
-        app.add_systems(Update, ai_tick
-                .run_if(on_timer(Duration::from_millis(100)))
-                .before(process_health_events)
-            );
-        app
-            .world_mut()
-            .register_component_hooks::<AiAgent>()
-            .on_remove(|mut world, HookContext { entity, .. }| {
-                if let Some(mut states) = world.get_resource_mut::<AiStates>() {
-                    states.0.remove(&entity);
-                }
-            });
-
-        insert_npc_ai_api(app.world_mut()).unwrap();
-    }
-}
-
 #[derive(Resource, Default)]
-pub struct AiStates(HashMap<Entity, BT<Actions, HashMap<String, i32>>>);
+pub struct AiStates(pub HashMap<Entity, BT<Actions, HashMap<String, i32>>>);
 
-fn insert_npc_ai_api(
+pub(super) fn insert_npc_ai_api(
     world: &mut World,
 ) -> ScriptResult<()> {
     let runtime = world.get_resource::<LuaRuntime>().unwrap();
@@ -95,7 +72,7 @@ fn insert_npc_ai_api(
     Ok(())
 }
 
-fn parse_lua_behavior(table: Table) -> WorldResult<Behavior<Actions>> {
+pub(super) fn parse_lua_behavior(table: Table) -> WorldResult<Behavior<Actions>> {
     let tag = table.get::<String>("tag")?;
 
     match tag.as_str() {
@@ -178,14 +155,14 @@ fn parse_lua_behavior(table: Table) -> WorldResult<Behavior<Actions>> {
 
 #[derive(Clone)]
 #[non_exhaustive]
-enum Actions {
+pub enum Actions {
     Script(mlua::Function)
 }
 
 #[derive(Component)]
-struct AiAgent;
+pub struct AiAgent;
 
-fn ai_tick(world: &mut World) {
+pub(super) fn ai_tick(world: &mut World) {
     let _ = world.resource_scope::<AiStates, WorldResult<()>>(|world, mut states| {
         let lua = world.get_resource::<LuaRuntime>()
             .expect("Lua runtime not created")

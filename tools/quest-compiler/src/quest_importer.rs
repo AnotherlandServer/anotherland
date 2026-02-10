@@ -79,7 +79,7 @@ pub enum YamlQuestTrigger {
     Sojourn { _sojourn: YamlAvatarSelector },
     Dialogue { dialogue: i32 },
     Timeout { timeout: f32 },
-    Loot { loot: Uuid },
+    Loot { loot: String },
 }
 
 #[derive(Deserialize)]
@@ -223,7 +223,7 @@ async fn import_quest_template_yaml(doc: YamlQuestTemplate) -> Result<()> {
                                         beacon: c.beacon,
                                         hidden: c.hidden,
                                         required_count: c.required_count,
-                                        item_id: loot,
+                                        item_name: loot,
                                     })
                                 },
                                 YamlQuestTrigger::Proximity { proximity: ProximityTrigger { avatar, radius } } => {
