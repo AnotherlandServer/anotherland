@@ -27,6 +27,7 @@ updates:
     - "/tools/navmesh_builder"
     - "/tools/pepkg-tool"
     - "/tools/seed-realm"
+    - "/tools/quest-compiler"
   schedule:
     interval: "weekly"
 - package-ecosystem: "github-actions"
