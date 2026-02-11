@@ -148,6 +148,41 @@ impl ItemStorageExtMutationRoot {
         }
     }
 
+    pub async fn storage_batch_insert_items(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, base_items: Vec<ItemRef>) -> Result<StorageResult, Error> {
+        let db = ctx.data::<Database>()?.clone();
+        let mut session = ItemStorageSession::start(&db, id).await?;
+
+        for base_item in base_items {
+            if let Some(item) = find_item(&db, base_item).await? {
+                match session.insert_item(item, None, None).await {
+                    Ok(_) => {},
+                    Err(ItemStorageSessionError::ClientError(str, e)) => {
+                        return Ok(StorageResult { 
+                            storage_id: id, 
+                            error: Some(async_graphql::Json((str.to_string(), e))),
+                            changed_items: None, 
+                            removed_items: None, 
+                            bling: None,
+                            game_cash: None,
+                        })
+                    },
+                    Err(e) => {
+                        return Err(e.into());
+                    }
+                }
+            } else {
+                return Err(Error::new("Item not found"));
+            }
+        }
+
+        let results = session.commit().await?;
+        send_inventory_update_notifications(ctx, tag, &results).await?;
+
+        let res = results.into_iter().next().unwrap();
+
+        Ok(res.into())
+    }
+
     pub async fn storage_destroy_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid) -> Result<StorageResult, Error> {
         let db = ctx.data::<Database>()?.clone();
         let mut session = ItemStorageSession::start(&db, id).await?;
@@ -173,6 +208,37 @@ impl ItemStorageExtMutationRoot {
             },
             Err(e) => Err(e.into())
         }
+    }
+
+    pub async fn storage_batch_destroy_items(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_ids: Vec<Uuid>) -> Result<StorageResult, Error> {
+        let db = ctx.data::<Database>()?.clone();
+        let mut session = ItemStorageSession::start(&db, id).await?;
+
+        for item_id in item_ids {
+            match session.destroy_item(item_id).await {
+                Ok(_) => {},
+                Err(ItemStorageSessionError::ClientError(str, e)) => {
+                    return Ok(StorageResult { 
+                        storage_id: id, 
+                        error: Some(async_graphql::Json((str.to_string(), e))),
+                        changed_items: None, 
+                        removed_items: None, 
+                        bling: None,
+                        game_cash: None,
+                    })
+                },
+                Err(e) => {
+                    return Err(e.into());
+                }
+            }
+        }
+
+        let results = session.commit().await?;
+        send_inventory_update_notifications(ctx, tag, &results).await?;
+
+        let res = results.into_iter().next().unwrap();
+
+        Ok(res.into())
     }
 
     pub async fn storage_move_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid, new_slot: i32) -> Result<StorageResult, Error> {
@@ -280,7 +346,6 @@ impl ItemStorageExtMutationRoot {
         } else {
             Err(Error::new("Storage is not a character storage"))
         }
-
     }
 
     pub async fn storage_deposit_bling(&self, _ctx: &Context<'_>, _tag: Option<String>, _id: Uuid, _amount: i32) -> Result<StorageResult, Error> {

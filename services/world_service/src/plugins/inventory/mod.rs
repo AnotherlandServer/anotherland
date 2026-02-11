@@ -24,20 +24,20 @@ pub use loot::*;
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, query::Without, resource::Resource, schedule::IntoScheduleConfigs, spawn, system::ResMut, world::World}, math::Vec3, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, state::commands, time::common_conditions::on_timer};
+use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, message::MessageReader, query::Without, resource::Resource, schedule::IntoScheduleConfigs, spawn, system::ResMut, world::World}, math::Vec3, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, state::commands, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all};
 use log::{debug, error, warn};
 use mlua::{Lua, Table};
-use obj_params::{tags::{ItemBaseTag, PlayerTag}, Class, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player};
+use obj_params::{Class, ContentRef, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player, tags::{ItemBaseTag, PlayerTag}};
 use protocol::{oaPktItemStorage, oaPktShopCartBuyRequest, oaPktSteamMicroTxn, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
-use realm_api::{Item, ItemRef, ObjectTemplate, Price, RealmApi};
+use realm_api::{Condition, Item, ItemRef, ObjectTemplate, Price, RealmApi};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, Movement, StaticObject, WeakCache, player_error_handler_system}};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, Movement, QuestState, QuestStateUpdated, Quests, StaticObject, WeakCache, inventory, player_error_handler_system}};
 
 use super::{attach_scripts, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, MessageType, NetworkExtPriv, PlayerController, StringBehavior};
 
@@ -154,6 +154,7 @@ impl Plugin for InventoryPlugin {
         app.add_systems(Update, (
             (
                 init_client_inventory,
+                clear_quest_items,
                 send_initial_items.run_if(on_timer(Duration::from_secs(1))),
             ).chain(),
         ));
@@ -935,6 +936,64 @@ fn insert_item_info(
 
         if let Ok(owner) = objects.get(child_of.parent()) {
             script.object().set("owner", owner.object()).unwrap();
+        }
+    }
+}
+
+fn clear_quest_items(
+    mut events: MessageReader<QuestStateUpdated>,
+    inventories: Query<&Inventory>,
+    items: Query<&ContentInfo>,
+    quests: Res<Quests>,
+    mut commands: Commands,
+) {
+    for &QuestStateUpdated { player, quest_id, state } in events.read() {
+        if
+            let Ok(inventory) = inventories.get(player) && 
+            (
+                matches!(state, QuestState::Finished) ||
+                matches!(state, QuestState::Abandoned)
+            ) &&
+            let Some(quest) = quests.get(&quest_id) 
+        {
+            let mut remove_ids = HashSet::new();
+
+            for condition in &quest.template.conditions {
+                if let Condition::Loot { item_name, .. } = condition {
+                    for item_ent in inventory.items.values() {
+                        if 
+                            let Ok(content) = items.get(*item_ent) &&
+                            content.template.name == *item_name
+                        {
+                            remove_ids.insert(content.placement_id);
+                        }
+                    }
+                }
+            }
+
+            let storage_id = inventory.id;
+
+            commands
+                .entity(player)
+                .perform_async_operation(async move {
+                    if let Ok(res) = RealmApi::get()
+                        .item_storage_access(&storage_id)
+                        .batch_destroy_items(remove_ids.iter().copied().collect(), None)
+                        .await
+                    {
+                        match StorageResult::from_result(res).await {
+                            Ok(result) => Ok(result),
+                            Err(e) => {
+                                error!("Failed to discard quest item: {e}");
+                                Ok(StorageResult::default())
+                            }
+                        }
+                    } else {
+                        Ok(StorageResult::default())
+                    }
+                })
+                .on_finish_run_system(apply_storage_result)
+                .on_error_run_system(player_error_handler_system);
         }
     }
 }

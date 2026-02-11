@@ -64,9 +64,7 @@ impl ObjectPlacementsExtRoot {
             AvatarSelector::DialogId(id) => {
                 matcher.insert("content.Dialogs", doc! { "$in": [id] });
             },
-            AvatarSelector::LootItem(_id) => {
-                todo!()
-            },
+            AvatarSelector::LootItem(_id) => {},
             AvatarSelector::QuestTag(_id) => {
                 todo!()
             },

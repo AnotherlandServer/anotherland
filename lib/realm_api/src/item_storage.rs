@@ -18,7 +18,7 @@ use item_storage_graphql::{GetOrCreateStorage, GetOrCreateStorageVariables, GetS
 use obj_params::{GameObjectData, GenericParamSet};
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{RealmApi, RealmApiError, RealmApiResult, Skillbook};
+use crate::{RealmApi, RealmApiError, RealmApiResult, Skillbook, item_storage_graphql::{StorageBatchDestroyItems, StorageBatchDestroyItemsVariables, StorageBatchInsertItems, StorageBatchInsertItemsVariables}};
 
 pub enum ItemRef<'a> {
     Name(&'a str),
@@ -238,6 +238,27 @@ impl ItemStorageId {
         }
     }
 
+     pub async fn batch_insert_items(&self, item_refs: Vec<ItemRef<'_>>, tag: Option<String>) -> RealmApiResult<StorageResult> {
+        let response = self.api_base.0.client
+            .post(self.api_base.0.base_url.clone())
+            .run_graphql(StorageBatchInsertItems::build(StorageBatchInsertItemsVariables {
+                id: self.id,
+                base_items: item_refs
+                    .into_iter()
+                    .map(|r| r.try_into())
+                    .collect::<Result<Vec<_>, _>>()?,
+                tag,
+            })).await?;
+
+        if let Some(StorageBatchInsertItems { storage_batch_insert_items }) = response.data {
+            Ok(storage_batch_insert_items.try_into()?)
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
+
     pub async fn destroy_item(&self, item_id: Uuid, tag: Option<String>) -> RealmApiResult<StorageResult> {
         let response = self.api_base.0.client
             .post(self.api_base.0.base_url.clone())
@@ -249,6 +270,24 @@ impl ItemStorageId {
 
         if let Some(StorageDestroyItem { storage_destroy_item }) = response.data {
             Ok(storage_destroy_item.try_into()?)
+        } else if let Some(errors) = response.errors {
+            Err(RealmApiError::GraphQl(errors))
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub async fn batch_destroy_items(&self, item_ids: Vec<Uuid>, tag: Option<String>) -> RealmApiResult<StorageResult> {
+        let response = self.api_base.0.client
+            .post(self.api_base.0.base_url.clone())
+            .run_graphql(StorageBatchDestroyItems::build(StorageBatchDestroyItemsVariables {
+                id: self.id,
+                item_ids,
+                tag,
+            })).await?;
+
+        if let Some(StorageBatchDestroyItems { storage_batch_destroy_items }) = response.data {
+            Ok(storage_batch_destroy_items.try_into()?)
         } else if let Some(errors) = response.errors {
             Err(RealmApiError::GraphQl(errors))
         } else {
@@ -397,6 +436,13 @@ pub(crate) mod item_storage_graphql {
     }
 
     #[derive(cynic::QueryVariables, Debug)]
+    pub struct StorageBatchDestroyItemsVariables {
+        pub id: Uuid,
+        pub item_ids: Vec<Uuid>,
+        pub tag: Option<String>,
+    }
+
+    #[derive(cynic::QueryVariables, Debug)]
     pub struct StorageEquipItemVariables {
         pub id: Uuid,
         pub item_id: Uuid,
@@ -425,6 +471,13 @@ pub(crate) mod item_storage_graphql {
         pub base_item: ItemRef<'a>,
         pub id: Uuid,
         pub insert_at: Option<i32>,
+        pub tag: Option<String>,
+    }
+
+    #[derive(cynic::QueryVariables, Debug)]
+    pub struct StorageBatchInsertItemsVariables<'a> {
+        pub base_items: Vec<ItemRef<'a>>,
+        pub id: Uuid,
         pub tag: Option<String>,
     }
 
@@ -512,6 +565,13 @@ pub(crate) mod item_storage_graphql {
     }
 
     #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "StorageBatchInsertItemsVariables")]
+    pub struct StorageBatchInsertItems {
+        #[arguments(baseItems: $base_items, id: $id, tag: $tag)]
+        pub storage_batch_insert_items: StorageResult,
+    }
+
+    #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "StorageEquipItemVariables")]
     pub struct StorageEquipItem {
         #[arguments(id: $id, itemId: $item_id, tag: $tag, idx: $idx)]
@@ -523,6 +583,13 @@ pub(crate) mod item_storage_graphql {
     pub struct StorageDestroyItem {
         #[arguments(id: $id, itemId: $item_id, tag: $tag)]
         pub storage_destroy_item: StorageResult,
+    }
+
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "StorageBatchDestroyItemsVariables")]
+    pub struct StorageBatchDestroyItems {
+        #[arguments(id: $id, itemIds: $item_ids, tag: $tag)]
+        pub storage_batch_destroy_items: StorageResult,
     }
 
     #[derive(cynic::QueryFragment, Debug)]
