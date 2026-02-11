@@ -67,7 +67,7 @@ portable-atomic = "1.10.0"
 rand = "0.8.5"
 rsa = { version = "0.9.10", features = ["hazmat"] }
 sha1 = "0.10.6"
-uuid = { version = "1.19.0", features = ["v1", "v4"] }
+uuid = { version = "1.20.0", features = ["v1", "v4"] }
 futures = "0.3.31"
 realm_manager_service = { version = "0.1.0", path = "services/realm_manager_service" }
 async-graphql = { version = "7.2.1", features = ["bson", "chrono", "chrono-tz", "uuid"] }
@@ -75,7 +75,7 @@ async-graphql-poem = "7.2.0"
 config = { version = "0.1.0", path = "lib/config" }
 cynic-codegen = "3.9.1"
 database = { version = "0.1.0", path = "lib/database" }
-anyhow = "1.0.94"
+anyhow = "1.0.101"
 macros = { version = "0.1.0", path = "lib/macros" }
 clap = { version = "4.5.54", features = ["derive", "env", "cargo"] }
 core_api = { version = "0.1.0", path = "lib/core_api" }
@@ -88,7 +88,7 @@ poem = "3.1.5"
 protocol = { version = "0.1.0", path = "lib/protocol" }
 upk = { version = "0.1.0", path = "lib/upk" }
 scripting = { version = "0.1.0", path = "lib/scripting" }
-mlua = { version = "0.11.5", features = ["lua54", "async", "send", "vendored", "anyhow", "serialize"] }
+mlua = { version = "0.11.6", features = ["lua54", "async", "send", "vendored", "anyhow", "serialize"] }
 saphyr = "0.0.3"
 serde-saphyr = "0.0.17"
 tokio-util = { version = "0.7.13", features = ["rt"] }
@@ -96,7 +96,7 @@ sqlite = "0.37.0"
 recastnavigation-rs = { version = "0.1.0", git = "https://github.com/AnotherlandServer/recastnavigation-rs.git", rev = "c4659c6abb829d1256a16aff10256bf5be53f444" }
 notify = { version = "8.2.0" }
 notify-debouncer-full = "0.6.0"
-indicatif = { version = "0.18.0", features = ["tokio"] }
+indicatif = { version = "0.18.3", features = ["tokio"] }
 
 [profile.dev]
 debug = "line-tables-only"
