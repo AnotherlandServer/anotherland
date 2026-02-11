@@ -75,7 +75,7 @@ async-graphql-poem = "7.2.0"
 config = { version = "0.1.0", path = "lib/config" }
 cynic-codegen = "3.9.1"
 database = { version = "0.1.0", path = "lib/database" }
-anyhow = "1.0.94"
+anyhow = "1.0.101"
 macros = { version = "0.1.0", path = "lib/macros" }
 clap = { version = "4.5.54", features = ["derive", "env", "cargo"] }
 core_api = { version = "0.1.0", path = "lib/core_api" }
