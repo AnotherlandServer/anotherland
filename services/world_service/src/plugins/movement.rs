@@ -126,6 +126,7 @@ pub struct Movement {
 pub fn handle_move_manager_pos_update(
     In((ent, pkt)): In<(Entity, oaPktMoveManagerPosUpdate)>,
     mut query: Query<(&mut GameObjectData, &mut Movement), With<PlayerTag>>,
+    navmesh: Res<Navmesh>,
     mut commands: Commands,
 ) {
     if let Ok((mut obj, mut movement)) = query.get_mut(ent) {
@@ -139,8 +140,12 @@ pub fn handle_move_manager_pos_update(
         obj.set(Player::Pos, (0u32, movement.position));
         obj.set(Player::Rot, movement.rotation.as_unit_vector());
 
+        let floor_height = navmesh.get_floor_height(movement.position).unwrap_or(f32::NAN);
+
         debug!("Avatar ID: {}", pkt.avatar_id);
         debug!("New Pos: {}", movement.position);
+        debug!("Floor height at new pos: {}", floor_height);
+        debug!("Height diff: {}", movement.position.y - floor_height);
         debug!("New Rot: {:?} / {} / {}", pkt.rot, movement.rotation, movement.rotation.as_unit_vector());
         debug!("New Vel: {}", movement.velocity);
         debug!("New key: {}", movement.mover_key);

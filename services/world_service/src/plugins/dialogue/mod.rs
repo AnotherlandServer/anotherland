@@ -251,23 +251,32 @@ fn run_dialogues(
                 // Check if dialogue is attached to a quest condition and skip over it,
                 // if the condition is not active.
                 if 
-                    let Some(quest_dialogue) = quest_dialogue &&
+                    let Some(quest_dialogue) = quest_dialogue
+                {
                     let Some(progress) = questlog.quests.values()
                         .find_map(|quest| {
                             if 
                                 let Ok(progress) = progress.get(*quest) &&
-                                progress.state().quest_id == quest_dialogue.quest_id
+                                progress.state().quest_id == quest_dialogue.quest_id &&
+                                progress.state().state == QuestProgressionState::Active
                             {
                                 Some(progress)
                             } else {
                                 None
                             }
-                        }) &&
-                    let Some(condition) = progress.active_condition() &&
-                    condition.id != quest_dialogue.condition_id
-                {
-                    // This dialogue is for a quest condition that is not currently active, skip it.
-                    continue 'dialogue;
+                        })
+                    else {
+                        // No active quest found for this dialogue, skip it.
+                        continue 'dialogue;
+                    };
+
+                    if  
+                        let Some(condition) = progress.active_condition() &&
+                        condition.id != quest_dialogue.condition_id
+                    {
+                        // This dialogue is for a quest condition that is not currently active, skip it.
+                        continue 'dialogue;
+                    }
                 }
 
                 let branches = dialogue.0.branches
