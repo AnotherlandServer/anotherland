@@ -78,7 +78,7 @@ cynic-codegen = "3.9.1"
 database = { version = "0.1.0", path = "lib/database" }
 anyhow = "1.0.101"
 macros = { version = "0.1.0", path = "lib/macros" }
-clap = { version = "4.5.54", features = ["derive", "env", "cargo"] }
+clap = { version = "4.5.58", features = ["derive", "env", "cargo"] }
 core_api = { version = "0.1.0", path = "lib/core_api" }
 env_logger = "0.11.5"
 dotenvy = "0.15.7"
