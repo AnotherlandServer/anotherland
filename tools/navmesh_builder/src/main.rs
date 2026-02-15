@@ -28,7 +28,7 @@ use once_cell::sync::Lazy;
 use pepkg::PePkg;
 use plexus::{buffer::{FromRawBuffers, MeshBuffer, MeshBuffer3}, index::{CollectWithIndexer, LruIndexer}, primitive::{cube, decompose::Triangulate, generate::{Generator, Position}, sphere, MapVertices, Trigon}};
 use realm_api::{NavmeshBuilder, NavmeshTileBuilder, RealmApi};
-use recastnavigation_rs::{detour::{dt_create_nav_mesh_data, DtBuf, DtNavMeshCreateParams}, recast::{rc_build_compact_heightfield, rc_build_contours, rc_build_distance_field, rc_build_poly_mesh, rc_build_poly_mesh_detail, rc_build_regions, rc_calc_bounds, rc_calc_grid_size, rc_create_heightfield, rc_erode_walkable_area, rc_filter_ledge_spans, rc_filter_low_hanging_walkable_obstacles, rc_filter_walkable_low_height_spans, rc_mark_walkable_triangles, rc_rasterize_triangles_1, RcBuildContoursFlags, RcCompactHeightfield, RcConfig, RcContext, RcContourSet, RcHeightfield, RcPolyMesh, RcPolyMeshDetail, RC_WALKABLE_AREA}};
+use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshCreateParams, DtNavMeshParams, DtTileRef, dt_create_nav_mesh_data}, recast::{RC_WALKABLE_AREA, RcBuildContoursFlags, RcCompactHeightfield, RcConfig, RcContext, RcContourSet, RcHeightfield, RcPolyMesh, RcPolyMeshDetail, rc_build_compact_heightfield, rc_build_contours, rc_build_distance_field, rc_build_poly_mesh, rc_build_poly_mesh_detail, rc_build_regions, rc_calc_bounds, rc_calc_grid_size, rc_create_heightfield, rc_erode_walkable_area, rc_filter_ledge_spans, rc_filter_low_hanging_walkable_obstacles, rc_filter_walkable_low_height_spans, rc_mark_walkable_triangles, rc_rasterize_triangles_1}};
 use theon::{adjunct::Map, query::Aabb};
 use tokio::{fs, runtime::Handle, sync::Mutex};
 use toolkit::{types::Uuid};
@@ -47,6 +47,10 @@ enum Commands {
         world: Option<String>,
     },
     Export {
+        package: String,
+        out: String,
+    },
+    ExportNavmesh {
         package: String,
         out: String,
     },
@@ -81,7 +85,7 @@ async fn main() -> NavMeshBuilderResult<()> {
     match cli.command {
         Commands::GenerateMesh { service_realm_url, world } => {
             let game_path = Path::new(&cli.game_folder);
-            let realm = RealmApi::new(service_realm_url);
+            RealmApi::init(service_realm_url);
 
             let worlds = tokio::task::block_in_place(move || {
                 let db = sqlite::open(
@@ -156,7 +160,8 @@ async fn main() -> NavMeshBuilderResult<()> {
 
                 let tile_count = tw * th;
 
-                let mut res = realm.query_navmeshs()
+                let mut res = RealmApi::get()
+                    .query_navmeshs()
                     .world_guid(*guid)
                     .query()
                     .await?;
@@ -164,21 +169,22 @@ async fn main() -> NavMeshBuilderResult<()> {
                 let db_navmesh = if let Some(db_navmesh) = res.try_next().await? {
                     db_navmesh
                 } else {
-                    realm.create_navmesh(
-                        NavmeshBuilder::default()
-                            .id(Uuid::new())
-                            .world_id(*id as i32)
-                            .world_guid(*guid)
-                            .origin([min_bounds[0] as f64, min_bounds[1] as f64, min_bounds[2] as f64])
-                            .tile_width(tcs.into())
-                            .tile_height(tcs.into())
-                            .pathengine_start_x(federation_mesh.start_x)
-                            .pathengine_start_y(federation_mesh.start_y)
-                            .pathengine_tile_size(federation_mesh.tile_size)
-                            .pathengine_tile_pitch(federation_mesh.width.div_ceil(federation_mesh.tile_size))
-                            .build()
-                            .unwrap()
-                    ).await?
+                    RealmApi::get()
+                        .create_navmesh(
+                            NavmeshBuilder::default()
+                                .id(Uuid::new())
+                                .world_id(*id as i32)
+                                .world_guid(*guid)
+                                .origin([min_bounds[0] as f64, min_bounds[1] as f64, min_bounds[2] as f64])
+                                .tile_width(tcs.into())
+                                .tile_height(tcs.into())
+                                .pathengine_start_x(federation_mesh.start_x)
+                                .pathengine_start_y(federation_mesh.start_y)
+                                .pathengine_tile_size(federation_mesh.tile_size)
+                                .pathengine_tile_pitch(federation_mesh.width.div_ceil(federation_mesh.tile_size))
+                                .build()
+                                .unwrap()
+                        ).await?
                 };
 
                 let thread_pool = ThreadPoolBuilder::new()
@@ -199,7 +205,6 @@ async fn main() -> NavMeshBuilderResult<()> {
                         .for_each(|(current_tile, (x, y))| {
                             let multiprogress = multiprogress.clone();
                             let world_mesh = world_mesh.clone();
-                            let realm = realm.clone();
                             let handle = handle.clone();
                             
                             s.spawn(move |_| {
@@ -219,13 +224,13 @@ async fn main() -> NavMeshBuilderResult<()> {
                                 let config = RcConfig {
                                     ch: CH,
                                     cs: CS,
-                                    walkable_height: (meter_to_uu(2.0) / CH).ceil() as i32,
-                                    walkable_radius: (meter_to_uu(0.5) / CS).ceil() as i32,
+                                    walkable_height: (meter_to_uu(1.0) / CH).ceil() as i32,
+                                    walkable_radius: 0,
                                     walkable_climb: (meter_to_uu(0.3) / CH).ceil() as i32,
                                     walkable_slope_angle: 45.0,
                                     width: grid_width,
                                     height: grid_height,
-                                    border_size: (meter_to_uu(0.1) / CS).ceil() as i32 * 3,
+                                    border_size: (meter_to_uu(0.01) / CS).ceil() as i32 * 3,
                                     ..Default::default()
                                 };
 
@@ -238,10 +243,10 @@ async fn main() -> NavMeshBuilderResult<()> {
                                 progress.set_message("Waiting...");
 
                                 let tile_exists = {
-                                    let realm = realm.clone();
                                     let _guard = handle.enter();
                                     handle.block_on(async move {
-                                        let mut res = realm.query_navmesh_tiles()
+                                        let mut res = RealmApi::get()
+                                            .query_navmesh_tiles()
                                             .mesh_id(db_navmesh.id)
                                             .tile_x(x)
                                             .tile_y(y)
@@ -277,17 +282,18 @@ async fn main() -> NavMeshBuilderResult<()> {
 
                                     let _guard = handle.enter();
                                     handle.block_on(async move {
-                                        realm.create_navmesh_tile(
-                                            NavmeshTileBuilder::default()
-                                                .id(Uuid::new())
-                                                .mesh_id(db_navmesh.id)
-                                                .tile_x(x)
-                                                .tile_y(y)
-                                                .data(BASE64_STANDARD.encode(&buf))
-                                                .build()
-                                                .unwrap()
-                                        ).await
-                                        .expect("Failed to store navmesh tile");
+                                        RealmApi::get()
+                                            .create_navmesh_tile(
+                                                NavmeshTileBuilder::default()
+                                                    .id(Uuid::new())
+                                                    .mesh_id(db_navmesh.id)
+                                                    .tile_x(x)
+                                                    .tile_y(y)
+                                                    .data(BASE64_STANDARD.encode(&buf))
+                                                    .build()
+                                                    .unwrap()
+                                            ).await
+                                            .expect("Failed to store navmesh tile");
 
                                         progress.finish_with_message(format!("{} bytes", buf.len()));
                                     });
@@ -307,6 +313,124 @@ async fn main() -> NavMeshBuilderResult<()> {
 
             // Save the world_mesh as an OBJ file
             write_obj(&package, &world_mesh, out).await?;
+        },
+        Commands::ExportNavmesh { package, out } => {
+            let _ = multiprogress.println(format!("Exporting navmesh mesh for level: {package}"));
+            let game_path = Path::new(&cli.game_folder);
+
+            let mut pepkg = PePkg::open(
+                game_path.join(format!("Atlas/data/otherlandgame/WorldData/{package}/{package}.pepkg"))
+            )?;
+
+            let federation_mesh = pepkg.read_federation_file()?;
+
+            let world_mesh = build_level_mesh(&multiprogress, &cli.game_folder, &package).await?;
+
+            let verts = world_mesh.as_vertex_slice()
+                .iter()
+                .map(|v| [v.x, v.y, v.z])
+                .collect::<Vec<_>>();
+
+            let (min_bounds, max_bounds) = rc_calc_bounds(&verts);
+            let (grid_width, grid_height) = rc_calc_grid_size(&min_bounds, &max_bounds, CS);
+            let (width, height) = rc_calc_grid_size(&min_bounds, &max_bounds, CS);
+
+            drop(verts);
+
+            let tw = grid_width.div_ceil(TS);
+            let th = grid_height.div_ceil(TS);
+            let tcs = TS as f32 * CS;
+
+            let tile_count = tw * th;
+
+            let world_mesh = Arc::new(world_mesh);
+
+            let mut navmesh = DtNavMesh::with_params(&DtNavMeshParams {
+                orig: [min_bounds[0], min_bounds[1], min_bounds[2]],
+                tile_width: tcs,
+                tile_height: tcs,
+                max_tiles: 1 << 7,
+                max_polys: 1 << 15,
+            })?;
+
+            let mut result_mesh = MeshBuffer3::<u64, Vec3>::new();
+
+            (0..th)
+                .flat_map(|y| {
+                    (0..tw).map(move |x| (x, y))
+                })
+                .enumerate()
+                .for_each(|(current_tile, (x, y))| {
+                    let multiprogress = multiprogress.clone();
+                    let world_mesh = world_mesh.clone();
+                    
+                    let tile_bounds = Aabb {
+                        origin: Vec3::new(
+                            min_bounds[0] + x as f32 * tcs,
+                            min_bounds[1],
+                            min_bounds[2] + y as f32 * tcs,
+                        ),
+                        extent: Vec3::new(
+                            tcs,
+                            max_bounds[1] - min_bounds[1],
+                            tcs,
+                        )
+                    };
+
+                    let config = RcConfig {
+                        ch: CH,
+                        cs: CS,
+                        walkable_height: (meter_to_uu(1.0) / CH).ceil() as i32,
+                        walkable_radius: 0,
+                        walkable_climb: (meter_to_uu(0.3) / CH).ceil() as i32,
+                        walkable_slope_angle: 45.0,
+                        width: grid_width,
+                        height: grid_height,
+                        border_size: (meter_to_uu(0.1) / CS).ceil() as i32 * 3,
+                        ..Default::default()
+                    };
+
+                    let progress = multiprogress.add(ProgressBar::new_spinner());
+                    progress.set_style(ProgressStyle::with_template(&format!(
+                        "[{}/{}]  {{msg}}", 
+                        current_tile + 1, tile_count
+                    )).unwrap());
+                    progress.set_message("Waiting...");
+
+                    let buf = build_tile(
+                        multiprogress.clone(),
+                        progress.clone(), 
+                        &config, 
+                        &world_mesh, 
+                        tile_bounds,
+                        x,
+                        y,
+                    ).expect("Failed to build tile");
+
+                    if let Some(res) = buf {
+                        let tileref = navmesh.add_tile(res, DtTileRef::default())
+                            .expect("Failed to add tile to navmesh");
+                        let tile = navmesh.get_tile_by_ref(tileref).unwrap();
+
+                        result_mesh.append(&mut MeshBuffer::<Trigon<u64>, Vec3>::from_raw_buffers(
+                            tile.polys().iter().map(|i| {
+                                Trigon::new(
+                                    i.verts[0] as u64,
+                                    i.verts[1] as u64,
+                                    i.verts[2] as u64
+                                )
+                            }).collect::<Vec<_>>(),
+                            tile.verts().iter().map(|v| {
+                                Vec3::new(v[0], v[1], v[2])
+                            }).collect::<Vec<_>>()
+                        ).unwrap()).unwrap();
+                    } else {
+                        progress.finish_with_message("Empty!");
+                    }
+                });
+
+            // Save the world_mesh as an OBJ file
+            write_obj(&package, &result_mesh, out).await?;
         },
     }
 
