@@ -80,7 +80,7 @@ anyhow = "1.0.101"
 macros = { version = "0.1.0", path = "lib/macros" }
 clap = { version = "4.5.59", features = ["derive", "env", "cargo"] }
 core_api = { version = "0.1.0", path = "lib/core_api" }
-env_logger = "0.11.5"
+env_logger = "0.11.9"
 dotenvy = "0.15.7"
 raknet = { version = "0.1.0", path = "lib/raknet" }
 bcrypt = "0.16.0"
