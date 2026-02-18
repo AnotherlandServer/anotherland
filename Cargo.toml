@@ -62,7 +62,7 @@ bevy = { version = "0.18.0", default-features = false, features = ["async_execut
 derive_builder = "0.20.2"
 obj_params = { version = "0.1.0", path = "lib/obj_params" }
 realm_api = { version = "0.1.0", path = "lib/realm_api" }
-bson = { version = "2.13.0", features = ["uuid-1"] }
+bson = { version = "3.1.0", features = ["uuid-1"] }
 aes = "0.8.4"
 portable-atomic = "1.10.0"
 rand = "0.8.5"

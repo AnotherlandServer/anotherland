@@ -303,7 +303,7 @@ dependencies = [
  "async-trait",
  "asynk-strim",
  "base64 0.22.1",
- "bson",
+ "bson 2.15.0",
  "bytes",
  "chrono",
  "chrono-tz",
@@ -1145,6 +1145,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "bson"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3f109694c4f45353972af96bf97d8a057f82e2d6e496457f4d135b9867a518c"
+dependencies = [
+ "ahash",
+ "base64 0.22.1",
+ "bitvec",
+ "getrandom 0.3.3",
+ "hex",
+ "indexmap 2.11.4",
+ "js-sys",
+ "rand 0.9.2",
+ "serde_bytes",
+ "simdutf8",
+ "thiserror 2.0.17",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "bstr"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1620,7 +1641,7 @@ dependencies = [
  "async-graphql",
  "async-graphql-poem",
  "bcrypt",
- "bson",
+ "bson 3.1.0",
  "chrono",
  "clap",
  "cluster",
@@ -2288,7 +2309,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
@@ -3817,7 +3838,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8da0cd419a51a5fb44819e290fbdb0665a54f21dead8923446a799c7f4d26ad9"
 dependencies = [
- "bson",
+ "bson 2.15.0",
  "mongocrypt-sys",
  "once_cell",
  "serde",
@@ -3837,7 +3858,7 @@ checksum = "50ed2c028a2c04ad58faa2e0f4ee82c1319f0e495b710ca8e8498fde4b395f64"
 dependencies = [
  "base64 0.22.1",
  "bitflags 2.10.0",
- "bson",
+ "bson 2.15.0",
  "derive-where",
  "derive_more",
  "futures-core",
@@ -4908,7 +4929,7 @@ name = "protocol"
 version = "0.1.0"
 dependencies = [
  "bitstream-io",
- "bson",
+ "bson 3.1.0",
  "convert_case 0.6.0",
  "glam",
  "itertools",
@@ -5122,7 +5143,7 @@ dependencies = [
 name = "realm_api"
 version = "0.1.0"
 dependencies = [
- "bson",
+ "bson 3.1.0",
  "chrono",
  "cluster",
  "cynic",
@@ -5470,7 +5491,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
@@ -5691,7 +5712,7 @@ checksum = "bc14a55107113a16346915d7e3d78acc539a923458385db89670e22cac106d7a"
 dependencies = [
  "ahash",
  "annotate-snippets",
- "base64 0.21.7",
+ "base64 0.22.1",
  "encoding_rs_io",
  "figment",
  "garde",
@@ -6275,7 +6296,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
@@ -6633,7 +6654,7 @@ dependencies = [
  "anyhow",
  "async-graphql",
  "bitstream-io",
- "bson",
+ "bson 3.1.0",
  "config 0.1.0",
  "cynic-codegen",
  "database",
@@ -7277,7 +7298,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.0",
 ]
 
 [[package]]
