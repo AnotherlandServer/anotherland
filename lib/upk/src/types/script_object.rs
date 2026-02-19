@@ -238,7 +238,8 @@ pub fn parse_object<'ctx>(file: Arc<PackageFile>, container: &'ctx Container)
             Ok((i, ObjectProperty::None))
         } else {
             Ok((i, ObjectProperty::Object(
-                container.resolve_object(file.clone(), LocalObjectIndexRef::from_idx(idx)).unwrap()
+                container.resolve_object(file.clone(), LocalObjectIndexRef::from_idx(idx))
+                    .ok_or(nom::Err::Failure(VerboseError::from_external_error(i, ErrorKind::MapRes, UPKError::Custom(format!("Failed to resolve object with index {idx}")))))?
             )))
         }
     }
@@ -430,6 +431,41 @@ fn parse_struct<'ctx>(file: Arc<PackageFile>, container: &'ctx Container, object
             "TextureAddress" => {
                  StructClass::Class(
                     container.lookup_object("ScriptStruct:Texture/TextureAddress").unwrap()
+                )
+            },
+            "SeqOpInputLink" => {
+                StructClass::Class(
+                    container.lookup_object("ScriptStruct:SequenceOp/SeqOpInputLink").unwrap()
+                )
+            },
+            "SeqOpOutputLink" => {
+                StructClass::Class(
+                    container.lookup_object("ScriptStruct:SequenceOp/SeqOpOutputLink").unwrap()
+                )
+            },
+            "SeqOpOutputInputLink" => {
+                StructClass::Class(
+                    container.lookup_object("ScriptStruct:SequenceOp/SeqOpOutputInputLink").unwrap()
+                )
+            },
+            "SeqVarLink" => {
+                StructClass::Class(
+                    container.lookup_object("ScriptStruct:SequenceOp/SeqVarLink").unwrap()
+                )
+            },
+            "SeqEventLink" => {
+                StructClass::Class(
+                    container.lookup_object("ScriptStruct:SequenceOp/SeqEventLink").unwrap()
+                )
+            },
+            "KismetDrawTextInfo" => {
+                StructClass::Class(
+                    container.lookup_object("ScriptStruct:HUD/KismetDrawTextInfo").unwrap()
+                )
+            },
+            "RenderingPerformanceOverrides" => {
+                StructClass::Class(
+                    container.lookup_object("ScriptStruct:EngineBaseTypes/RenderingPerformanceOverrides").unwrap()
                 )
             },
             _ => {

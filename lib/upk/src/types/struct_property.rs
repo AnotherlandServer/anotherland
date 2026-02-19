@@ -16,7 +16,7 @@
 use async_trait::async_trait;
 use nom::{bytes::complete::take, error::Error, number::complete::le_i32};
 
-use crate::{Container, DeserializeUnrealObject, LocalObjectIndexRef, ObjectRef, UPKResult};
+use crate::{Container, DeserializeUnrealObject, LocalObjectIndexRef, ObjectRef, UPKError, UPKResult};
 
 #[derive(Debug)]
 pub struct StructProperty {
@@ -35,7 +35,8 @@ impl DeserializeUnrealObject for StructProperty {
         let (i, _) = take::<usize, _, Error<_>>(i.len() - 4)(i)?;
         let (i, struct_ref) = le_i32::<_, Error<_>>(i)?;
 
-        let class = container.resolve_object(object.package().unwrap(), LocalObjectIndexRef::from_idx(struct_ref)).unwrap();
+        let class = container.resolve_object(object.package().unwrap(), LocalObjectIndexRef::from_idx(struct_ref))
+            .ok_or(UPKError::Custom(format!("Failed to resolve class: {}", struct_ref)))?;
 
         Ok((
             i,

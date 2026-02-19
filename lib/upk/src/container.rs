@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use log::{debug, warn};
 use once_cell::sync::Lazy;
 
-use crate::{types::{Intrinsic, ScriptClass, StructProperty}, LocalObject, LocalObjectIndexRef, Object, ObjectBuilder, ObjectRef, PackageFile, UPKResult};
+use crate::{LocalObject, LocalObjectIndexRef, Object, ObjectBuilder, ObjectRef, PackageFile, UPKError, UPKResult, types::{Intrinsic, ScriptClass, StructProperty}};
 
 #[async_trait]
 pub trait DeserializeUnrealObject: Sized + Send + Sync {
@@ -588,6 +588,10 @@ impl Container {
         }
     }
 
+    pub fn is_mounted(&self, name: &str) -> bool {
+        self.packages.contains_key(name)
+    }
+
     pub fn mount_package<'a>(&'a mut self, name: &'a str) -> BoxFuture<'a, UPKResult<()>> {
         async move {
             if !self.packages.contains_key(name) {
@@ -659,7 +663,8 @@ impl Container {
 
                         self.add_object(object);
                     } else {
-                        panic!("Failed to resolve class: {:?}", self.build_object_fqn(file.clone(), export.class_ref()))
+                        //panic!("Failed to resolve class: {:?}", self.build_object_fqn(file.clone(), export.class_ref()))
+                        return Err(UPKError::Custom(format!("Failed to resolve class: {:?}", self.build_object_fqn(file.clone(), export.class_ref()))));
                     }
                 }
 
