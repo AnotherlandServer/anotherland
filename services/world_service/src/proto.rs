@@ -26,7 +26,7 @@ pub enum WorldRequest {
 #[derive(Serialize, Deserialize)]
 pub enum ClusterMessage {
     Forward { data: Vec<u8> },
-    ClientArrived { session: Uuid, zone: Uuid, instance: Option<Uuid>, mode: TravelMode },
+    ClientArrived { session: Uuid, zone: Uuid, instance: Option<Uuid>, mode: TravelMode, movie: Option<String> },
     ClientLeft,
     TravelAccepted,
     TravelRejected { reason: TravelRejectReason },
@@ -42,7 +42,7 @@ pub enum WorldResponse {
 #[derive(Serialize, Deserialize)]
 pub enum WorldMessage {
     ServerMessage{ data: Vec<u8> },
-    TravelRequest { zone: Uuid, instance: Option<Uuid>, mode: TravelMode },
+    TravelRequest { zone: Uuid, instance: Option<Uuid>, mode: TravelMode, movie: Option<String> },
     TravelCommited,
     Close,
 }

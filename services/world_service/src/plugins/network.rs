@@ -141,7 +141,7 @@ impl NetworkExtPriv for App {
 
 pub enum WorldEvent {
     Packet { controller: Uuid, pkt: CPkt },
-    TravelRequest { controller: Uuid, zone: Uuid, instance: Option<Uuid>, mode: TravelMode },
+    TravelRequest { controller: Uuid, zone: Uuid, instance: Option<Uuid>, mode: TravelMode, movie: Option<String> },
     TravelCommited { controller: Uuid },
     Close { controller: Uuid },
 }

@@ -35,7 +35,13 @@ pub enum ServerAction {
     Portal(AvatarId, Option<Movement>),
     LocalPortal(AvatarId, Movement),
     Teleport(AvatarId, Movement),
-    Event(String),
+    Cinematic {
+        player: AvatarId,
+        name: String,
+        level: Option<String>,
+        position: Option<Movement>,
+    },
+    RemoteEvent(String),
 }
 
 impl ServerAction {
@@ -71,7 +77,17 @@ impl ServerAction {
                 4,
                 Some(position)
             ),
-            Self::Event(event) => (
+            Self::Cinematic { player, name, level, position } => (
+                player,
+                if let Some(level) = level {
+                    format!("MATINEE:Cutscene|{}|{}", level, name)
+                } else {
+                    format!("MATINEE:Cutscene|{}", name)
+                },
+                4,
+                position,
+            ),
+            Self::RemoteEvent(event) => (
                 AvatarId::default(),
                 event,
                 4,

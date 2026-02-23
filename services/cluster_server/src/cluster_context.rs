@@ -74,7 +74,8 @@ impl ClusterContext {
             session: *session.id(),
             zone: channel.instance().zone,
             instance: channel.instance().key,
-            mode: TravelMode::Login
+            mode: TravelMode::Login,
+            movie: None,
         }).await;
 
         let (next_instance_send, mut next_instance_recv) = mpsc::channel(1);
@@ -100,7 +101,7 @@ impl ClusterContext {
                                     WorldMessage::ServerMessage { data } => {
                                         let _ = socket.send(&data, raknet::Reliability::ReliableOrdered).await;
                                     },
-                                    WorldMessage::TravelRequest { zone, instance, mode } => {
+                                    WorldMessage::TravelRequest { zone, instance, mode, movie } => {
                                         let channel_id = channel.id();
                                         let session_id = *session.id();
                                         let next_instance_send = next_instance_send.clone();
@@ -111,7 +112,7 @@ impl ClusterContext {
                                             match router.open_instance_channel(session_id, zone, instance).await {
                                                     Ok(res) => {
                                                         // Queue next instance
-                                                        let _ = next_instance_send.send((res, mode)).await; 
+                                                        let _ = next_instance_send.send((res, mode, movie)).await; 
 
                                                         // Tell currently connected world we're ready
                                                         let _ = world_sender.send(WorldRequest::RouterChannel {
@@ -135,7 +136,7 @@ impl ClusterContext {
 
                                         // Get queued instance
                                         match next_instance_recv.recv().await {
-                                            Some((new_channel, mode)) => {
+                                            Some((new_channel, mode, movie)) => {
                                                 debug!("Switching session '{}' to instance {}:{:?}", 
                                                     socket.id(), 
                                                     new_channel.instance().zone, 
@@ -152,7 +153,8 @@ impl ClusterContext {
                                                     session: *session.id(),
                                                     zone: channel.instance().zone,
                                                     instance: channel.instance().key,
-                                                    mode
+                                                    mode,
+                                                    movie,
                                                 }).await;
                                             }
                                             None => {

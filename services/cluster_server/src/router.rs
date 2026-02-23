@@ -121,6 +121,8 @@ impl Router {
     pub async fn open_instance_channel(&self, session: Uuid, zone: Uuid, key: Option<Uuid>) 
         -> ClusterFrontendResult<InstanceChannel> 
     {
+        debug!("Opening instance channel for session {session} to zone {zone} instance {key:?}");
+
         let id = Uuid::new();
         let instance = self.realm_api.join_instance(session, zone, key).await?;
         let (node_id, node) = self.get_or_connect_world(&instance.node).await?;

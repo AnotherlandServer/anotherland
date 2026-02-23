@@ -128,7 +128,7 @@ fn handle_world_msgs(server: Arc<WorldServer>, _realm_api: RealmApi, event_sende
                                         let _ = sender.send(ControllerEvent::Packet(pkt)).await;
                                     }
                                 },
-                                ClusterMessage::ClientArrived { session, zone, instance, mode } => {
+                                ClusterMessage::ClientArrived { session, zone, instance, mode, movie } => {
                                     let instance = InstanceLabel::new(
                                         zone,
                                         instance
@@ -142,6 +142,7 @@ fn handle_world_msgs(server: Arc<WorldServer>, _realm_api: RealmApi, event_sende
                                         events: sender.clone(), 
                                         controller: result_send,
                                         travel_mode: mode,
+                                        movie,
                                     }).is_ok() {
                                         match controller.await {
                                             Ok(Ok(controller)) => {
@@ -190,11 +191,11 @@ fn handle_world_msgs(server: Arc<WorldServer>, _realm_api: RealmApi, event_sende
                                 }).await;
                             }
                         },
-                        plugins::WorldEvent::TravelRequest { controller, zone, instance, mode } => {
+                        plugins::WorldEvent::TravelRequest { controller, zone, instance, mode, movie } => {
                             if let Some((router_id,_)) = controllers.get(&controller) {
                                 let _ = server.send(router_id, WorldResponse::RouterChannel {
                                     id: controller,
-                                    msg: WorldMessage::TravelRequest { zone, instance, mode }
+                                    msg: WorldMessage::TravelRequest { zone, instance, mode, movie }
                                 }).await;
                             }
                         },
@@ -318,9 +319,9 @@ async fn main() -> WorldResult<()> {
                                 });
                             }
                         },
-                        InstanceEvent::ControllerSpawnRequested { peer, instance, session, events, controller, travel_mode } => {
+                        InstanceEvent::ControllerSpawnRequested { peer, instance, session, events, controller, travel_mode, movie } => {
                             if let Some(subapp) = app.get_sub_app_mut(instance) {
-                                let _ = controller.send(subapp.create_player_controller(peer, session, travel_mode, events).await);
+                                let _ = controller.send(subapp.create_player_controller(peer, session, travel_mode, events, movie).await);
                             } else {
                                 let _ = controller.send(Err(anyhow::Error::msg("instance not found").into()));
                             }

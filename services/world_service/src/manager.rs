@@ -58,6 +58,7 @@ pub enum InstanceEvent {
         events: UnboundedSender<WorldEvent>,
         controller: oneshot::Sender<WorldResult<Sender<ControllerEvent>>>,
         travel_mode: TravelMode,
+        movie: Option<String>,
     },
     WorldShutdown,
 }
