@@ -22,7 +22,7 @@ use protocol::{OaPktQuestEventEvent, QuestUpdateData, oaPktQuestEvent, oaPktQues
 use realm_api::{Condition, QuestCondition, QuestProgressionState, RealmApi};
 use scripting::{ScriptCommandsExt, ScriptObject};
 
-use crate::plugins::{AbandonQuest, AcceptQuest, AsyncOperationEntityCommandsExt, AutoReturnQuest, PlayerController, Quest, QuestLog, QuestProgress, QuestState, QuestStatePending, QuestStateUpdated, Quests, ReturnQuest, RunDeferredQuestDialogues, UpdateAvailableQuests, WeakCache, player_error_handler_system, quests::cache::QuestTemplateCache};
+use crate::plugins::{AbandonQuest, AcceptQuest, ActiveQuest, AsyncOperationEntityCommandsExt, AutoReturnQuest, PlayerController, Quest, QuestLog, QuestProgress, QuestState, QuestStatePending, QuestStateUpdated, Quests, ReturnQuest, RunDeferredQuestDialogues, UpdateAvailableQuests, WeakCache, player_error_handler_system, quests::cache::QuestTemplateCache};
 
 pub(super) fn quest_accepter(
     mut events: MessageReader<AcceptQuest>,
@@ -162,18 +162,18 @@ pub(super) fn quest_abandoner(
 
 pub(super) fn handle_db_quest_update(
     In((player, (quest_id, db_state))): In<(Entity, (i32, Option<realm_api::QuestState>))>,
-    mut players: Query<(Entity, &PlayerController, &mut QuestLog)>,
-    mut quests: Query<&mut QuestProgress>,
+    mut players: Query<(Entity, &PlayerController, &mut QuestLog, &ScriptObject)>,
+    mut quests: Query<(&mut QuestProgress, Option<&ActiveQuest>)>,
     mut commands: Commands,
 ) {
-    let Ok((player_ent, controller, mut quest_log)) = players.get_mut(player) else {
+    let Ok((player_ent, controller, mut quest_log, script_object)) = players.get_mut(player) else {
         return;
     };
 
     if let Some(state) = &db_state {
         if
             let Some(quest_ent) = quest_log.quests.get_mut(&quest_id) &&
-            let Ok(mut progress) = quests.get_mut(*quest_ent)
+            let Ok((mut progress, quest)) = quests.get_mut(*quest_ent)
         {
             if progress.state().state != state.state {
                 // Quest state changed
@@ -192,6 +192,16 @@ pub(super) fn handle_db_quest_update(
             }
 
             progress.replace(state.clone());
+
+            if 
+                let Some(quest) = quest &&
+                let Ok(func) = quest.obj.get::<Function>("OnQuestUpdated") 
+            {
+                commands.call_lua_method(
+                    func, 
+                    (quest.obj.clone(), script_object.object().clone())
+                );
+            }
 
             commands
                 .entity(*quest_ent)

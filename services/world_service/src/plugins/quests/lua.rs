@@ -17,13 +17,13 @@ use std::ops::Deref;
 
 use anyhow::anyhow;
 use bevy::ecs::{hierarchy::{ChildOf, Children}, message::MessageReader, query::With, system::{Commands, In, Query, Res}, world::World};
-use mlua::{FromLua, Function, IntoLua, Lua, Table};
+use mlua::{FromLua, Function, IntoLua, Lua, ObjectLike, Table, Value};
 use obj_params::{tags::NonClientBaseTag};
 use protocol::AvatarFilter;
 use realm_api::QuestProgressionState;
 use scripting::{LuaExt, LuaRuntime, LuaScriptReloaded, LuaTableExt, ScriptCommandsExt, ScriptResult};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{AttachedQuest, ConditionUpdate, FailQuest, QuestAvailable, QuestConditionUpdate, QuestLog, QuestPlayer, QuestProgress, Quests, ReturnQuest}};
+use crate::{error::{WorldError, WorldResult}, plugins::{AcceptQuest, AttachedQuest, ConditionUpdate, FailQuest, QuestAvailable, QuestConditionUpdate, QuestLog, QuestPlayer, QuestProgress, Quests, ReturnQuest}};
 
 #[derive(Clone)]
 pub struct AvatarFilterLua(protocol::AvatarFilter);
@@ -149,6 +149,18 @@ pub fn insert_questlog_api(
         mut commands: Commands,
     | -> WorldResult<()> {
         commands.write_message(FailQuest { 
+            player: owner.entity()?,
+            quest_id,
+        });
+
+        Ok(())
+    })?)?;
+
+    quest_api.set("AcceptQuest", lua.create_bevy_function(world, |
+        In((owner, quest_id)): In<(Table, i32)>,
+        mut commands: Commands,
+    | -> WorldResult<()> {
+        commands.write_message(AcceptQuest { 
             player: owner.entity()?,
             quest_id,
         });
@@ -310,6 +322,37 @@ pub fn insert_questlog_api(
         commands.write_message(ReturnQuest { player: player.entity()?, quest_id });
 
         Ok(())
+    })?)?;
+
+    quest_api.set("GetActiveCondition", lua.create_bevy_function(world, |
+        In((quest_id, player)): In<(i32, Table)>,
+        players: Query<&QuestLog>,
+        quests: Query<&QuestProgress>,
+        runtime: Res<LuaRuntime>,
+    | -> WorldResult<Value> {
+        let Ok(quest_log) = players.get(player.entity()?) else {
+            return Err(WorldError::Other(anyhow!("Player does not have a valid quest log")));
+        };
+
+        let Some(quest_ent) = quest_log.quests.get(&quest_id) else {
+            return Err(WorldError::Other(anyhow!("Player has not started quest {}", quest_id)));
+        };
+
+        let Ok(progress) = quests.get(*quest_ent) else {
+            return Err(WorldError::Other(anyhow!("Player has not started quest {}", quest_id)));
+        };
+
+        if let Some(condition) = progress.active_condition() {
+            let table = runtime.vm().create_table()?;
+            table.set("id", quest_id)?;
+            table.set("condition", condition.id)?;
+            table.set("current_count", condition.current_count)?;
+            table.set("required_count", condition.required_count)?;
+
+            Ok(table.to_value())
+        } else {
+            Ok(Value::Nil)
+        }
     })?)?;
 
     Ok(())
