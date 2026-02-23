@@ -328,7 +328,7 @@ fn run_dialogues(
                                 Choice::Reject => protocol::OaDialogChoiceEmoteIndex::Reject,
                                 Choice::Next => protocol::OaDialogChoiceEmoteIndex::Next,
                                 Choice::TellMore => protocol::OaDialogChoiceEmoteIndex::TellMore,
-                                _ => protocol::OaDialogChoiceEmoteIndex::Close,
+                                _ => todo!(),
                             },
 
                             ..Default::default()

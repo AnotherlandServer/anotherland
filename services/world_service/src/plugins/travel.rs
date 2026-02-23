@@ -54,7 +54,7 @@ impl Plugin for TravelPlugin {
                         .worlddef_guid(*world_def.guid())
                         .query().await?.try_next().await?
                 {
-                    controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint);
+                    controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint, None);
                 } else {
                     error!("Map '{world}' not found!");
                 }
@@ -112,7 +112,7 @@ fn handle_join_dungeon(
                         .worlddef_guid(*world_def.guid())
                         .query().await?.try_next().await?
                 {
-                    controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint);
+                    controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint, None);
                 } else {
                     error!("Map '{}' not found!", cmd.map_name);
                 }
@@ -151,7 +151,7 @@ fn handle_leave_dungeon(
 ) {
     if instance.config.json_config["IsTutorial"].as_bool().unwrap_or_default() {
         if let Ok(controller) = players.get(ent).cloned() {
-            controller.request_travel("4635f288-ec24-4e73-b75c-958f2607a30e".parse().unwrap(), None, TravelMode::EntryPoint);
+            controller.request_travel("4635f288-ec24-4e73-b75c-958f2607a30e".parse().unwrap(), None, TravelMode::EntryPoint, None);
         }
     } else {
         // Where do we go?
@@ -203,7 +203,7 @@ fn handle_social_travel(
                         .worlddef_guid(*world_def.guid())
                         .query().await?.try_next().await?
                 {
-                    controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint);
+                    controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint, None);
                 } else {
                     error!("Map '{}' not found!", cmd.map_name);
                 }

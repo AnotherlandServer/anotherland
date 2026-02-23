@@ -26,8 +26,10 @@ impl AvatarSelectorMatcher for realm_api::AvatarSelector {
         match *self {
             realm_api::AvatarSelector::ContentId(uuid) => content_info.template.id == uuid,
             realm_api::AvatarSelector::InstanceId(uuid) => content_info.placement_id == uuid,
-            realm_api::AvatarSelector::QuestTag(_tag) => {
-                todo!()
+            realm_api::AvatarSelector::QuestTag(tag) => {
+                obj.get::<_, Vec<i32>>(NonClientBase::QuestFlags)
+                    .unwrap_or(&vec![])
+                    .contains(&tag)
             },
             realm_api::AvatarSelector::LootItem(_uuid) => {
                 todo!()

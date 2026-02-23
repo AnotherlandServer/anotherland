@@ -227,7 +227,7 @@ fn trigger_special_event_on_loading_client(
             let Some(event) = events.0.get(active_event)
         {
             controller.send_packet(
-                ServerAction::Event(event.kismet_event.clone()).into_pkt()
+                ServerAction::RemoteEvent(event.kismet_event.clone()).into_pkt()
             );
         }
     }
