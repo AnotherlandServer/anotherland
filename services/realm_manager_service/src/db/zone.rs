@@ -15,7 +15,7 @@
 
 use async_graphql::Enum;
 use database::DatabaseRecord;
-use mongodb::{bson::{self, doc}, options::IndexOptions, Database, IndexModel};
+use mongodb::{Database, IndexModel, bson::{self, doc}, options::{Collation, CollationStrength, IndexOptions}};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud};
 
@@ -41,7 +41,7 @@ pub struct Zone {
     pub worlddef_guid: Uuid,
     #[graphql_crud(filter)]
     pub parent_zone_guid: Uuid,
-    #[graphql_crud(filter)]
+    #[graphql_crud(filter, case_insensitive)]
     pub zone: String,
     #[graphql_crud(filter)]
     pub zone_type: ZoneType,
