@@ -36,7 +36,7 @@ bytes = "1.11.1"
 flexbuffers = "2.0.0"
 futures-channel = "0.3.31"
 futures-util = "0.3.31"
-log = { version = "0.4.22", features = ["kv"] }
+log = { version = "0.4.29", features = ["kv"] }
 serde = { version = "1.0.228", features = ["serde_derive"] }
 thiserror = "2.0.17"
 tokio = { version = "1.49.0", features = ["full"] }
@@ -78,9 +78,9 @@ cynic-codegen = "3.9.1"
 database = { version = "0.1.0", path = "lib/database" }
 anyhow = "1.0.101"
 macros = { version = "0.1.0", path = "lib/macros" }
-clap = { version = "4.5.58", features = ["derive", "env", "cargo"] }
+clap = { version = "4.5.59", features = ["derive", "env", "cargo"] }
 core_api = { version = "0.1.0", path = "lib/core_api" }
-env_logger = "0.11.5"
+env_logger = "0.11.9"
 dotenvy = "0.15.7"
 raknet = { version = "0.1.0", path = "lib/raknet" }
 bcrypt = "0.16.0"
