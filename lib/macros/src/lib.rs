@@ -81,6 +81,8 @@ struct GraphqlCrudFieldOps {
     validator: Option<String>,
     #[darling(default)]
     filter: bool,
+    #[darling(default)]
+    case_insensitive: bool,
 }
 
 #[proc_macro_derive(GraphqlCrud, attributes(graphql_crud))]
@@ -216,12 +218,21 @@ pub fn graphql_crud_derive(item: proc_macro::TokenStream) -> proc_macro::TokenSt
             let field_name = field.ident.as_ref().unwrap().to_string();
             let ty = &field.ty;
 
-            Some(quote!{ 
-                if let Some(val) = self.#ident {
-                    let val = to_bson(&#ty::try_from(val)?).unwrap();
-                    expressions.push(doc!{ #field_name: val }); 
-                }
-            })
+            if field_opts.case_insensitive {
+                Some(quote!{ 
+                    if let Some(val) = self.#ident {
+                        let val = to_bson(&#ty::try_from(val)?).unwrap();
+                        expressions.push(doc!{ #field_name: { "$regex": val, "$options": "i" } }); 
+                    }
+                })
+            } else {
+                Some(quote!{ 
+                    if let Some(val) = self.#ident {
+                        let val = to_bson(&#ty::try_from(val)?).unwrap();
+                        expressions.push(doc!{ #field_name: val }); 
+                    }
+                })
+            }
         } else {
             None
         }
