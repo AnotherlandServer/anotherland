@@ -14,15 +14,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::{ecs::{message::MessageWriter, world::World}, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
+use futures::TryStreamExt;
 use log::{debug, error, trace, warn};
 use mlua::Function;
-use obj_params::{tags::PlayerTag, AttributeInfo, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, Player, Value};
+use obj_params::{AttributeInfo, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, Player, Portal, Value, tags::PlayerTag};
 use protocol::{oaAbilityBarReferences, CPktAvatarUpdate};
 use realm_api::{AbilitySlot, ObjectPlacement, RealmApi, RealmApiResult};
 use scripting::{EntityScriptCommandsExt, ScriptObject};
-use toolkit::{NativeParam, OtherlandQuatExt};
+use toolkit::{NativeParam, OtherlandQuatExt, types::Uuid};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{ConnectionState, CurrentState, EquipmentResult, HealthUpdateEvent, InitialInventoryTransfer, Inventory, MessageType, Movement, PlayerController, ServerAction, apply_equipment_result}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, HealthUpdateEvent, InitialInventoryTransfer, Inventory, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_equipment_result, player_error_handler_system}, proto::TravelMode};
 
 #[allow(clippy::type_complexity)]
 pub fn spawn_player(
@@ -129,6 +130,49 @@ pub fn cmd_instant_kill(
     event.write(HealthUpdateEvent::kill(ent, None));
 }
 
+pub fn cmd_travel_to_portal(
+    In((ent, params)): In<(Entity, Vec<NativeParam>)>,
+    mut commands: Commands
+) {
+    if 
+        let Some(NativeParam::String(portal_guid)) = params.first() &&
+        let Ok(portal_guid) = portal_guid.parse::<Uuid>() 
+    {
+        async fn load_object(id: Uuid) -> WorldResult<Option<ObjectPlacement>> {
+            if 
+                let Some(mut object) = RealmApi::get().get_object_placement(id).await? &&
+                let Some(template) = ContentCache::get(&ContentCacheRef::Uuid(object.content_guid)).await
+                    .map_err(WorldError::BevyError)?
+            {
+                object.data.set_parent(Some(template));
+                Ok(Some(object))
+            } else {
+                Ok(None)
+            }
+        }
+
+        commands
+            .entity(ent)
+            .perform_async_operation(async move {
+                match load_object( portal_guid).await {
+                    Ok(Some(portal)) => {
+                        if let Ok(exit_point) = portal.data.get::<_, Uuid>(Portal::ExitPoint).cloned() {
+                            Ok((Ok(Some(portal)), load_object(exit_point).await))
+                        } else {
+                            Ok((Ok(Some(portal)), Ok(None)))
+                        }
+                    },
+                    Ok(None) => Ok((Ok(None), Ok(None))),
+                    Err(e) => {
+                        Ok((Err(e), Ok(None)))
+                    }
+                }
+            })
+            .on_finish_run_system(travel_to_portal)
+            .on_error_run_system(player_error_handler_system);
+    }
+}
+
 pub fn apply_class_item_result(
     In((ent, (result, callback))): In<(Entity, (EquipmentResult, Option<Function>))>,
     mut query: Query<(&mut GameObjectData, Option<&Inventory>)>,
@@ -178,7 +222,7 @@ pub fn travel_to_portal(
     if let Ok((mut movement, controller)) = query.get_mut(ent) {
         if let Ok(portal) = portal {
             if let Some(portal) = portal {
-                controller.send_packet(ServerAction::Event("PortalDepart".to_string()).into_pkt());
+                controller.send_packet(ServerAction::RemoteEvent("PortalDepartDefault".to_string()).into_pkt());
 
                 if *instance.zone.guid() == portal.zone_guid {
                     let exit_point = if let Ok(Some(exit_point)) = &exit_point {
@@ -197,7 +241,7 @@ pub fn travel_to_portal(
                         ServerAction::LocalPortal(controller.avatar_id(), movement.clone()).into_pkt()
                     );
                 } else {
-                    controller.request_travel(portal.zone_guid, None, TravelMode::Portal { uuid: portal.id });
+                    controller.request_travel(portal.zone_guid, None, TravelMode::Portal { uuid: portal.id }, None);
                 }
             } else {
                 controller.send_message(MessageType::Normal, "Travel failed. Portal not found.");

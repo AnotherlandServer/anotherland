@@ -54,12 +54,13 @@ impl PlayerController {
         });
     }
 
-    pub fn request_travel(&self, zone: Uuid, instance: Option<Uuid>, mode: TravelMode) {
+    pub fn request_travel(&self, zone: Uuid, instance: Option<Uuid>, mode: TravelMode, movie: Option<String>) {
         let _ = self.sender.send(WorldEvent::TravelRequest { 
             controller: self.id, 
             zone, 
             instance, 
-            mode 
+            mode,
+            movie,
         });
     }
 
@@ -106,16 +107,17 @@ pub struct PlayerJoinRequested {
     pub session_state: Arc<SessionState>,
     pub travel_mode: TravelMode,
     pub sender: UnboundedSender<WorldEvent>,
+    pub movie: Option<String>,
     pub ctrl_receiver: Option<Receiver<ControllerEvent>>,
 }
 
 pub trait PlayerControllerSubAppExt {
-    async fn create_player_controller(&mut self, peer: Uuid, session: Uuid, travel_mode: TravelMode, sender: UnboundedSender<WorldEvent>) -> WorldResult<Sender<ControllerEvent>>;
+    async fn create_player_controller(&mut self, peer: Uuid, session: Uuid, travel_mode: TravelMode, sender: UnboundedSender<WorldEvent>, movie: Option<String>) -> WorldResult<Sender<ControllerEvent>>;
 }
 
 
 impl PlayerControllerSubAppExt for SubApp {
-    async fn create_player_controller(&mut self, peer: Uuid, session: Uuid, travel_mode: TravelMode, sender: UnboundedSender<WorldEvent>) -> WorldResult<Sender<ControllerEvent>> {
+    async fn create_player_controller(&mut self, peer: Uuid, session: Uuid, travel_mode: TravelMode, sender: UnboundedSender<WorldEvent>, movie: Option<String>) -> WorldResult<Sender<ControllerEvent>> {
         let instance = self.world().get_resource::<ZoneInstance>().unwrap();
 
         let session = instance.core_api.get_session(&session).await?
@@ -133,6 +135,7 @@ impl PlayerControllerSubAppExt for SubApp {
             session_state: Arc::new(state),
             travel_mode,
             sender,
+            movie,
             ctrl_receiver: Some(ctrl_receiver),
         });
 
@@ -147,14 +150,15 @@ pub fn process_join_requests(
     ctrl_event: ResMut<ForeignResource<Sender<ControllerEntityEvent>>>,
     mut commands: Commands,
 ) {
-    for PlayerJoinRequested { peer, session, session_state, travel_mode, sender, ctrl_receiver } in requests.read() {
+    for PlayerJoinRequested { peer, session, session_state, travel_mode, sender, movie, ctrl_receiver } in requests.read() {
 
         // Send resource notification to client, so it can begin loading the map.
         let _ = sender.send(WorldEvent::Packet { 
             controller: *peer, 
             pkt: CPktResourceNotify {
-                field_2: *instance.zone.worlddef_guid(),
                 resource_type: CpktResourceNotifyResourceType::WorldDef,
+                resource_id: *instance.zone.worlddef_guid(),
+                movie: movie.clone().unwrap_or_default(),
                 ..Default::default()
             }.into_pkt()
         });

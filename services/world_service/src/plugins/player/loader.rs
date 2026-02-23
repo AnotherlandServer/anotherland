@@ -224,9 +224,9 @@ impl AvatarLoader {
                 .unwrap_or_else(|| {
                     error!("Failed to get floor height for player at position {pos}");
                     pos.y
-                }) + collision_extent.y;
+                });
 
-            obj.set(Player::Pos, (0u32, pos));
+            obj.set(Player::Pos, (0u32, pos + Vec3::new(0.0, collision_extent.y + 25.0, 0.0)));
         }
         
         // Update stance data

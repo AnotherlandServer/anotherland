@@ -14,17 +14,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::ecs::{entity::Entity, query::Changed, system::{Commands, In, Query, Res}, world::World};
+use bevy::{ecs::{entity::Entity, query::Changed, system::{Commands, In, Query}, world::World}};
 use futures::TryStreamExt;
-use log::{debug, error};
+use log::debug;
 use mlua::{Function, Lua, Table};
 use obj_params::Portal;
 use protocol::{OaPktS2xconnectionStateState, oaPktConfirmTravel, oaPktS2XConnectionState};
-use realm_api::{ObjectPlacement, RealmApi};
+use realm_api::{ObjectPlacement, RealmApi, Zone};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{Active, AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_class_item_result, player::loader::InGame, player_error_handler_system, travel_to_portal}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, Movement, PlayerController, ServerAction, WeakCache, apply_class_item_result, player::loader::InGame, player_error_handler_system, travel_to_portal}, proto::TravelMode};
 
 pub(super) fn insert_player_api(
     world: &mut World,
@@ -102,43 +102,36 @@ pub(super) fn insert_player_api(
 
     player_api.set("TravelToZone", lua.create_bevy_function(world,
         |
-            In((player, zone)): In<(Table, String)>,
-            query: Query<&PlayerController>,
-            instance: Res<ZoneInstance>
+            In((player, zone, movie)): In<(Table, String, Option<String>)>,
+            mut commands: Commands,
         | -> WorldResult<()> {
             let ent = player.entity()?;
-            
-            if let Ok(controller) = query.get(ent).cloned() {
-                instance.spawn_task(async move {
-                    match 
-                        RealmApi::get()
-                            .query_zones()
-                            .zone(zone.clone())
-                            .query()
-                            .await 
-                    {
-                        Ok(mut cursor) => {
-                            match cursor.try_next().await {
-                                Ok(Some(zone)) => {
-                                    controller
-                                        .request_travel(*zone.guid(), None, TravelMode::EntryPoint);
-                                },
-                                Ok(None) => {
-                                    controller.send_message(MessageType::IllegalZone, "Travel failed. Zone not found!");
-                                },
-                                Err(e) => {
-                                    error!("Failed to travel to zone '{zone}': {e:?}");
-                                    controller.send_message(MessageType::IllegalZone, "Travel failed. Server error!");
-                                }
-                            }
-                        },
-                        Err(e) => {
-                            error!("Failed to travel to zone '{zone}': {e:?}");
-                            controller.send_message(MessageType::IllegalZone, "Travel failed. Server error!");
-                        }
+
+            commands
+                .entity(ent)
+                .perform_async_operation(async move {
+                    let mut cursor = RealmApi::get()
+                        .query_zones()
+                        .zone(zone.clone())
+                        .query()
+                        .await?;
+
+                    match cursor.try_next().await {
+                        Ok(Some(zone)) => Ok((zone, movie)),
+                        Ok(None) => Err(anyhow!("Zone '{zone}' not found!").into()),
+                        Err(e) => Err(anyhow!("Failed to travel to zone '{zone}': {e:?}").into())
                     }
-                });
-            }
+                })
+                .on_finish_run_system(|
+                    In((ent, (zone, movie))): In<(Entity, (Zone, Option<String>))>,
+                    query: Query<&PlayerController>,
+                | {
+                    if let Ok(controller) = query.get(ent) {
+                        controller
+                            .request_travel(*zone.guid(), None, TravelMode::EntryPoint, movie);
+                    }
+                })
+                .on_error_run_system(player_error_handler_system);
 
             Ok(())
         })?)?;
@@ -201,6 +194,40 @@ pub(super) fn insert_player_api(
     
                 Ok(())
             })?)?;
+
+        player_api.set("RunCinematic", lua.create_bevy_function(world,
+            |
+                In((player, cinematic_name, level)): In<(Table, String, Option<String>)>,
+                query: Query<(&Avatar, &PlayerController)>,
+            | -> WorldResult<()> {
+                if let Ok((avatar, controller)) = query.get(player.entity()?) {
+                    controller.send_packet(
+                        ServerAction::Cinematic { 
+                            player: avatar.id,
+                            name: cinematic_name, 
+                            level,
+                            position: None
+                        }.into_pkt()
+                    );
+                }
+
+                Ok(())
+            })?)?;
+
+        player_api.set("TriggerRemoteEvent", lua.create_bevy_function(world,
+            |
+                In((player, event)): In<(Table, String)>,
+                query: Query<&PlayerController>,
+            | -> WorldResult<()> {
+                if let Ok(controller) = query.get(player.entity()?) {
+                    controller.send_packet(
+                        ServerAction::RemoteEvent(event).into_pkt()
+                    );
+                }
+
+                Ok(())
+            })?)?;
+
 
     Ok(())
 }

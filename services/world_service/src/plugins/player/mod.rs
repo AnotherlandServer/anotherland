@@ -24,15 +24,16 @@ mod portalbook_lua;
 mod initial_inventory_transfer;
 mod bevariors;
 
-use bevy::{app::{First, Last, Plugin, Update}, ecs::schedule::IntoScheduleConfigs, state::condition::in_state};
+use bevy::{app::{First, Last, Plugin, Update}, ecs::{entity::Entity, schedule::IntoScheduleConfigs, system::{In, Query}}, state::condition::in_state};
 pub use controller::*;
 pub use localset::*;
 use obj_params::Class;
 pub use systems::*;
 pub use skillbook::*;
 pub use initial_inventory_transfer::*;
+use toolkit::NativeParam;
 
-use crate::{instance::{InstanceShutdown, InstanceState}, plugins::{BehaviorExt, CommandExtPriv, NetworkExtPriv, clear_obj_changes, player::bevariors::{behavior_flight_tube, behavior_loot_avatar}}};
+use crate::{instance::{InstanceShutdown, InstanceState}, plugins::{Avatar, BehaviorExt, CommandExtPriv, NetworkExtPriv, ServerAction, clear_obj_changes, player::bevariors::{behavior_flight_tube, behavior_loot_avatar}}};
 
 pub struct PlayerPlugin;
 
@@ -63,6 +64,37 @@ impl Plugin for PlayerPlugin {
         app.register_message_handler(handle_avatar_update);
 
         app.register_command("instantKill", cmd_instant_kill);
+        app.register_command("travel_to_portal", cmd_travel_to_portal);
+        app.register_command("play_cinematic", |
+                In((ent, params)): In<(Entity, Vec<NativeParam>)>,
+                query: Query<(&Avatar, &PlayerController)>,
+            | {
+                if 
+                    let Some(NativeParam::String(cinematic)) = params.first() &&
+                    let Some(NativeParam::String(level)) = params.get(1) &&
+                    let Ok((avatar, controller)) = query.get(ent)
+                {
+                    controller.send_packet(ServerAction::Cinematic { 
+                        player: avatar.id,
+                        name: cinematic.clone(), 
+                        level: Some(level.clone()), 
+                        position: None 
+                    }.into_pkt());
+                }
+            });
+
+        app.register_command("trigger_remote_event", |
+                In((ent, params)): In<(Entity, Vec<NativeParam>)>,
+                query: Query<&PlayerController>,
+            | {
+                if 
+                    let Some(NativeParam::String(event)) = params.first() &&
+                    let Ok(controller) = query.get(ent)
+                {
+                    controller.send_packet(ServerAction::RemoteEvent(event.clone()).into_pkt());
+                }
+            });
+
 
         app.register_string_behavior(Class::Player, "FlightTube", behavior_flight_tube);
         app.register_binary_behavior(Class::Player, "lootavatar", behavior_loot_avatar);
