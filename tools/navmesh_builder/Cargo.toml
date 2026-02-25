@@ -29,4 +29,4 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 toolkit = { version = "0.1.0", path = "../../lib/toolkit" }
 upk = { version = "0.1.0", path = "../../lib/upk" }
-url = "2.5.4"
+url = "2.5.8"
