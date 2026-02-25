@@ -323,7 +323,7 @@ dependencies = [
  "serde_urlencoded",
  "static_assertions_next",
  "tempfile",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "uuid",
 ]
 
@@ -341,7 +341,7 @@ dependencies = [
  "quote",
  "strum 0.27.2",
  "syn 2.0.114",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -606,7 +606,7 @@ dependencies = [
  "ctrlc",
  "downcast-rs",
  "log",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "variadics_please",
  "wasm-bindgen",
  "web-sys",
@@ -646,7 +646,7 @@ dependencies = [
  "ron 0.12.0",
  "serde",
  "stackfuture",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tracing",
  "uuid",
  "wasm-bindgen",
@@ -677,7 +677,7 @@ dependencies = [
  "bytemuck",
  "derive_more",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "wgpu-types",
 ]
 
@@ -733,7 +733,7 @@ dependencies = [
  "serde",
  "slotmap",
  "smallvec 1.15.1",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "variadics_please",
 ]
 
@@ -762,7 +762,7 @@ dependencies = [
  "bevy_reflect",
  "derive_more",
  "log",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -778,7 +778,7 @@ dependencies = [
  "bevy_reflect",
  "bevy_window",
  "log",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -855,7 +855,7 @@ dependencies = [
  "rand 0.9.2",
  "rand_distr",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "variadics_please",
 ]
 
@@ -907,7 +907,7 @@ dependencies = [
  "serde",
  "smallvec 1.15.1",
  "smol_str",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "uuid",
  "variadics_please",
  "wgpu-types",
@@ -1002,7 +1002,7 @@ dependencies = [
  "bevy_utils",
  "derive_more",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1362,7 +1362,7 @@ dependencies = [
  "futures-util",
  "log",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "toolkit",
  "zeromq",
@@ -1384,7 +1384,7 @@ dependencies = [
  "raknet",
  "realm_api",
  "reqwest",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "toolkit",
  "world_service",
@@ -1540,7 +1540,7 @@ dependencies = [
  "once_cell",
  "serde",
  "serde_yaml",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "yaml-rust2 0.11.0",
 ]
@@ -1609,7 +1609,7 @@ dependencies = [
  "cynic-codegen",
  "reqwest",
  "steamworks",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "toolkit",
 ]
 
@@ -1632,7 +1632,7 @@ dependencies = [
  "serde",
  "serde_with",
  "sha1",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "toolkit",
 ]
@@ -1985,7 +1985,7 @@ dependencies = [
  "anyhow",
  "mongodb",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1999,7 +1999,7 @@ dependencies = [
  "rustversion",
  "serde",
  "serde_derive",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2446,7 +2446,7 @@ dependencies = [
  "raknet",
  "realm_api",
  "reqwest",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "toolkit",
 ]
@@ -2694,7 +2694,7 @@ dependencies = [
  "pest_derive",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2835,7 +2835,7 @@ dependencies = [
  "once_cell",
  "rand 0.9.2",
  "ring",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tinyvec",
  "tokio",
  "tracing",
@@ -2858,7 +2858,7 @@ dependencies = [
  "rand 0.9.2",
  "resolv-conf",
  "smallvec 1.15.1",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]
@@ -3536,7 +3536,7 @@ dependencies = [
  "raknet",
  "reqwest",
  "steamworks",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "toolkit",
 ]
@@ -3866,7 +3866,7 @@ dependencies = [
  "stringprep",
  "strsim 0.11.1",
  "take_mut",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-rustls",
  "tokio-util",
@@ -3964,7 +3964,7 @@ dependencies = [
  "recastnavigation-rs",
  "sqlite",
  "theon",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "toolkit",
  "upk",
@@ -4284,7 +4284,7 @@ dependencies = [
  "phf 0.13.1",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "toolkit",
 ]
 
@@ -4526,7 +4526,7 @@ dependencies = [
  "quick-xml",
  "serde",
  "serde-xml-rs",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4542,7 +4542,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "21e0a3a33733faeaf8651dfee72dd0f388f0c8e5ad496a3478fa5a922f49cfa8"
 dependencies = [
  "memchr",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "ucd-trie",
 ]
 
@@ -4726,7 +4726,7 @@ dependencies = [
  "rustversion",
  "smallvec 1.15.1",
  "theon",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "typenum",
 ]
 
@@ -4757,7 +4757,7 @@ dependencies = [
  "serde_urlencoded",
  "smallvec 1.15.1",
  "sync_wrapper",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
@@ -4957,7 +4957,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde-saphyr",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "toolkit",
 ]
@@ -5003,7 +5003,7 @@ dependencies = [
  "rand 0.8.5",
  "rsa",
  "sha1",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "uuid",
 ]
@@ -5134,7 +5134,7 @@ dependencies = [
  "realm_manager_service",
  "reqwest",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "toolkit",
 ]
 
@@ -5166,7 +5166,7 @@ dependencies = [
  "serde",
  "serde-saphyr",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "toolkit",
 ]
@@ -5559,7 +5559,7 @@ checksum = "2f9bae8d059bf1ca32753cf3cdafbf5d391502de2fc2ca54510811fe9c100d90"
 dependencies = [
  "arraydeque",
  "smallvec 2.0.0-alpha.12",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -5622,7 +5622,7 @@ dependencies = [
  "obj_params",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "toolkit",
 ]
 
@@ -5662,7 +5662,7 @@ dependencies = [
  "realm_api",
  "reqwest",
  "sqlite",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "toolkit",
 ]
@@ -5726,7 +5726,7 @@ checksum = "cc2215ce3e6a77550b80a1c37251b7d294febaf42e36e21b7b411e0bf54d540d"
 dependencies = [
  "log",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "xml",
 ]
 
@@ -6334,11 +6334,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.17"
+version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
+checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
 dependencies = [
- "thiserror-impl 2.0.17",
+ "thiserror-impl 2.0.18",
 ]
 
 [[package]]
@@ -6354,9 +6354,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.17"
+version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
+checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6649,7 +6649,7 @@ dependencies = [
  "nom",
  "once_cell",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "uuid",
 ]
 
@@ -6801,7 +6801,7 @@ dependencies = [
  "log",
  "rand 0.9.2",
  "sha1",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "utf-8",
 ]
 
@@ -6955,7 +6955,7 @@ dependencies = [
  "log",
  "nom",
  "once_cell",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "uuid",
 ]
@@ -7244,7 +7244,7 @@ dependencies = [
  "js-sys",
  "log",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "web-sys",
 ]
 
@@ -7745,7 +7745,7 @@ dependencies = [
  "serde",
  "serde_json",
  "spart",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "toolkit",
