@@ -4,3 +4,6 @@
 [submodule "content"]
 	path = content
 	url = https://github.com/AnotherlandServer/content.git
+[submodule "recastnavigation-rs"]
+	path = lib/recastnavigation-rs
+	url = https://github.com/AnotherlandServer/recastnavigation-rs.git
