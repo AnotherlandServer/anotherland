@@ -3391,7 +3391,9 @@ name = "kismet-plotter"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "env_logger",
  "futures",
+ "log",
  "tokio",
  "upk",
 ]
@@ -5174,7 +5176,6 @@ dependencies = [
 [[package]]
 name = "recastnavigation-rs"
 version = "0.1.0"
-source = "git+https://github.com/AnotherlandServer/recastnavigation-rs.git?rev=c4659c6abb829d1256a16aff10256bf5be53f444#c4659c6abb829d1256a16aff10256bf5be53f444"
 dependencies = [
  "cc",
  "cxx",
