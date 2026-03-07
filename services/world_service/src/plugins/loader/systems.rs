@@ -23,7 +23,7 @@ use obj_params::{Class, GameObjectData, NonClientBase, Player, tag_gameobject_en
 use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{NativeParam, types::{AvatarId,  Uuid}};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, AvatarIdManager, ComponentLoaderCommandsTrait, ContentCacheRef, ContentInfo, DebugPlayer, DespawnAvatar, DynamicInstance, ForceSyncPositionUpdate, HealthUpdateEvent, MessageType, Movement, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, ParamValue, PlayerController, SpawnState}};
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, AvatarIdManager, ComponentLoaderCommandsTrait, ContentCacheRef, ContentInfo, DebugNpc, DebugPlayer, DespawnAvatar, DynamicInstance, ForceSyncPositionUpdate, HealthUpdateEvent, MessageType, Movement, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, ParamValue, PlayerController, SpawnState}};
 
 pub fn init_gameobjects(
     added: Query<(Entity, &GameObjectData), Added<GameObjectData>>,
@@ -131,7 +131,7 @@ pub(super) fn sync_debug_pos(
 pub(super) fn command_get_avatar_info(
     In((ent, _args)): In<(Entity, Vec<NativeParam>)>,
     player: Query<(&GameObjectData, &PlayerController), With<PlayerTag>>,
-    avatars: Query<(&Avatar, &ContentInfo)>,
+    avatars: Query<(&Avatar, &ContentInfo, Option<&DebugNpc>, Option<&ChildOf>)>,
     avatar_manager: Res<AvatarIdManager>,
 ) {
     let Ok((player_data, controller)) = player.get(ent) else {
@@ -146,9 +146,17 @@ pub(super) fn command_get_avatar_info(
         return;
     };
 
-    let Ok((avatar_info, content_info)) = avatars.get(target_ent) else {
+    let Ok((avatar_info, content_info, debug_npc, child_of)) = avatars.get(target_ent) else {
         return;
     };
+
+    let Ok((avatar_info, content_info, _, _)) = 
+        (match (debug_npc, child_of) {
+            (Some(_), Some(parent)) => avatars.get(parent.parent()),
+            _ => Ok((avatar_info, content_info, None, None)),
+        }) else {
+            return;
+        };
 
     controller.send_message(MessageType::Normal, format!(
         "Avatar Info:\nID: {} ({})\nName: {}\nTemplate: {} ({})",

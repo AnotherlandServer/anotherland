@@ -32,8 +32,10 @@ pub struct DynamicInstance;
 pub struct DebugPlayer;
 
 #[derive(Component)]
-pub struct Active;
+pub struct DebugNpc;
 
+#[derive(Component)]
+pub struct Active;
 
 #[derive(Component, Default, Clone, Copy)]
 pub enum SpawnState {

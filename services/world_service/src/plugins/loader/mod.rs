@@ -21,16 +21,18 @@ mod commands_component_loader;
 mod component_loader;
 mod cache;
 
-use bevy::{app::{First, Last, Plugin, PreUpdate, Update}, ecs::{lifecycle::HookContext, schedule::IntoScheduleConfigs, system::Commands}, state::state::OnEnter};
+use bevy::{app::{First, Last, Plugin, PreUpdate, Update}, ecs::{entity::Entity, lifecycle::HookContext, query::With, schedule::IntoScheduleConfigs, system::{Commands, In, Query}}, state::state::OnEnter};
 pub use components::*;
 pub use events::*;
+use obj_params::{Class, GameObjectData, NonClientBase, Structure, tags::StructureTag};
 pub use resources::*;
 pub use systems::*;
 pub use commands_component_loader::*;
 pub use component_loader::*;
 pub use cache::*;
+use toolkit::{NativeParam, OtherlandQuatExt, types::Uuid};
 
-use crate::{instance::{InstanceState, ZoneInstance}, plugins::{CommandExtPriv, ZoneLoader, ZoneLoaderParameter, navigation}};
+use crate::{instance::{InstanceState, ZoneInstance}, plugins::{Avatar, CommandExtPriv, Movement, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, ZoneLoader, ZoneLoaderParameter, navigation}};
 
 pub struct LoaderPlugin;
 
@@ -70,6 +72,29 @@ impl Plugin for LoaderPlugin {
         app.add_message::<DespawnAvatar>();
 
         app.register_command("get_avatar_info", command_get_avatar_info);
+        app.register_command("show_hidden_structures", |
+            _: In<(Entity, Vec<NativeParam>)>,
+            query: Query<(Entity, &Avatar, &Movement), With<StructureTag>>,
+            mut commands: Commands,
+        | {
+            for (ent, avatar, movement) in query.iter() {
+                let mut data = GameObjectData::new_for_class(Class::NpcOtherland);
+
+                data.set(NonClientBase::Pos, movement.position);
+                data.set(NonClientBase::Rot, movement.rotation.as_unit_vector());
+
+                commands
+                    .spawn(DebugNpc)
+                    .load_component::<NonPlayerGameObjectLoader>(NonPlayerGameObjectLoaderParams::Dynamic { 
+                        id: Uuid::new(), 
+                        owner: Some(ent), 
+                        name: avatar.name.clone(), 
+                        template: super::ContentCacheRef::Name("Quest_8_MG_11_Pylon".to_owned()), 
+                        data, 
+                        callback: None,
+                    });
+            }
+        });
 
         insert_loader_api(app.world_mut()).expect("Failed to insert loader API");
 
