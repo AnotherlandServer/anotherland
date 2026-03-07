@@ -23,7 +23,7 @@ use realm_api::{AbilitySlot, ObjectPlacement, RealmApi, RealmApiResult};
 use scripting::{EntityScriptCommandsExt, ScriptObject};
 use toolkit::{NativeParam, OtherlandQuatExt, types::Uuid};
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, HealthUpdateEvent, InitialInventoryTransfer, Inventory, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_equipment_result, player_error_handler_system}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, HealthUpdateEvent, InitialInventoryTransfer, Inventory, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_equipment_result, player_error_handler_system}, proto::TravelMode};
 
 #[allow(clippy::type_complexity)]
 pub fn spawn_player(
@@ -216,13 +216,18 @@ pub fn apply_class_item_result(
 #[allow(clippy::type_complexity)]
 pub fn travel_to_portal(
     In((ent, (portal, exit_point))): In<(Entity, (WorldResult<Option<ObjectPlacement>>, WorldResult<Option<ObjectPlacement>>))>,
-    mut query: Query<(&mut Movement, &PlayerController)>,
+    mut query: Query<(&Avatar, &Movement, &PlayerController)>,
     instance: Res<ZoneInstance>,
 ) {
-    if let Ok((mut movement, controller)) = query.get_mut(ent) {
+    if let Ok((avatar, movement, controller)) = query.get_mut(ent) {
         if let Ok(portal) = portal {
             if let Some(portal) = portal {
-                controller.send_packet(ServerAction::RemoteEvent("PortalDepartDefault".to_string()).into_pkt());
+                controller.send_packet(ServerAction::Cinematic { 
+                    player: avatar.id, 
+                    name: "PortalDepartDefault".to_owned(), 
+                    level: None, 
+                    position: Some((movement.position, movement.rotation))
+                }.into_pkt());
 
                 if *instance.zone.guid() == portal.zone_guid {
                     let exit_point = if let Ok(Some(exit_point)) = &exit_point {
@@ -233,15 +238,11 @@ pub fn travel_to_portal(
                         &portal
                     };
 
-                    movement.position = *exit_point.data.get::<_, Vec3>(NonClientBase::Pos).unwrap();
-                    movement.rotation = Quat::from_unit_vector(*exit_point.data.get::<_, Vec3>(NonClientBase::Rot).unwrap());
-                    movement.velocity = Vec3::ZERO;
-
                     controller.send_packet(
                         ServerAction::LocalPortal(controller.avatar_id(), (
                             *exit_point.data.get::<_, Vec3>(NonClientBase::Pos).unwrap(), 
                             Quat::from_unit_vector(*exit_point.data.get::<_, Vec3>(NonClientBase::Rot).unwrap())
-)).into_pkt()
+                        )).into_pkt()
                     );
                 } else {
                     controller.request_travel(portal.zone_guid, None, TravelMode::Portal { uuid: portal.id }, None);
