@@ -21,14 +21,14 @@ use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use futures::{TryStreamExt};
 use log::{debug, error};
 use mlua::{Lua, Table};
-use obj_params::{tags::NonClientBaseTag, GameObjectData};
+use obj_params::{Class, GameObjectData, NpcOtherland, tags::NonClientBaseTag};
 use protocol::{CPktAvatarBehaviors, NetworkVec3};
 use realm_api::{RealmApi, WorldDef};
 use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshParams, DtNavMeshQuery, DtPolyRef, DtQueryFilter, DtTileRef}, detour_crowd::DtPathCorridor};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
-use toolkit::{bson, OtherlandQuatExt, Vec3Wrapper};
+use toolkit::{OtherlandQuatExt, Vec3Wrapper, bson, types::Uuid};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, InterestTransmitted, Interests, Movement, PlayerController}};
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, ComponentLoaderCommandsTrait, ContentCacheRef, InterestTransmitted, Interests, Movement, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, PlayerController}};
 
 pub struct NavigationPlugin;
 
@@ -62,9 +62,17 @@ fn insert_navigation_api(
     navigation_api.set("MoveToPosition", lua.create_bevy_function(world, 
         |
             In((obj, location, speed, callback)): In<(Table, Vec3Wrapper, f32, mlua::Function)>,
+            nav_target: Query<Option<&NavTarget>>,
             mut commands: Commands,
         | -> WorldResult<()> {
             let obj = obj.entity()?;
+
+            if 
+                let Ok(Some(existing_target)) = nav_target.get(obj) &&
+                existing_target.pos == location.0
+            {
+                return Ok(());
+            }
 
             commands
                 .entity(obj)
@@ -101,6 +109,14 @@ fn insert_navigation_api(
             }
 
             Ok(())
+        })?)?;
+
+    navigation_api.set("GetFloorHeight", lua.create_bevy_function(world, 
+        |
+            In(pos): In<Vec3Wrapper>,
+            navmesh: Res<Navmesh>,
+        | -> WorldResult<Option<f32>> {
+            Ok(navmesh.get_floor_height(pos.0))
         })?)?;
 
     Ok(())
@@ -169,7 +185,7 @@ impl Navmesh {
         let recast = self.recast.lock().unwrap();
 
         if 
-            let Ok((poly, pos)) = recast.query.find_nearest_poly_1(&Vec3::new(pos.x, pos.y, pos.z).to_array(), &[10.0, 1000.0, 10.0], &self.filter) &&
+            let Ok((poly, pos)) = recast.query.find_nearest_poly_1(&Vec3::new(pos.x, pos.y, pos.z).to_array(), &[100.0, 1000.0, 100.0], &self.filter) &&
             let Ok(height) = recast.query.get_poly_height(poly, &pos)
         {
             Some(height)
@@ -177,9 +193,7 @@ impl Navmesh {
             None
         }
     }
-}
 
-impl Navmesh {
     pub async fn load(world: &WorldDef) -> WorldResult<Self> {
         let navmesh = RealmApi::get()
             .query_navmeshs()
@@ -310,19 +324,31 @@ pub fn update(
                         });
                 }
 
-                lerp.elapsed = (lerp.elapsed + time.delta_secs()).clamp(0.0, lerp.duration);
+                if lerp.duration == 0.0 {
+                    movement.position = lerp.end;
+                    movement.rotation = Quat::from_unit_vector((lerp.end.with_y(0.0) - lerp.start.with_y(0.0)).normalize());
+                    movement.seconds = time.elapsed_secs_f64();
 
-                movement.position = lerp.start.lerp(lerp.end, lerp.elapsed / lerp.duration);
-                movement.rotation = Quat::from_unit_vector((lerp.end.with_y(0.0) - lerp.start.with_y(0.0)).normalize());
-                movement.seconds = time.elapsed_secs_f64();
+                    if let Some(callback) = &target.callback {
+                        let _ = callback.call::<()>(("PATH_SEGMENT_COMPLETE", Vec3Wrapper(movement.position)));
+                    }
 
-                if lerp.elapsed >= lerp.duration {
-                    debug!("Reached end of path segment for entity {ent}");
                     corridor.segment = None; 
-                }
+                } else {
+                    lerp.elapsed = (lerp.elapsed + time.delta_secs()).clamp(0.0, lerp.duration);
 
-                if let Some(callback) = &target.callback {
-                    let _ = callback.call::<()>(("PATH_SEGMENT_COMPLETE", Vec3Wrapper(movement.position)));
+                    movement.position = lerp.start.lerp(lerp.end, lerp.elapsed / lerp.duration);
+                    movement.rotation = Quat::from_unit_vector((lerp.end.with_y(0.0) - lerp.start.with_y(0.0)).normalize());
+                    movement.seconds = time.elapsed_secs_f64();
+
+                    if lerp.elapsed >= lerp.duration {
+                        debug!("Reached end of path segment for entity {ent}");
+                        corridor.segment = None; 
+
+                        if let Some(callback) = &target.callback {
+                            let _ = callback.call::<()>(("PATH_SEGMENT_COMPLETE", Vec3Wrapper(movement.position)));
+                        }
+                    }
                 }
             },
             None => {
@@ -354,44 +380,50 @@ pub fn update(
 
                 debug!("Corners: {corner_verts:?}");
 
-                if let Some(next) = corner_verts.first() {
-                    let start = Vec3::from_slice(corridor.corridor.pos());
-                    let next = Vec3::from_slice(next);
-                    let end = Vec3::from_slice(corridor.corridor.target());
-                    let duration = start.distance(next) / target.speed;
+                if let Some(second_to_next) = corner_verts.get(1) {
+                    corridor.corridor.optimize_path_visibility(second_to_next, 10000.0, &mut recast.query, &navmesh.filter);
+                }
 
-                    debug!("Entity {ent} path corridor updated: Start: {start:?}, Next: {next:?} End: {end:?}, Duration: {duration}, Speed: {}", target.speed);
-
-                    if start.with_y(0.0).distance(end.with_y(0.0)) < 15.0 && *corner_polys.last().unwrap() == DtPolyRef(0) {
+                let Some(next) = corner_verts.first()
+                    else {
                         if let Some(callback) = &target.callback {
                             let _ = callback.call::<()>(("FINISHED", Vec3Wrapper(target.pos)));
                         }
 
-                        debug!("Start and end positions are too close for entity {ent}, removing PathCorridor");
+                        debug!("No corners found for entity {ent}, removing PathCorridor");
                         commands.entity(ent)
                             .remove::<PathCorridor>()
                             .remove::<NavTarget>();
-                        continue;
-                    }
 
-                    corridor.segment = Some(PathSegment { 
-                        start, 
-                        end: next, 
-                        duration,
-                        elapsed: 0.0,
-                        speed: target.speed,
-                    });
-                } else {
+                        continue;
+                    };
+
+                let start = Vec3::from_slice(corridor.corridor.pos());
+                let next = Vec3::from_slice(next);
+                let end = Vec3::from_slice(corridor.corridor.target());
+                let duration = start.distance(next) / target.speed;
+
+                debug!("Entity {ent} path corridor updated: Start: {start:?}, Next: {next:?} End: {end:?}, Duration: {duration}, Speed: {}", target.speed);
+
+                if start.distance(end) < 0.1 && *corner_polys.last().unwrap() == DtPolyRef(0) {
                     if let Some(callback) = &target.callback {
                         let _ = callback.call::<()>(("FINISHED", Vec3Wrapper(target.pos)));
                     }
 
-                    debug!("No corners found for entity {ent}, removing PathCorridor");
+                    debug!("Start and end positions are too close for entity {ent}, removing PathCorridor");
                     commands.entity(ent)
                         .remove::<PathCorridor>()
                         .remove::<NavTarget>();
                     continue;
                 }
+
+                corridor.segment = Some(PathSegment { 
+                    start, 
+                    end: next, 
+                    duration,
+                    elapsed: 0.0,
+                    speed: target.speed,
+                });
             }
 
         }
@@ -405,7 +437,7 @@ pub struct NavTarget {
     callback: Option<mlua::Function>,
 }
 
-const MAX_CORNERS: usize = 2;
+const MAX_CORNERS: usize = 11;
 
 #[allow(clippy::type_complexity)]
 fn set_agent_targets(
