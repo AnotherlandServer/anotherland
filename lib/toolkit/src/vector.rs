@@ -35,6 +35,21 @@ impl UserData for Vec3Wrapper {
             usr.borrow::<Vec3Wrapper>()?
                 .0.z.into_lua(lua)
         });
+
+        fields.add_field_function_set("x", |_, usr, val: f32| {
+            usr.borrow_mut::<Vec3Wrapper>()?.0.x = val;
+            Ok(())
+        });
+
+        fields.add_field_function_set("y", |_, usr, val: f32| {
+            usr.borrow_mut::<Vec3Wrapper>()?.0.y = val;
+            Ok(())
+        });
+
+        fields.add_field_function_set("z", |_, usr, val: f32| {
+            usr.borrow_mut::<Vec3Wrapper>()?.0.z = val;
+            Ok(())
+        });
     }
 
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
