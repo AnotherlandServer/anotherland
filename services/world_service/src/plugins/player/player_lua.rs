@@ -24,7 +24,7 @@ use realm_api::{ObjectPlacement, RealmApi, Zone};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, plugins::{Active, AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, Movement, PlayerController, ServerAction, WeakCache, apply_class_item_result, player::loader::InGame, player_error_handler_system, travel_to_portal}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_class_item_result, player::loader::InGame, player_error_handler_system, travel_to_portal}, proto::TravelMode};
 
 pub(super) fn insert_player_api(
     world: &mut World,
@@ -235,6 +235,31 @@ pub(super) fn insert_player_api(
                 Ok(())
             })?)?;
 
+        player_api.set("SendMessage", lua.create_bevy_function(world,
+            |
+                In((player, message, message_type)): In<(Table, String, Option<String>)>,
+                query: Query<&PlayerController>,
+            | -> WorldResult<()> {
+                if let Ok(controller) = query.get(player.entity()?) {
+                    let msg_type = match message_type.as_deref() {
+                        Some("Normal") => MessageType::Normal,
+                        Some("Combat") => MessageType::Combat,
+                        Some("Console") => MessageType::Console,
+                        Some("Clan") => MessageType::Clan,
+                        Some("Party") => MessageType::Party,
+                        Some("Xp") => MessageType::Xp,
+                        Some("Loot") => MessageType::Loot,
+                        Some("Quest") => MessageType::Quest,
+                        Some("PopUp") => MessageType::PopUp,
+                        Some("IllegalZone") => MessageType::IllegalZone,
+                        _ => MessageType::Normal
+                    };
+
+                    controller.send_message(msg_type, message);
+                }
+
+                Ok(())
+            })?)?;
 
     Ok(())
 }
