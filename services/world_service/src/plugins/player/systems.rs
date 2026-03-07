@@ -238,7 +238,10 @@ pub fn travel_to_portal(
                     movement.velocity = Vec3::ZERO;
 
                     controller.send_packet(
-                        ServerAction::LocalPortal(controller.avatar_id(), movement.clone()).into_pkt()
+                        ServerAction::LocalPortal(controller.avatar_id(), (
+                            *exit_point.data.get::<_, Vec3>(NonClientBase::Pos).unwrap(), 
+                            Quat::from_unit_vector(*exit_point.data.get::<_, Vec3>(NonClientBase::Rot).unwrap())
+)).into_pkt()
                     );
                 } else {
                     controller.request_travel(portal.zone_guid, None, TravelMode::Portal { uuid: portal.id }, None);

@@ -23,7 +23,7 @@ use realm_api::RealmApi;
 use serde_json::Value;
 use toolkit::types::Uuid;
 
-use crate::{error::{WorldError, WorldResult}, instance::InstanceState, plugins::{ContentCache, ContentCacheRef, WeakCache}};
+use crate::{error::{WorldError, WorldResult}, instance::InstanceState, plugins::{ContentCache, ContentCacheRef, Movement, WeakCache}};
 
 use super::{Active, ConnectionState, ContentInfo, CurrentState, PlayerController, ServerAction};
 
@@ -216,18 +216,18 @@ fn activate_event(
 }
 
 fn trigger_special_event_on_loading_client(
-    query: Query<(&PlayerController, &CurrentState), Changed<CurrentState>>,
+    query: Query<(&PlayerController, &Movement, &CurrentState), Changed<CurrentState>>,
     active_event: Res<ActiveEvent>,
     events: Res<SpecialEvents>,
 ) {
-    for (controller, state) in query.iter() {
+    for (controller, movement, state) in query.iter() {
         if 
             matches!(state.state, ConnectionState::WaitingForInitialInterests) &&
             let Some(active_event) = active_event.0.as_ref() &&
             let Some(event) = events.0.get(active_event)
         {
             controller.send_packet(
-                ServerAction::RemoteEvent(event.kismet_event.clone()).into_pkt()
+                ServerAction::RemoteEvent(event.kismet_event.clone(), (movement.position, movement.rotation)).into_pkt()
             );
         }
     }

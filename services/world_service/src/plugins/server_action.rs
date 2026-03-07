@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{App, Plugin}, prelude::{Entity, In, Query}};
+use bevy::{app::{App, Plugin}, math::{Quat, Vec3}, prelude::{Entity, In, Query}};
 use protocol::oaPktServerAction;
 use toolkit::types::AvatarId;
 
@@ -27,21 +27,23 @@ impl Plugin for ServerActionPlugin {
     }
 }
 
+type Position = (Vec3, Quat);
+
 #[derive(Clone)]
 #[allow(dead_code)]
 pub enum ServerAction {
-    DirectTravel(AvatarId, Option<Movement>),
-    NonPortalTravel(AvatarId, Option<Movement>),
-    Portal(AvatarId, Option<Movement>),
-    LocalPortal(AvatarId, Movement),
-    Teleport(AvatarId, Movement),
+    DirectTravel(AvatarId, Option<Position>),
+    NonPortalTravel(AvatarId, Option<Position>),
+    Portal(AvatarId, Option<Position>),
+    LocalPortal(AvatarId, Position),
+    Teleport(AvatarId, Position),
     Cinematic {
         player: AvatarId,
         name: String,
         level: Option<String>,
-        position: Option<Movement>,
+        position: Option<Position>,
     },
-    RemoteEvent(String),
+    RemoteEvent(String, Position),
 }
 
 impl ServerAction {
@@ -87,11 +89,11 @@ impl ServerAction {
                 4,
                 position,
             ),
-            Self::RemoteEvent(event) => (
+            Self::RemoteEvent(event, position) => (
                 AvatarId::default(),
                 event,
                 4,
-                None,
+                Some(position),
             )
         };
 
@@ -101,8 +103,8 @@ impl ServerAction {
                 action,
                 version,
                 override_teleport: true,
-                pos: teleport_override.position.into(),
-                rot: teleport_override.rotation.into(),
+                pos: teleport_override.0.into(),
+                rot: teleport_override.1.into(),
                 ..Default::default()
             }
         } else {

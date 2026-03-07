@@ -51,10 +51,10 @@ pub(super) fn insert_player_api(
                 });
     
                 let spawn_action = match controller.travel_mode() {
-                    TravelMode::Login => ServerAction::DirectTravel(info.id, Some(movement.clone())),
-                    TravelMode::EntryPoint => ServerAction::NonPortalTravel(info.id, Some(movement.clone())),
-                    TravelMode::Portal { .. } => ServerAction::Portal(info.id, Some(movement.clone())), 
-                    TravelMode::Position { .. } => ServerAction::DirectTravel(info.id, Some(movement.clone())),
+                    TravelMode::Login => ServerAction::DirectTravel(info.id, Some((movement.position, movement.rotation))),
+                    TravelMode::EntryPoint => ServerAction::NonPortalTravel(info.id, Some((movement.position, movement.rotation))),
+                    TravelMode::Portal { .. } => ServerAction::Portal(info.id, Some((movement.position, movement.rotation))), 
+                    TravelMode::Position { .. } => ServerAction::DirectTravel(info.id, Some((movement.position, movement.rotation))),
                 };
     
                 controller.send_packet(spawn_action.into_pkt());
@@ -124,9 +124,16 @@ pub(super) fn insert_player_api(
                 })
                 .on_finish_run_system(|
                     In((ent, (zone, movie))): In<(Entity, (Zone, Option<String>))>,
-                    query: Query<&PlayerController>,
+                    query: Query<(&Avatar, &Movement, &PlayerController)>,
                 | {
-                    if let Ok(controller) = query.get(ent) {
+                    if let Ok((avatar, movement, controller)) = query.get(ent) {
+                        controller.send_packet(ServerAction::Cinematic { 
+                            player: avatar.id, 
+                            name: "PortalDepartDefault".to_owned(), 
+                            level: None, 
+                            position: Some((movement.position, movement.rotation)), 
+                        }.into_pkt());
+
                         controller
                             .request_travel(*zone.guid(), None, TravelMode::EntryPoint, movie);
                     }
@@ -198,15 +205,15 @@ pub(super) fn insert_player_api(
         player_api.set("RunCinematic", lua.create_bevy_function(world,
             |
                 In((player, cinematic_name, level)): In<(Table, String, Option<String>)>,
-                query: Query<(&Avatar, &PlayerController)>,
+                query: Query<(&Avatar, &Movement, &PlayerController)>,
             | -> WorldResult<()> {
-                if let Ok((avatar, controller)) = query.get(player.entity()?) {
+                if let Ok((avatar, movement, controller)) = query.get(player.entity()?) {
                     controller.send_packet(
                         ServerAction::Cinematic { 
                             player: avatar.id,
                             name: cinematic_name, 
                             level,
-                            position: None
+                            position: Some((movement.position, movement.rotation))
                         }.into_pkt()
                     );
                 }
@@ -217,11 +224,11 @@ pub(super) fn insert_player_api(
         player_api.set("TriggerRemoteEvent", lua.create_bevy_function(world,
             |
                 In((player, event)): In<(Table, String)>,
-                query: Query<&PlayerController>,
+                query: Query<(&Movement, &PlayerController)>,
             | -> WorldResult<()> {
-                if let Ok(controller) = query.get(player.entity()?) {
+                if let Ok((movement, controller)) = query.get(player.entity()?) {
                     controller.send_packet(
-                        ServerAction::RemoteEvent(event).into_pkt()
+                        ServerAction::RemoteEvent(event, (movement.position, movement.rotation)).into_pkt()
                     );
                 }
 
