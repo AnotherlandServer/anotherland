@@ -672,6 +672,7 @@ and to distribute the combined work:
    as the `ring` crate)
 2. Intel Math Kernel Library (Intel MKL) through the `intel-mkl-src` crate or 
    any crates that depend on it (including but not limited to the `theon` crate)
+2. OpenSSL through the `rustls` crate or any crates that depend on it
 
 The terms of this program's license still apply to our code, but not to the 
 above-mentioned libraries solely because of their combination with this program.
