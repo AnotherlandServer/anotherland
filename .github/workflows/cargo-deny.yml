@@ -12,7 +12,10 @@ jobs:
   cargo-deny:
     runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v5
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        submodules: true
     - uses: EmbarkStudios/cargo-deny-action@v2
       with:
         rust-version: "nightly-2026-02-01"
