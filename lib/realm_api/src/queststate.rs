@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use cynic::http::ReqwestExt;
 use cynic::{MutationBuilder, QueryBuilder, Id};
@@ -21,7 +22,8 @@ use futures::TryStreamExt;
 use toolkit::types::Uuid;
 use toolkit::anyhow;
 use toolkit::record_pagination::{RecordCursor, RecordPage, RecordQuery};
-use crate::{RealmApi, RealmApiError, RealmApiResult};
+use crate::queststate_graphql::{QuestStateChangeResult, QuestStateConnection, UpdateCondition, UpdateState};
+use crate::{EquipmentResult, ItemRef, RealmApi, RealmApiError, RealmApiResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuestProgressionState {
@@ -166,6 +168,31 @@ impl From<QuestCondition> for queststate_graphql::QuestConditionInput {
     }
 }
 
+#[derive(Default)]
+pub struct QuestRewards<'a> {
+    pub storage_id: Uuid,
+    pub tag: Option<String>,
+    pub experience: u32,
+    pub bits: u32,
+    pub cash: u32,
+    pub items: Vec<ItemRef<'a>>,
+}
+
+impl<'a> TryFrom<QuestRewards<'a>> for queststate_graphql::QuestRewards<'a> {
+    type Error = RealmApiError;
+
+    fn try_from(value: QuestRewards<'a>) -> Result<Self, Self::Error> {
+        Ok(queststate_graphql::QuestRewards {
+            experience: value.experience.try_into().unwrap_or_default(),
+            bits: value.bits.try_into().unwrap_or_default(),
+            cash: value.cash.try_into().unwrap_or_default(),
+            items: value.items.into_iter().map(TryInto::try_into).collect::<Result<_, RealmApiError>>()?,
+            storage_id: value.storage_id, 
+            tag: value.tag.clone(), 
+        })
+    }
+}
+
 #[derive(Builder, Clone)]
 #[builder(pattern = "owned")]
 pub struct QuestState {
@@ -260,11 +287,25 @@ impl QuestState {
     pub async fn update_state(&mut self, new_state: QuestProgressionState) -> RealmApiResult<()> {
         if 
             let (Some(api_base), Some(graphql_id)) = (&self.api_base, &self.id) &&
-            let Some(updated) = api_base.update_state(graphql_id, new_state).await?
+            let (Some(updated), _) = api_base.update_state(graphql_id, new_state, None).await?
         {
             *self = updated;
         }
         Ok(())
+    }
+
+    pub async fn return_quest(&mut self, rewards: QuestRewards<'_>) -> RealmApiResult<EquipmentResult> {
+        if 
+            let (Some(api_base), Some(graphql_id)) = (&self.api_base, &self.id) &&
+            let (Some(updated), Some(equipment_result)) = api_base
+                .update_state(graphql_id, QuestProgressionState::Finished, Some(rewards)).await?
+        {
+            *self = updated;
+
+            Ok(equipment_result)
+        } else {
+            Err(RealmApiError::Other(anyhow!("Invalid quest state")))
+        }
     }
 
     pub async fn delete(self) -> RealmApiResult<()> {
@@ -390,7 +431,8 @@ impl RealmApi {
         &self,
         state_id: &Id,
         new_state: QuestProgressionState,
-    ) -> RealmApiResult<Option<QuestState>> {
+        rewards: Option<QuestRewards<'_>>,
+    ) -> RealmApiResult<(Option<QuestState>, Option<EquipmentResult>)> {
         let response = self
             .0
             .client
@@ -399,6 +441,7 @@ impl RealmApi {
                 queststate_graphql::UpdateStateVariables {
                     state_id: state_id.clone(),
                     new_state: new_state.into(),
+                    rewards: rewards.map(|r| r.try_into()).transpose()?,
                 },
             ))
             .await?;
@@ -407,8 +450,16 @@ impl RealmApi {
             return Err(RealmApiError::GraphQl(errors));
         }
 
-        if let Some(data) = response.data {
-            Ok(data.update_state.map(|qs| QuestState::from_graphql(self, qs.state)))
+        if let Some(UpdateState { update_state }) = response.data {
+            if let Some(QuestStateChangeResult { state, equipment_result }) = update_state {
+                Ok((
+                    Some(QuestState::from_graphql(self, state)),
+                    equipment_result.map(|r| EquipmentResult::from_graphql(self, r))
+                        .transpose()?,
+                ))
+            } else {
+                Ok((None, None))
+            }
         } else {
             Err(RealmApiError::Other(anyhow::anyhow!("No data returned")))
         }
@@ -419,7 +470,7 @@ pub(crate) mod queststate_graphql {
     use chrono::{DateTime, Utc};
     use toolkit::types::Uuid;
 
-    use crate::item_storage_graphql::EquipmentResult;
+    use crate::item_storage_graphql::{EquipmentResult, ItemRef};
     use crate::schema::*;
     use crate::schema::schema::ID;
 
@@ -579,16 +630,28 @@ pub(crate) mod queststate_graphql {
 
     // Variables for updateState
     #[derive(cynic::QueryVariables, Debug)]
-    pub struct UpdateStateVariables {
+    pub struct UpdateStateVariables<'a> {
         pub state_id: ID,
         pub new_state: QuestProgressionState,
+        pub rewards: Option<QuestRewards<'a>>,
     }
 
     // Mutation fragment for updateState
     #[derive(cynic::QueryFragment)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "UpdateStateVariables")]
     pub struct UpdateState {
-        #[arguments(stateId: $state_id, newState: $new_state)]
+        #[arguments(stateId: $state_id, newState: $new_state, rewards: $rewards)]
         pub update_state: Option<QuestStateChangeResult>,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct QuestRewards<'a> {
+        pub storage_id: Uuid,
+        pub tag: Option<String>,
+        pub experience: i32,
+        pub bits: i32,
+        pub cash: i32,
+        pub items: Vec<ItemRef<'a>>,
     }
 }

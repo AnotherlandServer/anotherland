@@ -2025,8 +2025,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "mongodb",
+ "rand 0.8.5",
  "serde",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

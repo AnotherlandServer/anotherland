@@ -16,8 +16,8 @@
 use std::sync::Arc;
 
 use async_graphql::{Context, Error, Json, Object, OneofObject, SimpleObject};
-use database::DatabaseRecord;
-use mongodb::{bson::doc, Database};
+use database::{DatabaseRecord, transaction_with_retry};
+use mongodb::{ClientSession, Database, bson::doc};
 use obj_params::GenericParamSet;
 use toolkit::{types::Uuid, NativeParam};
 
@@ -26,7 +26,7 @@ use crate::{db::{self, Character, FlatennedStorageOwner, Item, ItemStorageOutput
 #[derive(Default)]
 pub struct ItemStorageExtMutationRoot;
 
-#[derive(OneofObject)]
+#[derive(OneofObject, Debug, Clone)]
 pub enum ItemRef {
     Name(String),
     Id(i32),
@@ -98,11 +98,43 @@ pub async fn find_item(db: &Database, item_ref: ItemRef) -> Result<Option<Object
     }
 }
 
-pub async fn send_inventory_update_notifications(ctx: &Context<'_>, tag: Option<String>, results: &[ItemStorageSessionResult]) -> Result<(), Error> {
+trait GetStorageIds {
+    fn get_storage_ids(&self) -> Vec<Uuid>;
+}
+
+impl GetStorageIds for &[ItemStorageSessionResult] {
+    fn get_storage_ids(&self) -> Vec<Uuid> {
+        self
+            .iter()
+            .map(|res| res.id)
+            .collect::<Vec<_>>()
+    }
+}
+
+impl GetStorageIds for &StorageResult {
+    fn get_storage_ids(&self) -> Vec<Uuid> {
+        if self.error.is_some() {
+            vec![]
+        } else {
+            vec![self.storage_id]
+        }
+    }
+}
+
+impl GetStorageIds for &EquipmentResult {
+    fn get_storage_ids(&self) -> Vec<Uuid> {
+        self.storage_result
+            .iter()
+            .map(|res| res.storage_id)
+            .collect()
+    }
+}
+
+pub async fn send_inventory_update_notifications(ctx: &Context<'_>, tag: Option<String>, ids: impl GetStorageIds) -> Result<(), Error> {
     let server = ctx.data::<Arc<RealmServer>>()?;
 
-    for res in results {
-        server.notify(RealmNotification::ItemStorageUpdated { id: res.id, tag: tag.clone() }).await?;
+    for id in ids.get_storage_ids() {
+        server.notify(RealmNotification::ItemStorageUpdated { id, tag: tag.clone() }).await?;
     }
 
     Ok(())
@@ -119,153 +151,195 @@ impl ItemStorageExtMutationRoot {
 
     pub async fn storage_insert_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, base_item: ItemRef, insert_at: Option<i32>) -> Result<StorageResult, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut session = ItemStorageSession::start(&db, id).await?;
+        let base_item = &base_item;
 
-        if let Some(item) = find_item(&db, base_item).await? {
-            match session.insert_item(item, insert_at, None).await {
-                Ok(_) => {
-                    let results = session.commit().await?;
-                    send_inventory_update_notifications(ctx, tag, &results).await?;
+        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+            let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
-                    let res = results.into_iter().next().unwrap();
+            if let Some(item) = find_item(&db, base_item.clone()).await? {
+                match session.insert_item(item, insert_at, None).await {
+                    Ok(_) => {
+                        let (session, results) = session.write_uncommitted().await?;
+                        let res = results.into_iter().next().unwrap();
 
-                    Ok(res.into())
-                },
-                Err(ItemStorageSessionError::ClientError(str, e)) => {
-                    Ok(StorageResult { 
-                        storage_id: id, 
-                        error: Some(async_graphql::Json((str.to_string(), e))),
-                        changed_items: None, 
-                        removed_items: None, 
-                        bling: None,
-                        game_cash: None,
-                    })
-                },
-                Err(e) => Err(e.into())
+                        Ok((session, res.into()))
+                    },
+                    Err(ItemStorageSessionError::ClientError(str, e)) => {
+                        Ok((
+                            session.abort(), 
+                            StorageResult { 
+                                storage_id: id, 
+                                error: Some(async_graphql::Json((str.to_string(), e))),
+                                changed_items: None, 
+                                removed_items: None, 
+                                bling: None,
+                                game_cash: None,
+                            }
+                        ))
+                    },
+                    Err(e) => Err(e.into())
+                }
+            } else {
+                Err(Error::new("Item not found"))
             }
-        } else {
-            Err(Error::new("Item not found"))
-        }
+        }).await?;
+
+        send_inventory_update_notifications(ctx, tag, &res).await?;
+
+        Ok(res)
     }
 
     pub async fn storage_batch_insert_items(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, base_items: Vec<ItemRef>) -> Result<StorageResult, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut session = ItemStorageSession::start(&db, id).await?;
+        let base_items = &base_items;
 
-        for base_item in base_items {
-            if let Some(item) = find_item(&db, base_item).await? {
-                match session.insert_item(item, None, None).await {
-                    Ok(_) => {},
-                    Err(ItemStorageSessionError::ClientError(str, e)) => {
-                        return Ok(StorageResult { 
+        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+            let mut session = ItemStorageSession::with_session(&db, session, id).await?;
+
+            for base_item in base_items {
+                if let Some(item) = find_item(&db, base_item.clone()).await? {
+                    match session.insert_item(item, None, None).await {
+                        Ok(_) => {},
+                        Err(ItemStorageSessionError::ClientError(str, e)) => {
+                            return Ok((
+                                session.abort(),
+                                StorageResult { 
+                                    storage_id: id, 
+                                    error: Some(async_graphql::Json((str.to_string(), e))),
+                                    changed_items: None, 
+                                    removed_items: None, 
+                                    bling: None,
+                                    game_cash: None,
+                                }
+                            ));
+                        },
+                        Err(e) => {
+                            return Err(e.into());
+                        }
+                    }
+                } else {
+                    return Err(Error::new("Item not found"));
+                }
+            }
+
+            Ok(
+                session.write_uncommitted().await
+                    .map(|(s,r)| (s, r.into_iter().next().unwrap().into()))?
+            )
+        }).await?;
+
+        send_inventory_update_notifications(ctx, tag, &res).await?;
+
+        Ok(res)
+    }
+
+    pub async fn storage_destroy_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid) -> Result<StorageResult, Error> {
+        let db = ctx.data::<Database>()?.clone();
+
+        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+            let mut session = ItemStorageSession::with_session(&db, session, id).await?;
+
+            match session.destroy_item(item_id).await {
+                Ok(_) => {
+                    let (session, results) = session.write_uncommitted().await?;
+
+                    let res = results.into_iter().next().unwrap();
+            
+                    Ok((session, res.into()))
+                },
+                Err(ItemStorageSessionError::ClientError(str, e)) => {
+                    Ok((
+                        session.abort(),
+                        StorageResult { 
                             storage_id: id, 
                             error: Some(async_graphql::Json((str.to_string(), e))),
                             changed_items: None, 
                             removed_items: None, 
                             bling: None,
                             game_cash: None,
-                        })
+                        }
+                    ))
+                },
+                Err(e) => Err(e.into())
+            }
+        }).await?;
+
+        send_inventory_update_notifications(ctx, tag, &res).await?;
+
+        Ok(res)
+    }
+
+    pub async fn storage_batch_destroy_items(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_ids: Vec<Uuid>) -> Result<StorageResult, Error> {
+        let db = ctx.data::<Database>()?.clone();
+        let item_ids = &item_ids;
+
+        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+            let mut session = ItemStorageSession::with_session(&db, session, id).await?;
+
+            for item_id in item_ids {
+                match session.destroy_item(*item_id).await {
+                    Ok(_) => {},
+                    Err(ItemStorageSessionError::ClientError(str, e)) => {
+                        return Ok((
+                            session.abort(),
+                            StorageResult { 
+                                storage_id: id, 
+                                error: Some(async_graphql::Json((str.to_string(), e))),
+                                changed_items: None, 
+                                removed_items: None, 
+                                bling: None,
+                                game_cash: None,
+                            }
+                        ))
                     },
                     Err(e) => {
                         return Err(e.into());
                     }
                 }
-            } else {
-                return Err(Error::new("Item not found"));
             }
-        }
 
-        let results = session.commit().await?;
-        send_inventory_update_notifications(ctx, tag, &results).await?;
-
-        let res = results.into_iter().next().unwrap();
-
-        Ok(res.into())
-    }
-
-    pub async fn storage_destroy_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid) -> Result<StorageResult, Error> {
-        let db = ctx.data::<Database>()?.clone();
-        let mut session = ItemStorageSession::start(&db, id).await?;
-
-        match session.destroy_item(item_id).await {
-            Ok(_) => {
-                let results = session.commit().await?;
-                send_inventory_update_notifications(ctx, tag, &results).await?;
-
-                let res = results.into_iter().next().unwrap();
+            let (session, results) = session.write_uncommitted().await?;
+            
+            let res = results.into_iter().next().unwrap();
+            Ok((session, res.into()))
+        }).await?;
         
-                Ok(res.into())
-            },
-            Err(ItemStorageSessionError::ClientError(str, e)) => {
-                Ok(StorageResult { 
-                    storage_id: id, 
-                    error: Some(async_graphql::Json((str.to_string(), e))),
-                    changed_items: None, 
-                    removed_items: None, 
-                    bling: None,
-                    game_cash: None,
-                })
-            },
-            Err(e) => Err(e.into())
-        }
-    }
-
-    pub async fn storage_batch_destroy_items(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_ids: Vec<Uuid>) -> Result<StorageResult, Error> {
-        let db = ctx.data::<Database>()?.clone();
-        let mut session = ItemStorageSession::start(&db, id).await?;
-
-        for item_id in item_ids {
-            match session.destroy_item(item_id).await {
-                Ok(_) => {},
-                Err(ItemStorageSessionError::ClientError(str, e)) => {
-                    return Ok(StorageResult { 
-                        storage_id: id, 
-                        error: Some(async_graphql::Json((str.to_string(), e))),
-                        changed_items: None, 
-                        removed_items: None, 
-                        bling: None,
-                        game_cash: None,
-                    })
-                },
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
-        }
-
-        let results = session.commit().await?;
-        send_inventory_update_notifications(ctx, tag, &results).await?;
-
-        let res = results.into_iter().next().unwrap();
-
-        Ok(res.into())
+        send_inventory_update_notifications(ctx, tag, &res).await?;
+        Ok(res)
     }
 
     pub async fn storage_move_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid, new_slot: i32) -> Result<StorageResult, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut session = ItemStorageSession::start(&db, id).await?;
 
-        match session.move_item(item_id, new_slot).await {
-            Ok(_) => {
-                let results = session.commit().await?;
-                send_inventory_update_notifications(ctx, tag, &results).await?;
+        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+            let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
-                let res = results.into_iter().next().unwrap();
-        
-                Ok(res.into())
-            },
-            Err(ItemStorageSessionError::ClientError(str, e)) => {
-                Ok(StorageResult { 
-                    storage_id: id, 
-                    error: Some(async_graphql::Json((str.to_string(), e))),
-                    changed_items: None, 
-                    removed_items: None, 
-                    bling: None,
-                    game_cash: None,
-                })
-            },
-            Err(e) => Err(e.into())
-        }
+            match session.move_item(item_id, new_slot).await {
+                Ok(_) => {
+                    let (session, results) = session.write_uncommitted().await?;
+                    let res = results.into_iter().next().unwrap();
+            
+                    Ok((session, res.into()))
+                },
+                Err(ItemStorageSessionError::ClientError(str, e)) => {
+                    Ok((
+                        session.abort(),
+                        StorageResult { 
+                            storage_id: id, 
+                            error: Some(async_graphql::Json((str.to_string(), e))),
+                            changed_items: None, 
+                            removed_items: None, 
+                            bling: None,
+                            game_cash: None,
+                        }
+                    ))
+                },
+                Err(e) => Err(e.into())
+            }
+        }).await?;
+
+        send_inventory_update_notifications(ctx, tag, &res).await?;
+        Ok(res)
     }
 
     pub async fn storage_transfer_item(&self, _ctx: &Context<'_>, _tag: Option<String>, _id: Uuid, _item_id: Uuid, _new_storage: Uuid, _new_slot: i32) -> Result<Vec<StorageResult>, Error> {
@@ -274,78 +348,94 @@ impl ItemStorageExtMutationRoot {
 
     pub async fn storage_equip_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid, idx: Option<i32>) -> Result<EquipmentResult, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut session = ItemStorageSession::start(&db, id).await?;
 
-        if let &StorageOwner::Character(char_id) = session.owner() {
-            match session.equip_item(item_id, idx).await {
-                Ok(_) => {
-                    let (mut session, results) = session.write_uncommitted().await?;
-                    let changes = Character::update_equipment(&db, &mut session, char_id, id).await?;
+        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+            let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
-                    session.commit_transaction().await?;
-
-                    send_inventory_update_notifications(ctx, tag, &results).await?;
-
-                    let res = results.into_iter().next().unwrap();
-            
-                    Ok(EquipmentResult {
-                        error: None,
-                        character_update: Some(Json(changes)),
-                        storage_result: vec![res.into()],
-                        skillbook: None,
-                    })
-                },
-                Err(ItemStorageSessionError::ClientError(str, e)) => {
-                    Ok(EquipmentResult {
-                        error: Some(async_graphql::Json((str.to_string(), e))),
-                        character_update: None,
-                        storage_result: vec![],
-                        skillbook: None,
-                    })
-                },
-                Err(e) => Err(e.into())
+            if let &StorageOwner::Character(char_id) = session.owner() {
+                match session.equip_item(item_id, idx).await {
+                    Ok(_) => {
+                        let (mut session, results) = session.write_uncommitted().await?;
+                        let changes = Character::update_equipment(&db, &mut session, char_id, id).await?;
+                        let res = results.into_iter().next().unwrap();
+                
+                        Ok((
+                            session,
+                            EquipmentResult {
+                                error: None,
+                                character_update: Some(Json(changes)),
+                                storage_result: vec![res.into()],
+                                skillbook: None,
+                            }
+                        ))
+                    },
+                    Err(ItemStorageSessionError::ClientError(str, e)) => {
+                        Ok((
+                            session.abort(),
+                            EquipmentResult {
+                                error: Some(async_graphql::Json((str.to_string(), e))),
+                                character_update: None,
+                                storage_result: vec![],
+                                skillbook: None,
+                            }
+                        ))
+                    },
+                    Err(e) => Err(e.into())
+                }
+            } else {
+                Err(Error::new("Storage is not a character storage"))
             }
-        } else {
-            Err(Error::new("Storage is not a character storage"))
-        }
+        }).await?;
+
+        send_inventory_update_notifications(ctx, tag, &res).await?;
+
+        Ok(res)
     }
 
     pub async fn storage_uneqip_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid) -> Result<EquipmentResult, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut session = ItemStorageSession::start(&db, id).await?;
 
-        if let &StorageOwner::Character(char_id) = session.owner() {
-            match session.unequip_item(item_id).await {
-                Ok(_) => {
-                    let (mut session, results) = session.write_uncommitted().await?;
-                    let changes = Character::update_equipment(&db, &mut session, char_id, id).await?;
+        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+            let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
-                    session.commit_transaction().await?;
-
-                    send_inventory_update_notifications(ctx, tag, &results).await?;
-
-                    let res = results.into_iter().next().unwrap();
-            
-                    Ok(EquipmentResult {
-                        error: None,
-                        character_update: Some(Json(changes)),
-                        storage_result: vec![res.into()],
-                        skillbook: None,
-                    })
-                },
-                Err(ItemStorageSessionError::ClientError(str, e)) => {
-                    Ok(EquipmentResult {
-                        error: Some(async_graphql::Json((str.to_string(), e))),
-                        character_update: None,
-                        storage_result: vec![],
-                        skillbook: None,
-                    })
-                },
-                Err(e) => Err(e.into())
+            if let &StorageOwner::Character(char_id) = session.owner() {
+                match session.unequip_item(item_id).await {
+                    Ok(_) => {
+                        let (mut session, results) = session.write_uncommitted().await?;
+                        let changes = Character::update_equipment(&db, &mut session, char_id, id).await?;
+                        let res = results.into_iter().next().unwrap();
+                
+                        Ok((
+                            session,
+                            EquipmentResult {
+                                error: None,
+                                character_update: Some(Json(changes)),
+                                storage_result: vec![res.into()],
+                                skillbook: None,
+                            }
+                        ))
+                    },
+                    Err(ItemStorageSessionError::ClientError(str, e)) => {
+                        Ok((
+                            session.abort(),
+                            EquipmentResult {
+                                error: Some(async_graphql::Json((str.to_string(), e))),
+                                character_update: None,
+                                storage_result: vec![],
+                                skillbook: None,
+                            }
+                        ))
+                    },
+                    Err(e) => Err(e.into())
+                }
+            } else {
+                Err(Error::new("Storage is not a character storage"))
             }
-        } else {
-            Err(Error::new("Storage is not a character storage"))
-        }
+        }).await?;
+
+        send_inventory_update_notifications(ctx, tag, &res).await?;
+
+        Ok(res)
     }
 
     pub async fn storage_deposit_bling(&self, _ctx: &Context<'_>, _tag: Option<String>, _id: Uuid, _amount: i32) -> Result<StorageResult, Error> {
@@ -354,33 +444,42 @@ impl ItemStorageExtMutationRoot {
 
     pub async fn storage_purchase_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, base_item: ItemRef, _price: Price) -> Result<StorageResult, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut session = ItemStorageSession::start(&db, id).await?;
+        let base_item = &base_item;
 
-        if let Some(item) = find_item(&db, base_item).await? {
-            match session.insert_item(item, None, None).await {
-                Ok(_) => {
-                    let results = session.commit().await?;
-                    send_inventory_update_notifications(ctx, tag, &results).await?;
+        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+            let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
-                    let res = results.into_iter().next().unwrap();
+            if let Some(item) = find_item(&db, base_item.clone()).await? {
+                match session.insert_item(item, None, None).await {
+                    Ok(_) => {
+                        let (session, results) = session.write_uncommitted().await?;
+                        let res = results.into_iter().next().unwrap();
 
-                    Ok(res.into())
-                },
-                Err(ItemStorageSessionError::ClientError(str, e)) => {
-                    Ok(StorageResult { 
-                        storage_id: id, 
-                        error: Some(async_graphql::Json((str.to_string(), e))),
-                        changed_items: None, 
-                        removed_items: None, 
-                        bling: None,
-                        game_cash: None,
-                    })
-                },
-                Err(e) => Err(e.into())
+                        Ok((session, res.into()))
+                    },
+                    Err(ItemStorageSessionError::ClientError(str, e)) => {
+                        Ok((
+                            session.abort(),
+                            StorageResult { 
+                                storage_id: id, 
+                                error: Some(async_graphql::Json((str.to_string(), e))),
+                                changed_items: None, 
+                                removed_items: None, 
+                                bling: None,
+                                game_cash: None,
+                            }
+                        ))
+                    },
+                    Err(e) => Err(e.into())
+                }
+            } else {
+                Err(Error::new("Item not found"))
             }
-        } else {
-            Err(Error::new("Item not found"))
-        }
+        }).await?;
+
+        send_inventory_update_notifications(ctx, tag, &res).await?;
+
+        Ok(res)
     }
 
     pub async fn storage_sell_item(&self, _ctx: &Context<'_>, _tag: Option<String>, _id: Uuid, _item_id: Uuid) -> Result<StorageResult, Error> {

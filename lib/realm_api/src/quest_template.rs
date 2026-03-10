@@ -17,7 +17,7 @@ use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
 use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
 
-use crate::{CombatStyle, RealmApi, RealmApiError, RealmApiResult};
+use crate::{CombatStyle, ItemRef, QuestRewards, RealmApi, RealmApiError, RealmApiResult};
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum AvatarSelector {
@@ -311,6 +311,105 @@ impl Condition {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ItemReward {
+    ClassBased {
+        assassin: ClassItemRewardRef,
+        energizer: ClassItemRewardRef,
+        marksman: ClassItemRewardRef,
+        warrior: ClassItemRewardRef,
+    },
+    Generic { name: String, count: i32 },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClassItemRewardRef {
+    Gendered { male: String, female: String },
+    NonGendered(String),
+}
+
+impl ItemReward {
+    fn from_graphql(other: quest_template_graphql::ItemRewardInterface) -> RealmApiResult<Self> {
+        match other {
+            quest_template_graphql::ItemRewardInterface::ClassItemReward(c) => {
+                Ok(Self::ClassBased {
+                    assassin: ClassItemRewardRef::from_graphql(c.assassin)?,
+                    energizer: ClassItemRewardRef::from_graphql(c.energizer)?,
+                    marksman: ClassItemRewardRef::from_graphql(c.marksman)?,
+                    warrior: ClassItemRewardRef::from_graphql(c.warrior)?,
+                })
+            }
+            quest_template_graphql::ItemRewardInterface::GenericItemReward(g) => {
+                Ok(Self::Generic {
+                    name: g.item_name,
+                    count: g.quantity,
+                })
+            }
+            quest_template_graphql::ItemRewardInterface::Unknown => {
+                Err(RealmApiError::Other(toolkit::anyhow::anyhow!("Unknown ItemReward type")))
+            }
+        }
+    }
+
+    fn as_graphql(&self) -> quest_template_graphql::ItemRewardInput {
+        match self {
+            Self::ClassBased { assassin, energizer, marksman, warrior } => quest_template_graphql::ItemRewardInput {
+                class_based: Some(quest_template_graphql::ClassItemRewardInput {
+                    assassin: assassin.as_graphql(),
+                    energizer: energizer.as_graphql(),
+                    marksman: marksman.as_graphql(),
+                    warrior: warrior.as_graphql(),
+                }),
+                generic: None,
+            },
+            Self::Generic { name: item_name, count: quantity } => quest_template_graphql::ItemRewardInput {
+                class_based: None,
+                generic: Some(quest_template_graphql::GenericItemRewardInput {
+                    item_name: item_name.clone(),
+                    quantity: *quantity,
+                }),
+            },
+        }
+    }
+}
+
+impl ClassItemRewardRef {
+    fn from_graphql(other: quest_template_graphql::ClassItemRewardRefInterface) -> RealmApiResult<Self> {
+        match other {
+            quest_template_graphql::ClassItemRewardRefInterface::GenderedItemReward(g) => {
+                Ok(Self::Gendered {
+                    male: g.male,
+                    female: g.female,
+                })
+            }
+            quest_template_graphql::ClassItemRewardRefInterface::NonGenderedItemReward(n) => {
+                Ok(Self::NonGendered(n.item))
+            }
+            quest_template_graphql::ClassItemRewardRefInterface::Unknown => {
+                Err(RealmApiError::Other(toolkit::anyhow::anyhow!("Unknown ClassItemRewardRef type")))
+            }
+        }
+    }
+
+    fn as_graphql(&self) -> quest_template_graphql::ClassItemRewardRefInput {
+        match self {
+            Self::Gendered { male, female } => quest_template_graphql::ClassItemRewardRefInput {
+                gendered: Some(quest_template_graphql::GenderedItemRewardInput {
+                    male: male.clone(),
+                    female: female.clone(),
+                }),
+                non_gendered: None,
+            },
+            Self::NonGendered(item) => quest_template_graphql::ClassItemRewardRefInput {
+                gendered: None,
+                non_gendered: Some(quest_template_graphql::NonGenderedItemRewardInput {
+                    item: item.clone(),
+                }),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Default, PartialEq)]
 pub struct Prerequisites {
     pub level: Option<i32>,
@@ -415,6 +514,8 @@ pub struct QuestTemplate {
     pub prerequisites: Option<Prerequisites>,
     #[builder(default)]
     pub conditions: Vec<Condition>,
+    #[builder(setter(strip_option), default)]
+    pub item_reward: Option<ItemReward>,
 }
 
 impl QuestTemplate {
@@ -470,6 +571,9 @@ impl QuestTemplate {
             conditions: other.conditions.into_iter()
                 .map(Condition::from_graphql)
                 .collect::<Result<Vec<_>, _>>()?,
+            item_reward: other.item_reward
+                .map(ItemReward::from_graphql)
+                .transpose()?,
         })
     }
 
@@ -486,6 +590,40 @@ impl QuestTemplate {
             completion_dialogue_id: self.completion_dialogue_id,
             prerequisites: self.prerequisites.as_ref().map(Prerequisites::as_graphql),
             conditions: self.conditions.iter().map(Condition::as_graphql).collect(),
+            item_reward: self.item_reward.as_ref().map(ItemReward::as_graphql),
+        }
+    }
+
+    pub fn get_compulsory_rewards<'a>(&'a self, combat_style: CombatStyle, gender: i32) -> Vec<(ItemRef<'a>, usize)> {
+        match self.item_reward.as_ref() {
+            Some(ItemReward::ClassBased { assassin, energizer, marksman, warrior }) => {
+                let rewards = match combat_style {
+                    CombatStyle::Assassin => assassin,
+                    CombatStyle::Energizer => energizer,
+                    CombatStyle::Tech => marksman,
+                    CombatStyle::Rage => warrior,
+                    _ => return vec![],
+                };
+
+                match rewards {
+                    ClassItemRewardRef::Gendered { male, female } => {
+                        let item = match gender {
+                            0 => male,
+                            1 => female,
+                            _ => return vec![]
+                        };
+
+                        vec![(ItemRef::Name(item.as_str()), 1)]
+                    },
+                    ClassItemRewardRef::NonGendered(item) => {
+                        vec![(ItemRef::Name(item.as_str()), 1)]
+                    }
+                }
+            },
+            Some(ItemReward::Generic { name, count }) => {
+                vec![(ItemRef::Name(name.as_str()), *count as usize)]
+            },
+            None => vec![]
         }
     }
 }
@@ -635,6 +773,7 @@ pub(crate) mod quest_template_graphql {
         pub completion_dialogue_id: Option<i32>,
         pub prerequisites: Option<Prerequisites>,
         pub conditions: Vec<ConditionInterface>,
+        pub item_reward: Option<ItemRewardInterface>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]
@@ -777,6 +916,8 @@ pub(crate) mod quest_template_graphql {
         pub completion_dialogue_id: Option<i32>,
         pub prerequisites: Option<PrerequisitesInput>,
         pub conditions: Vec<ConditionInput>,
+        #[cynic(skip_serializing_if="Option::is_none")]
+        pub item_reward: Option<ItemRewardInput>,
     }
 
     #[derive(cynic::InputObject, Debug)]
@@ -873,6 +1014,100 @@ pub(crate) mod quest_template_graphql {
         pub required_count: i32,
         pub avatar_selector: AvatarSelector,
         pub radius: f64,
+    }
+
+    #[derive(cynic::InlineFragments, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "ItemReward")]
+    pub enum ItemRewardInterface {
+        ClassItemReward(ClassItemRewardData),
+        GenericItemReward(GenericItemRewardData),
+        #[cynic(fallback)]
+        Unknown,
+    }
+
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "ClassItemReward")]
+    pub struct ClassItemRewardData {
+        pub assassin: ClassItemRewardRefInterface,
+        pub energizer: ClassItemRewardRefInterface,
+        pub marksman: ClassItemRewardRefInterface,
+        pub warrior: ClassItemRewardRefInterface,
+    }
+
+    #[derive(cynic::InlineFragments, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "ClassItemRewardRef")]
+    pub enum ClassItemRewardRefInterface {
+        GenderedItemReward(GenderedItemRewardData),
+        NonGenderedItemReward(NonGenderedItemRewardData),
+        #[cynic(fallback)]
+        Unknown,
+    }
+
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "GenderedItemReward")]
+    pub struct GenderedItemRewardData {
+        pub male: String,
+        pub female: String,
+    }
+
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "NonGenderedItemReward")]
+    pub struct NonGenderedItemRewardData {
+        pub item: String,
+    }
+
+    #[derive(cynic::QueryFragment, Debug)]
+    #[cynic(schema = "realm_manager_service", graphql_type = "GenericItemReward")]
+    pub struct GenericItemRewardData {
+        pub item_name: String,
+        pub quantity: i32,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct ItemRewardInput {
+        #[cynic(skip_serializing_if="Option::is_none")]
+        pub class_based: Option<ClassItemRewardInput>,
+        #[cynic(skip_serializing_if="Option::is_none")]
+        pub generic: Option<GenericItemRewardInput>,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct ClassItemRewardInput {
+        pub assassin: ClassItemRewardRefInput,
+        pub energizer: ClassItemRewardRefInput,
+        pub marksman: ClassItemRewardRefInput,
+        pub warrior: ClassItemRewardRefInput,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct ClassItemRewardRefInput {
+        #[cynic(skip_serializing_if="Option::is_none")]
+        pub gendered: Option<GenderedItemRewardInput>,
+        #[cynic(skip_serializing_if="Option::is_none")]
+        pub non_gendered: Option<NonGenderedItemRewardInput>,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct GenderedItemRewardInput {
+        pub male: String,
+        pub female: String,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct GenericItemRewardInput {
+        pub item_name: String,
+        pub quantity: i32,
+    }
+
+    #[derive(cynic::InputObject, Debug)]
+    #[cynic(schema = "realm_manager_service")]
+    pub struct NonGenderedItemRewardInput {
+        pub item: String,
     }
 
     #[derive(cynic::InputObject, Debug)]

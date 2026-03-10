@@ -361,7 +361,7 @@ impl ItemStorageSession {
         Ok(storage_session)
     }
 
-    pub async fn start(db: &Database, id: Uuid) -> Result<Self, ItemStorageSessionError> {
+    /*pub async fn start(db: &Database, session: ClientSession, id: Uuid) -> Result<Self, ItemStorageSessionError> {
         // For inventory actions, we start a fairly strict session to
         // ensure transactional consistency.
         let mut session = db.client()
@@ -378,7 +378,7 @@ impl ItemStorageSession {
         session.start_transaction().await?;
 
         Self::init(db, Arc::new(Mutex::new(session)), id).await
-    }
+    }*/
 
     pub async fn with_session(db: &Database, session: ClientSession, id: Uuid) -> Result<Self, ItemStorageSessionError> {
         Self::init(db, Arc::new(Mutex::new(session)), id).await
@@ -649,11 +649,11 @@ impl ItemStorageSession {
             return Err(ItemStorageSessionError::Other(anyhow!("amount must be positive")));
         }
 
-        if let Some(bling) = &mut self.bling {
-            *bling = bling.saturating_add(amount.max(0));
-            Ok(*bling)
+        if let Some(game_cash) = &mut self.game_cash {
+            *game_cash = game_cash.saturating_add(amount.max(0));
+            Ok(*game_cash)
         } else {
-            Err(ItemStorageSessionError::Other(anyhow!("storage is no bits container")))?
+            Err(ItemStorageSessionError::Other(anyhow!("storage is no game cash container")))?
         }
     }
 
@@ -662,11 +662,11 @@ impl ItemStorageSession {
             return Err(ItemStorageSessionError::Other(anyhow!("amount must be positive")));
         }
 
-        if let Some(cash) = &mut self.game_cash {
-            *cash = cash.saturating_add(amount.max(0));
-            Ok(*cash)
+        if let Some(bling) = &mut self.bling {
+            *bling = bling.saturating_add(amount.max(0));
+            Ok(*bling)
         } else {
-            Err(ItemStorageSessionError::Other(anyhow!("storage is no cash container")))?
+            Err(ItemStorageSessionError::Other(anyhow!("storage is no bling container")))?
         }
     }
 
@@ -675,16 +675,16 @@ impl ItemStorageSession {
             return Err(ItemStorageSessionError::Other(anyhow!("amount must be positive")));
         }
 
-        if let Some(bling) = &mut self.bling {
-            let new_amount = bling.saturating_sub(amount);
+        if let Some(game_cash) = &mut self.game_cash {
+            let new_amount = game_cash.saturating_sub(amount);
             if new_amount < 0 {
-                return Err(ItemStorageSessionError::Other(anyhow!("not enough bits in storage")));
+                return Err(ItemStorageSessionError::Other(anyhow!("not enough game cash in storage")));
             }
 
-            *bling = new_amount;
-            Ok(*bling)
+            *game_cash = new_amount;
+            Ok(*game_cash)
         } else {
-            Err(ItemStorageSessionError::Other(anyhow!("storage is no bits container")))?
+            Err(ItemStorageSessionError::Other(anyhow!("storage is no game cash container")))?
         }
     }
 
@@ -693,16 +693,16 @@ impl ItemStorageSession {
             return Err(ItemStorageSessionError::Other(anyhow!("amount must be positive")));
         }
 
-        if let Some(cash) = &mut self.game_cash {
-            let new_amount = cash.saturating_sub(amount);
+        if let Some(bling) = &mut self.bling {
+            let new_amount = bling.saturating_sub(amount);
             if new_amount < 0 {
-                return Err(ItemStorageSessionError::Other(anyhow!("not enough cash in storage")));
+                return Err(ItemStorageSessionError::Other(anyhow!("not enough bling in storage")));
             }
 
-            *cash = new_amount;
-            Ok(*cash)
+            *bling = new_amount;
+            Ok(*bling)
         } else {
-            Err(ItemStorageSessionError::Other(anyhow!("storage is no cash container")))?
+            Err(ItemStorageSessionError::Other(anyhow!("storage is no bling container")))?
         }
     }
 
@@ -753,7 +753,7 @@ impl ItemStorageSession {
         Ok(result)
     }
 
-    pub async fn commit(self) -> Result<Vec<ItemStorageSessionResult>, ItemStorageSessionError> {
+    /*pub async fn commit(self) -> Result<Vec<ItemStorageSessionResult>, ItemStorageSessionError> {
         let mut results = Vec::new();
         
         results.push(self.write().await?);
@@ -764,7 +764,7 @@ impl ItemStorageSession {
         self.session.lock().await.commit_transaction().await?;
 
         Ok(results)
-    }
+    }*/
 
     pub async fn write_uncommitted(mut self) -> Result<(ClientSession, Vec<ItemStorageSessionResult>), ItemStorageSessionError> {
         let mut results = Vec::new();
@@ -775,6 +775,10 @@ impl ItemStorageSession {
         }
 
         Ok((Arc::into_inner(self.session).unwrap().into_inner(), results))
+    }
+
+    pub fn abort(self) -> ClientSession {
+        Arc::into_inner(self.session).unwrap().into_inner()
     }
 }
 

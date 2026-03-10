@@ -14,14 +14,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{ecs::{change_detection::DetectChanges, component::Component, entity::Entity, query::Added, relationship::RelationshipTarget, system::{Commands, In, Query}, world::Ref}, math::Vec3, platform::collections::HashSet};
+use bevy::{ecs::{change_detection::DetectChanges, component::Component, entity::Entity, error::Result, query::Added, relationship::RelationshipTarget, system::{Commands, In, Query}, world::Ref}, math::Vec3, platform::collections::HashSet};
 use futures::TryStreamExt;
 use log::debug;
-use protocol::{AvatarFilter, CPktStream_165_2, CPktStream_165_7, OaPktQuestRequestRequest, OaQuestConditionKind, QuestUpdateData, oaPktQuestGiverStatus, oaPktQuestRequest, oaPktQuestUpdate, oaQuestBeacon, oaQuestCondition, oaQuestTemplate};
-use realm_api::{AvatarSelector, Condition, QuestCondition, QuestProgressionState, RealmApi};
+use protocol::{AvatarFilter, CPktStream_165_2, CPktStream_165_7, OaPktQuestRequestRequest, OaQuestConditionKind, OaQuestRewardKind, QuestUpdateData, oaPktQuestGiverStatus, oaPktQuestRequest, oaPktQuestUpdate, oaQuestBeacon, oaQuestCondition, oaQuestReward, oaQuestTemplate};
+use realm_api::{AvatarSelector, ClassItemRewardRef, Condition, ItemReward, QuestCondition, QuestProgressionState, RealmApi};
 use toolkit::types::AvatarId;
 
-use crate::{plugins::{AbandonQuest, AcceptQuest, AsyncOperationEntityCommandsExt, ContentCache, ContentCacheRef, Interests, PlayerController, QuestGiver, QuestLog, QuestProgress, QuestTags, ReturnQuest, WeakCache, player_error_handler_system, quests::cache::QuestTemplateCache}};
+use crate::{error::{WorldError, WorldResult}, plugins::{AbandonQuest, AcceptQuest, AsyncOperationEntityCommandsExt, CombatStyle, ContentCache, ContentCacheRef, Interests, PlayerController, QuestGiver, QuestLog, QuestProgress, QuestTags, ReturnQuest, WeakCache, player_error_handler_system, quests::cache::QuestTemplateCache}};
 
 pub struct AvatarFilterConverter(AvatarSelector);
 
@@ -237,10 +237,9 @@ pub(super) fn handle_quest_request(
                                 Condition::Loot { beacon, ref item_name, .. } => {
                                     if let Some(id) = beacon {
                                         Some(AvatarSelector::InstanceId(id))
-                                    } else if let Some(item) = ContentCache::get(&ContentCacheRef::Name(item_name.clone())).await? {
-                                        Some(AvatarSelector::LootItem(item.id))
-                                    } else {
-                                        None
+                                    } else { 
+                                        ContentCache::get(&ContentCacheRef::Name(item_name.clone())).await?
+                                            .map(|item| AvatarSelector::LootItem(item.id)) 
                                     }
                                 },
                                 Condition::Proximity { beacon, avatar_selector, .. } => {
@@ -371,6 +370,32 @@ pub(super) fn handle_quest_request(
 
                     response.conditions = response.field_3.len() as u32;
 
+                    if let Some(item_reward) = template.item_reward.as_ref() {
+                        match item_reward {
+                            ItemReward::ClassBased { assassin, energizer, marksman, warrior } => {
+                                append_class_item_rewards(CombatStyle::Assassin, &mut response.compulsory_rewards, assassin).await?;
+                                append_class_item_rewards(CombatStyle::Energizer, &mut response.compulsory_rewards, energizer).await?;
+                                append_class_item_rewards(CombatStyle::Tech, &mut response.compulsory_rewards, marksman).await?;
+                                append_class_item_rewards(CombatStyle::Rage, &mut response.compulsory_rewards, warrior).await?;
+                            },
+                            ItemReward::Generic { name, count } => {
+                                if let Some(item) = ContentCache::get(&ContentCacheRef::Name(name.clone())).await? {
+                                    response.compulsory_rewards.push(oaQuestReward {
+                                        reward_id: 0,
+                                        gender: -1,
+                                        combat_style: -1,
+                                        kind: OaQuestRewardKind::Item,
+                                        id: item.id.to_string(),
+                                        value: *count,
+                                        ..Default::default()
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    response.compulsory_reward_count = response.compulsory_rewards.len() as u32;
+
                     debug!("Sending quest {} to player {}: {:#?}", template.id, player_controller.character_id(), response);
 
                     player_controller.send_packet(response);
@@ -420,6 +445,60 @@ pub(super) fn handle_quest_request(
             /*commands.write_message(RequestNextQuest {
                 player: ent,
             });*/
+        }
+    }
+}
+
+async fn append_class_item_rewards(combat_style: CombatStyle, rewards: &mut Vec<oaQuestReward>, reward: &ClassItemRewardRef) -> Result<()> {
+    match reward {
+        ClassItemRewardRef::Gendered { male, female } => {
+            if 
+                let Some(male_item) = ContentCache::get(&ContentCacheRef::Name(male.clone())).await? &&
+                let Some(female_item) = ContentCache::get(&ContentCacheRef::Name(female.clone())).await?
+            {
+                rewards.push(oaQuestReward { 
+                    reward_id: rewards.len() as i32,
+                    kind: OaQuestRewardKind::Item, 
+                    id: male_item.id.to_string(), 
+                    value: 1, 
+                    combat_style: combat_style.id(), 
+                    gender: 0,
+                    ..Default::default()
+                });
+
+                rewards.push(oaQuestReward { 
+                    reward_id: rewards.len() as i32,
+                    kind: OaQuestRewardKind::Item, 
+                    id: female_item.id.to_string(), 
+                    value: 1, 
+                    combat_style: combat_style.id(), 
+                    gender: 1,
+                    ..Default::default()
+                });
+
+                Ok(())
+            } else {
+                Err(anyhow!("item not found").into())
+            }
+        },
+        ClassItemRewardRef::NonGendered(item) => {
+            let Some(item) = ContentCache::get(&ContentCacheRef::Name(item.clone()))
+                .await?
+            else {
+                return Err(anyhow!("item not found").into())
+            };
+
+            rewards.push(oaQuestReward { 
+                reward_id: rewards.len() as i32,
+                kind: OaQuestRewardKind::Item, 
+                id: item.id.to_string(), 
+                value: 1, 
+                combat_style: combat_style.id(), 
+                gender: -1,
+                ..Default::default()
+            });
+
+            Ok(())
         }
     }
 }

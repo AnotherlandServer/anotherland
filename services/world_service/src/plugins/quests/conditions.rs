@@ -78,7 +78,7 @@ pub(super) fn handle_quest_condition_update(
                         ConditionUpdate::Set(v) => v,
                     }).await?;
 
-                Ok((quest_id, Some(quest_state)))
+                Ok((quest_id, Some(quest_state), None))
             })
             .on_finish_run_system(handle_db_quest_update)
             .on_error_run_system(player_error_handler_system);

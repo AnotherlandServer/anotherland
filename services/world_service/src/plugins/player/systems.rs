@@ -216,17 +216,17 @@ pub fn apply_class_item_result(
 #[allow(clippy::type_complexity)]
 pub fn travel_to_portal(
     In((ent, (portal, exit_point))): In<(Entity, (WorldResult<Option<ObjectPlacement>>, WorldResult<Option<ObjectPlacement>>))>,
-    mut query: Query<(&Avatar, &Movement, &PlayerController)>,
+    mut query: Query<(&Avatar, &Movement, &mut PlayerController)>,
     instance: Res<ZoneInstance>,
 ) {
-    if let Ok((avatar, movement, controller)) = query.get_mut(ent) {
+    if let Ok((avatar, movement, mut controller)) = query.get_mut(ent) {
         if let Ok(portal) = portal {
             if let Some(portal) = portal {
                 controller.send_packet(ServerAction::Cinematic { 
                     player: avatar.id, 
                     name: "PortalDepartDefault".to_owned(), 
                     level: None, 
-                    position: Some((movement.position, movement.rotation))
+                    position: None, 
                 }.into_pkt());
 
                 if *instance.zone.guid() == portal.zone_guid {

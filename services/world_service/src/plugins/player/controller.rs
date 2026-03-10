@@ -33,7 +33,7 @@ pub struct PlayerController {
     session: Arc<Session>,
     state: Arc<SessionState>,
     sender: UnboundedSender<WorldEvent>,
-    travel_mode: TravelMode,
+    travel_mode: Option<TravelMode>,
 }
 
 impl PlayerController {
@@ -43,8 +43,12 @@ impl PlayerController {
     pub fn session(&self) -> Arc<Session> { self.session.clone() }
     pub fn state(&self) -> Arc<SessionState> { self.state.clone() }
 
-    pub fn travel_mode(&self) -> TravelMode {
+    pub fn travel_mode(&self) -> Option<TravelMode> {
         self.travel_mode
+    }
+
+    pub fn take_travel_mode(&mut self) -> Option<TravelMode> {
+        self.travel_mode.take()
     }
 
     pub fn send_packet(&self, packet: impl OtherlandPacket) {
@@ -184,7 +188,7 @@ pub fn process_join_requests(
                     session: session.clone(),
                     state: session_state.clone(),
                     sender: sender.clone(),
-                    travel_mode: *travel_mode,
+                    travel_mode: Some(*travel_mode),
                 },
                 CurrentState::default(),
                 SpawnState::Alive,

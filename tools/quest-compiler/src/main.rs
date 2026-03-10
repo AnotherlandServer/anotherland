@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use content::set_content_path;
 use futures_util::future;
-use log::info;
+use log::{info, error};
 use realm_api::RealmApi;
 use reqwest::Url;
 use toolkit::{once_cell::sync::Lazy, print_banner};
@@ -71,7 +71,9 @@ async fn main() -> Result<()> {
         watch_dialogue_changes()?;
     }
 
-    import_quest_templates().await?;
+    if let Err(e) = import_quest_templates().await {
+        error!("Failed to import quest templates: {:?}", e);
+    }
 
     if ARGS.hot_reload_quests {
         watch_quest_template_changes()?;

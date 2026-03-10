@@ -170,10 +170,10 @@ impl AvatarLoader {
             let controller = entity.get::<PlayerController>().unwrap();
 
             match controller.travel_mode() {
-                TravelMode::Login => {
+                Some(TravelMode::Login) => {
                     obj.set(Player::SpawnMode, 2);
                 },
-                TravelMode::Portal { uuid } => {
+                Some(TravelMode::Portal { uuid }) => {
                     let mut portals = entity.world()
                         .try_query_filtered::<(&ContentInfo, &GameObjectData), With<PortalTag>>().unwrap();
 
@@ -201,16 +201,17 @@ impl AvatarLoader {
 
                     obj.set(Player::SpawnMode, 4);
                 },
-                TravelMode::Position { pos, rot } => {
+                Some(TravelMode::Position { pos, rot }) => {
                     obj.set(Player::Pos, pos);
                     obj.set(Player::Rot, rot);
                     obj.set(Player::SpawnMode, 3);
                 },
-                TravelMode::EntryPoint => {
+                Some(TravelMode::EntryPoint) => {
                     obj.set(Player::Pos, (0u32, entrypoint_pos));
                     obj.set(Player::Rot, entrypoint_rot);
                     obj.set(Player::SpawnMode, 3);
                 },
+                None => {},
             }
         }
 
@@ -249,7 +250,7 @@ impl AvatarLoader {
         let mut writer = ByteWriter::endian(&mut serialized, LittleEndian);
 
         // Send character to client, so it begins loading the level
-        if matches!(controller.travel_mode(), TravelMode::Login) {
+        if matches!(controller.travel_mode(), Some(TravelMode::Login)) {
             obj.write_to_privileged_client(&mut writer).unwrap();
 
             controller.send_packet(CPktServerNotify {

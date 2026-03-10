@@ -319,4 +319,97 @@ impl Character {
             doc!{"$set": bson::to_bson(&changes).unwrap()},
         )
     }
+
+    pub fn add_exp(&mut self, exp: u32) {
+        let mut xp = *self.data.get::<_, i32>(Player::Xp).unwrap();
+        let mut xp_total = *self.data.get::<_, i32>(Player::XpTotal).unwrap();
+        let mut xp_for_next_level = *self.data.get::<_, i32>(Player::XpForNextLevel).unwrap();
+        let mut level = *self.data.get::<_, i32>(Player::Lvl).unwrap();
+
+        xp += exp as i32;
+        xp_total += exp as i32;
+
+        if xp >= xp_for_next_level {
+            xp -= xp_for_next_level;
+
+            // Hard level cap
+            if level < 60 {
+                level += 1;
+            }
+
+            // Simple formula for next level XP, can be replaced with a more complex one if needed
+            xp_for_next_level = Self::lookup_lvl_exp(level);
+        }
+
+        self.data.set(Player::Xp, xp);
+        self.data.set(Player::XpTotal, xp_total);
+        self.data.set(Player::XpForNextLevel, xp_for_next_level);
+        self.data.set(Player::Lvl, level);
+    }
+
+    pub fn lookup_lvl_exp(lvl: i32) -> i32 {
+        match lvl {
+            0 => 0,
+            1 => 10,
+            2 => 25,
+            3 => 50,
+            4 => 75,
+            5 => 100,
+            6 => 85,
+            7 => 100,
+            8 => 135,
+            9 => 210,
+            10 => 240,
+            11 => 1600,
+            12 => 1875,
+            13 => 2180,
+            14 => 4000,
+            15 => 4170,
+            16 => 11315,
+            17 => 12890,
+            18 => 24260,
+            19 => 44640,
+            20 => 45880,
+            21 => 46850,
+            22 => 114290,
+            23 => 114785,
+            24 => 123250,
+            25 => 141180,
+            26 => 157500,
+            27 => 176000,
+            28 => 192480,
+            29 => 373340,
+            30 => 403200,
+            31 => 447280,
+            32 => 480000,
+            33 => 493750,
+            34 => 665500,
+            35 => 713550,
+            36 => 1320000,
+            37 => 1840050,
+            38 => 1920000,
+            39 => 1986210,
+            40 => 2700000,
+            41 => 2720058,
+            42 => 2700000,
+            43 => 2855140,
+            44 => 3396207,
+            45 => 4741427,
+            46 => 4950000,
+            47 => 5169357,
+            48 => 5364607,
+            49 => 6000000,
+            50 => 7560000,
+            51 => 8173043,
+            52 => 8425590,
+            53 => 10522453,
+            54 => 10588432,
+            55 => 15987940,
+            56 => 17146200,
+            57 => 26057143,
+            58 => 29647060,
+            59 => 61412900,
+            _ => 61412900,
+        }
+    }
 }

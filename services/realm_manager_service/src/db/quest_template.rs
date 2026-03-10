@@ -13,14 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use async_graphql::{ComplexObject, InputObject, Interface, OneofObject, SimpleObject};
+use async_graphql::{ComplexObject, InputObject, Interface, OneofObject, SimpleObject, Union};
 use database::DatabaseRecord;
 use mongodb::{Database, IndexModel, bson::doc, options::IndexOptions};
 use serde::{Deserialize, Serialize};
 use toolkit::{GraphqlCrud, types::Uuid};
 
 use crate::db::CombatStyle;
-
 #[derive(Serialize, Deserialize, GraphqlCrud)]
 #[graphql_crud(name = "QuestTemplate")]
 pub struct QuestTemplate {
@@ -38,6 +37,52 @@ pub struct QuestTemplate {
     pub completion_dialogue_id: Option<i32>,
     pub prerequisites: Option<Prerequisites>,
     pub conditions: Vec<Condition>,
+    pub item_reward: Option<ItemReward>,
+}
+
+#[derive(Serialize, Deserialize, SimpleObject, InputObject)]
+#[graphql(input_name = "GenderedItemRewardInput")]
+pub struct GenderedItemReward {
+    pub male: String,
+    pub female: String,
+}
+
+#[derive(Serialize, Deserialize, SimpleObject, InputObject)]
+#[graphql(input_name = "NonGenderedItemRewardInput")]
+pub struct NonGenderedItemReward {
+    pub item: String,
+}
+
+#[derive(Serialize, Deserialize, Union, OneofObject)]
+#[graphql(input_name = "ClassItemRewardRefInput")]
+#[serde(untagged)]
+pub enum ClassItemRewardRef {
+    Gendered(GenderedItemReward),
+    NonGendered(NonGenderedItemReward)
+}
+
+#[derive(Serialize, Deserialize, SimpleObject, InputObject)]
+#[graphql(input_name = "ClassItemRewardInput")]
+pub struct ClassItemReward {
+    pub assassin: ClassItemRewardRef,
+    pub energizer: ClassItemRewardRef,
+    pub marksman: ClassItemRewardRef,
+    pub warrior: ClassItemRewardRef,
+}
+
+#[derive(Serialize, Deserialize, SimpleObject, InputObject)]
+#[graphql(input_name = "GenericItemRewardInput")]
+pub struct GenericItemReward {
+    pub item_name: String,
+    pub quantity: i32,
+}
+
+#[derive(Serialize, Deserialize, Union, OneofObject)]
+#[graphql(input_name = "ItemRewardInput")]
+#[serde(untagged)]
+pub enum ItemReward {
+    ClassBased(ClassItemReward),
+    Generic(GenericItemReward),
 }
 
 impl DatabaseRecord for QuestTemplate {

@@ -21,7 +21,7 @@ use futures_util::{TryStreamExt, future::try_join_all};
 use log::{error, info};
 use notify::{EventKind, ReadDirectoryChangesWatcher, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
-use realm_api::{AvatarSelector, CombatStyle, Condition, Prerequisites, QuestTemplate, RealmApi};
+use realm_api::{AvatarSelector, ClassItemRewardRef, CombatStyle, Condition, ItemReward, Prerequisites, QuestTemplate, RealmApi};
 use serde::Deserialize;
 use tokio::{runtime::Handle, task};
 use toolkit::types::Uuid;
@@ -35,6 +35,7 @@ struct YamlQuestTemplate {
     level: i32,
     exp_reward: Option<i32>,
     bit_reward: Option<i32>,
+    item_reward: Option<YamlItemReward>,
     available_dialogue_id: Option<i32>,
     progress_dialogue_id: Option<i32>,
     completion_dialogue_id: Option<i32>,
@@ -83,9 +84,61 @@ pub enum YamlQuestTrigger {
 }
 
 #[derive(Deserialize)]
+#[serde(untagged)]
+pub enum YamlClassItemRef {
+    Gendered { male: String, female: String },
+    NonGendered(String),
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum YamlItemReward {
+    ClassBased {
+        assassin: YamlClassItemRef,
+        energizer: YamlClassItemRef,
+        marksman: YamlClassItemRef,
+        warrior: YamlClassItemRef,
+    },
+    Generic {
+        name: String,
+        count: i32,
+    },
+}
+
+#[derive(Deserialize)]
 pub struct ProximityTrigger {
     pub avatar: YamlAvatarSelector,
     pub radius: f32,
+}
+
+impl TryFrom<YamlItemReward> for ItemReward {
+    type Error = QuestCompilerError;
+
+    fn try_from(value: YamlItemReward) -> Result<Self> {
+        match value {
+            YamlItemReward::ClassBased { assassin, energizer, marksman, warrior } => 
+                Ok(ItemReward::ClassBased {
+                    assassin: assassin.into(),
+                    energizer: energizer.into(),
+                    marksman: marksman.into(),
+                    warrior: warrior.into(),
+                }),
+            YamlItemReward::Generic { name, count } => 
+                Ok(ItemReward::Generic {
+                    name,
+                    count,
+                }),
+        }
+    }
+}
+
+impl From<YamlClassItemRef> for ClassItemRewardRef {
+    fn from(value: YamlClassItemRef) -> Self {
+        match value {
+            YamlClassItemRef::Gendered { male, female } => ClassItemRewardRef::Gendered { male, female },
+            YamlClassItemRef::NonGendered(item) => ClassItemRewardRef::NonGendered(item),
+        }
+    }
 }
 
 impl TryFrom<YamlAvatarSelector> for AvatarSelector {
@@ -103,7 +156,9 @@ impl TryFrom<YamlAvatarSelector> for AvatarSelector {
 }
 
 pub async fn import_quest_template_file(path: impl AsRef<Path>) -> Result<()> {
-    info!("Importing quest template file {:?}", path.as_ref());
+    let path = path.as_ref();
+
+    info!("Importing quest template file {:?}", path);
 
     let content = fs::read(path)
         .map_err(|e| QuestCompilerError::Other(e.into()))?;
@@ -248,6 +303,9 @@ async fn import_quest_template_yaml(doc: YamlQuestTemplate) -> Result<()> {
             .into_iter()
             .flatten()
             .collect::<Vec<_>>(),
+        item_reward: doc.item_reward
+            .map(ItemReward::try_from)
+            .transpose()?,
     };
 
     if RealmApi::get()

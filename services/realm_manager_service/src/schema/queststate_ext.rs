@@ -15,13 +15,14 @@
 
 use std::collections::HashMap;
 
-use async_graphql::{Context, Enum, Error, InputObject, Object, SimpleObject, ID};
-use database::DatabaseRecord;
+use async_graphql::{Context, Enum, Error, ID, InputObject, Json, Object, SimpleObject};
+use database::{DatabaseRecord, transaction_with_retry};
 use log::debug;
-use mongodb::{bson::{self, doc, oid::ObjectId}, options::{ReadConcern, ReadPreference, ReturnDocument, SelectionCriteria, TransactionOptions, WriteConcern}, Database};
+use mongodb::{Database, bson::{self, doc, oid::ObjectId}, options::ReturnDocument};
+use obj_params::{GenericParamSet, ParamSet, Player};
 use toolkit::types::Uuid;
 
-use crate::{db::{QuestProgressionState, QuestState, QuestStateOutput, QuestTemplate}, item_storage_session::ItemStorageSession, schema::item_storage_ext::{EquipmentResult, ItemRef, find_item, send_inventory_update_notifications}};
+use crate::{db::{Character, QuestProgressionState, QuestState, QuestStateOutput}, item_storage_session::ItemStorageSession, schema::item_storage_ext::{EquipmentResult, ItemRef, StorageResult, find_item}};
 
 #[derive(Default)]
 pub struct QuestStateExtMutationRoot;
@@ -38,7 +39,8 @@ pub struct QuestRewards {
     pub tag: Option<String>,
     pub experience: u32,
     pub bits: u32,
-    pub items: Vec<Uuid>,
+    pub cash: u32,
+    pub items: Vec<ItemRef>,
 }
 
 #[derive(SimpleObject)]
@@ -51,48 +53,40 @@ pub struct QuestStateChangeResult {
 impl QuestStateExtMutationRoot {
     async fn update_condition(&self, ctx: &Context<'_>, state_id: ID, condition_idx: u32, update: ConditionUpdate, value: i32) -> Result<Option<QuestStateChangeResult>, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut session = db.client().start_session()
-            .default_transaction_options(TransactionOptions::builder()
-                .read_concern(ReadConcern::majority())
-                .write_concern(WriteConcern::majority())
-                .selection_criteria(SelectionCriteria::ReadPreference(ReadPreference::Primary))
-                .build()
-            )
-            .causal_consistency(true)
-            .await?;
-        session.start_transaction().await?;           
 
-        let quest_state_id: ObjectId = state_id.parse()?;
-        let mut quest_state = QuestState::collection(&db)
-            .find_one_and_update(doc! { "_id": quest_state_id }, match update {
-                ConditionUpdate::Increment => doc! { 
-                    "$inc": { format!("conditions.{}.current_count", condition_idx): value },
-                    "$set": { "last_condition_update": chrono::Utc::now().to_rfc3339() }
-                },
-                ConditionUpdate::Set => doc! { 
-                    "$set": { 
-                        format!("conditions.{}.current_count", condition_idx): value, 
-                        "last_condition_update": chrono::Utc::now().to_rfc3339() 
-                    }
-                },
-            })
-            .return_document(ReturnDocument::After)
-            .session(&mut session)
-            .await?;
-
-        // Check if quest is completed
-        if 
-            let Some(state) = &mut quest_state  &&
-            state.conditions.iter().all(|c| c.current_count >= c.required_count)
-        {
-            state.state = QuestProgressionState::Completed;
-            state
-                .save_uncommited(&QuestState::collection(&db))
+        let quest_state = transaction_with_retry(db.clone(), async |mut session| -> Result<_, Error> {
+            let quest_state_id: ObjectId = state_id.parse()?;
+            let mut quest_state = QuestState::collection(&db)
+                .find_one_and_update(doc! { "_id": quest_state_id }, match update {
+                    ConditionUpdate::Increment => doc! { 
+                        "$inc": { format!("conditions.{}.current_count", condition_idx): value },
+                        "$set": { "last_condition_update": chrono::Utc::now().to_rfc3339() }
+                    },
+                    ConditionUpdate::Set => doc! { 
+                        "$set": { 
+                            format!("conditions.{}.current_count", condition_idx): value, 
+                            "last_condition_update": chrono::Utc::now().to_rfc3339() 
+                        }
+                    },
+                })
+                .return_document(ReturnDocument::After)
                 .session(&mut session)
                 .await?;
-        }
 
-        session.commit_transaction().await?; 
+            // Check if quest is completed
+            if 
+                let Some(state) = &mut quest_state  &&
+                state.conditions.iter().all(|c| c.current_count >= c.required_count)
+            {
+                state.state = QuestProgressionState::Completed;
+                state
+                    .save_uncommited(&QuestState::collection(&db))
+                    .session(&mut session)
+                    .await?;
+            }
+
+            Ok((session, quest_state))
+        }).await?;
 
         match quest_state {
             Some(state) => Ok(Some(QuestStateChangeResult {
@@ -105,109 +99,130 @@ impl QuestStateExtMutationRoot {
 
     async fn update_state(&self, ctx: &Context<'_>, state_id: ID, new_state: QuestProgressionState, rewards: Option<QuestRewards>) -> Result<Option<QuestStateChangeResult>, Error> {
         let db = ctx.data::<Database>()?.clone();
-        let mut session = db.client()
-            .start_session()
-            .default_transaction_options(TransactionOptions::builder()
-                .read_concern(ReadConcern::majority())
-                .write_concern(WriteConcern::majority())
-                .selection_criteria(SelectionCriteria::ReadPreference(ReadPreference::Primary))
-                .build()
-            )
-            .causal_consistency(true)
-            .await?;
+        let rewards = rewards.as_ref();
 
-        session.start_transaction().await?;
+        let (quest_state, equipment_result) = transaction_with_retry(db.clone(), async |mut session| -> Result<_, Error> {
+            let quest_state_id: ObjectId = state_id.parse()?;
+            let Some(prev_quest_state) = QuestState::collection(&db)
+                .find_one(doc! { "_id": quest_state_id })
+                .session(&mut session)
+                .await? else {
+                    return Ok((session, (None, None)));
+                };
 
-        let quest_state_id: ObjectId = state_id.parse()?;
-        let Some(prev_quest_state) = QuestState::collection(&db)
-            .find_one(doc! { "_id": quest_state_id })
-            .session(&mut session)
-            .await? else {
-                return Ok(None);
-            };
+            let Some(quest_state) = QuestState::collection(&db)
+                .find_one_and_update(doc! { "_id": quest_state_id }, doc! { "$set": { "state": bson::to_bson(&new_state)? } })
+                .return_document(ReturnDocument::After)
+                .session(&mut session)
+                .await? else {
+                    return Ok((session, (None, None)));
+                };
 
-        let Some(quest_state) = QuestState::collection(&db)
-            .find_one_and_update(doc! { "_id": quest_state_id }, doc! { "$set": { "state": bson::to_bson(&new_state)? } })
-            .return_document(ReturnDocument::After)
-            .session(&mut session)
-            .await? else {
-                return Ok(None);
-            };
+            match (prev_quest_state.state, quest_state.state) {
+                (QuestProgressionState::Active, QuestProgressionState::Completed) |
+                (QuestProgressionState::Active, QuestProgressionState::Finished) |
+                (QuestProgressionState::Completed, QuestProgressionState::Finished) => {
+                    let mut conditions = HashMap::new();
+                    for (idx, condition) in quest_state.conditions.iter().enumerate() {
+                        conditions.insert(format!("conditions.{}.current_count", idx), condition.required_count);
+                    }
 
-        let (mut session, quest_state, equipment_result) = match (prev_quest_state.state, quest_state.state) {
-            (QuestProgressionState::Active, QuestProgressionState::Completed) |
-            (QuestProgressionState::Active, QuestProgressionState::Finished) |
-            (QuestProgressionState::Completed, QuestProgressionState::Finished) => {
-                let mut conditions = HashMap::new();
-                for (idx, condition) in quest_state.conditions.iter().enumerate() {
-                    conditions.insert(format!("conditions.{}.current_count", idx), condition.required_count);
-                }
+                    let quest_state_res = QuestState::collection(&db)
+                        .find_one_and_update(doc! { "_id": quest_state_id }, doc! { "$set": bson::to_bson(&conditions)? })
+                        .return_document(ReturnDocument::After)
+                        .session(&mut session)
+                        .await?;
 
-                let quest_state_res = QuestState::collection(&db)
-                    .find_one_and_update(doc! { "_id": quest_state_id }, doc! { "$set": bson::to_bson(&conditions)? })
-                    .return_document(ReturnDocument::After)
-                    .session(&mut session)
-                    .await?;
+                    // Give out rewards when quest is finished
+                    if 
+                        prev_quest_state.state != QuestProgressionState::Finished &&
+                        quest_state.state == QuestProgressionState::Finished &&
+                        let Some(rewards) = rewards 
+                    {
+                        let mut inventory_session = ItemStorageSession::with_session(&db, session, rewards.storage_id).await?;
 
-                // Give out rewards when quest is finished
-                if 
-                    prev_quest_state.state != QuestProgressionState::Finished &&
-                    quest_state.state == QuestProgressionState::Finished &&
-                    let Some(rewards) = rewards 
-                {
-                    let mut inventory_session = ItemStorageSession::with_session(&db, session, rewards.storage_id).await?;
+                        if !rewards.items.is_empty() {
+                            debug!("Giving quest rewards items: {:?}", rewards.items);
 
-                    if !rewards.items.is_empty() {
-                        debug!("Giving quest rewards items: {:?}", rewards.items);
-
-                        for item_id in rewards.items {
-                            if let Some(item) = find_item(&db, ItemRef::Uuid(item_id)).await? {
-                                inventory_session.insert_item(item, None, None).await?;
+                            for item_ref in &rewards.items {
+                                if let Some(item) = find_item(&db, item_ref.clone()).await? {
+                                    inventory_session.insert_item(item, None, None).await?;
+                                }
                             }
                         }
+
+                        if rewards.bits > 0 {
+                            debug!("Giving quest rewards bits: {}", rewards.bits);
+                            inventory_session.add_bits(rewards.bits as i32).await?;
+                        }
+
+                        if rewards.cash > 0 {
+                            debug!("Giving quest rewards cash: {}", rewards.cash);
+                            inventory_session.add_cash(rewards.cash as i32).await?;
+                        }
+
+                        let (mut session, item_storage_result) = inventory_session.write_uncommitted().await?;
+
+                        let character_update: Option<Json<Box<dyn GenericParamSet + 'static>>> = if rewards.experience > 0 {
+                            debug!("Giving quest rewards experience: {}", rewards.experience);
+
+                            let mut character = Character::collection(&db)
+                                .find_one(doc! { "id": quest_state.character_id })
+                                .session(&mut session)
+                                .await?
+                                .ok_or_else(|| Error::new("Character not found"))?;
+
+                            character.add_exp(rewards.experience);
+                            
+                            let mut changes = ParamSet::<Player>::new();
+                            character.data.changes()
+                                .for_each(|(key, value)| {
+                                    changes.set_param(key.name(), value);
+                                });
+
+                            character.save_uncommited(&Character::collection(&db)).session(&mut session).await?;
+
+                            Some(Json(Box::new(changes)))
+                        } else {
+                            None
+                        };
+
+                        Ok((session, (
+                                quest_state_res, Some(EquipmentResult {
+                                error: None,
+                                storage_result: item_storage_result
+                                    .into_iter()
+                                    .map(StorageResult::from)
+                                    .collect(),
+                                skillbook: None,
+                                character_update,
+                            }))
+                        ))
+                    } else {
+                        Ok((session, (quest_state_res, None)))
                     }
+                },
+                (QuestProgressionState::Active, QuestProgressionState::Failed) => {
+                    let quest_state_res = QuestState::collection(&db)
+                        .find_one_and_update(doc! { "_id": quest_state_id }, doc! { "$set": { "conditions.$[].current_count": 0 } })
+                        .return_document(ReturnDocument::After)
+                        .session(&mut session)
+                        .await?;
 
-                    if rewards.bits > 0 {
-                        debug!("Giving quest rewards bits: {}", rewards.bits);
-                        inventory_session.add_bits(rewards.bits as i32).await?;
-                    }
-
-                    let (session, item_storage_result) = inventory_session.write_uncommitted().await?;
-
-                    if rewards.experience > 0 {
-                        debug!("Giving quest rewards experience: {}", rewards.experience);
-                    }
-
-                    //let results = inventory_session.commit().await?;
-                    send_inventory_update_notifications(ctx, rewards.tag, &item_storage_result).await?;
-
-                    //let res = results.into_iter().next().unwrap();
-
-                    (session, quest_state_res, None)
-                } else {
-                    (session, quest_state_res, None)
+                    Ok((
+                        session,
+                        (
+                            quest_state_res,
+                            None,
+                        )
+                    ))
+                },
+                _ => {
+                    session.abort_transaction().await?;
+                    Err(Error::new("Invalid state transition"))
                 }
-            },
-            (QuestProgressionState::Active, QuestProgressionState::Failed) => {
-                let quest_state_res = QuestState::collection(&db)
-                    .find_one_and_update(doc! { "_id": quest_state_id }, doc! { "$set": { "conditions.$[].current_count": 0 } })
-                    .return_document(ReturnDocument::After)
-                    .session(&mut session)
-                    .await?;
-
-                (
-                    session,
-                    quest_state_res,
-                    None,
-                )
-            },
-            _ => {
-                session.abort_transaction().await?;
-                return Err(Error::new("Invalid state transition"));
             }
-        };
-
-        session.commit_transaction().await?;
+        }).await?;
 
         match quest_state {
             Some(state) => Ok(Some(QuestStateChangeResult {

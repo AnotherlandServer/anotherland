@@ -14,15 +14,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{ecs::{entity::Entity, hierarchy::ChildOf, message::MessageReader, query::{With, Without}, system::{Commands, In, Query, Res}}};
+use bevy::ecs::{entity::Entity, error::Result, hierarchy::ChildOf, message::MessageReader, query::{With, Without}, system::{Commands, In, Query, Res}};
 use log::{debug, warn};
 use mlua::Function;
 use obj_params::{GameObjectData, Player};
 use protocol::{OaPktQuestEventEvent, QuestUpdateData, oaPktQuestEvent, oaPktQuestUpdate};
-use realm_api::{Condition, QuestCondition, QuestProgressionState, RealmApi};
+use realm_api::{Condition, QuestCondition, QuestProgressionState, QuestRewards, RealmApi};
 use scripting::{ScriptCommandsExt, ScriptObject};
 
-use crate::plugins::{AbandonQuest, AcceptQuest, ActiveQuest, AsyncOperationEntityCommandsExt, AutoReturnQuest, PlayerController, Quest, QuestLog, QuestProgress, QuestState, QuestStatePending, QuestStateUpdated, Quests, ReturnQuest, RunDeferredQuestDialogues, UpdateAvailableQuests, WeakCache, player_error_handler_system, quests::cache::QuestTemplateCache};
+use crate::plugins::{AbandonQuest, AcceptQuest, ActiveQuest, AsyncOperationEntityCommandsExt, AutoReturnQuest, EquipmentResult, Inventory, PlayerController, Quest, QuestLog, QuestProgress, QuestState, QuestStatePending, QuestStateUpdated, Quests, ReturnQuest, RunDeferredQuestDialogues, UpdateAvailableQuests, WeakCache, apply_equipment_result, player_error_handler_system, quests::cache::QuestTemplateCache};
 
 pub(super) fn quest_accepter(
     mut events: MessageReader<AcceptQuest>,
@@ -70,7 +70,8 @@ pub(super) fn quest_accepter(
 
                     Ok((
                         quest_id,
-                        Some(RealmApi::get().create_queststate(&state).await?)
+                        Some(RealmApi::get().create_queststate(&state).await?),
+                        None
                     ))
                 })
                 .on_finish_run_system(handle_db_quest_update)
@@ -83,21 +84,25 @@ pub(super) fn quest_accepter(
 
 pub(super) fn quest_returner(
     mut events: MessageReader<ReturnQuest>,
-    players: Query<&QuestLog>,
-    quests: Query<&QuestProgress>,
+    players: Query<(&Inventory, &GameObjectData, &QuestLog)>,
+    states: Query<&QuestProgress>,
     mut commands: Commands,
-) {
+) -> Result<()> {
     for &ReturnQuest { player, quest_id } in events.read() {
-        let Ok(questlog) = players.get(player) else {
+        let Ok((inventory, object, questlog)) = players.get(player) else {
             continue;
         };
 
+        let storage_id = inventory.id;
+
         if 
             let Some(quest_ent) = questlog.quests.get(&quest_id) &&
-            let Ok(progress) = quests.get(*quest_ent) &&
+            let Ok(progress) = states.get(*quest_ent) &&
             matches!(progress.state().state, QuestProgressionState::Completed)
         {
             let mut state = progress.state().clone();
+            let combat_style = (*object.get::<_, i32>(Player::CombatStyle)?).try_into()?;
+            let gender = *object.get::<_, f32>(Player::CustomizationGender)? as i32;
 
             commands
                 .entity(*quest_ent)
@@ -106,11 +111,30 @@ pub(super) fn quest_returner(
             commands
                 .entity(player)
                 .perform_async_operation(async move {
-                    state.update_state(QuestProgressionState::Finished).await?;
+                    let template = QuestTemplateCache::get(&quest_id).await?
+                        .ok_or_else(|| anyhow!("Quest template with ID {} not found", quest_id))?;
+
+                    let items = template
+                        .get_compulsory_rewards(combat_style, gender);
+
+                    let res = EquipmentResult::from_result(
+                        state.return_quest(QuestRewards {
+                            storage_id,
+                            tag: None,
+                            bits: template.bit_reward.map(TryInto::try_into).transpose()?.unwrap_or_default(),
+                            experience: template.exp_reward.map(TryInto::try_into).transpose()?.unwrap_or_default(),
+                            cash: 0,
+                            items: items
+                                .into_iter()
+                                .map(|(item_ref, _)| item_ref)
+                                .collect(),
+                        }).await?
+                    ).await?;
 
                     Ok((
                         quest_id,
-                        Some(state)
+                        Some(state),
+                        Some(res)
                     ))
                 })
                 .on_finish_run_system(handle_db_quest_update)
@@ -119,6 +143,8 @@ pub(super) fn quest_returner(
             warn!("Player {} tried to finish uncompleted quest {}", player, quest_id);
         }
     }
+
+    Ok(())
 }
 
 pub(super) fn quest_abandoner(
@@ -150,7 +176,7 @@ pub(super) fn quest_abandoner(
                 .entity(player)
                 .perform_async_operation(async move {
                     state.delete().await?;
-                    Ok((quest_id, None))
+                    Ok((quest_id, None, None))
                 })
                 .on_finish_run_system(handle_db_quest_update)
                 .on_error_run_system(player_error_handler_system);
@@ -161,7 +187,7 @@ pub(super) fn quest_abandoner(
 }
 
 pub(super) fn handle_db_quest_update(
-    In((player, (quest_id, db_state))): In<(Entity, (i32, Option<realm_api::QuestState>))>,
+    In((player, (quest_id, db_state, storage_res))): In<(Entity, (i32, Option<realm_api::QuestState>, Option<EquipmentResult>))>,
     mut players: Query<(Entity, &PlayerController, &mut QuestLog, &ScriptObject)>,
     mut quests: Query<(&mut QuestProgress, Option<&ActiveQuest>)>,
     mut commands: Commands,
@@ -201,6 +227,13 @@ pub(super) fn handle_db_quest_update(
                     func, 
                     (quest.obj.clone(), script_object.object().clone())
                 );
+            }
+
+            if let Some(equipment_result) = storage_res {
+                commands.run_system_cached_with(apply_equipment_result, (
+                    player_ent, 
+                    equipment_result
+                ));
             }
 
             commands

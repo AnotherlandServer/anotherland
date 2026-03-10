@@ -40,7 +40,7 @@ pub(super) fn insert_player_api(
             mut query: Query<(Entity, &Avatar, &Movement, &mut PlayerController, &mut CurrentState), Changed<CurrentState>>,
             mut commands: Commands
         | -> WorldResult<()> {
-            if let Ok((ent, info, movement, controller, mut state)) = query.get_mut(player.entity()?) {
+            if let Ok((ent, info, movement, mut controller, mut state)) = query.get_mut(player.entity()?) {
                 debug!("Spawning player: {}", info.name);
 
                 state.state = ConnectionState::InGame;
@@ -50,14 +50,18 @@ pub(super) fn insert_player_api(
                     ..Default::default()
                 });
     
-                let spawn_action = match controller.travel_mode() {
-                    TravelMode::Login => ServerAction::DirectTravel(info.id, Some((movement.position, movement.rotation))),
-                    TravelMode::EntryPoint => ServerAction::NonPortalTravel(info.id, Some((movement.position, movement.rotation))),
-                    TravelMode::Portal { .. } => ServerAction::Portal(info.id, Some((movement.position, movement.rotation))), 
-                    TravelMode::Position { .. } => ServerAction::DirectTravel(info.id, Some((movement.position, movement.rotation))),
-                };
+                let spawn_action = controller.take_travel_mode()
+                    .map(|mode| match mode {
+                        TravelMode::Login => ServerAction::DirectTravel(info.id, Some((movement.position, movement.rotation))),
+                        TravelMode::EntryPoint => ServerAction::NonPortalTravel(info.id, Some((movement.position, movement.rotation))),
+                        TravelMode::Portal { .. } => ServerAction::Portal(info.id, Some((movement.position, movement.rotation))), 
+                        TravelMode::Position { .. } => ServerAction::DirectTravel(info.id, Some((movement.position, movement.rotation))),
+                    });
     
-                controller.send_packet(spawn_action.into_pkt());
+                if let Some(spawn_action) = spawn_action {
+                    controller.send_packet(spawn_action.into_pkt());
+                }
+
                 commands
                     .entity(ent)
                     .insert((Active, InGame));
