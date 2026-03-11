@@ -96,6 +96,7 @@ impl FromStr for CommonConfig {
 impl TryFrom<u16> for CommonConfig {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             12323u16 => Ok(Self::Value),
             _ => Err(ParamError::UnknownAttributeId),

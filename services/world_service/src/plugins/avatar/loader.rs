@@ -24,11 +24,13 @@ pub struct AvatarLoader {
     data: Option<AvatarLoaderData>,
 }
 
+#[allow(dead_code)]
 pub enum AvatarLoaderData {
     PlayerCharacter(Character),
     Placement(ObjectPlacement),
 }
 
+#[allow(dead_code)]
 pub enum AvatarLoaderParams {
     PlayerCharacter(Uuid),
     Placement(Uuid),

@@ -96,6 +96,7 @@ impl FromStr for CooldownGroup {
 impl TryFrom<u16> for CooldownGroup {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             4033u16 => Ok(Self::CooldownDuration),
             _ => Err(ParamError::UnknownAttributeId),

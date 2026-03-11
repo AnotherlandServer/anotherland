@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 
-use bevy::{ecs::{component::Component, entity::Entity, error::Result, system::EntityCommands}, math::Vec3};
-use obj_params::{Class, EdnaFunction, EdnaModule, GameObjectData, ItemBase, ItemEdna, LootScatterContainer};
+use bevy::{ecs::{component::Component, error::Result, system::EntityCommands}, math::Vec3};
+use obj_params::{Class, EdnaFunction, GameObjectData, ItemBase, ItemEdna, LootScatterContainer};
 use realm_api::ObjectTemplate;
 use toolkit::types::{AvatarId, UUID_NIL, Uuid};
 
@@ -38,6 +38,7 @@ pub struct LootParams {
     pub pos: Vec3,
 }
 
+#[allow(dead_code)]
 pub enum Loot {
     Item(String, i32),
     Soma(i32),
@@ -51,7 +52,7 @@ impl LoadableComponent for LootLoader {
     type Parameters = LootParams;
     type ContextData = ();
 
-    async fn load(parameters: Self::Parameters, context: &mut crate::plugins::LoadContext<Self::ContextData>) -> Result<Self> {
+    async fn load(parameters: Self::Parameters, _context: &mut crate::plugins::LoadContext<Self::ContextData>) -> Result<Self> {
         match parameters.loot {
             Loot::Item(ref item_name, _quantity) => {
                 let item_template = ContentCache::get(&ContentCacheRef::Name(
@@ -70,7 +71,7 @@ impl LoadableComponent for LootLoader {
         }
     }
 
-    fn load_dependencies(&mut self, commands: &mut EntityCommands<'_>, context: &mut crate::plugins::LoadContext<Self::ContextData>) -> Result<()> {
+    fn load_dependencies(&mut self, _commands: &mut EntityCommands<'_>, context: &mut crate::plugins::LoadContext<Self::ContextData>) -> Result<()> {
         let mut data = GameObjectData::new::<LootScatterContainer>();
 
         let offset = Vec3::new(rand::random::<f32>() * 200.0 - 100.0, 0.0, rand::random::<f32>() * 200.0 - 100.0);

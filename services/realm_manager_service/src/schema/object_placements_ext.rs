@@ -16,7 +16,7 @@
 use async_graphql::{Context, InputObject, Object};
 use database::DatabaseRecord;
 use futures_util::TryStreamExt;
-use mongodb::{Database, bson::{doc, from_bson, from_document}};
+use mongodb::{Database, bson::{doc, from_document}};
 use toolkit::types::Uuid;
 
 use crate::db::{AvatarSelector, ObjectPlacement, ObjectPlacementOutput, WorldDef, Zone};

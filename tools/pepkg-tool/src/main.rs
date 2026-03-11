@@ -235,8 +235,8 @@ fn setup_display(
 ) {
     // Set initial cursor mode
     let mut window = windows.single_mut().unwrap();
-    window.cursor_options.grab_mode = CursorGrabMode::None; 
-    window.cursor_options.visible = true;
+    //window.cursor_options.grab_mode = CursorGrabMode::None; 
+    //window.cursor_options.visible = true;
 
     info!("Setting up display");
 
@@ -471,7 +471,7 @@ fn toggle_cursor_grab(
 
     // Toggle cursor grab when pressing Escape
     if keyboard.just_pressed(KeyCode::Escape) {
-        match window.cursor_options.grab_mode {
+        /*match window.cursor_options.grab_mode {
             CursorGrabMode::None => {
                 window.cursor_options.grab_mode = CursorGrabMode::Locked;
                 window.cursor_options.visible = false;
@@ -480,14 +480,14 @@ fn toggle_cursor_grab(
                 window.cursor_options.grab_mode = CursorGrabMode::None;
                 window.cursor_options.visible = true;
             }
-        }
+        }*/
     }
 
     // Initial grab on mouse click
-    if mouse.just_pressed(MouseButton::Left) && window.cursor_options.grab_mode == CursorGrabMode::None {
+    /*if mouse.just_pressed(MouseButton::Left) && window.cursor_options.grab_mode == CursorGrabMode::None {
         window.cursor_options.grab_mode = CursorGrabMode::Locked;
         window.cursor_options.visible = false;
-    }
+    }*/
 }
 
 #[allow(dead_code)]

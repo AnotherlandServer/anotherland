@@ -24,7 +24,7 @@ mod cache;
 use bevy::{app::{First, Last, Plugin, PreUpdate, Update}, ecs::{entity::Entity, lifecycle::HookContext, query::With, schedule::IntoScheduleConfigs, system::{Commands, In, Query}}, state::state::OnEnter};
 pub use components::*;
 pub use events::*;
-use obj_params::{Class, GameObjectData, NonClientBase, Structure, tags::StructureTag};
+use obj_params::{Class, GameObjectData, NonClientBase, tags::StructureTag};
 pub use resources::*;
 pub use systems::*;
 pub use commands_component_loader::*;

@@ -54,6 +54,7 @@ pub struct AbandonQuest {
 }
 
 #[derive(Message)]
+#[allow(dead_code)]
 pub struct FailQuest {
     pub player: Entity,
     pub quest_id: i32,
@@ -95,10 +96,6 @@ impl Quests {
 
     pub fn get(&self, id: &i32) -> Option<&Quest> {
         self.0.get(id)
-    }
-
-    pub fn update(&mut self, quest: Quest) {
-        self.0.insert(quest.template.id, quest);
     }
 
     pub fn iter(&self) -> hash_map::Iter<'_, i32, Quest> {

@@ -14,16 +14,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::{ecs::{message::MessageWriter, world::World}, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
-use futures::TryStreamExt;
 use log::{debug, error, trace, warn};
 use mlua::Function;
 use obj_params::{AttributeInfo, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, Player, Portal, Value, tags::PlayerTag};
 use protocol::{oaAbilityBarReferences, CPktAvatarUpdate};
-use realm_api::{AbilitySlot, ObjectPlacement, RealmApi, RealmApiResult};
+use realm_api::{AbilitySlot, ObjectPlacement, RealmApi};
 use scripting::{EntityScriptCommandsExt, ScriptObject};
 use toolkit::{NativeParam, OtherlandQuatExt, types::Uuid};
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, HealthUpdateEvent, InitialInventoryTransfer, Inventory, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_equipment_result, player_error_handler_system}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, HealthUpdateEvent, InitialInventoryTransfer, Inventory, MessageType, PlayerController, ServerAction, WeakCache, apply_equipment_result, player_error_handler_system}, proto::TravelMode};
 
 #[allow(clippy::type_complexity)]
 pub fn spawn_player(
@@ -216,10 +215,10 @@ pub fn apply_class_item_result(
 #[allow(clippy::type_complexity)]
 pub fn travel_to_portal(
     In((ent, (portal, exit_point))): In<(Entity, (WorldResult<Option<ObjectPlacement>>, WorldResult<Option<ObjectPlacement>>))>,
-    mut query: Query<(&Avatar, &Movement, &mut PlayerController)>,
+    query: Query<(&Avatar, &PlayerController)>,
     instance: Res<ZoneInstance>,
 ) {
-    if let Ok((avatar, movement, mut controller)) = query.get_mut(ent) {
+    if let Ok((avatar, controller)) = query.get(ent) {
         if let Ok(portal) = portal {
             if let Some(portal) = portal {
                 controller.send_packet(ServerAction::Cinematic { 

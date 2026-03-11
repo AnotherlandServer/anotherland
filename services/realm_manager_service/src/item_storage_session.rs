@@ -18,7 +18,7 @@ use std::{collections::HashMap, iter::repeat_n, ops::DerefMut, sync::Arc};
 use database::{DatabaseError, DatabaseRecord};
 use futures_util::future::join_all;
 use log::{debug, warn};
-use mongodb::{bson::{self, doc}, options::{ReadConcern, ReadPreference, SelectionCriteria, TransactionOptions, WriteConcern}, ClientSession, Database};
+use mongodb::{bson::{self, doc}, ClientSession, Database};
 use obj_params::{GameObjectData, GenericParamSet, ItemBase, ItemEdna};
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -670,6 +670,7 @@ impl ItemStorageSession {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn take_bits(&mut self, amount: i32) -> Result<i32, ItemStorageSessionError> {
         if amount <= 0 {
             return Err(ItemStorageSessionError::Other(anyhow!("amount must be positive")));
@@ -688,6 +689,7 @@ impl ItemStorageSession {
         }
     }
 
+    #[allow(dead_code)]
     pub async fn take_cash(&mut self, amount: i32) -> Result<i32, ItemStorageSessionError> {
         if amount <= 0 {
             return Err(ItemStorageSessionError::Other(anyhow!("amount must be positive")));

@@ -410,7 +410,7 @@ impl SendQ {
 
         if !self.sent_packet.is_empty() {
             self.sent_packet
-                .sort_by(|x, y| x.0.message_number().cmp(&y.0.message_number()));
+                .sort_by_key(|x| x.0.message_number());
 
             for i in 0..self.sent_packet.len() {
                 let p = &mut self.sent_packet[i];

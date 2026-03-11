@@ -107,6 +107,7 @@ impl FromStr for StandaloneLootPartition {
 impl TryFrom<u16> for StandaloneLootPartition {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             7948u16 => Ok(Self::Reference),
             _ => Err(ParamError::UnknownAttributeId),

@@ -839,6 +839,7 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
                     type Error = ParamError;
 
                     fn try_from(val: u16) -> Result<Self, Self::Error> {
+                        #[allow(clippy::match_single_binding)]
                         match val {
                             #(#enum_from_u16)*
                             _ => Err(ParamError::UnknownAttributeId),

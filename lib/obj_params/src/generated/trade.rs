@@ -303,6 +303,7 @@ impl FromStr for Trade {
 impl TryFrom<u16> for Trade {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             2983u16 => Ok(Self::A1Item1),
             2984u16 => Ok(Self::A1Item2),

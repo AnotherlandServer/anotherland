@@ -1374,6 +1374,7 @@ impl FromStr for LootScatterContainer {
 impl TryFrom<u16> for LootScatterContainer {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             7996u16 => Ok(Self::Action0),
             7995u16 => Ok(Self::Action0Duration),

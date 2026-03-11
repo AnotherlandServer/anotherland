@@ -6,8 +6,8 @@ rust-version.workspace = true
 license = "AGPL-3.0-or-later"
 
 [dependencies]
-bevy_ecs = "0.17.2"
-bevy_full = { version = "0.16.0", package = "bevy" }
+bevy_ecs = "0.17.3"
+bevy_full = { version = "0.17.3", package = "bevy" }
 clap.workspace = true
 env_logger.workspace = true
 log.workspace = true

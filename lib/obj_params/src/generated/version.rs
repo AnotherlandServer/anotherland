@@ -106,6 +106,7 @@ impl FromStr for Version {
 impl TryFrom<u16> for Version {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             3027u16 => Ok(Self::Description),
             3026u16 => Ok(Self::VersionNumber),

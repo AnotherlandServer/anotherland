@@ -15,7 +15,7 @@
 
 use async_graphql::Enum;
 use database::DatabaseRecord;
-use mongodb::{Database, IndexModel, bson::{self, doc}, options::{Collation, CollationStrength, IndexOptions}};
+use mongodb::{Database, IndexModel, bson::{self, doc}, options::IndexOptions};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, GraphqlCrud};
 

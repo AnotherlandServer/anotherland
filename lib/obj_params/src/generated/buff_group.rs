@@ -108,6 +108,7 @@ impl FromStr for BuffGroup {
 impl TryFrom<u16> for BuffGroup {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             11320u16 => Ok(Self::DisplayName),
             11322u16 => Ok(Self::SubGroups),

@@ -1299,6 +1299,7 @@ impl FromStr for NpcBase {
 impl TryFrom<u16> for NpcBase {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             1060u16 => Ok(Self::Action0),
             1061u16 => Ok(Self::Action0Duration),

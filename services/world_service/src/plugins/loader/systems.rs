@@ -103,7 +103,7 @@ pub fn spawn_init_entity(
     }
 }
 
-
+#[allow(clippy::type_complexity)]
 pub(super) fn sync_debug_pos(
     query: Query<&Movement, (Changed<Movement>, With<NpcOtherlandTag>, Without<DebugPlayer>)>,
     mut debug_pos: Query<(Entity, &mut Movement, &ChildOf), (With<DebugPlayer>, Without<NpcOtherlandTag>)>,
@@ -242,6 +242,7 @@ pub fn insert_loader_api(
     Ok(())
 }
 
+#[allow(clippy::type_complexity)]
 pub(super) fn cleanup_dynamic_instances(
     instances: Query<(Entity, &SpawnState), (Changed<SpawnState>, With<DynamicInstance>)>,
     mut commands: Commands,

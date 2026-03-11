@@ -676,6 +676,7 @@ impl FromStr for BuffBase {
 impl TryFrom<u16> for BuffBase {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             22u16 => Ok(Self::Age),
             12065u16 => Ok(Self::Agility),

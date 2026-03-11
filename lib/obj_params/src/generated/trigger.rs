@@ -1320,6 +1320,7 @@ impl FromStr for Trigger {
 impl TryFrom<u16> for Trigger {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             2033u16 => Ok(Self::Action0),
             2034u16 => Ok(Self::Action0Duration),

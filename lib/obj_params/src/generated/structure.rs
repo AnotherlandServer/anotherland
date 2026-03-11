@@ -1194,6 +1194,7 @@ impl FromStr for Structure {
 impl TryFrom<u16> for Structure {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             1756u16 => Ok(Self::Action0),
             1757u16 => Ok(Self::Action0Duration),

@@ -17,7 +17,7 @@ use bevy::{app::{App, Plugin}, math::{Quat, Vec3}, prelude::{Entity, In, Query}}
 use protocol::oaPktServerAction;
 use toolkit::types::AvatarId;
 
-use super::{Movement, NetworkExtPriv, PlayerController};
+use super::{NetworkExtPriv, PlayerController};
 
 pub struct ServerActionPlugin;
 

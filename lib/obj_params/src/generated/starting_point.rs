@@ -1218,6 +1218,7 @@ impl FromStr for StartingPoint {
 impl TryFrom<u16> for StartingPoint {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             1851u16 => Ok(Self::Action0),
             1852u16 => Ok(Self::Action0Duration),

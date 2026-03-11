@@ -19,7 +19,7 @@ mod runner;
 mod noop_system;
 
 pub use operation::*;
-use bevy::app::{First, Last, Plugin};
+use bevy::app::{Last, Plugin};
 pub use entity_operation::*;
 
 use crate::plugins::async_operation::runner::run_async_operations;

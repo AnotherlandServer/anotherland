@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{ops::Deref, time::Duration};
+use std::time::Duration;
 
 use bevy::{app::{App, Plugin, PreUpdate}, ecs::{message::{Message, MessageReader, MessageWriter}, query::Added, schedule::IntoScheduleConfigs, system::{In, Res}, world::World}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
@@ -104,10 +104,6 @@ pub struct Interests {
 impl Interests {
     pub fn collection(&self) -> &HashMap<Entity, (AvatarId, InterestState)> {
         &self.interests
-    }
-
-    pub fn collection_mut(&mut self) -> &mut HashMap<Entity, (AvatarId, InterestState)> {
-        &mut self.interests
     }
 
     pub fn contains(&self, ent: &Entity) -> bool {

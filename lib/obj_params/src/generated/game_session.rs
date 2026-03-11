@@ -363,6 +363,7 @@ impl FromStr for GameSession {
 impl TryFrom<u16> for GameSession {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             276u16 => Ok(Self::CurrentPlayers),
             275u16 => Ok(Self::DisplayName),

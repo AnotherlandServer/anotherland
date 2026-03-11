@@ -1259,6 +1259,7 @@ impl FromStr for ChessMetaGameLogic {
 impl TryFrom<u16> for ChessMetaGameLogic {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             3552u16 => Ok(Self::Action0),
             3551u16 => Ok(Self::Action0Duration),

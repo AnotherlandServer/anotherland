@@ -14,11 +14,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bevy::{ecs::{entity::Entity, system::{Commands, In, Query, Res}}, math::Vec3};
-use log::{debug, error, warn};
-use protocol::{OaPktRequestQuestActionKind, oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit};
+use log::{debug, error};
+use protocol::{oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit};
 use regex::Regex;
 use scripting::{EntityScriptCommandsExt, ScriptObject};
-use toolkit::{NativeParam, types::AvatarId};
+use toolkit::NativeParam;
 
 use crate::plugins::{AvatarIdManager, BinaryBehavior, PlayerController, StringBehavior};
 

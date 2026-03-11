@@ -1281,6 +1281,7 @@ impl FromStr for VehicleFlying {
 impl TryFrom<u16> for VehicleFlying {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             3107u16 => Ok(Self::Action0),
             3106u16 => Ok(Self::Action0Duration),

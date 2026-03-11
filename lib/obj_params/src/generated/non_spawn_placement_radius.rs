@@ -170,6 +170,7 @@ impl FromStr for NonSpawnPlacementRadius {
 impl TryFrom<u16> for NonSpawnPlacementRadius {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             9691u16 => Ok(Self::AwareRange),
             9692u16 => Ok(Self::ContentClass),

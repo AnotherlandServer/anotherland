@@ -1243,6 +1243,7 @@ impl FromStr for EdnaReceptor {
 impl TryFrom<u16> for EdnaReceptor {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             2385u16 => Ok(Self::Action0),
             2386u16 => Ok(Self::Action0Duration),

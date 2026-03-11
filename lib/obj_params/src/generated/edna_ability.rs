@@ -1087,6 +1087,7 @@ impl FromStr for EdnaAbility {
 impl TryFrom<u16> for EdnaAbility {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             8883u16 => Ok(Self::AbilityInfo),
             6500u16 => Ok(Self::AbilityType),

@@ -1114,6 +1114,7 @@ impl FromStr for BilliardBall {
 impl TryFrom<u16> for BilliardBall {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             4091u16 => Ok(Self::Action0),
             4090u16 => Ok(Self::Action0Duration),

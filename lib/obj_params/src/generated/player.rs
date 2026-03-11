@@ -3977,6 +3977,7 @@ impl FromStr for Player {
 impl TryFrom<u16> for Player {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             9350u16 => Ok(Self::Abilities),
             12268u16 => Ok(Self::AccountBankId),

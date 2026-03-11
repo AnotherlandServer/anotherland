@@ -2894,6 +2894,7 @@ impl FromStr for EdnaModule {
 impl TryFrom<u16> for EdnaModule {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             12368u16 => Ok(Self::AdditionalItemCount1),
             12367u16 => Ok(Self::AdditionalItemCount2),

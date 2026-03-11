@@ -1524,6 +1524,7 @@ impl FromStr for ItemMyLandTheme {
 impl TryFrom<u16> for ItemMyLandTheme {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             12374u16 => Ok(Self::AdditionalItemCount1),
             12373u16 => Ok(Self::AdditionalItemCount2),

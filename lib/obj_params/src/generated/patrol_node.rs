@@ -1190,6 +1190,7 @@ impl FromStr for PatrolNode {
 impl TryFrom<u16> for PatrolNode {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             2461u16 => Ok(Self::Action0),
             2460u16 => Ok(Self::Action0Duration),

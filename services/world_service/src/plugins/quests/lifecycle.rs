@@ -186,6 +186,7 @@ pub(super) fn quest_abandoner(
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub(super) fn handle_db_quest_update(
     In((player, (quest_id, db_state, storage_res))): In<(Entity, (i32, Option<realm_api::QuestState>, Option<EquipmentResult>))>,
     mut players: Query<(Entity, &PlayerController, &mut QuestLog, &ScriptObject)>,
@@ -477,6 +478,7 @@ fn verify_quests_finished_prerequisite(quest: &Quest, quest_log: &QuestLog) -> b
     true
 }
 
+#[allow(clippy::type_complexity)]
 pub fn auto_return_quests(
     progress: Query<(&ChildOf, &QuestProgress), (With<AutoReturnQuest>, Without<QuestStatePending>)>,
     mut commands: Commands,

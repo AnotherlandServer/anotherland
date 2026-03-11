@@ -115,6 +115,7 @@ impl FromStr for CombatSystemGroup {
 impl TryFrom<u16> for CombatSystemGroup {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             11319u16 => Ok(Self::DisplayName),
             11321u16 => Ok(Self::SubGroups),

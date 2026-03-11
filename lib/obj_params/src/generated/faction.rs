@@ -154,6 +154,7 @@ impl FromStr for Faction {
 impl TryFrom<u16> for Faction {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             12184u16 => Ok(Self::Description),
             9360u16 => Ok(Self::DisplayName),

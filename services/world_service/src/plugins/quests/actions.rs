@@ -33,6 +33,7 @@ pub(super) fn handle_quest_action_request(
         commands
             .entity(ent)
             .call_named_lua_method("RequestInteraction", (
+                #[allow(irrefutable_let_patterns)]
                 if let OaPktRequestQuestActionKind::Interact = pkt.kind {
                     "interact"
                 } else {

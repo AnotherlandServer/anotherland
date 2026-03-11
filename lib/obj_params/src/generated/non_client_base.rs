@@ -1001,6 +1001,7 @@ impl FromStr for NonClientBase {
 impl TryFrom<u16> for NonClientBase {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             835u16 => Ok(Self::Action0),
             836u16 => Ok(Self::Action0Duration),

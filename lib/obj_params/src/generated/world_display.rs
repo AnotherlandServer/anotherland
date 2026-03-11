@@ -1228,6 +1228,7 @@ impl FromStr for WorldDisplay {
 impl TryFrom<u16> for WorldDisplay {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             8152u16 => Ok(Self::Action0),
             8151u16 => Ok(Self::Action0Duration),

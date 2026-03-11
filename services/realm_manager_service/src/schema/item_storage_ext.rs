@@ -130,7 +130,7 @@ impl GetStorageIds for &EquipmentResult {
     }
 }
 
-pub async fn send_inventory_update_notifications(ctx: &Context<'_>, tag: Option<String>, ids: impl GetStorageIds) -> Result<(), Error> {
+async fn send_inventory_update_notifications(ctx: &Context<'_>, tag: Option<String>, ids: impl GetStorageIds) -> Result<(), Error> {
     let server = ctx.data::<Arc<RealmServer>>()?;
 
     for id in ids.get_storage_ids() {

@@ -220,6 +220,7 @@ pub struct DialogueCondition {
 
 #[derive(Serialize, Deserialize, SimpleObject, InputObject)]
 #[graphql(input_name = "RemovedConditionInput")]
+#[allow(dead_code)]
 pub struct RemovedCondition {
     pub id: i32,
 }

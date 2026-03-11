@@ -17,7 +17,7 @@ use cynic::{http::ReqwestExt, MutationBuilder, QueryBuilder};
 use derive_builder::Builder;
 use toolkit::{record_pagination::{RecordCursor, RecordPage, RecordQuery}, types::Uuid};
 
-use crate::{CombatStyle, ItemRef, QuestRewards, RealmApi, RealmApiError, RealmApiResult};
+use crate::{CombatStyle, ItemRef, RealmApi, RealmApiError, RealmApiResult};
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum AvatarSelector {

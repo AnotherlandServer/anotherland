@@ -24,12 +24,12 @@ pub use loot::*;
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, message::MessageReader, query::Without, resource::Resource, schedule::IntoScheduleConfigs, spawn, system::ResMut, world::World}, math::Vec3, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, state::commands, time::common_conditions::on_timer};
+use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, message::MessageReader, query::Without, resource::Resource, schedule::IntoScheduleConfigs, system::ResMut, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all};
 use log::{debug, error, warn};
 use mlua::{Lua, Table};
-use obj_params::{Class, ContentRef, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player, tags::{ItemBaseTag, PlayerTag}};
+use obj_params::{Class, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player, tags::{ItemBaseTag, PlayerTag}};
 use protocol::{oaPktItemStorage, oaPktShopCartBuyRequest, oaPktSteamMicroTxn, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
 use realm_api::{Condition, Item, ItemRef, ObjectTemplate, Price, RealmApi};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, Movement, QuestState, QuestStateUpdated, Quests, StaticObject, WeakCache, inventory, player_error_handler_system}};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, Movement, QuestState, QuestStateUpdated, Quests, StaticObject, WeakCache, player_error_handler_system}};
 
 use super::{attach_scripts, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, MessageType, NetworkExtPriv, PlayerController, StringBehavior};
 
@@ -299,6 +299,7 @@ fn insert_inventory_api(
             Ok(())
         })?)?;
         
+    #[allow(clippy::type_complexity)]
     inventory_api.set("DropItem", lua.create_bevy_function(world, 
                 |
             In((source, allow_avatar, _allow_party, item, quantity)): In<(Table, Option<Table>, Option<Table>, String, i32)>,
@@ -337,7 +338,7 @@ fn insert_inventory_api(
 
     inventory_api.set("DropSoma", lua.create_bevy_function(world, 
                 |
-            In((allow_avatar, _allow_party, item, quantity)): In<(Option<Table>, Option<Table>, String, i32)>
+            In((_allow_avatar, _allow_party, _item, _quantity)): In<(Option<Table>, Option<Table>, String, i32)>
         | -> WorldResult<()> {
 
 

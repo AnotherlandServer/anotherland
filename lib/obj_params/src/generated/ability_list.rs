@@ -120,6 +120,7 @@ impl FromStr for AbilityList {
 impl TryFrom<u16> for AbilityList {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             9688u16 => Ok(Self::AbilityInfo),
             9687u16 => Ok(Self::AbilityName),

@@ -198,6 +198,7 @@ impl FromStr for AiTemplate {
 impl TryFrom<u16> for AiTemplate {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             8823u16 => Ok(Self::Abilities),
             8888u16 => Ok(Self::DefaultWeapon),

@@ -98,6 +98,7 @@ impl FromStr for LifeDirector {
 impl TryFrom<u16> for LifeDirector {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             8882u16 => Ok(Self::ResourceCategories),
             _ => Err(ParamError::UnknownAttributeId),

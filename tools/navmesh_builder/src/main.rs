@@ -150,7 +150,6 @@ async fn main() -> NavMeshBuilderResult<()> {
 
                 let (min_bounds, max_bounds) = rc_calc_bounds(&verts);
                 let (grid_width, grid_height) = rc_calc_grid_size(&min_bounds, &max_bounds, CS);
-                let (width, height) = rc_calc_grid_size(&min_bounds, &max_bounds, CS);
 
                 drop(verts);
 
@@ -316,14 +315,6 @@ async fn main() -> NavMeshBuilderResult<()> {
         },
         Commands::ExportNavmesh { package, out } => {
             let _ = multiprogress.println(format!("Exporting navmesh mesh for level: {package}"));
-            let game_path = Path::new(&cli.game_folder);
-
-            let mut pepkg = PePkg::open(
-                game_path.join(format!("Atlas/data/otherlandgame/WorldData/{package}/{package}.pepkg"))
-            )?;
-
-            let federation_mesh = pepkg.read_federation_file()?;
-
             let world_mesh = build_level_mesh(&multiprogress, &cli.game_folder, &package).await?;
 
             let verts = world_mesh.as_vertex_slice()
@@ -333,7 +324,6 @@ async fn main() -> NavMeshBuilderResult<()> {
 
             let (min_bounds, max_bounds) = rc_calc_bounds(&verts);
             let (grid_width, grid_height) = rc_calc_grid_size(&min_bounds, &max_bounds, CS);
-            let (width, height) = rc_calc_grid_size(&min_bounds, &max_bounds, CS);
 
             drop(verts);
 
@@ -1148,6 +1138,7 @@ fn mesh_from_agg_geom(geom: &ScriptObject) -> MeshBuffer3<u64, Vec3> {
             mesh.append(&mut cube_mesh).expect("Failed to append box mesh");
         });
 
+    #[allow(clippy::never_loop)] // Will loop if implemented
     geom.attrib("SphylElems")
         .and_then(|v| if let ObjectProperty::Array(arr) = v { Some(arr) } else { None })
         .unwrap_or(&vec![])

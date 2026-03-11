@@ -22,7 +22,7 @@ use futures::TryStreamExt;
 use toolkit::types::Uuid;
 use toolkit::anyhow;
 use toolkit::record_pagination::{RecordCursor, RecordPage, RecordQuery};
-use crate::queststate_graphql::{QuestStateChangeResult, QuestStateConnection, UpdateCondition, UpdateState};
+use crate::queststate_graphql::{QuestStateChangeResult, UpdateState};
 use crate::{EquipmentResult, ItemRef, RealmApi, RealmApiError, RealmApiResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -598,6 +598,7 @@ pub(crate) mod queststate_graphql {
 
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "DeleteQueststateVariables")]
+    #[allow(dead_code)]
     pub struct DeleteQueststate {
         #[arguments(id: $id)]
         pub delete_quest_state: Option<QuestState>,

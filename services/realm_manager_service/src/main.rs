@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![feature(exclusive_wrapper)]
 #![recursion_limit = "256"]
 
 use std::collections::HashMap;
@@ -330,6 +329,7 @@ async fn main() -> RealmResult<()> {
     let core_client_handle = tokio::spawn(async move {
         loop {
             let result = core_client.recv().await;
+            #[allow(irrefutable_let_patterns)] // false positivie?
             if let Err(e) = result {
                 error!("Error receiving core server messages: {e:?}");
                 break;

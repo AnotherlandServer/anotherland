@@ -189,6 +189,7 @@ pub fn aes_encrypt(key: u128, message: &[u8]) -> Vec<u8> {
 
     // encrypt remaining blocks, starting from the end
     for index in (1..blocks.len()).rev() {
+        #[allow(clippy::needless_range_loop)]
         for byte_index in 0..16 {
             blocks[index][byte_index] ^= blocks[prev_block][byte_index];
         }

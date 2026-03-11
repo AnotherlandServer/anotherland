@@ -528,17 +528,17 @@ pub(crate) mod item_storage_graphql {
 
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "StorageTransferItemVariables")]
+    #[allow(dead_code)]
     pub struct StorageTransferItem {
         #[arguments(id: $id, itemId: $item_id, newSlot: $new_slot, newStorage: $new_storage, tag: $tag)]
-        #[allow(dead_code)]
         pub storage_transfer_item: Vec<StorageResult>,
     }
 
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "StorageSellItemVariables")]
+    #[allow(dead_code)]
     pub struct StorageSellItem {
         #[arguments(id: $id, itemId: $item_id, tag: $tag)]
-        #[allow(dead_code)]
         pub storage_sell_item: StorageResult,
     }
 
@@ -594,9 +594,9 @@ pub(crate) mod item_storage_graphql {
 
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service", graphql_type = "MutationRoot", variables = "StorageDepositBlingVariables")]
+    #[allow(dead_code)]
     pub struct StorageDepositBling {
         #[arguments(amount: $amount, id: $id, tag: $tag)]
-        #[allow(dead_code)]
         pub storage_deposit_bling: StorageResult,
     }
 

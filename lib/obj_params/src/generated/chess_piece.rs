@@ -1356,6 +1356,7 @@ impl FromStr for ChessPiece {
 impl TryFrom<u16> for ChessPiece {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             2088u16 => Ok(Self::Action0),
             2089u16 => Ok(Self::Action0Duration),

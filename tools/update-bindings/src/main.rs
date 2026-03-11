@@ -36,10 +36,11 @@ pub fn find_workspace_root(start: &Path) -> io::Result<PathBuf> {
             match fs::read_to_string(&cargo_toml_path) {
                 Ok(contents) => {
                     // Use the toml crate to parse and check for a top-level `workspace` table
-                    if let Ok(table) = contents.parse::<Table>() {
-                        if table.contains_key("workspace") {
-                            return Ok(dir.to_path_buf());
-                        }
+                    if 
+                        let Ok(table) = contents.parse::<Table>() &&
+                        table.contains_key("workspace")
+                    {
+                        return Ok(dir.to_path_buf());
                     }
                 }
                 Err(_) => {

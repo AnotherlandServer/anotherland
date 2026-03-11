@@ -106,6 +106,7 @@ impl <
         }
     }
 
+    #[allow(dead_code)]
     pub fn on_error_run_system<
         M3: Send + 'static,
         ErrorSystem2: IntoSystem<In<BevyError>, (), M3> + Send + Sync + 'static,

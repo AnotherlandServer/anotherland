@@ -26,10 +26,9 @@ use obj_params::Class;
 pub use zone_loader::*;
 pub use non_player_loader::*;
 pub use selector::*;
-pub use interaction::*;
 pub use npc_ai::*;
 
-use crate::plugins::{BehaviorExt, process_health_events};
+use crate::plugins::{BehaviorExt, non_player::interaction::{behavior_loot_scatter_container_interact, handle_interactions}, process_health_events};
 
 pub struct NonPlayerPlugin;
 

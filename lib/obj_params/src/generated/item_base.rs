@@ -1498,6 +1498,7 @@ impl FromStr for ItemBase {
 impl TryFrom<u16> for ItemBase {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             12350u16 => Ok(Self::AdditionalItemCount1),
             12349u16 => Ok(Self::AdditionalItemCount2),

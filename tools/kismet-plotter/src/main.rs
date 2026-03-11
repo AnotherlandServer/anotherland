@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{fs, path::PathBuf, str::FromStr};
+use std::{ffi::OsStr, fs, path::PathBuf, str::FromStr};
 use futures::future::{BoxFuture, FutureExt};
 
 use clap::Parser;
@@ -28,16 +28,34 @@ struct Cli {
 
     #[arg(long)]
     package: String,
+
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
-    let mut container = Container::new(PathBuf::from_str(&cli.game_folder)
+    /*env_logger::builder()
+        .filter_level(if cli.verbose {
+            log::LevelFilter::Trace
+        } else {
+            log::LevelFilter::Info
+        })
+        .init();*/
+
+    let contentpath = PathBuf::from_str(&cli.game_folder)
         .expect("invalid path")
-        .join("UnrealEngine3/AmunGame/CookedPCConsole")
-    );
+        .join("UnrealEngine3/AmunGame/CookedPCConsole");
+
+    let mut container = Container::new(&contentpath);
+
+    container.mount_package("Core").await
+        .expect("failed to mount package");
+
+    container.mount_package("Engine").await
+        .expect("failed to mount package");
 
     container.mount_package("Atlas").await
         .expect("failed to mount package");
@@ -57,24 +75,57 @@ async fn main() {
     container.mount_package("Startup").await
         .expect("failed to mount package");
 
-    container.mount_package(&cli.package).await
-        .expect("failed to mount package");
+    if cli.package == "*" {
+        let dir = fs::read_dir(&contentpath).expect("failed to read content dir");
 
-    let outdir = PathBuf::from_str(&cli.output_dir).unwrap();
-    fs::create_dir_all(&outdir).expect("failed to create output dir");
-    
-    if let Some(level) = container.lookup_object("Level:TheWorld/PersistentLevel") {
-        for seq in level.children().iter().filter(|p| p.class().name() == "Sequence") {
-            println!("Analyzing: {}", seq.name());
+        for entry in dir {
+            println!("Checking package: {entry:?}");
 
-            let plot = plot_sequence(&container, seq).await;
+            if 
+                let Ok(entry) = entry &&
+                let Ok(filetype) = entry.file_type() &&
+                filetype.is_file() &&
+                let Some(ext) = entry.path().extension() &&
+                ext == "upk" &&
+                let Some(filename) = entry.path().file_stem().and_then(OsStr::to_str) &&
+                !container.is_mounted(filename)
+            {
+                println!("Mounting package: {filename}");
 
-            let outdir = outdir.join(seq.package().unwrap().name());
-            fs::create_dir_all(&outdir).expect("failed to create output dir");
+                if let Err(e) = container.mount_package(filename).await {
+                    eprintln!("Failed to mount package {filename}: {e}");
+                    continue;
+                }
 
-            fs::write(outdir.join(format!("{}.txt", seq.name())), plot).expect("failed to write output");
+                plot_all_sequences(&container, &cli.output_dir).await;
+
+                container.umount_package(filename);
+            }
         }
+    } else {
+        container.mount_package(&cli.package).await
+            .expect("failed to mount package");
+
+        plot_all_sequences(&container, &cli.output_dir).await;
     }
+}
+
+async fn plot_all_sequences(container: &Container, output_dir: &str) {
+        let outdir = PathBuf::from_str(output_dir).unwrap();
+        fs::create_dir_all(&outdir).expect("failed to create output dir");
+        
+        if let Some(level) = container.lookup_object("Level:TheWorld/PersistentLevel") {
+            for seq in level.children().iter().filter(|p| p.class().name() == "Sequence") {
+                println!("Analyzing: {}", seq.name());
+
+                let plot = plot_sequence(container, seq).await;
+
+                let outdir = outdir.join(seq.package().unwrap().name());
+                fs::create_dir_all(&outdir).expect("failed to create output dir");
+
+                fs::write(outdir.join(format!("{}.txt", seq.name())), plot).expect("failed to write output");
+            }
+        }
 }
 
 async fn plot_sequence(container: &Container, sequence: &ObjectRef) -> String {
@@ -105,8 +156,13 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                 || obj.class().name().contains("SeqCond") 
                 || obj.class().name().contains("RUSequenceFunction")  
             {
-                let seq = container.deserialize::<ScriptObject>(obj).await
-                    .expect("deserialization failed");
+                let seq = match container.deserialize::<ScriptObject>(obj).await {
+                    Ok(seq) => seq,
+                    Err(err) => {
+                        eprintln!("Failed to deserialize object {}: {:?}", obj.name(), err);
+                        continue;
+                    }
+                };
 
                 plot.push_str(format!("state \"{}\" as {} {{\n", obj.name(), obj_name).as_str());
 
@@ -362,36 +418,37 @@ fn plot_subsequence<'a>(container: &'a Container, sequence: &'a ObjectRef) -> Bo
                                 plot.push_str(format!("  Property: {name}\n").as_str());
                             };
 
-                            if let Some(ObjectProperty::Array(vars)) = link.attrib("LinkedVariables") {
-                                if let Some(ObjectProperty::Object(obj)) = vars.first() {
-                                    let var = container.deserialize::<ScriptObject>(obj).await
-                                        .expect("deserialization failed");
+                            if 
+                                let Some(ObjectProperty::Array(vars)) = link.attrib("LinkedVariables") &&
+                                let Some(ObjectProperty::Object(obj)) = vars.first()
+                            {
+                                let var = container.deserialize::<ScriptObject>(obj).await
+                                    .expect("deserialization failed");
 
-                                    plot.push_str(format!("  LinkedVar: {}\n", obj.name()).as_str());
+                                plot.push_str(format!("  LinkedVar: {}\n", obj.name()).as_str());
 
-                                    if let Some(ObjectProperty::Name(name)) = var.attrib("FindVarName") {
-                                        plot.push_str(format!("  FindVarName: {name}\n").as_str());
-                                    }
+                                if let Some(ObjectProperty::Name(name)) = var.attrib("FindVarName") {
+                                    plot.push_str(format!("  FindVarName: {name}\n").as_str());
+                                }
 
-                                    if let Some(ObjectProperty::Name(name)) = var.attrib("VarName") {
-                                        plot.push_str(format!("  VarName: {name}\n").as_str());
-                                    }
+                                if let Some(ObjectProperty::Name(name)) = var.attrib("VarName") {
+                                    plot.push_str(format!("  VarName: {name}\n").as_str());
+                                }
 
-                                    if let Some(ObjectProperty::String(val)) = var.attrib("StrValue") {
-                                        plot.push_str(format!("  StrValue: {val}\n").as_str());
-                                    }
+                                if let Some(ObjectProperty::String(val)) = var.attrib("StrValue") {
+                                    plot.push_str(format!("  StrValue: {val}\n").as_str());
+                                }
 
-                                    if let Some(ObjectProperty::Int(val)) = var.attrib("IntValue") {
-                                        plot.push_str(format!("  IntValue: {val}\n").as_str());
-                                    }
+                                if let Some(ObjectProperty::Int(val)) = var.attrib("IntValue") {
+                                    plot.push_str(format!("  IntValue: {val}\n").as_str());
+                                }
 
-                                    if let Some(ObjectProperty::Float(val)) = var.attrib("FloatValue") {
-                                        plot.push_str(format!("  FloatValue: {val}\n").as_str());
-                                    }
+                                if let Some(ObjectProperty::Float(val)) = var.attrib("FloatValue") {
+                                    plot.push_str(format!("  FloatValue: {val}\n").as_str());
+                                }
 
-                                    if let Some(ObjectProperty::Object(val)) = var.attrib("ObjValue") {
-                                        plot.push_str(format!("  ObjValue: {}\n", val.name()).as_str());
-                                    }
+                                if let Some(ObjectProperty::Object(val)) = var.attrib("ObjValue") {
+                                    plot.push_str(format!("  ObjValue: {}\n", val.name()).as_str());
                                 }
                             };
 

@@ -339,6 +339,7 @@ impl FromStr for Clan {
 impl TryFrom<u16> for Clan {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             11940u16 => Ok(Self::BankItemsTab),
             10909u16 => Ok(Self::BankLogEntries),

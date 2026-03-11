@@ -1239,6 +1239,7 @@ impl FromStr for Planet {
 impl TryFrom<u16> for Planet {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             2302u16 => Ok(Self::Action0),
             2303u16 => Ok(Self::Action0Duration),

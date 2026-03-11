@@ -15,21 +15,20 @@
 
 use anyhow::anyhow;
 use bevy::{ecs::{change_detection::DetectChanges, component::Component, entity::Entity, error::Result, query::Added, relationship::RelationshipTarget, system::{Commands, In, Query}, world::Ref}, math::Vec3, platform::collections::HashSet};
-use futures::TryStreamExt;
 use log::debug;
 use protocol::{AvatarFilter, CPktStream_165_2, CPktStream_165_7, OaPktQuestRequestRequest, OaQuestConditionKind, OaQuestRewardKind, QuestUpdateData, oaPktQuestGiverStatus, oaPktQuestRequest, oaPktQuestUpdate, oaQuestBeacon, oaQuestCondition, oaQuestReward, oaQuestTemplate};
 use realm_api::{AvatarSelector, ClassItemRewardRef, Condition, ItemReward, QuestCondition, QuestProgressionState, RealmApi};
 use toolkit::types::AvatarId;
 
-use crate::{error::{WorldError, WorldResult}, plugins::{AbandonQuest, AcceptQuest, AsyncOperationEntityCommandsExt, CombatStyle, ContentCache, ContentCacheRef, Interests, PlayerController, QuestGiver, QuestLog, QuestProgress, QuestTags, ReturnQuest, WeakCache, player_error_handler_system, quests::cache::QuestTemplateCache}};
+use crate::{plugins::{AbandonQuest, AcceptQuest, AsyncOperationEntityCommandsExt, CombatStyle, ContentCache, ContentCacheRef, Interests, PlayerController, QuestGiver, QuestLog, QuestProgress, QuestTags, ReturnQuest, WeakCache, player_error_handler_system, quests::cache::QuestTemplateCache}};
 
 pub struct AvatarFilterConverter(AvatarSelector);
 
-impl Into<AvatarFilter> for AvatarFilterConverter {
-    fn into(self) -> AvatarFilter {
+impl From<AvatarFilterConverter> for AvatarFilter {
+    fn from(val: AvatarFilterConverter) -> Self {
         let mut filter = AvatarFilter::default();
 
-        match self.0 {
+        match val.0 {
             AvatarSelector::ContentId(id) => {
                 filter.kind = 1;
                 filter.filter = id.to_string();

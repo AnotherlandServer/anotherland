@@ -13,17 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
-
 use anyhow::anyhow;
-use bevy::{app::{App, Plugin, Update}, ecs::{component::Component, entity::Entity, lifecycle::HookContext, resource::Resource, schedule::IntoScheduleConfigs, system::{In, ResMut}, world::World}, platform::collections::HashMap, time::common_conditions::on_timer};
+use bevy::{ecs::{component::Component, entity::Entity, resource::Resource, system::{In, ResMut}, world::World}, platform::collections::HashMap};
 use bonsai_bt::{Behavior, Event, Status, UpdateArgs, BT};
 use log::error;
 use mlua::{Lua, Table};
 use obj_params::GameObjectData;
 use scripting::{LuaExt, LuaFunctionExt, LuaRuntime, LuaTableExt, ScriptObject, ScriptResult};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{process_health_events, Active}};
+use crate::{error::{WorldError, WorldResult}, plugins::Active};
 
 #[derive(Resource, Default)]
 pub struct AiStates(pub HashMap<Entity, BT<Actions, HashMap<String, i32>>>);
@@ -182,6 +180,7 @@ pub(super) fn ai_tick(world: &mut World) {
                 let obj = obj.object().clone();
 
                 let status = state.tick(&update_event, &mut |args, _blackboard| {
+                    #[allow(unreachable_patterns)]
                     match args.action {
                         Actions::Script(func) => {
                             match func.call_with_world::<(i32, f64)>(&lua, world, (obj.clone(), args.dt)) {

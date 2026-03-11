@@ -13,14 +13,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::ecs::{entity::Entity, message::MessageReader, query::With, system::{Commands, In, Query, Res}};
+use bevy::ecs::{entity::Entity, message::MessageReader, system::{Commands, In, Query}};
 use log::debug;
-use obj_params::{GameObjectData, LootScatterContainer, Player, tags::InteractObjectTag};
+use obj_params::{GameObjectData, LootScatterContainer, Player};
 use realm_api::{ItemRef, RealmApi};
 use scripting::{EntityScriptCommandsExt, ScriptObject};
 use toolkit::types::{AvatarId, UUID_NIL, Uuid};
 
-use crate::{error::{self, WorldError}, plugins::{AsyncOperationEntityCommandsExt, Avatar, Interaction, InteractionEvent, Inventory, StorageResult, StringBehavior, apply_storage_result, player_error_handler_system}};
+use crate::{plugins::{AsyncOperationEntityCommandsExt, Avatar, Interaction, InteractionEvent, Inventory, StorageResult, StringBehavior, apply_storage_result, player_error_handler_system}};
 
 pub(super) fn handle_interactions(
     mut events: MessageReader<InteractionEvent>,

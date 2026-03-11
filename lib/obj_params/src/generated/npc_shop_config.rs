@@ -112,6 +112,7 @@ impl FromStr for NpcShopConfig {
 impl TryFrom<u16> for NpcShopConfig {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             11397u16 => Ok(Self::SellCategories),
             11396u16 => Ok(Self::SellExacts),

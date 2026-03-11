@@ -1241,6 +1241,7 @@ impl FromStr for ServerGateway {
 impl TryFrom<u16> for ServerGateway {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             5274u16 => Ok(Self::Action0),
             5273u16 => Ok(Self::Action0Duration),

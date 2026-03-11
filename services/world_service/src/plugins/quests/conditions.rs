@@ -16,7 +16,7 @@
 use bevy::ecs::{entity::Entity, hierarchy::ChildOf, message::{Message, MessageReader}, query::{Changed, With, Without}, system::{Commands, Query, Res}};
 use chrono::Utc;
 use log::debug;
-use obj_params::{GameObjectData, Player, tags::{ItemBaseTag, PlayerTag}};
+use obj_params::GameObjectData;
 use realm_api::Condition;
 
 use crate::plugins::{ActiveQuest, AsyncOperationEntityCommandsExt, AvatarKilled, AvatarSelectorMatcher, ContentInfo, DialogueFinished, Interaction, InteractionEvent, Interests, Inventory, Movement, QuestLog, QuestProgress, QuestStatePending, Quests, player_error_handler_system, quests::handle_db_quest_update};
@@ -138,6 +138,7 @@ pub(super) fn interaction_event_listener(
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub fn update_passive_conditions(
     progress: Query<(Entity, &ChildOf, &QuestProgress), (With<ActiveQuest>, Without<QuestStatePending>)>,
     player: Query<(&Movement, &Interests)>,
@@ -159,24 +160,22 @@ pub fn update_passive_conditions(
         };
 
         match *condition_tpl {
-            Condition::Wait { id, wait_time_seconds, .. } => {
-                if
-                    Utc::now()
-                        .signed_duration_since(progress.state().last_condition_update)
-                        .as_seconds_f64() >= wait_time_seconds
-                {
-                    commands
-                        .entity(quest_ent)
-                        .insert(QuestStatePending);
+            Condition::Wait { id, wait_time_seconds, .. } if
+                Utc::now()
+                    .signed_duration_since(progress.state().last_condition_update)
+                    .as_seconds_f64() >= wait_time_seconds
+            => {
+                commands
+                    .entity(quest_ent)
+                    .insert(QuestStatePending);
 
-                    commands
-                        .write_message(QuestConditionUpdate {
-                            player: child_of.parent(),
-                            quest_id: progress.state().quest_id,
-                            condition_id: id,
-                            update: ConditionUpdate::Added(1),
-                        });
-                }
+                commands
+                    .write_message(QuestConditionUpdate {
+                        player: child_of.parent(),
+                        quest_id: progress.state().quest_id,
+                        condition_id: id,
+                        update: ConditionUpdate::Added(1),
+                    });
             },
             Condition::Proximity { avatar_selector, radius, .. } => {
                 let Ok((player_movement, interests)) = player.get(child_of.parent()) else {

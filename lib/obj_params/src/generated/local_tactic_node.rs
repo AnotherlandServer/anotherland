@@ -1523,6 +1523,7 @@ impl FromStr for LocalTacticNode {
 impl TryFrom<u16> for LocalTacticNode {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             5741u16 => Ok(Self::Action0),
             5740u16 => Ok(Self::Action0Duration),

@@ -246,6 +246,7 @@ impl FromStr for Mail {
 impl TryFrom<u16> for Mail {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             8025u16 => Ok(Self::Attach),
             11565u16 => Ok(Self::AttachBling),

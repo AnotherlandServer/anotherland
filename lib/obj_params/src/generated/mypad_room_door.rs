@@ -1217,6 +1217,7 @@ impl FromStr for MypadRoomDoor {
 impl TryFrom<u16> for MypadRoomDoor {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             9777u16 => Ok(Self::Action0),
             9776u16 => Ok(Self::Action0Duration),

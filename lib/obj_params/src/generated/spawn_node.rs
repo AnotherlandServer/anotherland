@@ -1187,6 +1187,7 @@ impl FromStr for SpawnNode {
 impl TryFrom<u16> for SpawnNode {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             2495u16 => Ok(Self::Action0),
             2496u16 => Ok(Self::Action0Duration),

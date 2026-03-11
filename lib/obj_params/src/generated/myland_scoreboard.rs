@@ -1015,6 +1015,7 @@ impl FromStr for MylandScoreboard {
 impl TryFrom<u16> for MylandScoreboard {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             5389u16 => Ok(Self::Action0),
             5388u16 => Ok(Self::Action0Duration),

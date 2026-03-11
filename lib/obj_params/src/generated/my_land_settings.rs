@@ -1377,6 +1377,7 @@ impl FromStr for MyLandSettings {
 impl TryFrom<u16> for MyLandSettings {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             5656u16 => Ok(Self::Action0),
             5655u16 => Ok(Self::Action0Duration),

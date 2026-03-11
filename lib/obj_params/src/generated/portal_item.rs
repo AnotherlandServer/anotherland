@@ -1502,6 +1502,7 @@ impl FromStr for PortalItem {
 impl TryFrom<u16> for PortalItem {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             12377u16 => Ok(Self::AdditionalItemCount1),
             12376u16 => Ok(Self::AdditionalItemCount2),

@@ -1198,6 +1198,7 @@ impl FromStr for Ship {
 impl TryFrom<u16> for Ship {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             2266u16 => Ok(Self::Action0),
             2265u16 => Ok(Self::Action0Duration),

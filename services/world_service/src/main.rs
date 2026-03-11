@@ -13,8 +13,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![feature(exclusive_wrapper)]
-#![feature(try_blocks)]
 #![feature(linked_list_retain)]
 #![feature(specialization)]
 #![feature(associated_type_defaults)]

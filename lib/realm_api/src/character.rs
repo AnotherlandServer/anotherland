@@ -340,10 +340,9 @@ pub(crate) mod character_graphql {
 
     #[derive(cynic::QueryFragment, Debug)]
     #[cynic(schema = "realm_manager_service")]
+    #[allow(dead_code)]
     pub struct PremiumCurrencyBalance {
-        #[allow(dead_code)]
         pub account_id: Uuid,
-        #[allow(dead_code)]
         pub balance: i32,
     }
     

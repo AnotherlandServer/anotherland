@@ -137,6 +137,7 @@ impl FromStr for CooldownGroupExternal {
 impl TryFrom<u16> for CooldownGroupExternal {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             11335u16 => Ok(Self::DisplayName),
             11334u16 => Ok(Self::SubGroups),

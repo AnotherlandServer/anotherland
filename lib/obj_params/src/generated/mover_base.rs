@@ -1004,6 +1004,7 @@ impl FromStr for MoverBase {
 impl TryFrom<u16> for MoverBase {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             3605u16 => Ok(Self::Action0),
             3604u16 => Ok(Self::Action0Duration),

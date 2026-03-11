@@ -17,7 +17,6 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use bevy::ecs::{component::Component, entity::Entity, error::Result, query::With, system::{Commands, In, Query, Res}, world::World};
-use log::debug;
 use mlua::{IntoLua, Lua, Table, Value};
 use obj_params::{Class, ContentRefList, GameObjectData};
 use protocol::{AbilityEffect, OaPktAbilityUseAbilityType, oaPktAbilityUse};

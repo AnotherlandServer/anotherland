@@ -103,7 +103,7 @@ impl LuaRuntimeBuilder {
 
                     if let Some(module) = module.as_table() {
                         let hotreload = lua.create_table()?;
-                        hotreload.set_metatable(Some(create_hotreload_indirection(lua, module.clone())?));
+                        hotreload.set_metatable(Some(create_hotreload_indirection(lua, module.clone())?))?;
 
                         loaded.set(modname, &hotreload)?;
 
@@ -268,7 +268,7 @@ impl LuaRuntime {
                     module.raw_set("__hot_reload", true)?;
                 }
 
-                module.set_metatable(Some(create_hotreload_indirection(&self.lua, base)?));
+                module.set_metatable(Some(create_hotreload_indirection(&self.lua, base)?))?;
 
                 Ok(())
             } else {

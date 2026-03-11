@@ -1055,6 +1055,7 @@ impl FromStr for StructureBase {
 impl TryFrom<u16> for StructureBase {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             1716u16 => Ok(Self::Action0),
             1717u16 => Ok(Self::Action0Duration),

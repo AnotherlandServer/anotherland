@@ -1321,6 +1321,7 @@ impl FromStr for OaBuff2 {
 impl TryFrom<u16> for OaBuff2 {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             44u16 => Ok(Self::Age),
             12089u16 => Ok(Self::Agility),

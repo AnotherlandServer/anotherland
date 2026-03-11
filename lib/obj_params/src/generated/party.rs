@@ -252,6 +252,7 @@ impl FromStr for Party {
 impl TryFrom<u16> for Party {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             2598u16 => Ok(Self::Freq),
             12187u16 => Ok(Self::IsRaid),

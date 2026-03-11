@@ -356,6 +356,7 @@ impl FromStr for CompinstFrontendsrv {
 impl TryFrom<u16> for CompinstFrontendsrv {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             87u16 => Ok(Self::BytesReceivedPeer),
             88u16 => Ok(Self::BytesReceivedServer),

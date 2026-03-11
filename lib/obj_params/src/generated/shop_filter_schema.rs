@@ -102,6 +102,7 @@ impl FromStr for ShopFilterSchema {
 impl TryFrom<u16> for ShopFilterSchema {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             10776u16 => Ok(Self::Value),
             _ => Err(ParamError::UnknownAttributeId),

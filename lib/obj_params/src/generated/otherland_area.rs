@@ -223,6 +223,7 @@ impl FromStr for OtherlandArea {
 impl TryFrom<u16> for OtherlandArea {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             8330u16 => Ok(Self::AwareRange),
             4034u16 => Ok(Self::BlockedAbilities),

@@ -1062,6 +1062,7 @@ impl FromStr for SpawnerBase {
 impl TryFrom<u16> for SpawnerBase {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             865u16 => Ok(Self::Action0),
             866u16 => Ok(Self::Action0Duration),

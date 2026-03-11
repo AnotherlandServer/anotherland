@@ -1242,6 +1242,7 @@ impl FromStr for CtfGameFlag {
 impl TryFrom<u16> for CtfGameFlag {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             5186u16 => Ok(Self::Action0),
             5185u16 => Ok(Self::Action0Duration),

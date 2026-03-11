@@ -221,6 +221,7 @@ impl FromStr for OaZoneConfig {
 impl TryFrom<u16> for OaZoneConfig {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             9689u16 => Ok(Self::AllowSummonPortal),
             10391u16 => Ok(Self::ForceGenerateGuidKey),

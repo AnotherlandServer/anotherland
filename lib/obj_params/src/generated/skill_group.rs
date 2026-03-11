@@ -132,6 +132,7 @@ impl FromStr for SkillGroup {
 impl TryFrom<u16> for SkillGroup {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             11329u16 => Ok(Self::DisplayName),
             11328u16 => Ok(Self::SubGroups),

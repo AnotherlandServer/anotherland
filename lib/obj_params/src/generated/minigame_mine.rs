@@ -1273,6 +1273,7 @@ impl FromStr for MinigameMine {
 impl TryFrom<u16> for MinigameMine {
     type Error = ParamError;
     fn try_from(val: u16) -> Result<Self, Self::Error> {
+        #[allow(clippy::match_single_binding)]
         match val {
             5058u16 => Ok(Self::Action0),
             5057u16 => Ok(Self::Action0Duration),
