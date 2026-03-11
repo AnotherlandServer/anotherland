@@ -34,7 +34,7 @@ package.rust-version = "1.95"
 
 [workspace.dependencies]
 bytes = "1.11.1"
-flexbuffers = "2.0.0"
+flexbuffers = "25.12.19"
 futures-channel = "0.3.31"
 futures-util = "0.3.31"
 log = { version = "0.4.29", features = ["kv"] }
@@ -52,7 +52,7 @@ cluster = { version = "0.1.0", path = "lib/cluster" }
 core_service = { version = "0.1.0", path = "services/core_service" }
 cynic = { version = "3.13.1", features = ["http-reqwest", "http-reqwest-blocking"] }
 reqwest = "0.13.2"
-steamworks = "0.11.0"
+steamworks = "0.12.2"
 mongodb = "3.5.0"
 bitstream-io = "4.9.0"
 glam = { version = "0.30.9", features = ["serde"] }
@@ -73,7 +73,7 @@ uuid = { version = "1.20.0", features = ["v1", "v4"] }
 futures = "0.3.31"
 realm_manager_service = { version = "0.1.0", path = "services/realm_manager_service" }
 async-graphql = { version = "7.2.1", features = ["bson", "chrono", "chrono-tz", "uuid"] }
-async-graphql-poem = "7.2.0"
+async-graphql-poem = "7.2.1"
 config = { version = "0.1.0", path = "lib/config" }
 cynic-codegen = "3.9.1"
 database = { version = "0.1.0", path = "lib/database" }
@@ -93,7 +93,7 @@ scripting = { version = "0.1.0", path = "lib/scripting" }
 mlua = { version = "0.11.6", features = ["lua54", "async", "send", "vendored", "anyhow", "serialize"] }
 saphyr = "0.0.3"
 serde-saphyr = "0.0.17"
-tokio-util = { version = "0.7.13", features = ["rt"] }
+tokio-util = { version = "0.7.18", features = ["rt"] }
 sqlite = "0.37.0"
 recastnavigation-rs = { version = "0.1.0", path = "lib/recastnavigation-rs" }
 notify = { version = "8.2.0" }
