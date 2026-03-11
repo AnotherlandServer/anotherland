@@ -37,12 +37,6 @@ impl GetMongoError for DatabaseError {
     }
 }
 
-impl GetMongoError for async_graphql::Error  {
-    fn get_mongo_error(&self) -> Option<&mongodb::error::Error> {
-        self.source.as_ref().and_then(|e| e.downcast_ref::<mongodb::error::Error>())
-    }
-}
-
 pub async fn transaction_with_retry<'a, F, R, E, T>(db: Database, fnc: F) -> Result<R, E>
     where 
         R: Send + Sync + 'a,

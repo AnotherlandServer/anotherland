@@ -16,7 +16,9 @@
 use core_api::CoreApiError;
 use cynic::{http::CynicReqwestError, GraphQlError};
 use thiserror::Error;
-use toolkit::anyhow;
+use toolkit::{GetMongoError, anyhow};
+
+use crate::item_storage_session::ItemStorageSessionError;
 
 #[derive(Error, Debug)]
 pub enum RealmError {
@@ -39,13 +41,33 @@ pub enum RealmError {
     Mongo(#[from] mongodb::error::Error),
 
     #[error(transparent)]
+    BsonError(#[from] mongodb::bson::ser::Error),
+
+    #[error(transparent)]
+    Oid(#[from] mongodb::bson::oid::Error),
+
+    #[error(transparent)]
     Param(#[from] obj_params::ParamError),
 
     #[error(transparent)]
     ContentError(#[from] content::error::Error),
 
     #[error(transparent)]
+    ItemStorageSessionError(#[from] ItemStorageSessionError),
+
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
+}
+
+impl GetMongoError for RealmError {
+    fn get_mongo_error(&self) -> Option<&mongodb::error::Error> {
+        match self {
+            Self::Mongo(e) => Some(e),
+            Self::Database(e) => e.get_mongo_error(),
+            Self::ItemStorageSessionError(e) => e.get_mongo_error(),
+            _ => None,
+        }
+    }
 }
 
 pub type RealmResult<T> = std::result::Result<T, RealmError>;

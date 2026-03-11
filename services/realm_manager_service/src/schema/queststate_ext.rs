@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 
+use anyhow::anyhow;
 use async_graphql::{Context, Enum, Error, ID, InputObject, Json, Object, SimpleObject};
 use database::DatabaseRecord;
 use log::debug;
@@ -22,7 +23,7 @@ use mongodb::{Database, bson::{self, doc, oid::ObjectId}, options::ReturnDocumen
 use obj_params::{GenericParamSet, ParamSet, Player};
 use toolkit::{transaction_with_retry, types::Uuid};
 
-use crate::{db::{Character, QuestProgressionState, QuestState, QuestStateOutput}, item_storage_session::ItemStorageSession, schema::item_storage_ext::{EquipmentResult, ItemRef, StorageResult, find_item}};
+use crate::{db::{Character, QuestProgressionState, QuestState, QuestStateOutput}, error::RealmResult, item_storage_session::ItemStorageSession, schema::item_storage_ext::{EquipmentResult, ItemRef, StorageResult, find_item}};
 
 #[derive(Default)]
 pub struct QuestStateExtMutationRoot;
@@ -54,7 +55,7 @@ impl QuestStateExtMutationRoot {
     async fn update_condition(&self, ctx: &Context<'_>, state_id: ID, condition_idx: u32, update: ConditionUpdate, value: i32) -> Result<Option<QuestStateChangeResult>, Error> {
         let db = ctx.data::<Database>()?.clone();
 
-        let quest_state = transaction_with_retry(db.clone(), async |mut session| -> Result<_, Error> {
+        let quest_state = transaction_with_retry(db.clone(), async |mut session| -> RealmResult<_> {
             let quest_state_id: ObjectId = state_id.parse()?;
             let mut quest_state = QuestState::collection(&db)
                 .find_one_and_update(doc! { "_id": quest_state_id }, match update {
@@ -101,7 +102,7 @@ impl QuestStateExtMutationRoot {
         let db = ctx.data::<Database>()?.clone();
         let rewards = rewards.as_ref();
 
-        let (quest_state, equipment_result) = transaction_with_retry(db.clone(), async |mut session| -> Result<_, Error> {
+        let (quest_state, equipment_result) = transaction_with_retry(db.clone(), async |mut session| -> RealmResult<_> {
             let quest_state_id: ObjectId = state_id.parse()?;
             let Some(prev_quest_state) = QuestState::collection(&db)
                 .find_one(doc! { "_id": quest_state_id })
@@ -170,7 +171,7 @@ impl QuestStateExtMutationRoot {
                                 .find_one(doc! { "id": quest_state.character_id })
                                 .session(&mut session)
                                 .await?
-                                .ok_or_else(|| Error::new("Character not found"))?;
+                                .ok_or_else(|| anyhow!("Character not found"))?;
 
                             character.add_exp(rewards.experience);
                             
@@ -219,7 +220,7 @@ impl QuestStateExtMutationRoot {
                 },
                 _ => {
                     session.abort_transaction().await?;
-                    Err(Error::new("Invalid state transition"))
+                    Err(anyhow!("Invalid state transition").into())
                 }
             }
         }).await?;

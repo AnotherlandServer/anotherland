@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use toolkit::{anyhow::anyhow, transaction_with_retry, types::Uuid};
 
-use crate::{db::{self, Character, CharacterOutput, ItemStorage, ObjectTemplate, Skillbook, State}, item_storage_session::ItemStorageSession};
+use crate::{db::{self, Character, CharacterOutput, ItemStorage, ObjectTemplate, Skillbook, State}, error::RealmResult, item_storage_session::ItemStorageSession};
 
 use super::item_storage_ext::EquipmentResult;
 
@@ -158,7 +158,7 @@ impl CharacterExtMutationRoot {
     pub async fn character_apply_class_item(&self, ctx: &Context<'_>, id: Uuid, class_item: String, clear_inventory: bool) -> Result<EquipmentResult, Error> {
         let db = ctx.data::<Database>()?.clone();
 
-        transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+        transaction_with_retry(db.clone(), async |session| -> RealmResult<_> {
             if 
                 let Some(mut character) = Character::get(&db, &id).await? &&
                 let Some(template) = ObjectTemplate::collection(&db).find_one(doc! { "name": &class_item, "class": "ClassItem" }).await? &&
@@ -300,6 +300,7 @@ impl CharacterExtMutationRoot {
                 }))
             }
         }).await
+        .map_err(|e| e.into())
     }
 }
 

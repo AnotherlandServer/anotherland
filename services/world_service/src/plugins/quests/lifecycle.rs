@@ -18,7 +18,7 @@ use bevy::ecs::{entity::Entity, error::Result, hierarchy::ChildOf, message::Mess
 use log::{debug, warn};
 use mlua::Function;
 use obj_params::{GameObjectData, Player};
-use protocol::{OaPktQuestEventEvent, QuestUpdateData, oaPktQuestEvent, oaPktQuestUpdate};
+use protocol::{OaPktQuestEventEvent, QuestUpdateData, oaPktQuestEvent, oaPktQuestTrackerUpdate, oaPktQuestUpdate};
 use realm_api::{Condition, QuestCondition, QuestProgressionState, QuestRewards, RealmApi};
 use scripting::{ScriptCommandsExt, ScriptObject};
 
@@ -216,6 +216,35 @@ pub(super) fn handle_db_quest_update(
                     quest_id,
                     state: quest_state,
                 });
+            } else {
+                let updated_condition = state.conditions
+                        .iter()
+                        .enumerate()
+                        .find(|(_, c)| c.current_count < c.required_count);
+
+                let updated_condition = if updated_condition.is_none() {
+                    state.conditions
+                        .iter()
+                        .last()
+                } else if 
+                    let Some((idx, condition)) = updated_condition &&
+                    condition.current_count == 0
+                {
+                    state.conditions.get(idx - 1)
+                } else {
+                    updated_condition.map(|(_, c)| c)
+                };
+
+
+                if let Some(condition) = updated_condition {
+                    controller.send_packet(oaPktQuestTrackerUpdate {
+                        player: controller.avatar_id(),
+                        quest_id: state.quest_id,
+                        condition_id: condition.id,
+                        condition_count: condition.current_count,
+                        ..Default::default()
+                    });
+                }
             }
 
             progress.replace(state.clone());

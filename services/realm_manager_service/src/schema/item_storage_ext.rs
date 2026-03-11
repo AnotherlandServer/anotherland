@@ -15,13 +15,14 @@
 
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use async_graphql::{Context, Error, Json, Object, OneofObject, SimpleObject};
 use database::DatabaseRecord;
 use mongodb::{Database, bson::doc};
 use obj_params::GenericParamSet;
 use toolkit::{NativeParam, transaction_with_retry, types::Uuid};
 
-use crate::{db::{self, Character, FlatennedStorageOwner, Item, ItemStorageOutput, ObjectTemplate, SkillbookOutput, StorageOwner}, item_storage_session::{ItemStorageSession, ItemStorageSessionError, ItemStorageSessionResult}, proto::{RealmNotification, RealmServer}};
+use crate::{db::{self, Character, FlatennedStorageOwner, Item, ItemStorageOutput, ObjectTemplate, SkillbookOutput, StorageOwner}, error::RealmResult, item_storage_session::{ItemStorageSession, ItemStorageSessionError, ItemStorageSessionResult}, proto::{RealmNotification, RealmServer}};
 
 #[derive(Default)]
 pub struct ItemStorageExtMutationRoot;
@@ -78,7 +79,7 @@ pub enum Price {
     GameCash(i32),
 }
 
-pub async fn find_item(db: &Database, item_ref: ItemRef) -> Result<Option<ObjectTemplate>, Error> {
+pub async fn find_item(db: &Database, item_ref: ItemRef) -> RealmResult<Option<ObjectTemplate>> {
     match item_ref {
         ItemRef::Name(name) => {
             Ok(ObjectTemplate::collection(db)
@@ -153,7 +154,7 @@ impl ItemStorageExtMutationRoot {
         let db = ctx.data::<Database>()?.clone();
         let base_item = &base_item;
 
-        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+        let res = transaction_with_retry(db.clone(), async |session| -> RealmResult<_> {
             let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
             if let Some(item) = find_item(&db, base_item.clone()).await? {
@@ -180,7 +181,7 @@ impl ItemStorageExtMutationRoot {
                     Err(e) => Err(e.into())
                 }
             } else {
-                Err(Error::new("Item not found"))
+                Err(anyhow!("Item not found").into())
             }
         }).await?;
 
@@ -193,7 +194,7 @@ impl ItemStorageExtMutationRoot {
         let db = ctx.data::<Database>()?.clone();
         let base_items = &base_items;
 
-        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+        let res = transaction_with_retry(db.clone(), async |session| -> RealmResult<_> {
             let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
             for base_item in base_items {
@@ -218,7 +219,7 @@ impl ItemStorageExtMutationRoot {
                         }
                     }
                 } else {
-                    return Err(Error::new("Item not found"));
+                    return Err(anyhow!("Item not found").into());
                 }
             }
 
@@ -236,7 +237,7 @@ impl ItemStorageExtMutationRoot {
     pub async fn storage_destroy_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid) -> Result<StorageResult, Error> {
         let db = ctx.data::<Database>()?.clone();
 
-        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+        let res = transaction_with_retry(db.clone(), async |session| -> RealmResult<_> {
             let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
             match session.destroy_item(item_id).await {
@@ -273,7 +274,7 @@ impl ItemStorageExtMutationRoot {
         let db = ctx.data::<Database>()?.clone();
         let item_ids = &item_ids;
 
-        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+        let res = transaction_with_retry(db.clone(), async |session| -> RealmResult<_> {
             let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
             for item_id in item_ids {
@@ -311,7 +312,7 @@ impl ItemStorageExtMutationRoot {
     pub async fn storage_move_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid, new_slot: i32) -> Result<StorageResult, Error> {
         let db = ctx.data::<Database>()?.clone();
 
-        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+        let res = transaction_with_retry(db.clone(), async |session| -> RealmResult<_> {
             let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
             match session.move_item(item_id, new_slot).await {
@@ -349,7 +350,7 @@ impl ItemStorageExtMutationRoot {
     pub async fn storage_equip_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid, idx: Option<i32>) -> Result<EquipmentResult, Error> {
         let db = ctx.data::<Database>()?.clone();
 
-        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+        let res = transaction_with_retry(db.clone(), async |session| -> RealmResult<_> {
             let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
             if let &StorageOwner::Character(char_id) = session.owner() {
@@ -383,7 +384,7 @@ impl ItemStorageExtMutationRoot {
                     Err(e) => Err(e.into())
                 }
             } else {
-                Err(Error::new("Storage is not a character storage"))
+                Err(anyhow!("Storage is not a character storage").into())
             }
         }).await?;
 
@@ -395,7 +396,7 @@ impl ItemStorageExtMutationRoot {
     pub async fn storage_uneqip_item(&self, ctx: &Context<'_>, tag: Option<String>, id: Uuid, item_id: Uuid) -> Result<EquipmentResult, Error> {
         let db = ctx.data::<Database>()?.clone();
 
-        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+        let res = transaction_with_retry(db.clone(), async |session| -> RealmResult<_> {
             let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
             if let &StorageOwner::Character(char_id) = session.owner() {
@@ -429,7 +430,7 @@ impl ItemStorageExtMutationRoot {
                     Err(e) => Err(e.into())
                 }
             } else {
-                Err(Error::new("Storage is not a character storage"))
+                Err(anyhow!("Storage is not a character storage").into())
             }
         }).await?;
 
@@ -446,7 +447,7 @@ impl ItemStorageExtMutationRoot {
         let db = ctx.data::<Database>()?.clone();
         let base_item = &base_item;
 
-        let res = transaction_with_retry(db.clone(), async |session| -> Result<_, Error> {
+        let res = transaction_with_retry(db.clone(), async |session| -> RealmResult<_> {
             let mut session = ItemStorageSession::with_session(&db, session, id).await?;
 
             if let Some(item) = find_item(&db, base_item.clone()).await? {
@@ -473,7 +474,7 @@ impl ItemStorageExtMutationRoot {
                     Err(e) => Err(e.into())
                 }
             } else {
-                Err(Error::new("Item not found"))
+                Err(anyhow!("Item not found").into())
             }
         }).await?;
 

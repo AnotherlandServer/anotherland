@@ -22,7 +22,7 @@ use mongodb::{bson::{self, doc}, ClientSession, Database};
 use obj_params::{GameObjectData, GenericParamSet, ItemBase, ItemEdna};
 use thiserror::Error;
 use tokio::sync::Mutex;
-use toolkit::{anyhow::anyhow, types::Uuid, NativeParam};
+use toolkit::{GetMongoError, NativeParam, anyhow::anyhow, types::Uuid};
 
 use crate::{db::{ItemStorage, ObjectTemplate, StorageOwner}, equipment_slots::{EquipmentType, SlotType, EQUIPMENT_SLOTS}};
 
@@ -42,6 +42,16 @@ pub enum ItemStorageSessionError {
 
     #[error("client error: {0}")]
     ClientError(&'static str, Option<NativeParam>),
+}
+
+impl GetMongoError for ItemStorageSessionError {
+    fn get_mongo_error(&self) -> Option<&mongodb::error::Error> {
+        match self {
+            Self::MongodbError(e) => Some(e),
+            Self::DatabaseError(e) => e.get_mongo_error(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
