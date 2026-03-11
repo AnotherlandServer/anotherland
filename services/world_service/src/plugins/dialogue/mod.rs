@@ -22,7 +22,7 @@ use realm_api::{Choice, QuestProgressionState};
 pub use speaker::*;
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PreStartup, Update}, ecs::{message::{Message, MessageReader}, relationship::RelationshipTarget}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
+use bevy::{app::{Plugin, PostUpdate, PreStartup, Update}, ecs::{message::{Message, MessageReader}, relationship::RelationshipTarget}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
 use log::{debug, warn};
 use mlua::{Lua, Table};
 use obj_params::{GameObjectData, Player, tags::PlayerTag};
@@ -39,7 +39,8 @@ pub struct DialoguePlugin;
 impl Plugin for DialoguePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PreStartup, insert_dialogue_api);
-        app.add_systems(Update, (run_dialogues, send_dialogue_end, run_deferred_quest_dialogues));
+        app.add_systems(Update, (run_dialogues, send_dialogue_end));
+        app.add_systems(PostUpdate, run_deferred_quest_dialogues);
 
         app.register_message_handler(handle_dialogue_request);
         app.register_message_handler(handle_dialogue_choice);
