@@ -13,10 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use database::{DBResult, DatabaseRecord, transaction_with_retry};
+use database::{DBResult, DatabaseRecord};
 use mongodb::{bson::doc, options::IndexOptions, ClientSession, Database, IndexModel};
 use serde::{Deserialize, Serialize};
-use toolkit::types::Uuid;
+use toolkit::{transaction_with_retry, types::Uuid};
 
 use super::PremiumCurrencyTransaction;
 

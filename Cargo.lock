@@ -2025,10 +2025,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "mongodb",
- "rand 0.8.5",
  "serde",
  "thiserror 2.0.18",
- "tokio",
 ]
 
 [[package]]
@@ -3415,7 +3413,9 @@ name = "kismet-plotter"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "env_logger",
  "futures",
+ "log",
  "tokio",
  "upk",
 ]
@@ -6052,9 +6052,9 @@ dependencies = [
 
 [[package]]
 name = "spart"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a05d85e94c16e35b2f963dee2eaa6f6b2494ee5dad740b045b139c5614872d6"
+checksum = "cb79f4370bc50359d03f3fd177f78fec822850816afb23d2c3c411714458107b"
 dependencies = [
  "ordered-float 5.0.0",
  "tracing",
@@ -6710,8 +6710,10 @@ dependencies = [
  "mongodb",
  "nom",
  "once_cell",
+ "rand 0.8.5",
  "serde",
  "thiserror 2.0.18",
+ "tokio",
  "uuid",
 ]
 

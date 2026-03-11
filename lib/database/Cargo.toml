@@ -10,5 +10,3 @@ anyhow.workspace = true
 mongodb = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
-rand = { workspace = true }

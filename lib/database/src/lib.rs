@@ -16,9 +16,7 @@
 mod record;
 mod error;
 mod mongoext;
-mod retry;
 
 pub use record::*;
 pub use error::*;
 pub use mongoext::*;
-pub use retry::*;

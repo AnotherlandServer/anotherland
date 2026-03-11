@@ -64,7 +64,7 @@ impl WorldSpace {
                 height: (bounds.max.y - bounds.min.y).into(),
                 depth: (bounds.max.z - bounds.min.z).into(),
             },
-            4, // max depth
+            64, 
         ).unwrap();
 
         WorldSpace { tree }
