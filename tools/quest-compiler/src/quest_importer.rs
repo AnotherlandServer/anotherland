@@ -19,8 +19,8 @@ use anyhow::anyhow;
 use content::get_content_path;
 use futures_util::{TryStreamExt, future::try_join_all};
 use log::{error, info};
-use notify::{EventKind, ReadDirectoryChangesWatcher, RecursiveMode};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
+use notify::{EventKind, RecommendedWatcher, RecursiveMode};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, RecommendedCache, new_debouncer};
 use realm_api::{AvatarSelector, ClassItemRewardRef, CombatStyle, Condition, ItemReward, Prerequisites, QuestTemplate, RealmApi};
 use serde::Deserialize;
 use tokio::{runtime::Handle, task};
@@ -347,7 +347,7 @@ pub fn watch_quest_template_changes() -> Result<()> {
     let quest_template_folder = get_content_path("quests")?;
     let handle = Handle::current();
 
-    static DEBOUNCER: OnceLock<Debouncer<ReadDirectoryChangesWatcher, FileIdMap>> = OnceLock::new();
+    static DEBOUNCER: OnceLock<Debouncer<RecommendedWatcher, RecommendedCache>> = OnceLock::new();
 
     DEBOUNCER.get_or_init(move || {
         let mut debouncer = new_debouncer(Duration::from_millis(500), None, move |result: DebounceEventResult| {

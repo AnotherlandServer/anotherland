@@ -18,8 +18,8 @@ use std::{fs, path::Path, sync::OnceLock, time::Duration};
 use content::get_content_path;
 use futures_util::future::try_join_all;
 use log::{error, info};
-use notify::{EventKind, ReadDirectoryChangesWatcher, RecursiveMode};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
+use notify::{EventKind, RecommendedWatcher, RecursiveMode};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, RecommendedCache, new_debouncer};
 use realm_api::{Choice, CombatStyle, DialogueBranch, DialogueBranchSelector, DialogueLine, QuestDialogue, RealmApi};
 use serde::Deserialize;
 use tokio::{runtime::Handle, task};
@@ -214,7 +214,7 @@ pub fn watch_dialogue_changes() -> Result<()> {
     let dialogue_folder = get_content_path("dialogue")?;
     let handle = Handle::current();
 
-    static DEBOUNCER: OnceLock<Debouncer<ReadDirectoryChangesWatcher, FileIdMap>> = OnceLock::new();
+    static DEBOUNCER: OnceLock<Debouncer<RecommendedWatcher, RecommendedCache>> = OnceLock::new();
 
     DEBOUNCER.get_or_init(move || {
         let mut debouncer = new_debouncer(Duration::from_millis(500), None, move |result: DebounceEventResult| {
