@@ -16,6 +16,7 @@ RUN cargo install --locked cluster_server --path services/cluster_server
 RUN cargo install --locked world_service --path services/world_service
 RUN cargo install --locked kismet-plotter --path tools/kismet-plotter
 RUN cargo install --locked seed-realm --path tools/seed-realm
+RUN cargo install --locked quest-compiler --path tools/quest-compiler
 
 # bundle
 FROM debian:stable-slim
@@ -25,4 +26,5 @@ COPY --from=builder /usr/src/anotherland/conf /etc/anotherland
 COPY --from=builder /usr/src/anotherland/content /usr/local/lib/anotherland
 ENV CONTENT_PATH /usr/local/lib/anotherland
 CMD ["anotherland"]
+
 
