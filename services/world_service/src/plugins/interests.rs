@@ -267,12 +267,7 @@ fn update_interest_list(
     mut interest_removed_message: MessageWriter<InterestRemoved>,
 ) {
     for (current_ent, current_obj, current_pos, mut interests, controller, quest_log) in players.iter_mut() {
-        let aware_range: f32 = 
-            if current_obj.class() == Class::Player {
-                *current_obj.get(Player::AwareRange).unwrap()
-            } else {
-                *current_obj.get(NonClientBase::AwareRange).unwrap()
-            };
+        let aware_range: f32 = *current_obj.get_named("AwareRange").unwrap();
 
         let found_interests = world_space
             .find_in_range(current_pos.position, aware_range)

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{component::Component, system::{In, Res}, world::World}, prelude::{Added, App, Commands, Entity, EntityWorldMut, Query, ResMut}};
+use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{component::Component, query::With, system::{In, Res}, world::World}, prelude::{Added, App, Commands, Entity, EntityWorldMut, Query, ResMut}};
 use convert_case::{Case, Casing};
 use log::{error, warn};
 use mlua::{Function, IntoLua, Lua, LuaSerdeExt, Table};
@@ -49,6 +49,16 @@ fn insert_game_object_api(
     let lua: Lua = runtime.vm().clone();
     let object_api = lua.create_table().unwrap();
     runtime.register_native("gameobject", object_api.clone()).unwrap();
+
+    object_api.set("IsValid", lua.create_bevy_function(world, |
+        In(object): In<Table>,
+        query: Query<Entity, With<GameObjectData>>,
+    | -> WorldResult<bool> {
+        Ok(
+            query
+                .contains(object.entity()?)
+        )
+    })?)?;
 
     object_api.set("Get", lua.create_bevy_function(world, lua_gameobject_get)?)?;
     object_api.set("Set", lua.create_bevy_function(world, lua_gameobject_set)?)?;

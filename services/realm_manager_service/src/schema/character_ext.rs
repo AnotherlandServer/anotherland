@@ -124,6 +124,7 @@ impl CharacterExtMutationRoot {
         data.set(Player::CustomizationSkinny, 0.7);
         data.set(Player::CustomizationMuscular, 0.3);
         data.set(Player::MoveSpeed, 292.0);
+        data.set(Player::XpForNextLevel, Character::lookup_lvl_exp(1));
 
         let character = db::Character::create(&db, db::Character {
             id: Uuid::new(),
