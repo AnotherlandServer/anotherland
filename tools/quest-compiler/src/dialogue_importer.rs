@@ -34,7 +34,8 @@ struct YamlDialogue {
 
 #[derive(Deserialize, Default)]
 struct YamlDialogueBranch {
-    sequential_index: Option<bool>,
+    #[serde(default)]
+    sequential_index: bool,
     selector: Option<YamlDialogueSelector>,
     lines: Vec<YamlDialogueLine>,
 }
@@ -91,7 +92,7 @@ async fn import_dialogue_yaml(doc: YamlDialogue) -> Result<()> {
     let dialogue = QuestDialogue {
         id: doc.id,
         branches: doc.branches.into_iter().map(|branch| {
-            if let Some(true) = branch.sequential_index {
+            if !branch.sequential_index {
                 dialogue_serial = 0;
             }
 
