@@ -19,7 +19,7 @@ use bevy::{app::{App, Plugin, PreUpdate}, ecs::{message::{Message, MessageReader
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
 use mlua::{Lua, Table};
-use obj_params::{tags::{NonClientBaseTag, NpcOtherlandTag, PlayerTag}, Class, GameObjectData, NonClientBase, ParamWriter, Player};
+use obj_params::{tags::{NonClientBaseTag, NpcOtherlandTag, PlayerTag}, GameObjectData, NonClientBase, ParamWriter};
 use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, Physics};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
 use toolkit::types::{AvatarId, UUID_NIL};
