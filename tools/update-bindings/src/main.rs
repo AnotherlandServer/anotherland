@@ -1,4 +1,4 @@
-// Copyright (C) 2025 AnotherlandServer
+// Copyright (C) 2026 AnotherlandServer
 // 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License as
@@ -83,7 +83,7 @@ pub fn write_source(name: &str, tokens: TokenStream) -> io::Result<()> {
         prettyplease::unparse(&item)
     };
 
-    source.insert_str(0, "// Copyright (C) 2025 AnotherlandServer\n\
+    source.insert_str(0, "// Copyright (C) 2026 AnotherlandServer\n\
         // \n\
         // This program is free software: you can redistribute it and/or modify\n\
         // it under the terms of the GNU Affero General Public License as\n\
