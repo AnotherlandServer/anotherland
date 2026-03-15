@@ -342,6 +342,20 @@ fn insert_combat_api(
             )
         })?)?;
 
+    combat_api.set("Revive", lua.create_bevy_function(world, 
+        |
+            In((target, source, amount)): In<(Table, Option<Table>, Integer)>,
+            mut health_messages: MessageWriter<HealthUpdateEvent>,
+        | -> WorldResult<i32> {
+            let ent = target.entity()
+                .map_err(|_| anyhow!("entity not found"))?;
+
+            Ok(
+                HealthUpdateEvent::revive(ent, source.and_then(|t| t.entity().ok()), Some(amount as i32))
+                    .send(&mut health_messages)
+            )
+        })?)?;
+
     Ok(())
 }
 

@@ -307,7 +307,7 @@ pub fn update(
                             start_time: time.elapsed_secs(),
                             start_pos: lerp.start.into(),
                             anchor_pos: lerp.end.into(),
-                            force_find_path: Some(false),
+                            force_find_path: Some(true),
                             speed: lerp.speed,
                             acceleration: lerp.speed,
                             mover_key: movement.mover_key,
@@ -317,7 +317,7 @@ pub fn update(
                             backward: Some(false),
                             face_target: Some(true),
                             target_tile: Some(navmesh.get_pathengine_tile_for_pos(lerp.end)),
-                            is_abort_early: Some(true),
+                            is_abort_early: Some(false),
                             keep_z_value: Some(false),
                             while_obstructed: Some(true),
                             ..Default::default()

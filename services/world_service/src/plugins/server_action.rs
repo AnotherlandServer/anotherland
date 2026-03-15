@@ -37,6 +37,7 @@ pub enum ServerAction {
     Portal(AvatarId, Option<Position>),
     LocalPortal(AvatarId, Position),
     Teleport(AvatarId, Position),
+    Respawn(AvatarId, Position),
     Cinematic {
         player: AvatarId,
         name: String,
@@ -76,6 +77,12 @@ impl ServerAction {
             Self::Teleport(instigator, position) => (
                 instigator,
                 "TELEPORT:TeleportTravel|TeleportTravelDefault".to_owned(),
+                4,
+                Some(position)
+            ),
+            Self::Respawn(instigator, position) => (
+                instigator,
+                "TELEPORT:TeleportTravel|PlayerRespawnDefault".to_owned(),
                 4,
                 Some(position)
             ),
