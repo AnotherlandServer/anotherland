@@ -20,7 +20,7 @@ use content::get_content_path;
 use futures_util::{TryStreamExt, future::try_join_all};
 use log::{error, info};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, RecommendedCache, new_debouncer};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, RecommendedCache, new_debouncer};
 use realm_api::{AvatarSelector, ClassItemRewardRef, CombatStyle, Condition, ItemReward, Prerequisites, QuestTemplate, RealmApi};
 use serde::Deserialize;
 use tokio::{runtime::Handle, task};
