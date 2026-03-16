@@ -158,6 +158,10 @@ impl GameObjectData {
         self.set_named(attr.name(), val.into())
     }
 
+    pub fn force_set<T: Attribute, V: Into<Value>>(&mut self, attr: T, val: V) -> Option<Value> {
+        self.force_set_named(attr.name(), val.into())
+    }
+
     pub fn get_named<'a, V>(&'a self, attr: &str) -> ParamResult<&'a V>
         where 
             &'a V: TryFrom<&'a Value>,
@@ -215,6 +219,12 @@ impl GameObjectData {
         } else {
             self.instance.set_param(attr, val)
         }
+    }
+
+    pub fn force_set_named<V: Into<Value>>(&mut self, attr: &str, val: V) -> Option<Value> {
+        let val  = val.into();
+
+        self.instance.set_param(attr, val)
     }
 
     pub fn apply(&mut self, set: &mut dyn GenericParamSet) {

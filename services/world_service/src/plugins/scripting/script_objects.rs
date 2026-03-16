@@ -62,6 +62,7 @@ fn insert_game_object_api(
 
     object_api.set("Get", lua.create_bevy_function(world, lua_gameobject_get)?)?;
     object_api.set("Set", lua.create_bevy_function(world, lua_gameobject_set)?)?;
+    object_api.set("ForceSet", lua.create_bevy_function(world, lua_gameobject_force_set)?)?;
     object_api.set("Reset", lua.create_bevy_function(world, lua_gameobject_reset)?)?;
 
     object_api.set("GetPlayerLocal", lua.create_bevy_function(world, |
@@ -179,6 +180,26 @@ fn lua_gameobject_set(
     }
 }
 
+fn lua_gameobject_force_set(
+    In((object, index, value)): In<(Table, String, mlua::Value)>,
+    mut query: Query<&mut GameObjectData>,
+    runtime: Res<LuaRuntime>,
+) -> WorldResult<mlua::Value> {
+    let mut gameobject = query.get_mut(object.entity()?)
+        .map_err(|_| anyhow!("object not found"))?;
+
+    let attr = gameobject.class().get_attribute(&index)
+        .ok_or(mlua::Error::runtime("attribute not found"))?;
+
+    let value = ParamValue::from_lua(attr, value, runtime.vm())?;
+
+    if let Some(prev_val) = gameobject.force_set_named(&index, value) {
+        Ok(ParamValue::new(prev_val).into_lua(runtime.vm())?)
+    } else {
+        Ok(ParamValue::new(attr.default().clone()).into_lua(runtime.vm())?)
+    }
+}
+
 fn lua_gameobject_reset(
     In((object, index,)): In<(Table, String)>,
     mut query: Query<&mut GameObjectData>,
@@ -196,6 +217,7 @@ fn lua_gameobject_reset(
         Ok(ParamValue::new(attr.default().clone()).into_lua(runtime.vm())?)
     }
 }
+
 
 pub fn load_class_script(runtime: &mut LuaRuntime, class: Class, name: Option<&str>) -> WorldResult<Table> {
     let mut object_scripts = vec![];

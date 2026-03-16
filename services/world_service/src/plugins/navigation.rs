@@ -23,6 +23,7 @@ use log::{debug, error};
 use mlua::{Lua, Table};
 use obj_params::{GameObjectData, tags::NonClientBaseTag};
 use protocol::{CPktAvatarBehaviors, NetworkVec3};
+use rand::RngCore;
 use realm_api::{RealmApi, WorldDef};
 use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshParams, DtNavMeshQuery, DtPolyRef, DtQueryFilter, DtTileRef}, detour_crowd::DtPathCorridor};
 use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
@@ -117,6 +118,26 @@ fn insert_navigation_api(
             navmesh: Res<Navmesh>,
         | -> WorldResult<Option<f32>> {
             Ok(navmesh.get_floor_height(pos.0))
+        })?)?;
+
+    navigation_api.set("GetRandomPointAroundCircle", lua.create_bevy_function(world, 
+        |
+            In((pos, radius)): In<(Vec3Wrapper, f32)>,
+            navmesh: Res<Navmesh>,
+        | -> WorldResult<Option<Vec3Wrapper>> {
+            let recast = navmesh.recast.lock()
+                .expect("Failed to acquire lock on navmesh for GetRandomPointAroundCircle");
+
+            let pos = pos.0.to_array();
+
+            let (poly, pos) = recast.query.find_nearest_poly_1(&pos, &[100.0, 1000.0, 100.0], &navmesh.filter)?;
+
+
+            let (_, pos) = recast.query.find_random_point_around_circle(poly, &pos, radius, &navmesh.filter, || {
+                rand::thread_rng().next_u32() as f32 / u32::MAX as f32
+            })?;
+
+            Ok(Some(Vec3Wrapper(Vec3::from_slice(&pos))))
         })?)?;
 
     Ok(())
