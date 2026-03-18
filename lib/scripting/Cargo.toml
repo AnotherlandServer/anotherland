@@ -17,4 +17,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 notify = { workspace = true }
 notify-debouncer-full = { workspace = true }
-convert_case = "0.8.0"
+convert_case = "0.10.0"
