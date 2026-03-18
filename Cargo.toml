@@ -35,7 +35,7 @@ package.rust-version = "1.95"
 [workspace.dependencies]
 bytes = "1.11.1"
 flexbuffers = "25.12.19"
-futures-channel = "0.3.31"
+futures-channel = "0.3.32"
 futures-util = "0.3.31"
 log = { version = "0.4.29", features = ["kv"] }
 serde = { version = "1.0.228", features = ["serde_derive"] }
