@@ -40,7 +40,7 @@ saphyr = { workspace = true }
 tokio-util = { workspace = true }
 futures.workspace = true
 content = { version = "0.1.0", path = "../../lib/content" }
-convert_case = "0.8.0"
+convert_case = "0.10.0"
 regex = "1.12.2"
 pepkg = { version = "0.1.0", path = "../../lib/pepkg" }
 recastnavigation-rs = { workspace = true }
