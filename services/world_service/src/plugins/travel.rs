@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::Plugin, prelude::{App, Component, Entity, In, Query, Res}};
+use anyhow::anyhow;
+use bevy::{app::Plugin, ecs::system::Commands, prelude::{App, Component, Entity, In, Query, Res}};
 use futures_util::TryStreamExt;
-use log::error;
 use realm_api::{RealmApi, ZoneType};
 use toolkit::{types::AvatarId, IterExt, NativeParam};
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, proto::TravelMode};
+use crate::{error::{WorldResult}, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, player_error_handler_system}, proto::TravelMode};
 
 use super::{CommandExtPriv, CommandMessage, NetworkExtPriv, PlayerController};
 
@@ -34,7 +34,7 @@ impl Plugin for TravelPlugin {
         app.register_command("teleport_to_world", |
             In((ent, args)): In<(Entity, Vec<NativeParam>)>,
             players: Query<&PlayerController>,
-            instance: Res<ZoneInstance>,
+            mut commands: Commands,
         | {
             let mut args = args.into_iter();
 
@@ -42,25 +42,27 @@ impl Plugin for TravelPlugin {
                 let Some(NativeParam::String(world)) = args.next() &&
                 let Ok(controller) = players.get(ent).cloned() 
             {
-                instance.spawn_task(async move {
-                    if 
-                    let Some(world_def) = RealmApi::get()
-                        .query_worlddefs()
-                        .name(world.clone())
-                        .query().await?.try_next().await? &&
-                    let Some(zone) = RealmApi::get()
-                        .query_zones()
-                        .zone_type(ZoneType::World)
-                        .worlddef_guid(*world_def.guid())
-                        .query().await?.try_next().await?
-                {
-                    controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint, None);
-                } else {
-                    error!("Map '{world}' not found!");
-                }
-
-                Ok::<_, WorldError>(())
-                });
+                commands
+                    .entity(ent)
+                    .perform_async_operation(async move {
+                        if 
+                            let Some(world_def) = RealmApi::get()
+                                .query_worlddefs()
+                                .name(world.clone())
+                                .query().await?.try_next().await? &&
+                            let Some(zone) = RealmApi::get()
+                                .query_zones()
+                                .zone_type(ZoneType::World)
+                                .worlddef_guid(*world_def.guid())
+                                .query().await?.try_next().await?
+                        {
+                            controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint, None);
+                            Ok(())
+                        } else {
+                            Err(anyhow!("Map '{world}' not found!").into())
+                        }
+                    })
+                    .on_error_run_system(player_error_handler_system);
             }
         });
     }
@@ -94,13 +96,13 @@ impl CommandMessage for JoinDungeon {
 
 fn handle_join_dungeon(
     In((ent, cmd)): In<(Entity, JoinDungeon)>,
-    instance: Res<ZoneInstance>,
     players: Query<&PlayerController>,
+    mut commands: Commands, 
 ) {
     if let Ok(controller) = players.get(ent).cloned() {
-        instance.spawn_task(async move {
-            if let Err(e) = async {
-                
+        commands
+            .entity(ent)
+            .perform_async_operation(async move {
                 if 
                     let Some(world_def) = RealmApi::get()
                         .query_worlddefs()
@@ -113,15 +115,12 @@ fn handle_join_dungeon(
                         .query().await?.try_next().await?
                 {
                     controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint, None);
+                    Ok(())
                 } else {
-                    error!("Map '{}' not found!", cmd.map_name);
+                    Err(anyhow!("Map '{}' not found!", cmd.map_name).into())
                 }
-
-                Ok::<_, WorldError>(())
-            }.await {
-                error!("Failed to travel to map '{}': {:?}", cmd.map_name, e);
-            }
-        });
+            })
+            .on_error_run_system(player_error_handler_system);
     }
 }
 
@@ -182,16 +181,16 @@ impl CommandMessage for SocialTravel {
 
 fn handle_social_travel(
     In((ent, cmd)): In<(Entity, SocialTravel)>,
-    instance: Res<ZoneInstance>,
     players: Query<&PlayerController>,
+    mut commands: Commands,
 ) {
     if 
         cmd.is_travel &&
         let Ok(controller) = players.get(ent).cloned()
     {
-        instance.spawn_task(async move {
-            if let Err(e) = async {
-                
+        commands
+            .entity(ent)
+            .perform_async_operation(async move {
                 if 
                     let Some(world_def) = RealmApi::get()
                         .query_worlddefs()
@@ -204,14 +203,11 @@ fn handle_social_travel(
                         .query().await?.try_next().await?
                 {
                     controller.request_travel(*zone.guid(), None, TravelMode::EntryPoint, None);
+                    Ok(())
                 } else {
-                    error!("Map '{}' not found!", cmd.map_name);
+                    Err(anyhow!("Map '{}' not found!", cmd.map_name).into())
                 }
-
-                Ok::<_, WorldError>(())
-            }.await {
-                error!("Failed to travel to map '{}': {e:?}", cmd.map_name);
-            }
-        });
+            })
+            .on_error_run_system(player_error_handler_system);
     }
 }

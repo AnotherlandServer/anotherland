@@ -44,10 +44,10 @@ pub fn spawn_player(
 
 #[allow(clippy::type_complexity)]
 pub fn save_player_data(
-    query: Query<(&PlayerController, &GameObjectData), (Or<(Added<GameObjectData>, Changed<GameObjectData>)>, With<PlayerTag>)>,
-    instance: Res<ZoneInstance>,
+    query: Query<(Entity, &PlayerController, &GameObjectData), (Or<(Added<GameObjectData>, Changed<GameObjectData>)>, With<PlayerTag>)>,
+    mut commands: Commands,
 ) {
-    for (controller, obj) in query.iter() {
+    for (entity, controller, obj) in query.iter() {
         let id = *controller.state().character();
         let volatile_diff = obj.changes()
             .filter(|(attr, _)| !attr.has_flag(&ParamFlag::Persistent))
@@ -70,9 +70,13 @@ pub fn save_player_data(
                 })
                 .collect();
 
-            instance.spawn_task(async move {
-                let _ = ability_bar.save().await;
-            });
+            commands
+                .entity(entity)
+                .perform_async_operation(async move {
+                    ability_bar.save().await?;
+                    Ok(())
+                })
+                .on_error_run_system(player_error_handler_system);
         }
 
         let persistent_diff =  obj.changes()
@@ -82,15 +86,13 @@ pub fn save_player_data(
         if !persistent_diff.is_empty() {
             trace!("Saving character update for: {id} - {persistent_diff:#?}");
 
-            // We probably should move this into it's own task and just 
-            // send a (blocking) message here, se we can have
-            // backpressure in case our updates don't go trough.
-            // Also, errors are not really handled here.
-            instance.spawn_task(async move {
-                if let Err(e) = RealmApi::get().update_character_data_diff(&id, persistent_diff).await {
-                    error!("Character update failed: {e:?}");
-                }
-            });
+            commands
+                .entity(entity)
+                .perform_async_operation(async move {
+                    RealmApi::get().update_character_data_diff(&id, persistent_diff).await?;
+                    Ok(())
+                })
+                .on_error_run_system(player_error_handler_system);
         }  
     }
 }
@@ -256,4 +258,3 @@ pub fn travel_to_portal(
         error!("Player not found!");
     }
 }
-

@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration, future::Future};
+use std::{path::PathBuf, str::FromStr, sync::Arc, time::Duration,};
 
 use bevy::{app::{Last, Main, MainSchedulePlugin, PanicHandlerPlugin, PreStartup, SubApp, TaskPoolPlugin}, diagnostic::FrameCountPlugin, ecs::{component::Component, entity::Entity, message::MessageRegistry, resource::Resource, schedule::{IntoScheduleConfigs, ScheduleLabel}, system::Commands}, prelude::{AppExtStates, AppTypeRegistry,NextState, OnEnter, Query, Res, ResMut}, state::{app::StatesPlugin, state::States}, tasks::futures_lite::StreamExt, time::{TimePlugin, common_conditions::on_timer}};
 use core_api::CoreApi;
@@ -24,11 +24,9 @@ use obj_params::{Class, OaZoneConfig};
 use realm_api::{proto::RealmClient, Category, RealmApi, WorldDef, Zone};
 use scripting::{LuaRuntime, LuaRuntimeBuilder, ScriptObject, ScriptingPlugin};
 use serde_json::Value;
-use tokio::{runtime::Handle, task::JoinHandle};
-use tokio_util::task::TaskTracker;
 use toolkit::types::Uuid;
 
-use crate::{ARGS, error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, plugins::{AbilitiesPlugin, AsyncOperationPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, CooldownGroups, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LifetimePlugin, LoaderPlugin, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, NonPlayerPlugin, PartitioningPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin, WorldSpace}};
+use crate::{ARGS, error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, plugins::{AbilitiesPlugin, AsyncOperationCommandsExt, AsyncOperationPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, CooldownGroups, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LifetimePlugin, LoaderPlugin, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, NonPlayerPlugin, PartitioningPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin, WorldSpace}};
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct InstanceShutdown;
@@ -86,6 +84,7 @@ pub enum InstanceState {
     ObjectLoad,
     Initializing,
     Running,
+    ShuttingDown,
 }
 
 #[derive(Builder, Default)]
@@ -105,9 +104,6 @@ pub struct ZoneConfig {
 pub struct ZoneInstance {
     pub core_api: CoreApi,
     pub realm_client: Arc<RealmClient>,
-    handle: Handle,
-    task_tracker: TaskTracker,
-
     pub manager: InstanceManager,
 
     #[builder(setter(strip_option))]
@@ -124,17 +120,6 @@ pub struct ZoneInstance {
 
     #[builder(setter(custom))]
     pub world_controller: Entity,
-}
-
-impl ZoneInstance {
-    pub fn spawn_task<F: Send + 'static>(&self, task: impl Future<Output = F> + Send + 'static) -> JoinHandle<F>
-    {
-        self.task_tracker.spawn_on(task, &self.handle)
-    }
-
-    pub fn task_tracker(&self) -> TaskTracker {
-        self.task_tracker.clone()
-    }
 }
 
 impl ZoneInstanceBuilder {
@@ -263,6 +248,8 @@ impl ZoneInstanceBuilder {
                 .run_if(on_timer(Duration::from_secs(60)))
         );
 
+        app.add_systems(InstanceShutdown, init_shutdown);
+
         app.world_mut().flush();
 
         Ok(app)
@@ -345,16 +332,24 @@ fn start_instance(mut next_state: ResMut<NextState<InstanceState>>) {
 fn check_inactivity_timeout(
     controllers: Query<&PlayerController>,
     instance: Res<ZoneInstance>,
+    commands: Commands,
 ) {
     if controllers.is_empty() {
         debug!("No players in zone, shutting down instance...");
 
         let label = InstanceLabel::new(*instance.zone.guid(), instance.instance_id);
         let manager = instance.manager.clone();
-        instance.spawn_task(async move {
-            manager.request_unregister_instance(label).await;
-        });
+
+        commands
+            .perform_async_operation(async move {
+                manager.request_unregister_instance(label).await;
+                Ok(())
+            });
     } else {
         trace!("Instance {}-{:?} passed inactivity check...", instance.zone.guid(), instance.instance_id);
     }
+}
+
+fn init_shutdown(mut next_state: ResMut<NextState<InstanceState>>) {
+    next_state.set(InstanceState::ShuttingDown);
 }

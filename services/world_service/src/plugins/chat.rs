@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::Plugin, prelude::{App, Entity, In, Query, Res, With}};
+use bevy::{app::Plugin, ecs::system::Commands, prelude::{App, Entity, In, Query, Res, With}};
 use obj_params::{tags::PlayerTag, GameObjectData, Player};
 use protocol::{CPktChat, CpktChatChatType};
 use realm_api::proto::{Destination, RealmRequest};
 use toolkit::types::Uuid;
 
-use crate::instance::ZoneInstance;
+use crate::{instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, player_error_handler_system}};
 
 use super::{Avatar, Movement, NetworkExtPriv, PlayerController};
 
@@ -35,6 +35,7 @@ fn handle_chat_msg(
     In((ent, pkt)): In<(Entity, CPktChat)>,
     instance: Res<ZoneInstance>,
     query: Query<(&PlayerController, &Avatar, &GameObjectData, &Movement), With<PlayerTag>>,
+    mut commands: Commands
 ) {
     if let Ok((send_controller, avatar, sender_data, sender_movement)) = query.get(ent) {
         // Local messages are directly handled by this world node,
@@ -72,23 +73,28 @@ fn handle_chat_msg(
             let party_id = *sender_data.get::<_, Uuid>(Player::PartyGuid).unwrap();
             let clan_id = *sender_data.get::<_, Uuid>(Player::ClanGuid).unwrap();
 
-            instance.spawn_task(async move {
-                let _ = client.send(RealmRequest::ChatMessage { 
-                    sender_id: Some(session), 
-                    destination: match pkt.chat_type {
-                        CpktChatChatType::Party => Destination::Party(party_id),
-                        CpktChatChatType::Local => unreachable!(),
-                        CpktChatChatType::LocalYell => unreachable!(),
-                        CpktChatChatType::Clan => Destination::Clan(clan_id),
-                        CpktChatChatType::ClanOfficer => Destination::ClanOfficer(clan_id),
-                        CpktChatChatType::Whisper => Destination::Whisper(pkt.receiver),
-                        CpktChatChatType::Shout => unreachable!(),
-                        CpktChatChatType::Broadcast => Destination::Broadcast,
-                        CpktChatChatType::Bubble => todo!(),
-                    }, 
-                    message: pkt.message 
-                }).await;
-            });
+            commands
+                .entity(ent)
+                .perform_async_operation(async move {
+                    let _ = client.send(RealmRequest::ChatMessage { 
+                        sender_id: Some(session), 
+                        destination: match pkt.chat_type {
+                            CpktChatChatType::Party => Destination::Party(party_id),
+                            CpktChatChatType::Local => unreachable!(),
+                            CpktChatChatType::LocalYell => unreachable!(),
+                            CpktChatChatType::Clan => Destination::Clan(clan_id),
+                            CpktChatChatType::ClanOfficer => Destination::ClanOfficer(clan_id),
+                            CpktChatChatType::Whisper => Destination::Whisper(pkt.receiver),
+                            CpktChatChatType::Shout => unreachable!(),
+                            CpktChatChatType::Broadcast => Destination::Broadcast,
+                            CpktChatChatType::Bubble => todo!(),
+                        }, 
+                        message: pkt.message 
+                    }).await;
+
+                    Ok(())
+                })
+                .on_error_run_system(player_error_handler_system);
         }
     }
 }

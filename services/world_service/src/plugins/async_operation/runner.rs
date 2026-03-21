@@ -13,7 +13,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{ecs::{component::Component, entity::Entity, system::{Commands, Query}}, platform::cell::SyncCell};
+use bevy::{ecs::{component::Component, entity::Entity, system::{Commands, Query, Res}}, platform::cell::SyncCell};
+use realm_api::proto::InstanceKey;
+
+use crate::instance::ZoneInstance;
 
 pub(super) trait RunnableAsyncOperation {
     fn run(&mut self, commands: &mut Commands) -> bool;
@@ -40,5 +43,14 @@ pub(super) fn run_async_operations(
         if runner.operation.get().run(&mut commands) {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+pub(super) fn shutdown_after_async_operations(
+    query: Query<&AsyncOperationRunner>,
+    instance: Res<ZoneInstance>,
+) {
+    if query.is_empty() {
+        instance.manager.report_instance_stopped(InstanceKey::new(*instance.zone.guid(), instance.instance_id));
     }
 }

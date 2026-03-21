@@ -22,8 +22,7 @@ use futures_util::TryStreamExt;
 use log::{debug, error, info, trace};
 use obj_params::OaZoneConfig;
 use realm_api::{proto::{InstanceKey, RealmClient, RealmRequest}, RealmApi, WorldDef, Zone};
-use tokio::{runtime::Handle, sync::{mpsc::{self, Sender, UnboundedSender}, oneshot, Mutex}};
-use tokio_util::task::TaskTracker;
+use tokio::{sync::{mpsc::{self, Sender, UnboundedSender}, oneshot, Mutex}};
 use toolkit::types::Uuid;
 
 use crate::{error::WorldResult, instance::{InstanceLabel, ZoneInstanceBuilder, ZoneSubApp}, plugins::{ControllerEvent, WorldEvent}, proto::TravelMode};
@@ -50,6 +49,7 @@ struct InstanceManagerData {
 pub enum InstanceEvent {
     InstanceAdded(Box<SubApp>),
     InstanceStopping(InstanceLabel),
+    InstanceStopped(InstanceLabel),
     InstanceRemoved(InstanceLabel),
     ControllerSpawnRequested {
         peer: Uuid,
@@ -201,8 +201,6 @@ impl InstanceManager {
                 .zone(req.zone.clone())
                 .core_api(core_api)
                 .realm_client(realm_client)
-                .handle(Handle::current())
-                .task_tracker(TaskTracker::new())
                 .instance_id(req.key)
                 .manager(self.clone())
                 .instantiate().await
@@ -247,6 +245,11 @@ impl InstanceManager {
     pub async fn shutdown_instance(&self, key: InstanceKey) {
         let s = self.0.lock().await;
         let _ = s.event_sender.send(InstanceEvent::InstanceStopping(InstanceLabel::new(key.zone(), key.instance())));
+    }
+
+    pub fn report_instance_stopped(&self, key: InstanceKey) {
+        let s = self.0.blocking_lock();
+        let _ = s.event_sender.send(InstanceEvent::InstanceStopped(InstanceLabel::new(key.zone(), key.instance())));
     }
 
     pub async fn shutdown_world(&self) {

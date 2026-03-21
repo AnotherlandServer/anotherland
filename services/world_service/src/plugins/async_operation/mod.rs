@@ -19,15 +19,18 @@ mod runner;
 mod noop_system;
 
 pub use operation::*;
-use bevy::app::{Last, Plugin};
+use bevy::{app::{Last, Plugin}, ecs::schedule::IntoScheduleConfigs, state::condition::in_state};
 pub use entity_operation::*;
 
-use crate::plugins::async_operation::runner::run_async_operations;
+use crate::{instance::InstanceState, plugins::async_operation::runner::{run_async_operations, shutdown_after_async_operations}};
 
 pub struct AsyncOperationPlugin;
 
 impl Plugin for AsyncOperationPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
-        app.add_systems(Last, run_async_operations);
+        app.add_systems(Last, (
+                run_async_operations,
+                shutdown_after_async_operations.run_if(in_state(InstanceState::ShuttingDown))
+            ));
     }
 }

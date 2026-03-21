@@ -19,7 +19,7 @@ use obj_params::{GameObjectData, Player};
 use protocol::{oaPktC2SConnectionState, oaPktClientServerPing, oaPktClientToClusterNode, oaPktClusterClientToCommunication, oaPktClusterClientToCommunity, oaPktClusterNodeToClient, CPkt, OaPktC2sconnectionStateState, OaPktS2xconnectionStateState, OtherlandPacket};
 use tokio::sync::mpsc;
 use toolkit::{types::Uuid, NativeParam};
-use crate::{instance::InstanceLabel, plugins::{ControllerEntityEvent, ControllerRemoved, PlayerController}};
+use crate::{instance::InstanceLabel, plugins::{AsyncOperationCommandsExt, ControllerEntityEvent, ControllerRemoved, PlayerController}};
 
 use crate::{error::WorldResult, instance::ZoneInstance, proto::TravelMode};
 
@@ -81,6 +81,7 @@ fn instance_shutdown(
     mut removed: RemovedComponents<PlayerController>,
     players: Query<&PlayerController>,
     instance: Res<ZoneInstance>,
+    commands: Commands,
 ) {
     if !removed.is_empty() {
         removed.clear();
@@ -90,9 +91,11 @@ fn instance_shutdown(
 
             let manager = instance.manager.clone();
             let label = InstanceLabel::new(*instance.zone.guid(), instance.instance_id);
-            instance.spawn_task(async move {
-                manager.request_unregister_instance(label).await;
-            });
+            commands
+                .perform_async_operation(async move {
+                    manager.request_unregister_instance(label).await;
+                    Ok(())
+                });
         }
     }
 }

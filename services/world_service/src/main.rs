@@ -307,15 +307,10 @@ async fn main() -> WorldResult<()> {
                         InstanceEvent::InstanceStopping(label) => {
                             if let Some(subapp) = app.get_sub_app_mut(label.clone()) {
                                 subapp.shutdown();
-                                let tasks = subapp.zone_instance().task_tracker();
-                                let manager = manager.clone();
-
-                                tokio::spawn(async move {
-                                    tasks.close();
-                                    tasks.wait().await;
-                                    manager.unregister_instance(label).await;
-                                });
                             }
+                        },
+                        InstanceEvent::InstanceStopped(label) => {
+                            manager.unregister_instance(label).await;
                         },
                         InstanceEvent::ControllerSpawnRequested { peer, instance, session, events, controller, travel_mode, movie } => {
                             if let Some(subapp) = app.get_sub_app_mut(instance) {
