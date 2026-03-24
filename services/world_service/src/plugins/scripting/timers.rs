@@ -15,7 +15,7 @@
 
 use bevy::{ecs::{component::Component, entity::Entity, hierarchy::ChildOf, system::{Commands, In, Query, Res}, world::World}, time::{Stopwatch, Time, Virtual}};
 use mlua::{Function, Lua, Table};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptObject, ScriptResult};
 
 use crate::error::WorldResult;
 
@@ -27,17 +27,17 @@ pub struct LuaTimer {
 }
 
 pub fn update_timers(
-    mut query: Query<(Entity, &ScriptObject, &mut LuaTimer)>,
+    mut query: Query<(Entity, &mut LuaTimer)>,
     time: Res<Time<Virtual>>,
     mut commands: Commands,
 ) {
-    for (entity, obj, mut timer) in query.iter_mut() {
+    for (entity, mut timer) in query.iter_mut() {
         timer.stopwatch.tick(time.delta());
 
         if timer.stopwatch.elapsed_secs() >= timer.interval {
             commands
                 .entity(entity)
-                .call_lua_method(timer.callback.clone(), obj.object().clone());
+                .call_lua_method(timer.callback.clone(), LuaEntity(entity));
 
             timer.stopwatch.reset();
         }
@@ -53,12 +53,10 @@ pub fn insert_timer_api(
     runtime.register_native("timer", object_api.clone()).unwrap();
 
     object_api.set("CreateTimer", lua.create_bevy_function(world,         |
-        In((owner, interval, callback)): In<(Table, f32, Function)>,
+        In((owner, interval, callback)): In<(LuaEntity, f32, Function)>,
         runtime: Res<LuaRuntime>,
         mut commands: Commands
     | -> WorldResult<Table> {
-        let owner_ent = owner.entity()?;
-
         let obj = ScriptObject::new(&runtime, None)?;
         let table = obj.object().clone();
 
@@ -70,20 +68,18 @@ pub fn insert_timer_api(
                     stopwatch: Stopwatch::new(),
                     callback: callback.clone(),
                 },
-                ChildOf(owner_ent),
+                ChildOf(owner.entity()),
             ));
 
         Ok(table)
     })?)?;
 
     object_api.set("DestroyTimer", lua.create_bevy_function(world, |
-        In(timer): In<Table>,
+        In(timer): In<LuaEntity>,
         mut commands: Commands
     | -> WorldResult<()> {
-        let ent = timer.entity()?;
-
         commands
-            .entity(ent)
+            .entity(timer.entity())
             .despawn();
 
         Ok(())

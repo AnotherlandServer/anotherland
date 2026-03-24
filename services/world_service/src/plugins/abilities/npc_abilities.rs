@@ -21,7 +21,7 @@ use mlua::{IntoLua, Lua, Table, Value};
 use obj_params::{Class, ContentRefList, GameObjectData};
 use protocol::{AbilityEffect, OaPktAbilityUseAbilityType, oaPktAbilityUse};
 use realm_api::ObjectTemplate;
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use scripting::{LuaEntity, LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{QuatWrapper, Vec3Wrapper, types::Uuid};
 
 use crate::{error::WorldResult, plugins::{Active, Avatar, ContentCache, ContentCacheRef, ContentInfo, Interaction, InteractionEvent, Interests, LoadContext, LoadableComponent, ParamValue, PlayerController, SkillbookEntry, StaticObject, WeakCache}};
@@ -65,10 +65,10 @@ pub fn insert_ability_api(
 
     ability_api.set("GetNpcAbilityCount", lua.create_bevy_function(world, 
         |
-            In(obj): In<Table>,
+            In(obj): In<LuaEntity>,
             abilities: Query<&NpcAbilities>,
         | -> WorldResult<i32> {
-            let abilities = abilities.get(obj.entity()?)
+            let abilities = abilities.get(obj.entity())
                 .map_err(|_| anyhow!("object not found"))?;
 
             Ok(abilities.0.len() as i32)
@@ -76,11 +76,11 @@ pub fn insert_ability_api(
 
     ability_api.set("GetNpcAbilityInfo", lua.create_bevy_function(world, 
         |
-            In((obj, idx)): In<(Table, i32)>,
+            In((obj, idx)): In<(LuaEntity, i32)>,
             abilities: Query<&NpcAbilities>,
             runtime: Res<LuaRuntime>,
         | -> WorldResult<Table> {
-            let abilities = abilities.get(obj.entity()?)
+            let abilities = abilities.get(obj.entity())
                 .map_err(|_| anyhow!("object not found"))?;
 
             let (_, ability) = abilities.0.get(idx as usize)
@@ -97,11 +97,11 @@ pub fn insert_ability_api(
 
     ability_api.set("GetNpcAbilityValue", lua.create_bevy_function(world, 
         |
-            In((obj, idx, name)): In<(Table, i32, String)>,
+            In((obj, idx, name)): In<(LuaEntity, i32, String)>,
             abilities: Query<&NpcAbilities>,
             runtime: Res<LuaRuntime>,
         | -> WorldResult<Value> {
-            let abilities = abilities.get(obj.entity()?)
+            let abilities = abilities.get(obj.entity())
                 .map_err(|_| anyhow!("object not found"))?;
 
             let (ability, _) = abilities.0.get(idx as usize)
@@ -116,11 +116,11 @@ pub fn insert_ability_api(
 
     ability_api.set("SetNpcAbilityValue", lua.create_bevy_function(world, 
         |
-            In((obj, idx, name, value)): In<(Table, i32, String, Value)>,
+            In((obj, idx, name, value)): In<(LuaEntity, i32, String, Value)>,
             mut abilities: Query<&mut NpcAbilities>,
             runtime: Res<LuaRuntime>,
         | -> WorldResult<Value> {
-            let mut abilities = abilities.get_mut(obj.entity()?)
+            let mut abilities = abilities.get_mut(obj.entity())
                 .map_err(|_| anyhow!("object not found"))?;
 
             let (ability, _) = abilities.0.get_mut(idx as usize)
@@ -140,11 +140,11 @@ pub fn insert_ability_api(
 
     ability_api.set("ResetNpcAbilityValue", lua.create_bevy_function(world, 
         |
-            In((obj, idx, name)): In<(Table, i32, String)>,
+            In((obj, idx, name)): In<(LuaEntity, i32, String)>,
             mut abilities: Query<&mut NpcAbilities>,
             runtime: Res<LuaRuntime>,
         | -> WorldResult<Value> {
-            let mut abilities = abilities.get_mut(obj.entity()?)
+            let mut abilities = abilities.get_mut(obj.entity())
                 .map_err(|_| anyhow!("object not found"))?;
 
             let (ability, _) = abilities.0.get_mut(idx as usize)
@@ -174,8 +174,8 @@ pub fn insert_ability_api(
                 } else if let Ok(ability) = ability.get::<StaticObject>("__static_object") {
                     Some((*ability).clone())
                 } else if 
-                    let Ok(npc) = ability.get::<Table>("__npc") &&
-                    let Ok(abilities) = npc_abilities.get(npc.entity()?) &&
+                    let Ok(npc) = ability.get::<LuaEntity>("__npc") &&
+                    let Ok(abilities) = npc_abilities.get(npc.entity()) &&
                     let Some(idx) = ability.get::<i32>("__npc_ability_idx").ok()
                 {
                     if let Some((_, ability)) = abilities.0.get(idx as usize) {
@@ -190,8 +190,8 @@ pub fn insert_ability_api(
                 None
             };
 
-            let buff = if let Ok(buff) = params.get::<Table>("buff") {
-                if let Ok(content) = content.get(buff.entity()?) {
+            let buff = if let Ok(buff) = params.get::<LuaEntity>("buff") {
+                if let Ok(content) = content.get(buff.entity()) {
                     Some(content)
                 } else {
                     return Err(anyhow!("buff not found").into());
@@ -229,9 +229,9 @@ pub fn insert_ability_api(
                 return Err(anyhow!("effect_source not set").into());
             };
 
-            let source_ent = params.get::<Table>("source")?.entity()?;
-            let target_ent = params.get::<Table>("target").ok()
-                .and_then(|t| t.entity().ok());
+            let source_ent = params.get::<LuaEntity>("source")?.entity();
+            let target_ent = params.get::<LuaEntity>("target").ok()
+                .map(LuaEntity::take);
             let source = targets.get(source_ent)
                 .map_err(|_| anyhow!("source not found"))?;
             let target = target_ent
@@ -255,7 +255,7 @@ pub fn insert_ability_api(
             let effects = effects.sequence_values()
                 .flatten()
                 .map(|effect: Table| -> WorldResult<AbilityEffect> {
-                    let target = effect.get::<Table>("target")?.entity()?;
+                    let target = effect.get::<LuaEntity>("target")?.entity();
                     let effect_type = effect.get::<i32>("type")?;
                     let total_damage_or_heal_amount = effect.get::<f32>("amount").ok();
                     let delta_hp_id = effect.get::<i32>("delta_hp_id").ok();
@@ -293,7 +293,7 @@ pub fn insert_ability_api(
                 {
                     controller.send_packet(oaPktAbilityUse {
                         player: source.id,
-                        source_avatar: source.id, //controller.avatar_id()
+                        source_avatar: source.id,
                         skill_id,
                         source_id,
                         event_type: event_type.try_into()
@@ -320,12 +320,12 @@ pub fn insert_ability_api(
 
     ability_api.set("FireInteractionEvent", lua.create_bevy_function(world, 
         |
-            In((sender, interaction, target)): In<(Table, Interaction, Table)>,
+            In((sender, interaction, target)): In<(LuaEntity, Interaction, LuaEntity)>,
             mut commands: Commands,
         | -> WorldResult<()> {
             commands.write_message(InteractionEvent {
-                source: sender.entity()?,
-                target: target.entity()?,
+                source: sender.entity(),
+                target: target.entity(),
                 interaction,
             });
         Ok(())

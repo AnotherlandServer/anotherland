@@ -18,7 +18,7 @@ use convert_case::{Case, Casing};
 use log::{error, warn};
 use mlua::{Function, IntoLua, Lua, LuaSerdeExt, Table};
 use obj_params::{Class, GameObjectData, GenericParamSet, GenericParamSetBoxExt, NonClientBase};
-use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptApi, ScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptApi, ScriptCommandsExt, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 
 use crate::{error::WorldResult, plugins::{Avatar, ContentInfo, PlayerLocalSets}};
@@ -51,12 +51,12 @@ fn insert_game_object_api(
     runtime.register_native("gameobject", object_api.clone()).unwrap();
 
     object_api.set("IsValid", lua.create_bevy_function(world, |
-        In(object): In<Table>,
+        In(object): In<LuaEntity>,
         query: Query<Entity, With<GameObjectData>>,
     | -> WorldResult<bool> {
         Ok(
             query
-                .contains(object.entity()?)
+                .contains(object.entity())
         )
     })?)?;
 
@@ -66,15 +66,15 @@ fn insert_game_object_api(
     object_api.set("Reset", lua.create_bevy_function(world, lua_gameobject_reset)?)?;
 
     object_api.set("GetPlayerLocal", lua.create_bevy_function(world, |
-            In((object, player, index)): In<(Table, Table, String)>,
+            In((object, player, index)): In<(LuaEntity, LuaEntity, String)>,
             query: Query<(&GameObjectData, &PlayerLocalSets)>,
             runtime: Res<LuaRuntime>,
         | -> WorldResult<mlua::Value> {
-            let (gameobject, local_sets) = query.get(object.entity()?)
+            let (gameobject, local_sets) = query.get(object.entity())
                 .map_err(|_| anyhow!("object not found"))?;
 
             let val = local_sets.0
-                .get(&player.entity()?)
+                .get(&player.entity())
                 .and_then(|local_set| local_set.get_param(&index))
                 .unwrap_or(
                     gameobject.get_named::<obj_params::Value>(&index)
@@ -87,11 +87,11 @@ fn insert_game_object_api(
     )?;
 
     object_api.set("SetPlayerLocal", lua.create_bevy_function(world, |
-            In((object, player, index, value)): In<(Table, Table, String, mlua::Value)>,
+            In((object, player, index, value)): In<(LuaEntity, LuaEntity, String, mlua::Value)>,
             mut query: Query<(&GameObjectData, &mut PlayerLocalSets)>,
             runtime: Res<LuaRuntime>,
         | -> WorldResult<mlua::Value> {
-            let (gameobject, mut local_sets) = query.get_mut(object.entity()?)
+            let (gameobject, mut local_sets) = query.get_mut(object.entity())
                 .map_err(|_| anyhow!("object not found"))?;
 
             let attr = gameobject.class().get_attribute(&index)
@@ -99,7 +99,7 @@ fn insert_game_object_api(
 
             let value = ParamValue::from_lua(attr, value, runtime.vm())?;
             let prev_val =  local_sets.0
-                .entry(player.entity()?)
+                .entry(player.entity())
                 .or_insert(Box::<dyn GenericParamSet>::new_for_class(gameobject.class()))
                 .set_param(&index, value.into());
 
@@ -112,15 +112,15 @@ fn insert_game_object_api(
     )?;
 
     object_api.set("ResetPlayerLocal", lua.create_bevy_function(world, |
-            In((object, player, index,)): In<(Table, Table, String)>,
+            In((object, player, index,)): In<(LuaEntity, LuaEntity, String)>,
             mut query: Query<&mut PlayerLocalSets>,
             runtime: Res<LuaRuntime>,
         | -> WorldResult<mlua::Value> {
-            let mut local_sets = query.get_mut(object.entity()?)
+            let mut local_sets = query.get_mut(object.entity())
                 .map_err(|_| anyhow!("object not found"))?;
 
             let prev_val = local_sets.0
-                .get_mut(&player.entity()?)
+                .get_mut(&player.entity())
                 .and_then(|local_set| local_set.remove_param(&index));
 
             if let Some(prev_val) = prev_val {
@@ -146,11 +146,11 @@ fn insert_log_api(
 }
 
 fn lua_gameobject_get(
-    In((object, index)): In<(Table, String)>,
+    In((object, index)): In<(LuaEntity, String)>,
     query: Query<&GameObjectData>,
     runtime: Res<LuaRuntime>,
 ) -> WorldResult<mlua::Value> {
-    let gameobject = query.get(object.entity()?)
+    let gameobject = query.get(object.entity())
         .map_err(|_| anyhow!("object not found"))?;
 
     let val = gameobject.get_named::<obj_params::Value>(&index)
@@ -161,11 +161,11 @@ fn lua_gameobject_get(
 }
 
 fn lua_gameobject_set(
-    In((object, index, value)): In<(Table, String, mlua::Value)>,
+    In((object, index, value)): In<(LuaEntity, String, mlua::Value)>,
     mut query: Query<&mut GameObjectData>,
     runtime: Res<LuaRuntime>,
 ) -> WorldResult<mlua::Value> {
-    let mut gameobject = query.get_mut(object.entity()?)
+    let mut gameobject = query.get_mut(object.entity())
         .map_err(|_| anyhow!("object not found"))?;
 
     let attr = gameobject.class().get_attribute(&index)
@@ -181,11 +181,11 @@ fn lua_gameobject_set(
 }
 
 fn lua_gameobject_force_set(
-    In((object, index, value)): In<(Table, String, mlua::Value)>,
+    In((object, index, value)): In<(LuaEntity, String, mlua::Value)>,
     mut query: Query<&mut GameObjectData>,
     runtime: Res<LuaRuntime>,
 ) -> WorldResult<mlua::Value> {
-    let mut gameobject = query.get_mut(object.entity()?)
+    let mut gameobject = query.get_mut(object.entity())
         .map_err(|_| anyhow!("object not found"))?;
 
     let attr = gameobject.class().get_attribute(&index)
@@ -201,11 +201,11 @@ fn lua_gameobject_force_set(
 }
 
 fn lua_gameobject_reset(
-    In((object, index,)): In<(Table, String)>,
+    In((object, index,)): In<(LuaEntity, String)>,
     mut query: Query<&mut GameObjectData>,
     runtime: Res<LuaRuntime>,
 ) -> WorldResult<mlua::Value> {
-    let mut gameobject = query.get_mut(object.entity()?)
+    let mut gameobject = query.get_mut(object.entity())
         .map_err(|_| anyhow!("object not found"))?;
 
     let attr = gameobject.class().get_attribute(&index)

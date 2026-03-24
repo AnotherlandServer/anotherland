@@ -19,25 +19,25 @@ use mlua::Function;
 use obj_params::{AttributeInfo, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, Player, Portal, Value, tags::PlayerTag};
 use protocol::{oaAbilityBarReferences, CPktAvatarUpdate};
 use realm_api::{AbilitySlot, ObjectPlacement, RealmApi};
-use scripting::{EntityScriptCommandsExt, ScriptObject};
+use scripting::{EntityScriptCommandsExt, LuaEntity};
 use toolkit::{NativeParam, OtherlandQuatExt, types::Uuid};
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, HealthUpdateEvent, InitialInventoryTransfer, Inventory, MessageType, PlayerController, ServerAction, WeakCache, apply_equipment_result, player_error_handler_system}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, HealthUpdateRequest, InitialInventoryTransfer, Inventory, MessageType, PlayerController, ServerAction, WeakCache, apply_equipment_result, player_error_handler_system}, proto::TravelMode};
 
 #[allow(clippy::type_complexity)]
 pub fn spawn_player(
-    mut query: Query<(&mut CurrentState, Option<&InitialInventoryTransfer>, &ScriptObject), Changed<CurrentState>>,
+    mut query: Query<(Entity, &mut CurrentState, Option<&InitialInventoryTransfer>), Changed<CurrentState>>,
     instance: Res<ZoneInstance>,
     mut commands: Commands
 ) {
-    for (state, inventory_transfer, obj) in query.iter_mut() {
+    for (entity, state, inventory_transfer) in query.iter_mut() {
         if 
             matches!(state.state, ConnectionState::InitialInterestsLoaded) &&
             inventory_transfer.is_none()
         {
             commands
                 .entity(instance.world_controller)
-                .call_named_lua_method("SpawnPlayer", obj.object().clone());
+                .call_named_lua_method("SpawnPlayer", LuaEntity(entity));
         }
     }
 }
@@ -126,9 +126,9 @@ pub fn handle_avatar_update(
 
 pub fn cmd_instant_kill(
     In((ent, _)): In<(Entity, Vec<NativeParam>)>,
-    mut event: MessageWriter<HealthUpdateEvent>
+    mut event: MessageWriter<HealthUpdateRequest>
 ) {
-    event.write(HealthUpdateEvent::kill(ent, None));
+    event.write(HealthUpdateRequest::kill(ent, None, None));
 }
 
 pub fn cmd_travel_to_portal(

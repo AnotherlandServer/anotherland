@@ -20,7 +20,7 @@ use mlua::Function;
 use obj_params::{GameObjectData, Player};
 use protocol::{OaPktQuestEventEvent, QuestUpdateData, oaPktQuestEvent, oaPktQuestTrackerUpdate, oaPktQuestUpdate};
 use realm_api::{Condition, QuestCondition, QuestProgressionState, QuestRewards, RealmApi};
-use scripting::{ScriptCommandsExt, ScriptObject};
+use scripting::{LuaEntity, ScriptCommandsExt};
 
 use crate::plugins::{AbandonQuest, AcceptQuest, ActiveQuest, AsyncOperationEntityCommandsExt, AutoReturnQuest, EquipmentResult, Inventory, PlayerController, Quest, QuestLog, QuestProgress, QuestState, QuestStatePending, QuestStateUpdated, Quests, ReturnQuest, RunDeferredQuestDialogues, UpdateAvailableQuests, WeakCache, apply_equipment_result, player_error_handler_system, quests::cache::QuestTemplateCache};
 
@@ -189,11 +189,11 @@ pub(super) fn quest_abandoner(
 #[allow(clippy::type_complexity)]
 pub(super) fn handle_db_quest_update(
     In((player, (quest_id, db_state, storage_res))): In<(Entity, (i32, Option<realm_api::QuestState>, Option<EquipmentResult>))>,
-    mut players: Query<(Entity, &PlayerController, &mut QuestLog, &ScriptObject)>,
+    mut players: Query<(Entity, &PlayerController, &mut QuestLog)>,
     mut quests: Query<(&mut QuestProgress, Option<&ActiveQuest>)>,
     mut commands: Commands,
 ) {
-    let Ok((player_ent, controller, mut quest_log, script_object)) = players.get_mut(player) else {
+    let Ok((player_ent, controller, mut quest_log)) = players.get_mut(player) else {
         return;
     };
 
@@ -255,7 +255,7 @@ pub(super) fn handle_db_quest_update(
             {
                 commands.call_lua_method(
                     func, 
-                    (quest.obj.clone(), script_object.object().clone())
+                    (quest.obj.clone(), LuaEntity(player_ent))
                 );
             }
 
@@ -333,12 +333,12 @@ pub(super) fn handle_db_quest_update(
 
 pub(super) fn handle_quest_state_changes(
     mut events: MessageReader<QuestStateUpdated>,
-    mut players: Query<(&ScriptObject, &mut QuestLog)>,
+    mut players: Query<&mut QuestLog>,
     quests: Res<Quests>,
     mut commands: Commands,
 ) {
     for &QuestStateUpdated { player, quest_id, state } in events.read() {
-        let Ok((script_object, mut quest_log)) = players.get_mut(player) else {
+        let Ok(mut quest_log) = players.get_mut(player) else {
             continue;
         };
 
@@ -364,7 +364,7 @@ pub(super) fn handle_quest_state_changes(
 
         commands.call_lua_method(
             func, 
-            (quest.obj.clone(), script_object.object().clone())
+            (quest.obj.clone(), LuaEntity(player))
         );
     }
 }

@@ -16,7 +16,7 @@
 use anyhow::anyhow;
 use bevy::ecs::{system::{In, Query, ResMut}, world::World};
 use mlua::{Lua, Table};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptResult};
 use toolkit::types::Uuid;
 
 use crate::{error::WorldResult, plugins::Skillbook};
@@ -31,11 +31,11 @@ pub(super) fn insert_skillbook_api(
 
     skillbook_api.set("GetSkill", lua.create_bevy_function(world, 
         |
-            In((player, skill_id)): In<(Table, String)>,
+            In((player, skill_id)): In<(LuaEntity, String)>,
             query: Query<&Skillbook>,
             mut runtime: ResMut<LuaRuntime>,
         | -> WorldResult<Option<Table>> {
-            let skillbook = query.get(player.entity()?)
+            let skillbook = query.get(player.entity())
                 .map_err(|_| anyhow!("player not found"))?;
 
             let skill_id = skill_id.parse::<Uuid>()?;

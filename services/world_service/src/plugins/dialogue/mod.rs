@@ -24,10 +24,10 @@ pub use speaker::*;
 use anyhow::anyhow;
 use bevy::{app::{Plugin, PostUpdate, PreStartup, Update}, ecs::{message::{Message, MessageReader}, relationship::RelationshipTarget}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
 use log::{debug, warn};
-use mlua::{Lua, Table};
+use mlua::Lua;
 use obj_params::{GameObjectData, Player, tags::PlayerTag};
 use protocol::{CPktStream_166_2, DialogStructure, OaDialogQuestPrototypeMode, OaPktDialogListKind, oaDialogNode, oaDialogQuestPrototype, oaPktDialogChoice, oaPktDialogEnd, oaPktDialogList};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt};
+use scripting::{LuaEntity, LuaExt, LuaRuntime};
 use toolkit::types::AvatarId;
 
 use crate::{error::WorldResult, plugins::{ActiveQuest, Avatar, InstanceManager, QuestLog, QuestProgress, ReturnQuest}};
@@ -87,10 +87,10 @@ fn insert_dialogue_api(
 }
 
 fn lua_show_tutorial_message(
-    In((player, tutorial_id)): In<(Table, i32)>,
+    In((player, tutorial_id)): In<(LuaEntity, i32)>,
     query: Query<&PlayerController>,
 ) -> WorldResult<()> {
-    let controller = query.get(player.entity()?)
+    let controller = query.get(player.entity())
         .map_err(|_| anyhow!("player not found"))?;
 
     controller.send_packet(CPktStream_166_2 {

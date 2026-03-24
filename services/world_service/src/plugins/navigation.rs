@@ -20,13 +20,13 @@ use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{component::Component, entity
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use futures::{TryStreamExt};
 use log::{debug, error};
-use mlua::{Lua, Table};
+use mlua::Lua;
 use obj_params::{GameObjectData, tags::NonClientBaseTag};
 use protocol::{CPktAvatarBehaviors, NetworkVec3};
 use rand::RngCore;
 use realm_api::{RealmApi, WorldDef};
 use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshParams, DtNavMeshQuery, DtPolyRef, DtQueryFilter, DtTileRef}, detour_crowd::DtPathCorridor};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptResult};
 use toolkit::{OtherlandQuatExt, Vec3Wrapper, bson};
 
 use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, InterestTransmitted, Interests, Movement, PlayerController}};
@@ -62,21 +62,19 @@ fn insert_navigation_api(
 
     navigation_api.set("MoveToPosition", lua.create_bevy_function(world, 
         |
-            In((obj, location, speed, callback)): In<(Table, Vec3Wrapper, f32, mlua::Function)>,
+            In((obj, location, speed, callback)): In<(LuaEntity, Vec3Wrapper, f32, mlua::Function)>,
             nav_target: Query<Option<&NavTarget>>,
             mut commands: Commands,
         | -> WorldResult<()> {
-            let obj = obj.entity()?;
-
             if 
-                let Ok(Some(existing_target)) = nav_target.get(obj) &&
+                let Ok(Some(existing_target)) = nav_target.get(obj.entity()) &&
                 existing_target.pos == location.0
             {
                 return Ok(());
             }
 
             commands
-                .entity(obj)
+                .entity(obj.entity())
                 .insert(NavTarget {
                     pos: location.0,
                     speed,
@@ -88,16 +86,14 @@ fn insert_navigation_api(
 
     navigation_api.set("CancelMovement", lua.create_bevy_function(world, 
         |
-            In(obj): In<Table>,
+            In(obj): In<LuaEntity>,
             query: Query<&Movement, With<NavTarget>>,
             mut commands: Commands,
             time: Res<Time<Virtual>>,
         | -> WorldResult<()> {
-            let obj = obj.entity()?;
-
-            if let Ok(movement) = query.get(obj) {
+            if let Ok(movement) = query.get(obj.entity()) {
                 commands
-                    .entity(obj)
+                    .entity(obj.entity())
                     .remove::<NavTarget>()
                     .remove::<PathCorridor>()
                     .insert(Pathing {

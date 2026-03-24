@@ -19,7 +19,7 @@ use bonsai_bt::{Behavior, Event, Status, UpdateArgs, BT};
 use log::error;
 use mlua::{Lua, Table};
 use obj_params::GameObjectData;
-use scripting::{LuaExt, LuaFunctionExt, LuaRuntime, LuaTableExt, ScriptObject, ScriptResult};
+use scripting::{LuaEntity, LuaExt, LuaFunctionExt, LuaRuntime, ScriptObject, ScriptResult};
 
 use crate::{error::{WorldError, WorldResult}, plugins::Active};
 
@@ -36,13 +36,11 @@ pub(super) fn insert_npc_ai_api(
 
     ai_api.set("InstallBehavior", lua.create_bevy_function(world, 
         |
-            In((obj, behavior)): In<(Table, Table)>,
+            In((obj, behavior)): In<(LuaEntity, Table)>,
             mut states: ResMut<AiStates>,
         | -> WorldResult<()> {
-            let obj = obj.entity()?;
-
             states.0.insert(
-                obj, 
+                obj.take(), 
                 BT::new(
                     parse_lua_behavior(behavior)?, 
                     HashMap::new(),
@@ -53,12 +51,10 @@ pub(super) fn insert_npc_ai_api(
 
     ai_api.set("CancelBehavior", lua.create_bevy_function(world, 
         |
-            In(obj): In<Table>,
+            In(obj): In<LuaEntity>,
             mut states: ResMut<AiStates>,
         | -> WorldResult<()> {
-            let obj = obj.entity()?;
-
-            if let Some(state) = states.0.get_mut(&obj) {
+            if let Some(state) = states.0.get_mut(&obj.entity()) {
                 state.reset_bt();
             } else {
                 return Err(WorldError::Other(anyhow!("Object not found or has no AI state")));

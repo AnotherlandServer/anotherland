@@ -22,19 +22,37 @@ use protocol::{AbilityBarReference, CPktAvatarUpdate, CPktBlob, CPktServerNotify
 use realm_api::{Character, RealmApi};
 use toolkit::{OtherlandQuatExt, types::Uuid};
 
-use crate::{instance::ZoneInstance, plugins::{Avatar, AvatarLoader, CombatStyle, ComponentLoaderCommandsTrait, ContentInfo, CooldownGroups, Factions, FactionsParameters, LoadContext, LoadableComponent, Movement, Navmesh, PlayerController, QuestLog, Skillbook, SkillbookParams}, proto::TravelMode};
+use crate::{instance::ZoneInstance, plugins::{Avatar, CombatStyle, ComponentLoaderCommandsTrait, ContentInfo, CooldownGroups, Factions, FactionsParameters, LoadContext, LoadableComponent, Movement, Navmesh, PlayerController, QuestLog, Skillbook, SkillbookParams, VirtualComponent}, proto::TravelMode};
 
 #[derive(Component)]
 pub struct InGame;
 
-impl AvatarLoader {
-    pub async fn load_player_character(character_id: Uuid) -> Result<Character> {
+impl LoadContext<Character> {
+    pub fn character_id(&self) -> Uuid {
+        *self.data().as_ref().unwrap().id()
+    }
+
+    pub fn character_data(&self) -> &GameObjectData {
+        self.data().as_ref().unwrap().data()
+    }
+}
+
+#[derive(Component)]
+pub struct PlayerLoader;
+
+impl VirtualComponent for PlayerLoader {}
+
+impl LoadableComponent for PlayerLoader {
+    type Parameters = Uuid;
+    type ContextData = Character;
+
+    async fn load(parameters: Self::Parameters, context: &mut LoadContext<Self::ContextData>) -> Result<Self> {
         let mut character = RealmApi::get()
-            .get_character(&character_id).await?
+            .get_character(&parameters).await?
             .ok_or(anyhow!("Character not found"))?;
         
         let ability_bar = RealmApi::get()
-            .get_or_create_ability_bar(character_id).await?;
+            .get_or_create_ability_bar(parameters).await?;
 
         // Build ability bar in the clients binary format
         let main_skill_bar = [()]
@@ -67,26 +85,32 @@ impl AvatarLoader {
             character.data_mut().set(Player::HpCur, hp);
         }
 
-        Ok(character)
-    }
+        context.set_data(character);
 
-    pub fn load_player_character_dependencies(&mut self, _: &mut EntityCommands<'_>, context: &mut LoadContext<<AvatarLoader as LoadableComponent>::ContextData>, character: &mut Character) -> Result<()> {
+        Ok(Self)
+    }
+    
+    fn load_dependencies(&mut self, _commands: &mut EntityCommands<'_>, context: &mut LoadContext<Self::ContextData>) -> Result<()> {
+        let character_id = context.character_id();
+        let level = *context.character_data().get::<_, i32>(Player::Lvl).unwrap();
+        let combat_style = CombatStyle::from_id(*context.character_data().get::<_, i32>(Player::CombatStyle).unwrap());
+        let factions = context.character_data().get::<_, ContentRefList>(Player::Faction).unwrap().clone();
+
         context
             .load_dependency::<Skillbook>(SkillbookParams {
-                character_id: *character.id(),
-                level: *character.data().get::<_, i32>(Player::Lvl).unwrap(),
-                combat_style: CombatStyle::from_id(
-                    *character.data().get::<_, i32>(Player::CombatStyle).unwrap()
-                ),
+                character_id,
+                level,
+                combat_style,
             })
             .load_dependency::<Factions>(FactionsParameters {
-                factions: character.data().get::<_, ContentRefList>(Player::Faction).unwrap().clone(),
+                factions,
             });
             
         Ok(())
     }
 
-    pub fn on_load_player_character(&mut self, commands: &mut EntityCommands<'_>, mut character: Character) -> Result<()> {
+    fn post_load(&mut self, commands: &mut EntityCommands<'_>, character: Option<Self::ContextData>) -> Result<()> {
+        let mut character = character.unwrap();
         let id = *character.id();
 
         commands
@@ -128,7 +152,9 @@ impl AvatarLoader {
 
         Ok(())
     }
+}
 
+impl PlayerLoader {
     fn prepare_character_spawn(entity: &mut EntityWorldMut<'_>, character: &mut Character) {
         let obj: &mut GameObjectData = character.data_mut();
 
@@ -235,6 +261,12 @@ impl AvatarLoader {
             class_hash: 0x9D35021A,
             ..Default::default()
         }.to_bytes());
+
+        // Insert skillbook
+        {
+            let skillbook = entity.get::<Skillbook>().unwrap();
+            obj.set(Player::CurrentClassSkills, skillbook.to_bytes());
+        }
     }
 
     fn begin_loading_sequence(entity: EntityWorldMut<'_>) {

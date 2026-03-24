@@ -16,7 +16,7 @@
 use bevy::ecs::{system::{In, Query}, world::World};
 use mlua::{Lua, Table};
 use protocol::{oaPktPortalRequestAck, PortalAckPartB};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptResult};
 use anyhow::anyhow;
 use toolkit::NativeParam;
 
@@ -35,8 +35,8 @@ pub fn insert_portalbook_api(
         avatars: Query<&Avatar>,
         query: Query<&PlayerController>,
     | -> WorldResult<()> {
-        let player = portal_book.get::<Table>("player")?.entity()?;
-        let portal = portal_book.get::<Table>("portal")?.entity()?;
+        let player = portal_book.get::<LuaEntity>("player")?.entity();
+        let portal = portal_book.get::<LuaEntity>("portal")?.entity();
 
         if let Ok(ctrl) = query.get(player) {
             let portals = portal_book.get::<Table>("portals")?

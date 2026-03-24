@@ -15,7 +15,7 @@
 
 use bevy::{app::{First, Last, Plugin, PreStartup}, ecs::{message::Message, schedule::IntoScheduleConfigs}, prelude::{App, resource_exists}};
 
-use crate::{clean_hot_reload, create_script_object_hooks, hot_reload, prepare_hot_reload, HotReloadEnabled};
+use crate::{clean_hot_reload, hot_reload, prepare_hot_reload, HotReloadEnabled};
 
 #[derive(Message)]
 pub struct LuaScriptReloaded;
@@ -29,8 +29,6 @@ impl Plugin for ScriptingPlugin {
         app.add_systems(Last, clean_hot_reload);
 
         app.add_message::<LuaScriptReloaded>();
-
-        create_script_object_hooks(app);
     }
 }
 

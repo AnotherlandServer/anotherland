@@ -32,7 +32,7 @@ use mlua::{Lua, Table};
 use obj_params::{Class, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player, tags::{ItemBaseTag, PlayerTag}};
 use protocol::{oaPktItemStorage, oaPktShopCartBuyRequest, oaPktSteamMicroTxn, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
 use realm_api::{Condition, Item, ItemRef, ObjectTemplate, Price, RealmApi};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use toolkit::{types::Uuid, NativeParam};
@@ -201,18 +201,16 @@ fn insert_inventory_api(
     //inventory_api.set("RemoveItem", lua.create_bevy_function(world, lua_remove_item)?)?;
     inventory_api.set("GetItem", lua.create_bevy_function(world, 
         |
-            In((player, item_id)): In<(Table, String)>,
+            In((player, item_id)): In<(LuaEntity, String)>,
             query: Query<&Inventory>,
-            item: Query<&ScriptObject>,
-        | -> WorldResult<Option<Table>> {
-            let storage = query.get(player.entity()?)
+        | -> WorldResult<Option<LuaEntity>> {
+            let storage = query.get(player.entity())
                 .map_err(|_| anyhow!("player not found"))?;
 
             if 
-                let Some(item_ent) = storage.items.get(&item_id.parse::<Uuid>()?) &&
-                let Ok(item) = item.get(*item_ent)
+                let Some(item_ent) = storage.items.get(&item_id.parse::<Uuid>()?)
             {
-                Ok(Some(item.object().clone()))
+                Ok(Some(LuaEntity(*item_ent)))
             } else {
                 Ok(None)
             }
@@ -220,23 +218,22 @@ fn insert_inventory_api(
 
     inventory_api.set("GetEquipment", lua.create_bevy_function(world, 
         |
-            In(player): In<Table>,
+            In(player): In<LuaEntity>,
             query: Query<&Inventory>,
-            item: Query<(&GameObjectData, &ScriptObject)>,
-            runtime: Res<LuaRuntime>,
-        | -> WorldResult<Table> {
-            let storage = query.get(player.entity()?)
+            item: Query<&GameObjectData>,
+        | -> WorldResult<Vec<LuaEntity>> {
+            let storage = query.get(player.entity())
                 .map_err(|_| anyhow!("player not found"))?;
 
-            let items = runtime.vm().create_table()?;
+            let mut items = vec![];
             
             for ent in storage.items.values() {
                 if 
-                    let Ok((data, object)) = item.get(*ent) &&
+                    let Ok(data) = item.get(*ent) &&
                     let Ok(&container_id) = data.get::<_, i32>(ItemBase::ContainerId) &&
                     container_id == 1
                 {
-                    items.push(object.object().clone())?;
+                    items.push(LuaEntity(*ent));
                 }
             }
 
@@ -245,20 +242,16 @@ fn insert_inventory_api(
 
     inventory_api.set("GetItems", lua.create_bevy_function(world, 
         |
-            In(player): In<Table>,
+            In(player): In<LuaEntity>,
             query: Query<&Inventory>,
-            item: Query<&ScriptObject>,
-            runtime: Res<LuaRuntime>,
-        | -> WorldResult<Table> {
-            let storage = query.get(player.entity()?)
+        | -> WorldResult<Vec<LuaEntity>> {
+            let storage = query.get(player.entity())
                 .map_err(|_| anyhow!("player not found"))?;
 
-            let items = runtime.vm().create_table()?;
+            let mut items = vec![];
             
             for ent in storage.items.values() {
-                if let Ok(item) = item.get(*ent) {
-                    items.push(item.object().clone())?;
-                }
+                items.push(LuaEntity(*ent));
             }
 
             Ok(items)
@@ -266,11 +259,11 @@ fn insert_inventory_api(
 
     inventory_api.set("GetItemAbilities", lua.create_bevy_function(world, 
         |
-            In(item): In<Table>,
+            In(item): In<LuaEntity>,
             query: Query<&ItemAbilities>,
             mut runtime: ResMut<LuaRuntime>,
         | -> WorldResult<Table> {
-            let item_abilities = query.get(item.entity()?)
+            let item_abilities = query.get(item.entity())
                 .map_err(|_| anyhow!("item not found"))?;
 
             let abilities = runtime.vm().create_table_with_capacity(item_abilities.len(), 0)?;
@@ -284,16 +277,16 @@ fn insert_inventory_api(
 
     inventory_api.set("BeginLoadInventory", lua.create_bevy_function(world, 
         |
-            In(player): In<Table>,
+            In(player): In<LuaEntity>,
             query: Query<&PlayerController, Added<PlayerTag>>,
             mut commands: Commands,
         | -> WorldResult<()> {
-            let controller = query.get(player.entity()?)
+            let controller = query.get(player.entity())
                 .map_err(|_| anyhow!("player not found"))?;
             let character_id = controller.character_id();
     
             commands
-                .entity(player.entity()?)
+                .entity(player.entity())
                 .load_component::<InitialInventoryTransfer>(character_id);
             
             Ok(())
@@ -302,13 +295,12 @@ fn insert_inventory_api(
     #[allow(clippy::type_complexity)]
     inventory_api.set("DropItem", lua.create_bevy_function(world, 
                 |
-            In((source, allow_avatar, _allow_party, item, quantity)): In<(Table, Option<Table>, Option<Table>, String, i32)>,
+            In((source, allow_avatar, _allow_party, item, quantity)): In<(LuaEntity, Option<LuaEntity>, Option<Table>, String, i32)>,
             player: Query<&Avatar>,
             spawner: Query<(&Avatar, &ContentInfo, &Movement)>,
             mut commands: Commands
         | -> WorldResult<()> {
-            let source_ent = source.entity()?;
-            let Ok((avatar, content, movement)) = spawner.get(source_ent) else {
+            let Ok((avatar, content, movement)) = spawner.get(source.entity()) else {
                 return Err(anyhow!("source not found").into());
             };
 
@@ -321,7 +313,7 @@ fn insert_inventory_api(
                 .load_component::<LootLoader>(LootParams {
                     spawner: (spawner_id, spawner_guid),
                     allow_player: allow_avatar
-                        .and_then(|tbl| tbl.entity().ok())
+                        .map(LuaEntity::take)
                         .and_then(|ent| {
                             player
                                 .get(ent)
@@ -389,18 +381,18 @@ impl Inventory {
 }
 
 fn prepare_load_player_inventory(
-    query: Query<(Entity, &ScriptObject), Added<PlayerTag>>,
+    query: Query<Entity, Added<PlayerTag>>,
     instance: Res<ZoneInstance>,
     mut commands: Commands,
 ) {
-    for (ent, obj) in query.iter() {
+    for ent in query.iter() {
         commands
             .entity(ent)
             .insert(InitialInventoryTransfer(None));
 
         commands
             .entity(instance.world_controller)
-            .call_named_lua_method("PreLoadPlayerInventory", obj.object().clone());
+            .call_named_lua_method("PreLoadPlayerInventory", LuaEntity(ent));
     }
 }
 
@@ -930,14 +922,11 @@ fn handle_purchase_result(
 #[allow(clippy::type_complexity)]
 fn insert_item_info(
     query: Query<(&ChildOf, &ScriptObject), (With<ItemBaseTag>, Added<ScriptObject>)>,
-    objects: Query<&ScriptObject>,
 ) {
     for (child_of, script) in query.iter() {
         debug!("Inserting item info");
 
-        if let Ok(owner) = objects.get(child_of.parent()) {
-            script.object().set("owner", owner.object()).unwrap();
-        }
+        script.object().set("owner", LuaEntity(child_of.parent())).unwrap();
     }
 }
 

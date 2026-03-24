@@ -320,16 +320,17 @@ impl Character {
         )
     }
 
-    pub fn add_exp(&mut self, exp: u32) {
+    pub fn add_exp(&mut self, exp: u32) -> bool {
         let mut xp = *self.data.get::<_, i32>(Player::Xp).unwrap();
         let mut xp_total = *self.data.get::<_, i32>(Player::XpTotal).unwrap();
         let mut xp_for_next_level = *self.data.get::<_, i32>(Player::XpForNextLevel).unwrap();
         let mut level = *self.data.get::<_, i32>(Player::Lvl).unwrap();
+        let mut leveled_up = false;
 
         xp += exp as i32;
         xp_total += exp as i32;
 
-        if xp >= xp_for_next_level {
+        while xp >= xp_for_next_level {
             xp -= xp_for_next_level;
 
             // Hard level cap
@@ -339,12 +340,16 @@ impl Character {
 
             // Simple formula for next level XP, can be replaced with a more complex one if needed
             xp_for_next_level = Self::lookup_lvl_exp(level);
+
+            leveled_up = true;
         }
 
         self.data.set(Player::Xp, xp);
         self.data.set(Player::XpTotal, xp_total);
         self.data.set(Player::XpForNextLevel, xp_for_next_level);
         self.data.set(Player::Lvl, level);
+
+        leveled_up
     }
 
     pub fn lookup_lvl_exp(lvl: i32) -> i32 {

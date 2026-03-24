@@ -20,10 +20,10 @@ use bevy::{ecs::{entity::Entity, hierarchy::ChildOf, message::{MessageReader, Me
 use log::debug;
 use mlua::{Function, Lua, Table};
 use obj_params::{Class, GameObjectData, NonClientBase, Player, tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, PlayerTag, StructureBaseTag}};
-use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{NativeParam, types::{AvatarId,  Uuid}};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, AvatarIdManager, ComponentLoaderCommandsTrait, ContentCacheRef, ContentInfo, DebugNpc, DebugPlayer, DespawnAvatar, DynamicInstance, ForceSyncPositionUpdate, HealthUpdateEvent, MessageType, Movement, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, ParamValue, PlayerController, SpawnState}};
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, AvatarIdManager, ComponentLoaderCommandsTrait, ContentCacheRef, ContentInfo, DebugNpc, DebugPlayer, DespawnAvatar, DynamicInstance, ForceSyncPositionUpdate, HealthUpdateRequest, MessageType, Movement, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, ParamValue, PlayerController, SpawnState}};
 
 pub fn init_gameobjects(
     added: Query<(Entity, &GameObjectData), Added<GameObjectData>>,
@@ -37,7 +37,7 @@ pub fn init_gameobjects(
 #[allow(clippy::type_complexity)]
 pub fn update_spawn_state(
     mut entities: Query<(Entity, &GameObjectData, &mut SpawnState, &mut Movement), Or<(With<NpcBaseTag>, With<StructureBaseTag>)>>,
-    mut health_events: MessageWriter<HealthUpdateEvent>,
+    mut health_events: MessageWriter<HealthUpdateRequest>,
     mut commands: Commands,
 ) {
     for (ent, obj, mut state, mut movement) in entities.iter_mut() {
@@ -73,7 +73,7 @@ pub fn update_spawn_state(
                     movement.position = *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap();
 
                     state.mark_alive();
-                    health_events.write(HealthUpdateEvent::revive(ent, None, None));
+                    health_events.write(HealthUpdateRequest::revive(ent, None, None, None));
                     commands.entity(ent)
                         .insert(obj)
                         .insert(Active)
@@ -179,7 +179,7 @@ pub fn insert_loader_api(
     runtime.register_native("loader", loader_api.clone()).unwrap();
 
     loader_api.set("RequestSpawnInstance", lua.create_bevy_function(world, |
-        In((owner, class, template, name, params, callback)): In<(Option<Table>, String, String, String, Table, Option<Function>)>,
+        In((owner, class, template, name, params, callback)): In<(Option<LuaEntity>, String, String, String, Table, Option<Function>)>,
         runtime: Res<LuaRuntime>,
         mut commands: Commands
     | -> WorldResult<()> {
@@ -200,17 +200,12 @@ pub fn insert_loader_api(
             instance.set_named(&key, value);
         }
 
-        let owner = match owner {
-            Some(t) => Some(t.entity()?),
-            None => None,
-        };
-
         commands
             .spawn_empty()
             .load_component_with_error_handler::<NonPlayerGameObjectLoader, _>(
                 NonPlayerGameObjectLoaderParams::Dynamic { 
                     id: Uuid::new(), 
-                    owner, 
+                    owner: owner.map(LuaEntity::take), 
                     name, 
                     template: ContentCacheRef::Name(template), 
                     data: instance, 

@@ -13,21 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::App, ecs::lifecycle::HookContext, prelude::Component};
-use mlua::{Lua, Table};
+use std::{sync::{LazyLock, RwLock}};
 
-use crate::{LuaRuntime, ScriptResult};
+use bevy::{ecs::{entity::Entity, lifecycle::HookContext, world::DeferredWorld}, platform::collections::HashMap, prelude::Component};
+use mlua::{FromLua, IntoLua, Lua, Table};
 
-pub(crate) fn create_script_object_hooks(app: &mut App) {
-    app.world_mut().register_component_hooks::<ScriptObject>()
-        .on_add(|world, HookContext { entity, .. }| {
-            let script = world.entity(entity).get::<ScriptObject>().unwrap();
-            script.object.raw_set("__ent", script.lua.create_any_userdata(entity).unwrap())
-                .expect("failed to attach entity to script object");
-        });
-}
+use crate::{LuaRuntime, LuaTableExt, ScriptResult};
 
 #[derive(Component)]
+#[component(on_add = on_script_object_added)]
+#[component(on_remove = on_script_object_removed)]
 pub struct ScriptObject {
     pub(crate) lua: Lua,
     pub(crate) object: Table,
@@ -52,4 +47,68 @@ impl ScriptObject {
 
     pub fn vm(&self) -> &Lua { &self.lua }
     pub fn object(&self) -> &Table { &self.object }
+}
+
+static TABLE_MAP: LazyLock<RwLock<HashMap<Entity, Table>>> = LazyLock::new(|| {
+    RwLock::new(HashMap::<Entity, Table>::new())
+});
+
+fn on_script_object_added(world: DeferredWorld<'_>, ctx: HookContext) {
+    let script = world
+        .entity(ctx.entity)
+        .get::<ScriptObject>()
+        .unwrap();
+    
+    script.object.raw_set("__ent", script.lua.create_any_userdata(ctx.entity).unwrap())
+        .expect("failed to attach entity to script object");
+
+    TABLE_MAP.write().unwrap().insert(ctx.entity, script.object.clone());
+}
+
+fn on_script_object_removed(_world: DeferredWorld<'_>, ctx: HookContext) {
+    TABLE_MAP.write().unwrap().remove(&ctx.entity);
+}
+
+#[derive(Clone, Copy)]
+pub struct LuaEntity(pub Entity);
+
+impl LuaEntity {
+    pub fn take(self) -> Entity {
+        self.0
+    }
+
+    pub fn entity(&self) -> Entity {
+        self.0
+    }
+}
+
+impl From<Entity> for LuaEntity {
+    fn from(entity: Entity) -> Self {
+        Self(entity)
+    }
+}
+
+impl From<LuaEntity> for Entity {
+    fn from(wrapper: LuaEntity) -> Self {
+        wrapper.0
+    }
+}
+
+impl FromLua for LuaEntity {
+    fn from_lua(lua_value: mlua::Value, _lua: &Lua) -> mlua::Result<Self> {
+        let table = lua_value.as_table()
+            .ok_or_else(|| mlua::Error::runtime("expected a table for Entity"))?;
+        let ent = table.entity()?;
+        Ok(Self(ent))
+    }
+}
+
+impl IntoLua for LuaEntity {
+    fn into_lua(self, _lua: &Lua) -> mlua::Result<mlua::Value> {
+        if let Some(table) = TABLE_MAP.read().unwrap().get(&self.0) {
+            Ok(mlua::Value::Table(table.clone()))
+        } else {
+            Err(mlua::Error::runtime("entity does not have an associated script object"))
+        }
+    }
 }

@@ -17,11 +17,9 @@ use bevy::{app::{App, Plugin}, ecs::lifecycle::HookContext};
 
 mod component;
 mod id_manager;
-mod loader;
 
 pub use component::*;
 pub use id_manager::*;
-pub use loader::*;
 
 pub struct AvatarPlugin;
 

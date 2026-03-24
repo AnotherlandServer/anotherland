@@ -23,7 +23,7 @@ use realm_api::{RealmApi, SessionState};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use toolkit::types::{AvatarId, Uuid};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AvatarLoader, AvatarLoaderParams, ComponentLoaderCommandsTrait, CurrentState, DespawnAvatar, DynamicInstance, ForeignResource, MessageHandlers, MessageType, SpawnState, Travelling, WorldEvent, player::loader::disconnect_player_error_handler}, proto::{TravelMode, TravelRejectReason}};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{ComponentLoaderCommandsTrait, CurrentState, DespawnAvatar, DynamicInstance, ForeignResource, MessageHandlers, MessageType, SpawnState, Travelling, WorldEvent, player::loader::{PlayerLoader, disconnect_player_error_handler}}, proto::{TravelMode, TravelRejectReason}};
 
 #[derive(Component, Clone)]
 pub struct PlayerController {
@@ -194,9 +194,8 @@ pub fn process_join_requests(
                 SpawnState::Alive,
                 DynamicInstance,
             ))
-            .load_component_with_error_handler::<AvatarLoader, _>(
-                    AvatarLoaderParams::PlayerCharacter(*session_state.character()
-                ),
+            .load_component_with_error_handler::<PlayerLoader, _>(
+                *session_state.character(),
                 disconnect_player_error_handler
             )
             .id();

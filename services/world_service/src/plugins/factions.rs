@@ -18,11 +18,11 @@ use std::sync::{Arc, OnceLock};
 use bevy::{app::Plugin, ecs::{component::Component, error::Result, world::World}, platform::collections::HashMap, prelude::{App, Entity, In, Query}};
 use futures::{TryStreamExt, future::join_all};
 use log::{debug, trace};
-use mlua::{Lua, Table};
+use mlua::Lua;
 use obj_params::{Class, ContentRefList};
 use protocol::{oaPktFactionRequest, oaPktFactionResponse, FactionRelation, FactionRelationList};
 use realm_api::RealmApi;
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptResult};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{RwLock, RwLockWriteGuard};
@@ -263,12 +263,12 @@ pub fn insert_faction_api(
     runtime.register_native("faction", object_api.clone()).unwrap();
 
     object_api.set("EntityRelationship", lua.create_bevy_function(world,         |
-        In((a, b)): In<(Table, Table)>,
+        In((a, b)): In<(LuaEntity, LuaEntity)>,
         avatars: Query<&Factions>,
     | -> WorldResult<i32> {
         if 
-            let Ok(a) = avatars.get(a.entity()?) &&
-            let Ok(b) = avatars.get(b.entity()?)
+            let Ok(a) = avatars.get(a.entity()) &&
+            let Ok(b) = avatars.get(b.entity())
         {
             Ok(a.relation_to(b))
         } else {

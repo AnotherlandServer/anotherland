@@ -19,7 +19,7 @@ use log::debug;
 use obj_params::GameObjectData;
 use realm_api::Condition;
 
-use crate::plugins::{ActiveQuest, AsyncOperationEntityCommandsExt, AvatarKilled, AvatarSelectorMatcher, ContentInfo, DialogueFinished, Interaction, InteractionEvent, Interests, Inventory, Movement, QuestLog, QuestProgress, QuestStatePending, Quests, player_error_handler_system, quests::handle_db_quest_update};
+use crate::plugins::{ActiveQuest, AsyncOperationEntityCommandsExt, AvatarSelectorMatcher, CombatEvent, CombatEventType, ContentInfo, DialogueFinished, Interaction, InteractionEvent, Interests, Inventory, Movement, QuestLog, QuestProgress, QuestStatePending, Quests, player_error_handler_system, quests::handle_db_quest_update};
 
 #[derive(Message, Clone, Copy)]
 pub struct QuestConditionUpdate {
@@ -247,15 +247,19 @@ pub fn update_dialogue_conditions(
 }
 
 pub fn update_kill_conditions(
-    mut events: MessageReader<AvatarKilled>,
+    mut events: MessageReader<CombatEvent>,
     quests: Res<Quests>,
     players: Query<&QuestLog>,
     active_quests: Query<&QuestProgress, With<ActiveQuest>>,
     targets: Query<(&ContentInfo, &GameObjectData)>,
     mut commands: Commands,
 ) {
-    for &AvatarKilled { entity: killed_entity, killer } in events.read() {
-        let Some(killer) = killer else {
+    for &CombatEvent { target, instigator: source, update, .. } in events.read() {
+        if !matches!(update, CombatEventType::Death) {
+            continue;
+        }
+
+        let Some(killer) = source else {
             continue;
         };
 
@@ -263,7 +267,7 @@ pub fn update_kill_conditions(
             continue;
         };
 
-        let Ok((killed_info, killed_data)) = targets.get(killed_entity) else {
+        let Ok((killed_info, killed_data)) = targets.get(target) else {
             continue;
         };
 

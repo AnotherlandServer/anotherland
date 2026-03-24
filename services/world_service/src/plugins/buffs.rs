@@ -16,17 +16,17 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, entity::Entity, error::Result, hierarchy::{ChildOf, Children}, query::{Added, Changed, With, Without}, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, time::{Real, Stopwatch, Time, Virtual}};
+use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, entity::Entity, error::Result, message::MessageReader, query::{Added, Changed, With, Without}, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, time::{Real, Stopwatch, Time, Virtual}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::{debug, warn};
-use mlua::{Lua, Table};
+use mlua::Lua;
 use obj_params::{GameObjectData, OaBuff2, ParamWriter};
 use protocol::{CPktBuffRequest, CPktBuffUpdate};
 use realm_api::ObjectTemplate;
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptObject, ScriptResult};
 use toolkit::types::Uuid;
 
-use crate::{error::WorldResult, plugins::{AsyncOperationEntityCommandsExt, ContentCache, ContentCacheRef, WeakCache, player_error_handler_system}};
+use crate::{error::WorldResult, plugins::{AsyncOperationEntityCommandsExt, CombatEvent, CombatEventType, ContentCache, ContentCacheRef, Interruption, Kind, WeakCache, player_error_handler_system}};
 
 use super::{attach_scripts, Avatar, ContentInfo, Interests, PlayerController};
 
@@ -38,10 +38,24 @@ impl Plugin for BuffsPlugin {
 
         app.add_systems(PreUpdate, insert_buff_info.after(attach_scripts));
         app.add_systems(PostUpdate, send_buff_update);
-        app.add_systems(Update, update_buffs);
+        app.add_systems(Update, (tick_buffs, interrupt_buffs, process_combat_events));
         app.add_systems(PostUpdate, remove_buffs);
     }
 }
+
+#[derive(Component)]
+#[relationship(relationship_target = Buffs)]
+pub struct Buffing(pub Entity);
+
+impl Buffing {
+    pub fn target(&self) -> Entity {
+        self.0
+    }
+}
+
+#[derive(Component)]
+#[relationship_target(relationship = Buffing, linked_spawn)]
+pub struct Buffs(Vec<Entity>);
 
 #[allow(clippy::type_complexity)]
 pub fn insert_buff_api(
@@ -53,16 +67,15 @@ pub fn insert_buff_api(
     runtime.register_native("buffs", object_api.clone()).unwrap();
 
     object_api.set("AddBuff", lua.create_bevy_function(world, |
-        In((owner, instigator, id, duration, delay, stacks)): In<(Table, Option<Table>, String, Option<f32>, Option<f32>, Option<i32>)>,
+        In((owner, instigator, id, duration, delay, stacks)): In<(LuaEntity, Option<LuaEntity>, String, Option<f32>, Option<f32>, Option<i32>)>,
         mut commands: Commands
     | -> WorldResult<String> {
-        let ent = owner.entity()?;
-        let instigator = instigator.map(|t| t.entity()).transpose()?;
+        let instigator = instigator.map(LuaEntity::take);
         let id = id.parse()?;
         let instance_id = Uuid::new();
 
         commands
-            .entity(ent)
+            .entity(owner.entity())
             .perform_async_operation(async move {
                 Ok((
                     instigator,
@@ -82,15 +95,14 @@ pub fn insert_buff_api(
     })?)?;
 
     object_api.set("AddBuffByName", lua.create_bevy_function(world, |
-        In((owner, instigator, name, duration, delay, stacks)): In<(Table, Option<Table>, String, Option<f32>, Option<f32>, Option<i32>)>,
+        In((owner, instigator, name, duration, delay, stacks)): In<(LuaEntity, Option<LuaEntity>, String, Option<f32>, Option<f32>, Option<i32>)>,
         mut commands: Commands
     | -> WorldResult<String> {
-        let ent = owner.entity()?;
-        let instigator = instigator.map(|t| t.entity()).transpose()?;
+        let instigator = instigator.map(LuaEntity::take);
         let instance_id = Uuid::new();
 
         commands
-            .entity(ent)
+            .entity(owner.entity())
             .perform_async_operation(async move {
                 Ok((
                     instigator,
@@ -110,17 +122,16 @@ pub fn insert_buff_api(
     })?)?;
 
     object_api.set("RemoveBuff", lua.create_bevy_function(world, |
-        In((owner, reference_type, id)): In<(Table, String, String)>,
-        children: Query<&Children>,
-        buffs: Query<(Entity, &ContentInfo), With<Buff>>,
+        In((owner, reference_type, id)): In<(LuaEntity, String, String)>,
+        buffs: Query<&Buffs>,
+        buff: Query<(Entity, &ContentInfo), With<Buff>>,
         mut commands: Commands
     | -> WorldResult<bool> {
         let uuid = id.parse::<Uuid>().ok();
-        let owner = owner.entity()?;
 
-        for child in children.iter_descendants(owner) {
+        for child in buffs.iter_descendants(owner.entity()) {
             if 
-                let Ok((ent, content)) = buffs.get(child) &&
+                let Ok((ent, content)) = buff.get(child) &&
                 match reference_type.as_str() {
                     "Template" => Some(content.template.id) == uuid,
                     "Instance" => Some(content.placement_id) == uuid,
@@ -142,16 +153,15 @@ pub fn insert_buff_api(
     })?)?;
 
     object_api.set("HasBuff", lua.create_bevy_function(world, |
-        In((owner, reference_type, id)): In<(Table, String, String)>,
-        children: Query<&Children>,
-        buffs: Query<&ContentInfo, With<Buff>>,
+        In((owner, reference_type, id)): In<(LuaEntity, String, String)>,
+        buffs: Query<&Buffs>,
+        buff: Query<&ContentInfo, With<Buff>>,
     | -> WorldResult<bool> {
         let uuid = id.parse::<Uuid>().ok();
-        let owner = owner.entity()?;
 
-        for child in children.iter_descendants(owner) {
+        for child in buffs.iter_descendants(owner.entity()) {
             if 
-                let Ok(content) = buffs.get(child) &&
+                let Ok(content) = buff.get(child) &&
                 match reference_type.as_str() {
                     "Template" => Some(content.template.id) == uuid,
                     "Instance" => Some(content.placement_id) == uuid,
@@ -189,8 +199,11 @@ fn insert_buff(
             instigator,
         };
 
-        if let Ok(tick_period) = data.get::<_, f32>(OaBuff2::TickPeriod) {
-            buff.interval = Some(Duration::from_secs_f32(*tick_period));
+        if 
+            let Ok(tick_period) = data.get::<_, f32>(OaBuff2::TickPeriod).cloned() && 
+            tick_period > 0.0 
+        {
+            buff.interval = Some(Duration::from_secs_f32(tick_period));
         }
 
         if let Some(duration) = duration {
@@ -226,7 +239,7 @@ fn insert_buff(
                     placement_id: instance_id,
                     template,
                 },
-                ChildOf(ent),
+                Buffing(ent),
             ));
     } else {
         warn!("Buff template not found for entity {ent:?}");
@@ -247,11 +260,11 @@ pub struct BuffExpired;
 
 #[allow(clippy::type_complexity)]
 fn send_buff_update(
-    query: Query<(&ContentInfo, &GameObjectData, &ChildOf), (With<Buff>, Changed<GameObjectData>)>,
+    query: Query<(&ContentInfo, &GameObjectData, &Buffing), (With<Buff>, Changed<GameObjectData>)>,
     avatar_query: Query<&Avatar>,
     players: Query<(Entity, &Interests, &PlayerController)>,
 ) {
-    for (content, obj, child_of) in query.iter() {
+    for (content, obj, buff_of) in query.iter() {
         let mut param_buffer = Vec::new();
         let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
 
@@ -260,13 +273,13 @@ fn send_buff_update(
             .write_to_client(&mut writer)
             .expect("failed to serialize params");
 
-        if let Ok(avatar) = avatar_query.get(child_of.parent()) {
-            debug!("Buff update for {:?}", child_of.parent());
+        if let Ok(avatar) = avatar_query.get(buff_of.target()) {
+            debug!("Buff update for {:?}", buff_of.target());
 
             for (ent, interests, controller) in players.iter() {
                 debug!("Checking interests for {ent:?}");
 
-                if child_of.parent() == ent || interests.contains(&child_of.parent()) {
+                if buff_of.target() == ent || interests.contains(&buff_of.target()) {
                     debug!("Sending buff update to {ent:?}");
 
                     controller.send_packet(CPktBuffUpdate {
@@ -286,29 +299,19 @@ fn send_buff_update(
 
 #[allow(clippy::type_complexity)]
 fn insert_buff_info(
-    query: Query<(&Buff, &ChildOf, &ScriptObject), (With<Buff>, Added<ScriptObject>)>,
-    objects: Query<&ScriptObject>,
+    query: Query<(&Buff, &Buffing, &ScriptObject), Added<ScriptObject>>,
 ) {
-    for (buff, child_of, script) in query.iter() {
+    for (buff, buff_of, script) in query.iter() {
         debug!("Add buff");
 
-        if let Ok(target_obj) = objects.get(child_of.parent()) {
-            script.object().set("target", target_obj.object()).unwrap();
-        }
-
-        if let Some(instigator) = buff.instigator {
-            if let Ok(target_obj) = objects.get(instigator) {
-                script.object().set("instigator", target_obj.object()).unwrap();
-            }
-        } else if let Ok(target_obj) = objects.get(child_of.parent()) {
-            script.object().set("target", target_obj.object()).unwrap();
-        }
+        script.object().set("target", LuaEntity(buff_of.target())).unwrap();
+        script.object().set("instigator", buff.instigator.map(LuaEntity)).unwrap();
     }
 }
 
 #[allow(clippy::type_complexity)]
-fn update_buffs(
-    mut query: Query<(Entity, &mut Buff, &mut GameObjectData), (With<Buff>, Without<BuffExpired>)>,
+fn tick_buffs(
+    mut query: Query<(Entity, &mut Buff, &mut GameObjectData), Without<BuffExpired>>,
     time: Res<Time<Virtual>>,
     mut commands: Commands,
 ) {
@@ -344,12 +347,12 @@ fn update_buffs(
 
 #[allow(clippy::type_complexity)]
 fn remove_buffs(
-    query: Query<(Entity, &ContentInfo, &ChildOf), (With<Buff>, With<BuffExpired>)>,
+    query: Query<(Entity, &ContentInfo, &Buffing), With<BuffExpired>>,
     players: Query<(Entity, &Interests, &PlayerController)>,
     avatar_query: Query<&Avatar>,
     mut commands: Commands,
 ) {
-    for (ent, content, child_of) in query.iter() {
+    for (ent, content, buff_of) in query.iter() {
         commands
             .entity(ent)
             .call_named_lua_method("Detach", ());
@@ -358,15 +361,89 @@ fn remove_buffs(
             .entity(ent)
             .despawn();
 
-        if let Ok(avatar) = avatar_query.get(child_of.parent()) {
+        if let Ok(avatar) = avatar_query.get(buff_of.target()) {
             for (ent, interests, controller) in players.iter() {
-                if child_of.parent() == ent || interests.contains(&child_of.parent()) {
+                if buff_of.target() == ent || interests.contains(&buff_of.target()) {
                     controller.send_packet(CPktBuffRequest {
                         avatar_id: avatar.id,
                         instance_id: content.placement_id,
                         ..Default::default()
                     });
                 }
+            }
+        }
+    }
+}
+
+fn interrupt_buffs(
+    mut messages: MessageReader<Interruption>,
+    buffs: Query<&Buffs>,
+    buff: Query<(Entity, &GameObjectData), With<Buff>>,
+    mut commands: Commands,
+) {
+    for msg in messages.read() {
+        for buff_ent in buffs.iter_descendants(msg.target) {
+            let Ok((ent, content)) = buff.get(buff_ent) else {
+                continue;
+            };
+
+            let destroy_on_get_hit = content.get::<_, bool>(OaBuff2::DestroyOnGetHit).unwrap();
+            let destroy_on_critical_hit = content.get::<_, bool>(OaBuff2::DestroyOnCriticalHit).unwrap();
+            let destroy_on_move = content.get::<_, bool>(OaBuff2::DestroyOnMove).unwrap();
+            let destroy_on_owner_die = content.get::<_, bool>(OaBuff2::DestroyOnOwnerDied).unwrap();
+
+            if 
+                *destroy_on_get_hit && matches!(msg.kind, Kind::Damage) ||
+                *destroy_on_critical_hit && matches!(msg.kind, Kind::DamageCritical) ||
+                *destroy_on_move && matches!(msg.kind, Kind::Movement) ||
+                *destroy_on_owner_die && matches!(msg.kind, Kind::Death)
+            {
+                commands
+                    .entity(ent)
+                    .insert(BuffExpired);
+            }
+        }
+    }
+}
+
+fn process_combat_events(
+    mut message: MessageReader<CombatEvent>,
+    buffs: Query<&Buffs>,
+    buff_iter: Query<(Entity, &Buff)>,
+    mut commands: Commands,
+) {
+    for event in message.read() {
+        for buff_ent in buffs.iter_descendants(event.target) {
+            match event.update {
+                CombatEventType::Damaged(amount) => 
+                    commands
+                        .entity(buff_ent)
+                        .call_named_lua_method("OnOwnerDamaged", (event.instigator.map(LuaEntity), amount)),
+                CombatEventType::Healed(amount) => 
+                    commands
+                        .entity(buff_ent)
+                        .call_named_lua_method("OnOwnerHealed", (event.instigator.map(LuaEntity), amount)),
+                CombatEventType::Death =>
+                    commands
+                        .entity(buff_ent)
+                        .call_named_lua_method("OnOwnerDeath", event.instigator.map(LuaEntity)),
+                CombatEventType::Revived =>
+                    commands
+                        .entity(buff_ent)
+                        .call_named_lua_method("OnOwnerRevived", event.instigator.map(LuaEntity)),
+                _ => continue,
+            };
+        }
+
+        if matches!(event.update, CombatEventType::Death) {
+            for (ent, buff) in buff_iter.iter() {
+                if buff.instigator != Some(event.target) {
+                    continue;
+                }
+                
+                commands
+                    .entity(ent)
+                    .call_named_lua_method("OnInstigatorDeath", event.instigator.map(LuaEntity));
             }
         }
     }

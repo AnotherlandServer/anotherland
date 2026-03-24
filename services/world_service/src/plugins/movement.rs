@@ -15,14 +15,14 @@
 
 use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
 use log::{debug, error};
-use mlua::{Lua, Table};
+use mlua::Lua;
 use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, NpcOtherland, Player};
 use protocol::{oaPktMoveManagerPosUpdate, oaPktMoveManagerStateChanged, Physics, PhysicsState};
-use scripting::{EntityScriptCommandsExt, LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptResult};
 use toolkit::{OtherlandQuatExt, QuatWrapper, Vec3Wrapper};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, plugins::{Navmesh}};
+use crate::{error::WorldResult, plugins::{Interruption, Kind, Navmesh}};
 
 use super::{Avatar, Interests, NetworkExtPriv, PlayerController};
 
@@ -51,10 +51,10 @@ fn insert_movement_api(
 
     api.set("GetPosition", lua.create_bevy_function(world, 
         |
-            In(object): In<Table>,
+            In(object): In<LuaEntity>,
             query: Query<&Movement>,
         | -> WorldResult<Vec3Wrapper> {
-            let movement = query.get(object.entity()?)
+            let movement = query.get(object.entity())
                 .map_err(|_| anyhow!("object not found"))?;
             
             Ok(Vec3Wrapper(movement.position))
@@ -62,30 +62,30 @@ fn insert_movement_api(
 
     api.set("GetRotation", lua.create_bevy_function(world, 
         |
-            In(object): In<Table>,
+            In(object): In<LuaEntity>,
             query: Query<&Movement>,
         | -> WorldResult<QuatWrapper> {
-            let movement = query.get(object.entity()?)
+            let movement = query.get(object.entity())
                 .map_err(|_| anyhow!("object not found"))?;
             
             Ok(QuatWrapper(movement.rotation))
         })?)?;
 
     api.set("GetVelocity", lua.create_bevy_function(world, |
-            In(object): In<Table>,
+            In(object): In<LuaEntity>,
             query: Query<&Movement>,
         | -> WorldResult<Vec3Wrapper> {
-            let movement = query.get(object.entity()?)
+            let movement = query.get(object.entity())
                 .map_err(|_| anyhow!("object not found"))?;
             
             Ok(Vec3Wrapper(movement.velocity))
         })?)?;
 
     api.set("SetMoverKey", lua.create_bevy_function(world, |
-            In((object, mover_key)): In<(Table, u16)>,
+            In((object, mover_key)): In<(LuaEntity, u16)>,
             mut query: Query<&mut Movement>,
         | -> WorldResult<()> {
-            let mut movement = query.get_mut(object.entity()?)
+            let mut movement = query.get_mut(object.entity())
                 .map_err(|_| anyhow!("object not found"))?;
             
             movement.mover_key = mover_key;
@@ -93,10 +93,10 @@ fn insert_movement_api(
         })?)?;
 
     api.set("SetMoverType", lua.create_bevy_function(world, |
-            In((object, mover_type)): In<(Table, u8)>,
+            In((object, mover_type)): In<(LuaEntity, u8)>,
             mut query: Query<&mut Movement>,
         | -> WorldResult<()> {
-            let mut movement = query.get_mut(object.entity()?)
+            let mut movement = query.get_mut(object.entity())
                 .map_err(|_| anyhow!("object not found"))?;
             
             movement.mover_type = mover_type;
@@ -155,6 +155,15 @@ pub fn handle_move_manager_pos_update(
             .entity(ent)
             .insert(ForceSyncPositionUpdate)
             .fire_lua_event("OnPositionUpdated", (Vec3Wrapper(movement.position), QuatWrapper(movement.rotation), Vec3Wrapper(movement.velocity)));
+
+        if movement.velocity != Vec3::ZERO {
+            commands
+                .write_message(Interruption {
+                    kind: Kind::Movement,
+                    source: None,
+                    target: ent,
+                });
+        }
     }
 }
 

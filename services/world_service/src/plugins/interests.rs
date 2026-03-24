@@ -18,10 +18,10 @@ use std::time::Duration;
 use bevy::{app::{App, Plugin, PreUpdate}, ecs::{message::{Message, MessageReader, MessageWriter}, query::Added, schedule::IntoScheduleConfigs, system::{In, Res}, world::World}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
-use mlua::{Lua, Table};
+use mlua::Lua;
 use obj_params::{tags::{NonClientBaseTag, NpcOtherlandTag, PlayerTag}, GameObjectData, NonClientBase, ParamWriter};
 use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, Physics};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptResult};
 use toolkit::types::{AvatarId, UUID_NIL};
 use anyhow::anyhow;
 
@@ -66,20 +66,16 @@ fn insert_interests_api(
 
     skillbook_api.set("GetInterests", lua.create_bevy_function(world, 
         |
-            In(ent): In<Table>,
+            In(ent): In<LuaEntity>,
             query: Query<&Interests>,
-            objects: Query<&ScriptObject>,
-            runtime: Res<LuaRuntime>,
-        | -> WorldResult<Table> {
-            let interests = query.get(ent.entity()?)
+        | -> WorldResult<Vec<LuaEntity>> {
+            let interests = query.get(ent.take())
                 .map_err(|_| anyhow!("player not found"))?;
 
-            let result = runtime.vm().create_table()?;
+            let mut result = Vec::new();
 
             for ent in interests.collection().keys() {
-                if let Ok(obj) = objects.get(*ent) {
-                    result.push(obj.object().clone())?;
-                }
+                result.push(LuaEntity(*ent));
             }
 
             Ok(result)
@@ -329,34 +325,22 @@ fn update_interest_list(
 
 fn notify_interest_added(
     mut messages: MessageReader<InterestAdded>,
-    query: Query<&ScriptObject>,
     mut commands: Commands,
 ) {
     for InterestAdded(target, ent) in messages.read() {
-        if 
-            let Ok(_) = query.get(*target) &&
-            let Ok(interest) = query.get(*ent)
-        {
-            commands
-                .entity(*target)
-                .fire_lua_event("InterestAdded", interest.object().clone());
-        }
+        commands
+            .entity(*target)
+            .fire_lua_event("InterestAdded", LuaEntity(*ent));
     }
 }
 
 fn notify_interest_removed(
     mut messages: MessageReader<InterestRemoved>,
-    query: Query<&ScriptObject>,
     mut commands: Commands,
 ) {
     for InterestRemoved(target, ent) in messages.read() {
-        if 
-            let Ok(_) = query.get(*target) &&
-            let Ok(interest) = query.get(*ent)
-        {
-            commands
-                .entity(*target)
-                .fire_lua_event("InterestRemoved", interest.object().clone());
-        }
+        commands
+            .entity(*target)
+            .fire_lua_event("InterestRemoved", LuaEntity(*ent));
     }
 }

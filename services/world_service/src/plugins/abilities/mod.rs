@@ -15,9 +15,11 @@
 
 mod item_ability;
 mod npc_abilities;
+mod interrupt;
 
 pub use item_ability::*;
 pub use npc_abilities::*;
+pub use interrupt::*;
 
 use std::{sync::Arc, time::{Duration, Instant}};
 
@@ -27,7 +29,7 @@ use mlua::{FromLua, Function, IntoLua, Lua, Table, Value};
 use obj_params::Class;
 use protocol::{oaPktAbilityRequest, oaPktCooldownUpdate, oaPktInteractionUpdate, CooldownEntry, CooldownUpdate, OaPktInteractionUpdateEventType, OaPktInteractionUpdateInteractionType};
 use realm_api::{ObjectTemplate, RealmApi};
-use scripting::{LuaExt, LuaRuntime, LuaTableExt, EntityScriptCommandsExt, ScriptObject, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptResult};
 use toolkit::{types::{AvatarId, Uuid}, QuatWrapper};
 use anyhow::anyhow;
 
@@ -40,13 +42,15 @@ pub struct AbilitiesPlugin;
 impl Plugin for AbilitiesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<InteractionEvent>();
+        app.add_message::<Interruption>();
 
         app.register_message_handler(handle_ability_request);
         app.add_systems(PostUpdate, send_cooldown_updates);
-        app.add_systems(Update, send_interaction_events);
+        app.add_systems(Update, (send_interaction_events, process_interruptions, generate_combat_interrupt_events));
 
         insert_cooldown_api(app.world_mut()).unwrap();
         insert_ability_api(app.world_mut()).unwrap();
+        insert_interrupt_api(app.world_mut()).unwrap();
     }
 }
 
@@ -262,10 +266,10 @@ fn insert_cooldown_api(
 
     cooldown_api.set("Consume", lua.create_bevy_function(world, 
         |
-            In((obj, groups)): In<(Table, Vec<String>)>,
+            In((obj, groups)): In<(LuaEntity, Vec<String>)>,
             mut query: Query<&mut Cooldowns>,
         | -> WorldResult<bool> {
-            let mut cooldowns = query.get_mut(obj.entity()?)
+            let mut cooldowns = query.get_mut(obj.entity())
                 .map_err(|_| anyhow!("object not found"))?;
 
             let groups = groups.into_iter()
@@ -277,10 +281,10 @@ fn insert_cooldown_api(
 
     cooldown_api.set("Emit", lua.create_bevy_function(world, 
         |
-            In((obj, groups, duration)): In<(Table, Vec<String>, f32)>,
+            In((obj, groups, duration)): In<(LuaEntity, Vec<String>, f32)>,
             mut query: Query<&mut Cooldowns>,
         | -> WorldResult<bool> {
-            let mut cooldowns = query.get_mut(obj.entity()?)
+            let mut cooldowns = query.get_mut(obj.entity())
                 .map_err(|_| anyhow!("object not found"))?;
 
             let groups = groups.into_iter()
@@ -295,7 +299,6 @@ fn insert_cooldown_api(
 
 fn handle_ability_request(
     In((ent, pkt)): In<(Entity, oaPktAbilityRequest)>,
-    lua_objects: Query<&ScriptObject>,
     runtime: Res<LuaRuntime>,
     avatar_man: Res<AvatarIdManager>,
     mut commands: Commands,
@@ -305,8 +308,7 @@ fn handle_ability_request(
     let target = pkt.params
         .and_then(|s| s.parse::<AvatarId>().ok())
         .and_then(|id| avatar_man.resolve_avatar_id(id))
-        .and_then(|ent| lua_objects.get(ent).ok())
-        .map(|obj| obj.object().clone());
+        .map(LuaEntity);
 
     request.set("target", target).unwrap();
     request.set("ability_id", pkt.ability_id.to_string()).unwrap();
@@ -377,16 +379,16 @@ fn send_cooldown_updates(
 fn send_interaction_events(
     mut events: MessageReader<InteractionEvent>,
     players: Query<(&Avatar, &PlayerController)>,
-    targets: Query<(&Avatar, &ScriptObject)>,
+    targets: Query<&Avatar>,
     mut commands: Commands,
 ) {
     for &InteractionEvent { source, target, interaction } in events.read() {
         let Ok((player, controller)) = players.get(source) else { continue; };
-        let Ok((target, target_obj)) = targets.get(target) else { continue; };
+        let Ok(target_avatar) = targets.get(target) else { continue; };
 
         controller.send_packet(oaPktInteractionUpdate {
             instigator: player.id,
-            target: target.id,
+            target: target_avatar.id,
             event_type: match interaction {
                 Interaction::Interact { .. } => OaPktInteractionUpdateEventType::Interaction,
                 Interaction::Extract { .. } => OaPktInteractionUpdateEventType::Interaction,
@@ -414,23 +416,23 @@ fn send_interaction_events(
         match interaction {
             Interaction::Interact { .. } => {
                 commands.entity(source)
-                    .fire_lua_event("OnInteractionStart", (target_obj.object().clone(), interaction));
+                    .fire_lua_event("OnInteractionStart", (LuaEntity(target), interaction));
             },
             Interaction::Extract { .. } => {
                 commands.entity(source)
-                    .fire_lua_event("OnInteractionStart", (target_obj.object().clone(), interaction));
+                    .fire_lua_event("OnInteractionStart", (LuaEntity(target), interaction));
             },
             Interaction::Capture { .. } => {
                 commands.entity(source)
-                    .fire_lua_event("OnInteractionStart", (target_obj.object().clone(), interaction));
+                    .fire_lua_event("OnInteractionStart", (LuaEntity(target), interaction));
             },
             Interaction::CastComplete => {
                 commands.entity(source)
-                    .fire_lua_event("OnCastCompleted", (target_obj.object().clone(), interaction));
+                    .fire_lua_event("OnCastCompleted", (LuaEntity(target), interaction));
             },
             Interaction::CastInterrupt => {
                 commands.entity(source)
-                    .fire_lua_event("OnCastInterrupted", (target_obj.object().clone(), interaction));
+                    .fire_lua_event("OnCastInterrupted", (LuaEntity(target), interaction));
             },
         }
     }

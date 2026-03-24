@@ -17,7 +17,7 @@ use bevy::{ecs::{entity::Entity, system::{Commands, In, Query, Res}}, math::Vec3
 use log::{debug, error};
 use protocol::{oaPkt_SplineSurfing_Acknowledge, oaPkt_SplineSurfing_Exit};
 use regex::Regex;
-use scripting::{EntityScriptCommandsExt, ScriptObject};
+use scripting::{EntityScriptCommandsExt, LuaEntity};
 use toolkit::NativeParam;
 
 use crate::plugins::{AvatarIdManager, BinaryBehavior, PlayerController, StringBehavior};
@@ -67,18 +67,16 @@ pub(super) fn behavior_flight_tube(
 pub(super) fn behavior_loot_avatar(
     In((ent, _, behavior)): In<(Entity, Entity, BinaryBehavior)>,
     avatar_id_manager: Res<AvatarIdManager>,
-    objects: Query<&ScriptObject>,
     mut commands: Commands,
 ) {
     if 
         let NativeParam::Struct(params) = &behavior.args &&
         let Some(NativeParam::String(target)) = params.first() &&
         let Ok(target) = target.parse() &&
-        let Some(target_ent) = avatar_id_manager.resolve_avatar_id(target) &&
-        let Ok(player) = objects.get(ent)
+        let Some(target_ent) = avatar_id_manager.resolve_avatar_id(target)
     {
         commands
             .entity(target_ent)
-            .call_named_lua_method("RequestLoot", player.object().clone());
+            .call_named_lua_method("RequestLoot", LuaEntity(ent));
     }  
 }

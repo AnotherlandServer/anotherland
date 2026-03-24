@@ -13,23 +13,19 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::ecs::{entity::Entity, system::{Commands, In, Query, Res}};
+use bevy::ecs::{entity::Entity, system::{Commands, In, Res}};
 use log::warn;
 use protocol::{OaPktRequestQuestActionKind, oaPktRequestQuestAction};
-use scripting::{EntityScriptCommandsExt, ScriptObject};
+use scripting::{EntityScriptCommandsExt, LuaEntity};
 
 use crate::plugins::AvatarIdManager;
 
 pub(super) fn handle_quest_action_request(
     In((ent, pkt)): In<(Entity, oaPktRequestQuestAction)>,
     avatar_id_manager: Res<AvatarIdManager>,
-    objects: Query<&ScriptObject>,
     mut commands: Commands,
 ) {
-    if 
-        let Some(target_ent) = avatar_id_manager.resolve_avatar_id(pkt.target) &&
-        let Ok(target) = objects.get(target_ent)
-    {
+    if let Some(target_ent) = avatar_id_manager.resolve_avatar_id(pkt.target) {
         commands
             .entity(ent)
             .call_named_lua_method("RequestInteraction", (
@@ -40,7 +36,7 @@ pub(super) fn handle_quest_action_request(
                     warn!("Unknown quest action kind: {:?}", pkt.kind);
                     "unknown"
                 },
-                target.object().clone()
+                LuaEntity(target_ent)
             ));
     }    
 }

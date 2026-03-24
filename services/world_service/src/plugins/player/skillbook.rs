@@ -30,6 +30,24 @@ use crate::{error::WorldResult, plugins::{CombatStyle, ContentCache, ContentCach
 #[derive(Component)]
 pub struct Skillbook(pub(super) Vec<SkillbookEntry>);
 
+impl Skillbook {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        oaAbilityDataPlayerArray {
+            class_hash: 0x81E0A735,
+            count: self.0.len() as u32,
+            skills: self.0.iter()
+                .map(|s| oaAbilityDataPlayer {
+                    version: 0,
+                    id: s.id,
+                    content_id: s.ability.id,
+                    group: s.group.clone(),
+                    field_4: s.stance,
+                })
+                .collect(),
+        }.to_bytes()
+    }
+}
+
 #[allow(unused)]
 pub struct Skill {
     pub id: Uuid,
@@ -145,19 +163,6 @@ pub fn network_sync_skillbook(
     for (mut player, skillbook) in query.iter_mut() {
         debug!("Updating skillbook");
 
-        player.set(Player::CurrentClassSkills,
-            oaAbilityDataPlayerArray {
-                class_hash: 0x81E0A735,
-                count: skillbook.0.len() as u32,
-                skills: skillbook.0.iter()
-                    .map(|s| oaAbilityDataPlayer {
-                        version: 0,
-                        id: s.id,
-                        content_id: s.ability.id,
-                        group: s.group.clone(),
-                        field_4: s.stance,
-                    })
-                    .collect(),
-            }.to_bytes());
+        player.set(Player::CurrentClassSkills, skillbook.to_bytes());
     }
 }

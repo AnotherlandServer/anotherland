@@ -17,24 +17,20 @@ use bevy::ecs::{entity::Entity, message::MessageReader, system::{Commands, In, Q
 use log::debug;
 use obj_params::{GameObjectData, LootScatterContainer, Player};
 use realm_api::{ItemRef, RealmApi};
-use scripting::{EntityScriptCommandsExt, ScriptObject};
+use scripting::{EntityScriptCommandsExt, LuaEntity};
 use toolkit::types::{AvatarId, UUID_NIL, Uuid};
 
 use crate::{plugins::{AsyncOperationEntityCommandsExt, Avatar, Interaction, InteractionEvent, Inventory, StorageResult, StringBehavior, apply_storage_result, player_error_handler_system}};
 
 pub(super) fn handle_interactions(
     mut events: MessageReader<InteractionEvent>,
-    player: Query<&ScriptObject>,
     mut commands: Commands,
 ) {
     for &InteractionEvent { source, target, interaction } in events.read() {
-        if 
-            let Interaction::CastComplete = interaction &&
-            let Ok(player) = player.get(source)
-        {
+        if let Interaction::CastComplete = interaction {
             commands
                 .entity(target)
-                .call_named_lua_method("HandleInteraction", player.object().clone());
+                .call_named_lua_method("HandleInteraction", LuaEntity(source));
         }
     }
 }

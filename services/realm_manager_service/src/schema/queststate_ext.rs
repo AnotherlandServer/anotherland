@@ -23,7 +23,7 @@ use mongodb::{Database, bson::{self, doc, oid::ObjectId}, options::ReturnDocumen
 use obj_params::{GenericParamSet, ParamSet, Player};
 use toolkit::{transaction_with_retry, types::Uuid};
 
-use crate::{db::{Character, QuestProgressionState, QuestState, QuestStateOutput}, error::RealmResult, item_storage_session::ItemStorageSession, schema::item_storage_ext::{EquipmentResult, ItemRef, StorageResult, find_item}};
+use crate::{db::{Character, QuestProgressionState, QuestState, QuestStateOutput, Skillbook}, error::RealmResult, item_storage_session::ItemStorageSession, schema::item_storage_ext::{EquipmentResult, ItemRef, StorageResult, find_item}};
 
 #[derive(Default)]
 pub struct QuestStateExtMutationRoot;
@@ -173,7 +173,15 @@ impl QuestStateExtMutationRoot {
                                 .await?
                                 .ok_or_else(|| anyhow!("Character not found"))?;
 
-                            character.add_exp(rewards.experience);
+                            if character.add_exp(rewards.experience) {
+                                let mut skillbook = Skillbook::collection(&db)
+                                    .find_one(doc! { "character_id": quest_state.character_id })
+                                    .session(&mut session)
+                                    .await?
+                                    .ok_or_else(|| anyhow!("Skillbook not found"))?;
+
+                                skillbook.level_up(*character.data.get::<_, i32>(Player::Lvl).unwrap());
+                            }
                             
                             let mut changes = ParamSet::<Player>::new();
                             character.data.changes()
