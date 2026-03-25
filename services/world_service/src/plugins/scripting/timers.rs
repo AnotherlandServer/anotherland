@@ -57,7 +57,7 @@ pub fn insert_timer_api(
         runtime: Res<LuaRuntime>,
         mut commands: Commands
     | -> WorldResult<Table> {
-        let obj = ScriptObject::new(&runtime, None)?;
+        let obj = ScriptObject::new(runtime.vm(), None)?;
         let table = obj.object().clone();
 
         commands

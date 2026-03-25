@@ -16,13 +16,13 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use bevy::ecs::{component::Component, error::Result};
+use bevy::ecs::{component::Component, error::Result, system::EntityCommands};
 use obj_params::{ContentRefList, EdnaFunction, GameObjectData, ItemEdna};
 use realm_api::ObjectTemplate;
 use serde_json::Value;
 use toolkit::types::Uuid;
 
-use crate::plugins::{ContentCache, ContentCacheRef, ContentInfo, ItemAbilities, ItemAbilityRef, ItemEdnaAbilities, LoadContext, LoadableComponent, WeakCache};
+use crate::plugins::{ContentCache, ContentCacheRef, ContentInfo, ItemAbilities, ItemAbilityRef, ItemEdnaAbilities, LoadContext, LoadableComponent, Scripted, WeakCache};
 
 #[derive(Component)]
 pub struct Item;
@@ -57,7 +57,7 @@ impl LoadableComponent for Item {
         Ok(Item)
     }
 
-    fn load_dependencies(&mut self, _commands: &mut bevy::ecs::system::EntityCommands<'_>, context: &mut LoadContext<Self::ContextData>) -> Result<()> {
+    fn load_dependencies(&mut self, _commands: &mut EntityCommands<'_>, context: &mut LoadContext<Self::ContextData>) -> Result<()> {
         let (item, _) = context.data().as_ref().unwrap();
 
         let mut item_abilities = vec![];
@@ -89,7 +89,7 @@ impl LoadableComponent for Item {
         Ok(())
     }
 
-    fn post_load(&mut self, commands: &mut bevy::ecs::system::EntityCommands<'_>, data: Option<Self::ContextData>) -> Result<()> {
+    fn post_load(&mut self, commands: &mut EntityCommands<'_>, data: Option<Self::ContextData>) -> Result<()> {
         let (instance, template) = data.unwrap();
 
         commands
@@ -99,6 +99,7 @@ impl LoadableComponent for Item {
                     template,
                 },
                 instance.object,
+                Scripted,
             ));
 
         Ok(())

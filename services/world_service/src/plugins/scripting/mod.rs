@@ -18,11 +18,11 @@ mod script_objects;
 mod log;
 mod timers;
 mod world;
-mod static_object;
+mod scripted;
 
 pub use script_objects::*;
 pub use log::*;
 pub use param::*;
 pub use timers::*;
 pub use world::*;
-pub use static_object::*;
+pub use scripted::*;

@@ -18,10 +18,10 @@ use std::{sync::{LazyLock, RwLock}};
 use bevy::{ecs::{entity::Entity, lifecycle::HookContext, world::DeferredWorld}, platform::collections::HashMap, prelude::Component};
 use mlua::{FromLua, IntoLua, Lua, Table};
 
-use crate::{LuaRuntime, LuaTableExt, ScriptResult};
+use crate::{LuaTableExt, ScriptResult};
 
 #[derive(Component)]
-#[component(on_add = on_script_object_added)]
+#[component(on_insert = on_script_object_inserted)]
 #[component(on_remove = on_script_object_removed)]
 pub struct ScriptObject {
     pub(crate) lua: Lua,
@@ -29,18 +29,18 @@ pub struct ScriptObject {
 }
 
 impl ScriptObject {
-    pub fn new(runtime: &LuaRuntime, base: Option<Table>) -> ScriptResult<ScriptObject> {
-        let object = runtime.vm().create_table()?;
+    pub fn new(runtime: &Lua, base: Option<Table>) -> ScriptResult<ScriptObject> {
+        let object = runtime.create_table()?;
 
         if let Some(base) = base {
-            let meta = runtime.vm().create_table()?;
+            let meta = runtime.create_table()?;
             meta.set("__index", base.clone())?;
 
             object.set_metatable(Some(meta))?;
         }
 
         Ok(Self {
-            lua: runtime.vm().clone(),
+            lua: runtime.clone(),
             object,
         })
     }
@@ -53,7 +53,7 @@ static TABLE_MAP: LazyLock<RwLock<HashMap<Entity, Table>>> = LazyLock::new(|| {
     RwLock::new(HashMap::<Entity, Table>::new())
 });
 
-fn on_script_object_added(world: DeferredWorld<'_>, ctx: HookContext) {
+fn on_script_object_inserted(world: DeferredWorld<'_>, ctx: HookContext) {
     let script = world
         .entity(ctx.entity)
         .get::<ScriptObject>()

@@ -142,10 +142,6 @@ pub(super) fn sync_quest_markers(
 pub(super) fn handle_quest_request(
     In((ent, pkt)): In<(Entity, oaPktQuestRequest)>,
     players: Query<(&QuestLog, &PlayerController)>,
-    //quests: Res<QuestRegistry>,
-    //runtime: Res<LuaRuntime>,
-    //zone: Res<ZoneInstance>,
-    //beacon_query: Query<&GameObjectData>,
     mut commands: Commands,
 ) {
     debug!("Received quest request from player {}: {:?}", ent, pkt);

@@ -16,30 +16,31 @@
 mod loader;
 mod item_loader;
 mod loot;
+mod item_ability;
 
 pub use loader::*;
 pub use item_loader::*;
 pub use loot::*;
+pub use item_ability::*;
 
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, message::MessageReader, query::Without, resource::Resource, schedule::IntoScheduleConfigs, system::ResMut, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
+use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, message::MessageReader, query::Without, resource::Resource, schedule::IntoScheduleConfigs, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all};
 use log::{debug, error, warn};
 use mlua::{Lua, Table};
-use obj_params::{Class, GameObjectData, GenericParamSet, ItemBase, ItemEdna, ParamWriter, Player, tags::{ItemBaseTag, PlayerTag}};
+use obj_params::{Class, GameObjectData, GenericParamSet, ItemBase, ParamWriter, Player, tags::{ItemBaseTag, PlayerTag}};
 use protocol::{oaPktItemStorage, oaPktShopCartBuyRequest, oaPktSteamMicroTxn, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
-use realm_api::{Condition, Item, ItemRef, ObjectTemplate, Price, RealmApi};
+use realm_api::{Condition, ItemRef, ObjectTemplate, Price, RealmApi};
 use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptObject, ScriptResult};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, ItemAbilities, Movement, QuestState, QuestStateUpdated, Quests, StaticObject, WeakCache, player_error_handler_system}};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, Movement, QuestState, QuestStateUpdated, Quests, WeakCache, player_error_handler_system}};
 
-use super::{attach_scripts, BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, MessageType, NetworkExtPriv, PlayerController, StringBehavior};
+use super::{BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, MessageType, NetworkExtPriv, PlayerController, StringBehavior};
 
 #[derive(Default)]
 pub struct EquipmentResult {
@@ -70,7 +71,7 @@ pub struct StorageResult {
     storage_id: Uuid,
     bling: Option<i32>,
     game_cash: Option<i32>,
-    changed_items: Option<Vec<(Item, Arc<ObjectTemplate>, Vec<StaticObject>)>>,
+    changed_items: Option<Vec<(realm_api::Item, Arc<ObjectTemplate>)>>,
     removed_items: Option<Vec<Uuid>>,
     error: Option<(String, Option<NativeParam>)>,
 }
@@ -89,20 +90,7 @@ impl StorageResult {
                 join_all(changed_items.into_iter()
                     .map(|item| async {
                         if let Some(base_item) = ContentCache::get(&ContentCacheRef::Uuid(item.template_id)).await? {
-                            let mut ability_cache = vec![];
-                            
-                            if 
-                                let Ok(abilities) = base_item.data.get::<_, Value>(ItemEdna::Abilities) &&
-                                let Ok(abilities) = serde_json::from_value::<ItemEdnaAbilities>(abilities.to_owned())
-                            {
-                                for ability in abilities.0 {
-                                    if let Some(ability) = ContentCache::get(&ContentCacheRef::Name(ability.ability_name.clone())).await? {
-                                        ability_cache.push(StaticObject(ability));
-                                    }
-                                }
-                            }
-
-                            Ok((item, base_item, ability_cache))
+                            Ok((item, base_item))
                         } else {
                             Err(BevyError::from(anyhow!("Failed to load item template {}", item.template_id)))
                         }
@@ -149,7 +137,7 @@ impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<StorageRegistry>();
 
-        app.add_systems(PreUpdate, insert_item_info.after(attach_scripts));
+        app.add_systems(PreUpdate, insert_item_info);
         app.add_systems(PostUpdate, prepare_load_player_inventory);
         app.add_systems(Update, (
             (
@@ -255,24 +243,6 @@ fn insert_inventory_api(
             }
 
             Ok(items)
-        })?)?;
-
-    inventory_api.set("GetItemAbilities", lua.create_bevy_function(world, 
-        |
-            In(item): In<LuaEntity>,
-            query: Query<&ItemAbilities>,
-            mut runtime: ResMut<LuaRuntime>,
-        | -> WorldResult<Table> {
-            let item_abilities = query.get(item.entity())
-                .map_err(|_| anyhow!("item not found"))?;
-
-            let abilities = runtime.vm().create_table_with_capacity(item_abilities.len(), 0)?;
-            
-            for ability in item_abilities.iter() {
-                abilities.push(ability.construct_lua_table(&mut runtime)?)?;
-            }
-
-            Ok(abilities)
         })?)?;
 
     inventory_api.set("BeginLoadInventory", lua.create_bevy_function(world, 
@@ -691,7 +661,7 @@ pub fn apply_storage_result(
         }
 
         if let Some(changed_items) = result.changed_items {
-            for (item, template, abilities) in changed_items {
+            for (item, template) in changed_items {
                 let mut instance = item.instance;
                 instance.set_parent(Some(template.clone()));
 
@@ -722,16 +692,18 @@ pub fn apply_storage_result(
                 {
                     item_data.bypass_change_detection().apply(instance.into_set().as_mut());
                 } else {
-                    let item_ent = commands.spawn((
-                        ContentInfo {
-                            placement_id: item.id,
-                            template,
-                        },
-                        instance,
-                        ItemAbilities(abilities),
-                        ChildOf(storage_ent),
-                    ))
-                    .id();
+                    let item_ent = commands
+                        .spawn(
+                            ChildOf(storage_ent),
+                        )
+                        .load_component::<Item>(ItemParameters {
+                            template_id: item.template_id,
+                            instance: ItemInstance { 
+                                id: item.id,
+                                object: instance,
+                            }
+                        })
+                        .id();
 
                     storage.items.insert(item.id, item_ent);
                 }

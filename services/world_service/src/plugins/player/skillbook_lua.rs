@@ -13,13 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::anyhow;
-use bevy::ecs::{system::{In, Query, ResMut}, world::World};
-use mlua::{Lua, Table};
+use bevy::ecs::{relationship::RelationshipTarget, system::{In, Query}, world::World};
+use mlua::Lua;
 use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptResult};
 use toolkit::types::Uuid;
 
-use crate::{error::WorldResult, plugins::Skillbook};
+use crate::{error::WorldResult, plugins::{Abilities, AbilityOf, AbilityType}};
 
 pub(super) fn insert_skillbook_api(
     world: &mut World,
@@ -32,18 +31,26 @@ pub(super) fn insert_skillbook_api(
     skillbook_api.set("GetSkill", lua.create_bevy_function(world, 
         |
             In((player, skill_id)): In<(LuaEntity, String)>,
-            query: Query<&Skillbook>,
-            mut runtime: ResMut<LuaRuntime>,
-        | -> WorldResult<Option<Table>> {
-            let skillbook = query.get(player.entity())
-                .map_err(|_| anyhow!("player not found"))?;
+            query: Query<&Abilities>,
+            abilities: Query<&AbilityOf>,
+        | -> WorldResult<Option<LuaEntity>> {
+            let Ok(skillbook) = query.get(player.entity()) else {
+                return Ok(None);
+            };
 
             let skill_id = skill_id.parse::<Uuid>()?;
 
-            skillbook.0.iter()
-                .find(|s| s.id == skill_id)
-                .map(|s| s.construct_lua_table(&mut runtime))
-                .transpose()
+            for ability_ent in skillbook.collection() {
+                if 
+                    let Ok(ability_of) = abilities.get(*ability_ent) &&
+                    let AbilityType::ClassSkill { id, .. } = ability_of.kind() &&
+                    *id == skill_id
+                {
+                    return Ok(Some(LuaEntity(*ability_ent)));
+                }
+            }
+
+            Ok(None)
         })?)?;
 
     Ok(())

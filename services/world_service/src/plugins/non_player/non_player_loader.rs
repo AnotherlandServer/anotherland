@@ -22,7 +22,7 @@ use obj_params::{Class, ContentRefList, GameObjectData, NpcOtherland};
 use realm_api::{ObjectPlacement, ObjectTemplate};
 use toolkit::types::{AvatarType, Uuid};
 
-use crate::plugins::{Active, Avatar, AvatarIdManager, ContentCache, ContentCacheRef, ContentInfo, CooldownGroups, Dialogue, DynamicInstance, Factions, FactionsParameters, Inventory, InventoryParameter, LoadContext, LoadableComponent, NpcAbilities, PlayerLocalSets, SpawnCallback, SpawnState, Speaker, VirtualComponent, WeakCache};
+use crate::plugins::{Active, Avatar, AvatarIdManager, ContentCache, ContentCacheRef, ContentInfo, CooldownGroups, Dialogue, DynamicInstance, Factions, FactionsParameters, Inventory, InventoryParameter, LoadContext, LoadableComponent, NpcAbilityLoader, PlayerLocalSets, Scripted, SpawnCallback, SpawnState, Speaker, VirtualComponent, WeakCache};
 
 #[derive(Component)]
 pub struct NonPlayerGameObjectLoader;
@@ -123,7 +123,7 @@ impl LoadableComponent for NonPlayerGameObjectLoader {
                     weapons,
                     items,
                 })
-                .load_dependency::<NpcAbilities>(abilities);
+                .load_dependency::<NpcAbilityLoader>(abilities);
 
             for dialog_id in dialogues {
                 let ent = commands
@@ -175,6 +175,7 @@ impl LoadableComponent for NonPlayerGameObjectLoader {
                     Active,
                     SpawnState::default(),
                     PlayerLocalSets::default(),
+                    Scripted,
                 ));
 
                 if class == Class::NpcOtherland {

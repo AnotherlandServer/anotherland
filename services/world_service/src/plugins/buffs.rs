@@ -16,7 +16,7 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, entity::Entity, error::Result, message::MessageReader, query::{Added, Changed, With, Without}, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, time::{Real, Stopwatch, Time, Virtual}};
+use bevy::{app::{App, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, entity::Entity, error::Result, message::MessageReader, query::{Added, Changed, With, Without}, system::{Commands, In, Query, Res}, world::World}, time::{Real, Stopwatch, Time, Virtual}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::{debug, warn};
 use mlua::Lua;
@@ -26,9 +26,9 @@ use realm_api::ObjectTemplate;
 use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptObject, ScriptResult};
 use toolkit::types::Uuid;
 
-use crate::{error::WorldResult, plugins::{AsyncOperationEntityCommandsExt, CombatEvent, CombatEventType, ContentCache, ContentCacheRef, Interruption, Kind, WeakCache, player_error_handler_system}};
+use crate::{error::WorldResult, plugins::{AsyncOperationEntityCommandsExt, CombatEvent, CombatEventType, ContentCache, ContentCacheRef, Interruption, Kind, Scripted, WeakCache, player_error_handler_system}};
 
-use super::{attach_scripts, Avatar, ContentInfo, Interests, PlayerController};
+use super::{Avatar, ContentInfo, Interests, PlayerController};
 
 pub struct BuffsPlugin;
 
@@ -36,7 +36,7 @@ impl Plugin for BuffsPlugin {
     fn build(&self, app: &mut App) {
         insert_buff_api(app.world_mut()).unwrap();
 
-        app.add_systems(PreUpdate, insert_buff_info.after(attach_scripts));
+        app.add_systems(PreUpdate, insert_buff_info);
         app.add_systems(PostUpdate, send_buff_update);
         app.add_systems(Update, (tick_buffs, interrupt_buffs, process_combat_events));
         app.add_systems(PostUpdate, remove_buffs);
@@ -85,7 +85,7 @@ pub fn insert_buff_api(
                     instance_id,
                     duration,
                     delay,
-                    stacks,
+                    stacks
                 ))
             })
             .on_finish_run_system(insert_buff)
@@ -240,6 +240,7 @@ fn insert_buff(
                     template,
                 },
                 Buffing(ent),
+                Scripted,
             ));
     } else {
         warn!("Buff template not found for entity {ent:?}");

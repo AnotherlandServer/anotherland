@@ -13,24 +13,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::ops::Deref;
+use std::sync::Arc;
 
 use anyhow::anyhow;
-use bevy::ecs::component::Component;
-use obj_params::ContentRef;
+use bevy::ecs::{component::Component, error::Result, system::EntityCommands};
+use obj_params::{ContentRef, GameObjectData};
+use realm_api::ObjectTemplate;
+use toolkit::types::UUID_NIL;
 
-use crate::plugins::{ContentCache, ContentCacheRef, LoadContext, LoadableComponent, StaticObject, WeakCache};
+use crate::plugins::{AbilityOf, AbilityType, ContentCache, ContentCacheRef, ContentInfo, LoadContext, LoadableComponent, Scripted, VirtualComponent, WeakCache};
 
 #[derive(Component)]
-pub struct ItemAbilities(pub Vec<StaticObject>);
+pub struct ItemAbilities;
 
-impl Deref for ItemAbilities {
-    type Target = Vec<StaticObject>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+impl VirtualComponent for ItemAbilities {}
 
 pub enum ItemAbilityRef {
     Name(String),
@@ -39,8 +35,9 @@ pub enum ItemAbilityRef {
 
 impl LoadableComponent for ItemAbilities {
     type Parameters = Vec<ItemAbilityRef>;
+    type ContextData = Vec<Arc<ObjectTemplate>>;
 
-    async fn load(parameters: Self::Parameters, _context: &mut LoadContext<Self::ContextData>) -> bevy::ecs::error::Result<Self> {
+    async fn load(parameters: Self::Parameters, context: &mut LoadContext<Self::ContextData>) -> Result<Self> {
         let mut abilities = vec![];
 
         for ability_ref in parameters {
@@ -56,9 +53,32 @@ impl LoadableComponent for ItemAbilities {
                     content_ref
                 ))?;
 
-            abilities.push(StaticObject(ability));
+            abilities.push(ability);
         }
 
-        Ok(ItemAbilities(abilities))
+        context.set_data(abilities);
+
+        Ok(Self)
+    }
+
+    fn post_load(&mut self, commands: &mut EntityCommands<'_>, mut data: Option<Self::ContextData>) -> Result<()> {
+        let abilities = data.take().unwrap_or_default();
+        let ent = commands.id();
+
+        for template in abilities {
+            commands
+                .commands()
+                .spawn((
+                    AbilityOf::new(ent, AbilityType::ItemAbility),
+                    ContentInfo {
+                        placement_id: UUID_NIL,
+                        template: template.clone(),
+                    },
+                    GameObjectData::instantiate(template.clone()),
+                    Scripted,
+                ));
+        }
+
+        Ok(())
     }
 }

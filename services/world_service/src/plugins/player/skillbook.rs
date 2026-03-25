@@ -13,22 +13,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 
-use bevy::ecs::{component::Component, error::Result, query::Changed, system::Query};
+use bevy::ecs::{component::Component, entity::Entity, error::Result, query::Changed, system::{EntityCommands, Query}};
 use futures::future::join_all;
 use log::{debug, warn};
-use mlua::{FromLua, IntoLua, Table, UserData};
-use obj_params::{EdnaAbility, GameObjectData, Player};
+use obj_params::{GameObjectData, Player};
 use protocol::{oaAbilityDataPlayer, oaAbilityDataPlayerArray};
 use realm_api::{ObjectTemplate, RealmApi, State};
-use scripting::LuaRuntime;
 use toolkit::types::Uuid;
 
-use crate::{error::WorldResult, plugins::{CombatStyle, ContentCache, ContentCacheRef, LoadContext, LoadableComponent, ParamValue, WeakCache, load_class_script}};
+use crate::plugins::{AbilityOf, AbilityType, CombatStyle, ContentCache, ContentCacheRef, ContentInfo, LoadContext, LoadableComponent, Scripted, WeakCache};
 
 #[derive(Component)]
-pub struct Skillbook(pub(super) Vec<SkillbookEntry>);
+pub struct Skillbook(Vec<Skill>);
 
 impl Skillbook {
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -39,7 +37,7 @@ impl Skillbook {
                 .map(|s| oaAbilityDataPlayer {
                     version: 0,
                     id: s.id,
-                    content_id: s.ability.id,
+                    content_id: s.template_id,
                     group: s.group.clone(),
                     field_4: s.stance,
                 })
@@ -51,62 +49,11 @@ impl Skillbook {
 #[allow(unused)]
 pub struct Skill {
     pub id: Uuid,
-    pub ability: Arc<ObjectTemplate>,
+    pub template_id: Uuid,
     pub group: String,
     pub state: State,
     pub stance: i32,
-}
-
-#[derive(Clone)]
-pub struct SkillbookEntry(Arc<Skill>);
-
-impl UserData for SkillbookEntry {
-    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_method("Get", |lua, this, name: String| {
-            let val = this.ability.data.get_named::<obj_params::Value>(&name)
-                .map_err(mlua::Error::external)?;
-        
-            ParamValue::new(val.clone())
-                .into_lua(lua)
-       });
-    }
-}
-
-impl FromLua for SkillbookEntry {
-    fn from_lua(value: mlua::Value, _: &mlua::Lua) -> mlua::Result<Self> {
-        let usr = value.as_userdata().ok_or(mlua::Error::runtime("object expected"))?;
-        Ok(usr.borrow::<SkillbookEntry>()?.clone())
-    }
-}
-
-impl Deref for SkillbookEntry {
-    type Target = Skill;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl SkillbookEntry {
-    pub fn construct_lua_table(&self, runtime: &mut LuaRuntime) -> WorldResult<Table> {
-        let base = load_class_script(runtime, 
-            self.0.ability.class, 
-            self.0.ability.data.get::<_, String>(EdnaAbility::LuaScript).ok().map(|s| s.as_str()))?;
-
-        let metatable = runtime.vm().create_table()?;
-        metatable.set("__index", base)?;
-
-        let table = runtime.vm().create_table()?;
-        table.set_metatable(Some(metatable))?;
-        table.set("__skill", self.clone())?;
-
-        table.set("instance_guid", self.id.to_string())?;
-        table.set("template_guid", self.ability.id.to_string())?;
-        table.set("name", self.ability.name.clone())?;
-        table.set("class", self.ability.class.name().to_string())?;
-
-        Ok(table)
-    }
+    pub ability: Entity,
 }
 
 pub struct SkillbookParams {
@@ -117,8 +64,9 @@ pub struct SkillbookParams {
 
 impl LoadableComponent for Skillbook {
     type Parameters = SkillbookParams;
+    type ContextData = Vec<(Skill, Arc<ObjectTemplate>)>;
 
-    async fn load(Self::Parameters { character_id, level, combat_style }: Self::Parameters, _context: &mut LoadContext<<Self as LoadableComponent>::ContextData>) -> Result<Self> {
+    async fn load(Self::Parameters { character_id, level, combat_style }: Self::Parameters, context: &mut LoadContext<<Self as LoadableComponent>::ContextData>) -> Result<Self> {
         let mut skillbook = RealmApi::get()
             .get_or_create_skillbook(character_id).await?;
 
@@ -134,26 +82,64 @@ impl LoadableComponent for Skillbook {
 
         let _ = skillbook.unlock_all().await;
 
-        let skills = join_all(skillbook.skills.iter()
-            .map(async |s| {
-                if let Ok(Some(ability)) = ContentCache::get(&ContentCacheRef::Uuid(s.ability_id)).await {
-                    Some(SkillbookEntry(Arc::new(Skill {
-                        id: s.id,
-                        ability,
-                        group: s.group.clone(),
-                        state: s.state,
-                        stance: s.stance,
-                    })))
-                } else {
-                    None
-                }
-            })
-        ).await
-        .into_iter()
-        .flatten()
-        .collect();
+        let skills = 
+            join_all(skillbook.skills.iter()
+                .map(async |s| {
+                    if let Ok(Some(ability)) = ContentCache::get(&ContentCacheRef::Uuid(s.ability_id)).await {
+                        Some((
+                            Skill {
+                                id: s.id,
+                                template_id: s.ability_id,
+                                group: s.group.clone(),
+                                state: s.state,
+                                stance: s.stance,
+                                ability: Entity::PLACEHOLDER,
+                            },
+                            ability
+                        ))
+                    } else {
+                        None
+                    }
+                })
+            ).await
+            .into_iter()
+            .flatten()
+            .collect();
 
-        Ok(Self(skills))
+        context.set_data(skills);
+
+        Ok(Self(vec![]))
+    }
+
+    fn post_load(&mut self, commands: &mut EntityCommands<'_>, mut data: Option<Self::ContextData>) -> Result<()> {
+        let ent = commands.id();
+        let skills = data.take().unwrap_or_default();
+
+        for (mut skill, template) in skills {
+            skill.ability = commands
+                .commands()
+                .spawn((
+                    AbilityOf::new(
+                        ent, 
+                        AbilityType::ClassSkill { 
+                            id: skill.id, 
+                            group: skill.group.clone(), 
+                            state: skill.state, 
+                            stance: skill.stance 
+                        }),
+                    ContentInfo {
+                        placement_id: skill.id,
+                        template: template.clone(),
+                    },
+                    GameObjectData::instantiate(template.clone()),
+                    Scripted,
+                ))
+                .id();
+
+            self.0.push(skill);
+        }
+
+        Ok(())
     }
 }
 

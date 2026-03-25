@@ -18,6 +18,7 @@ mod non_player_loader;
 mod selector;
 mod interaction;
 mod npc_ai;
+mod npc_abilities;
 
 use std::time::Duration;
 
@@ -27,6 +28,7 @@ pub use zone_loader::*;
 pub use non_player_loader::*;
 pub use selector::*;
 pub use npc_ai::*;
+pub use npc_abilities::*;
 
 use crate::plugins::{BehaviorExt, non_player::interaction::{behavior_loot_scatter_container_interact, handle_interactions}, process_health_events};
 

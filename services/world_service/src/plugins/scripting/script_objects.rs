@@ -13,12 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PreUpdate, Update}, ecs::{component::Component, query::With, system::{In, Res}, world::World}, prelude::{Added, App, Commands, Entity, EntityWorldMut, Query, ResMut}};
+use bevy::{app::{Plugin, Update}, ecs::{component::Component, query::With, system::{In, Res}, world::World}, prelude::{App, Entity, EntityWorldMut, Query}};
 use convert_case::{Case, Casing};
 use log::{error, warn};
-use mlua::{Function, IntoLua, Lua, LuaSerdeExt, Table};
-use obj_params::{Class, GameObjectData, GenericParamSet, GenericParamSetBoxExt, NonClientBase};
-use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptApi, ScriptCommandsExt, ScriptObject, ScriptResult};
+use mlua::{Function, IntoLua, Lua, Table};
+use obj_params::{Class, GameObjectData, GenericParamSet, GenericParamSetBoxExt};
+use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptObject, ScriptResult};
 use anyhow::anyhow;
 
 use crate::{error::WorldResult, plugins::{Avatar, ContentInfo, PlayerLocalSets}};
@@ -29,7 +29,6 @@ pub struct ScriptObjectInfoPlugin;
 
 impl Plugin for ScriptObjectInfoPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreUpdate, attach_scripts);
         app.add_systems(Update, update_timers);
 
         insert_game_object_api(app.world_mut()).unwrap();
@@ -269,32 +268,7 @@ pub fn load_class_script(runtime: &mut LuaRuntime, class: Class, name: Option<&s
         .create_table()?)
 }
 
-pub fn attach_scripts(
-    added: Query<(Entity, &GameObjectData, Option<&SpawnCallback>), Added<GameObjectData>>,
-    mut runtime: ResMut<LuaRuntime>,
-    mut commands: Commands,
-) {
-    for (ent, obj, spawn_callback) in added.iter() {
-        match load_class_script(&mut runtime, obj.class(), obj.get::<_, String>(NonClientBase::LuaScript).ok().map(|s| s.as_str())) {
-            Ok(lua_class) => {
-                commands.entity(ent)
-                    .insert(ScriptObject::new(&runtime, Some(lua_class.clone())).unwrap())
-                    .queue(insert_object_info)
-                    .call_named_lua_method(ScriptApi::Attach, ());
-
-                if let Some(SpawnCallback(callback)) = spawn_callback {
-                    commands.call_lua_method(callback.clone(), (runtime.vm().null(), lua_class));
-                    commands.entity(ent).remove::<SpawnCallback>();
-                }
-            },
-            Err(e) => {
-                error!("Failed to load script: {e}");
-            },
-        }
-    }
-}
-
-fn insert_object_info(entity: EntityWorldMut<'_>) {
+pub fn insert_object_info(entity: EntityWorldMut<'_>) {
     let script = entity.get::<ScriptObject>().unwrap();
     let object = entity.get::<GameObjectData>().unwrap();
     let content_info = entity.get::<ContentInfo>();

@@ -13,13 +13,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-mod item_ability;
-mod npc_abilities;
 mod interrupt;
+mod hierarchy;
+mod lua;
 
-pub use item_ability::*;
-pub use npc_abilities::*;
 pub use interrupt::*;
+pub use hierarchy::*;
+pub use lua::*;
 
 use std::{sync::Arc, time::{Duration, Instant}};
 

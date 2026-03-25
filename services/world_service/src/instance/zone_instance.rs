@@ -272,7 +272,7 @@ fn spawn_world_controller(
     for script_name in &controller_scripts {
         match runtime.load_class(script_name) {
             Ok(lua_class) => {
-                let obj = ScriptObject::new(&runtime, Some(lua_class)).unwrap();
+                let obj = ScriptObject::new(runtime.vm(), Some(lua_class)).unwrap();
 
                 let world = runtime.vm().create_table().unwrap();
                 world.set("id", *instance.world_def.id()).unwrap();

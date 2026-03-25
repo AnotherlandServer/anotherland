@@ -22,7 +22,7 @@ use protocol::{AbilityBarReference, CPktAvatarUpdate, CPktBlob, CPktServerNotify
 use realm_api::{Character, RealmApi};
 use toolkit::{OtherlandQuatExt, types::Uuid};
 
-use crate::{instance::ZoneInstance, plugins::{Avatar, CombatStyle, ComponentLoaderCommandsTrait, ContentInfo, CooldownGroups, Factions, FactionsParameters, LoadContext, LoadableComponent, Movement, Navmesh, PlayerController, QuestLog, Skillbook, SkillbookParams, VirtualComponent}, proto::TravelMode};
+use crate::{instance::ZoneInstance, plugins::{Avatar, CombatStyle, ComponentLoaderCommandsTrait, ContentInfo, CooldownGroups, Factions, FactionsParameters, LoadContext, LoadableComponent, Movement, Navmesh, PlayerController, QuestLog, Scripted, Skillbook, SkillbookParams, VirtualComponent}, proto::TravelMode};
 
 #[derive(Component)]
 pub struct InGame;
@@ -145,6 +145,7 @@ impl LoadableComponent for PlayerLoader {
                     character.take_data(),
                     cooldowns.create_cooldowns(),
                     movement,
+                    Scripted,
                 ));
             })
             .queue(Self::begin_loading_sequence)
