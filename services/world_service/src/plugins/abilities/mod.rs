@@ -16,26 +16,20 @@
 mod interrupt;
 mod hierarchy;
 mod lua;
+mod cooldown;
 
 pub use interrupt::*;
 pub use hierarchy::*;
 pub use lua::*;
+pub use cooldown::*;
 
-use std::{sync::Arc, time::{Duration, Instant}};
-
-use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{component::Component, message::{Message, MessageReader}, query::Changed, resource::Resource, system::{Commands, Res}, world::World}, platform::collections::HashMap, prelude::{Entity, In, Query}};
-use futures::TryStreamExt;
+use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{message::{Message, MessageReader}, system::{Commands, Res}}, prelude::{Entity, In, Query}};
 use mlua::{FromLua, Function, IntoLua, Lua, Table, Value};
-use obj_params::Class;
-use protocol::{oaPktAbilityRequest, oaPktCooldownUpdate, oaPktInteractionUpdate, CooldownEntry, CooldownUpdate, OaPktInteractionUpdateEventType, OaPktInteractionUpdateInteractionType};
-use realm_api::{ObjectTemplate, RealmApi};
-use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptResult};
-use toolkit::{types::{AvatarId, Uuid}, QuatWrapper};
-use anyhow::anyhow;
+use protocol::{oaPktAbilityRequest, oaPktInteractionUpdate, OaPktInteractionUpdateEventType, OaPktInteractionUpdateInteractionType};
+use scripting::{EntityScriptCommandsExt, LuaEntity, LuaRuntime};
+use toolkit::{types::AvatarId, QuatWrapper};
 
-use crate::{error::WorldResult, plugins::{ConnectionState, ContentCache, ContentCacheRef, WeakCache}};
-
-use super::{AvatarIdManager, Avatar, CurrentState, NetworkExtPriv, PlayerController};
+use super::{Avatar, AvatarIdManager, NetworkExtPriv, PlayerController};
 
 pub struct AbilitiesPlugin;
 
@@ -48,9 +42,9 @@ impl Plugin for AbilitiesPlugin {
         app.add_systems(PostUpdate, send_cooldown_updates);
         app.add_systems(Update, (send_interaction_events, process_interruptions, generate_combat_interrupt_events));
 
-        insert_cooldown_api(app.world_mut()).unwrap();
-        insert_ability_api(app.world_mut()).unwrap();
-        insert_interrupt_api(app.world_mut()).unwrap();
+        insert_cooldown_api(app);
+        insert_ability_api(app);
+        insert_interrupt_api(app);
     }
 }
 
@@ -152,151 +146,6 @@ pub struct InteractionEvent {
     pub interaction: Interaction,
 }
 
-
-enum CooldownState {
-    Ready,
-    Consumed,
-    Cooldown(Instant, Duration),
-}
-
-#[derive(Resource)]
-pub struct CooldownGroups(Vec<Arc<ObjectTemplate>>);
-
-impl CooldownGroups {
-    pub async fn load() -> WorldResult<Self> {
-        let mut groups = vec![];
-
-        let mut cursor = RealmApi::get()
-            .query_object_templates()
-            .class(Class::CooldownGroupExternal)
-            .query().await?;
-        
-        while let Some(cooldown) = cursor.try_next().await.unwrap() {
-            let cooldown = ContentCache::get(&ContentCacheRef::Uuid(cooldown.id)).await.unwrap().unwrap();
-
-            groups.push(cooldown);
-        }
-
-        Ok(Self(groups))
-    }
-
-    pub fn create_cooldowns(&self) -> Cooldowns {
-        Cooldowns(
-            self.0.iter()
-                .map(|group| (group.id, (group.clone(), CooldownState::Ready)))
-                .collect()
-        )
-    }
-}
-
-#[derive(Component)]
-pub struct Cooldowns(HashMap<Uuid, (Arc<ObjectTemplate>, CooldownState)>);
-
-#[allow(unused)]
-impl Cooldowns {
-    pub fn insert(&mut self, group: Arc<ObjectTemplate>) {
-        self.0.insert(group.id, (group, CooldownState::Ready));
-    }
-
-    #[allow(unused)]
-    pub fn is_ready(&self, group: Uuid) -> bool {
-        self.0.get(&group).map_or_else(|| false, |(_, state)| matches!(state, CooldownState::Ready))
-    }
-
-    pub fn update(&mut self) {
-        for (_, (_, state)) in self.0.iter_mut() {
-            if 
-                let CooldownState::Cooldown(start, duration) = state &&
-                start.elapsed() >= *duration
-            {
-                *state = CooldownState::Ready;
-            }
-        }
-    }
-
-    pub fn consume(&mut self, groups: &[Uuid]) -> bool {
-        self.update();
-
-        let states = self.0.iter_mut()
-            .filter(|(group, (_, state))| {
-                groups.contains(group) && matches!(state, CooldownState::Ready)
-            })
-            .collect::<Vec<_>>();
-        
-        if states.len() == groups.len() {
-            for (_, (_, state)) in states {
-                *state = CooldownState::Consumed;
-            }
-
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn emit(&mut self, groups: &[Uuid], duration: Duration) -> bool {
-        self.update();
-
-        let states = self.0.iter_mut()
-            .filter(|(group, (_, state))| {
-                groups.contains(group) && matches!(state, CooldownState::Consumed)
-            })
-            .collect::<Vec<_>>();
-        
-        if states.len() == groups.len() {
-            for (_, (_, state)) in states {
-                *state = CooldownState::Cooldown(Instant::now(), duration);
-            }
-
-            true
-        } else {
-            false
-        }
-    }
-}
-
-
-fn insert_cooldown_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let cooldown_api = lua.create_table().unwrap();
-    runtime.register_native("cooldown", cooldown_api.clone()).unwrap();
-
-    cooldown_api.set("Consume", lua.create_bevy_function(world, 
-        |
-            In((obj, groups)): In<(LuaEntity, Vec<String>)>,
-            mut query: Query<&mut Cooldowns>,
-        | -> WorldResult<bool> {
-            let mut cooldowns = query.get_mut(obj.entity())
-                .map_err(|_| anyhow!("object not found"))?;
-
-            let groups = groups.into_iter()
-                .map(|s| s.parse::<Uuid>())
-                .collect::<Result<Vec<_>, _>>()?;
-
-            Ok(cooldowns.consume(&groups))
-        })?)?;
-
-    cooldown_api.set("Emit", lua.create_bevy_function(world, 
-        |
-            In((obj, groups, duration)): In<(LuaEntity, Vec<String>, f32)>,
-            mut query: Query<&mut Cooldowns>,
-        | -> WorldResult<bool> {
-            let mut cooldowns = query.get_mut(obj.entity())
-                .map_err(|_| anyhow!("object not found"))?;
-
-            let groups = groups.into_iter()
-                .map(|s| s.parse::<Uuid>())
-                .collect::<Result<Vec<_>, _>>()?;
-
-            Ok(cooldowns.emit(&groups, Duration::from_secs_f32(duration)))
-        })?)?;
-
-    Ok(())
-}
-
 fn handle_ability_request(
     In((ent, pkt)): In<(Entity, oaPktAbilityRequest)>,
     runtime: Res<LuaRuntime>,
@@ -324,57 +173,6 @@ fn handle_ability_request(
     commands.entity(ent)
         .fire_lua_event("OnAbilityRequest", request);
 }
-
-fn send_cooldown_updates(
-    players: Query<(&PlayerController, &mut Cooldowns, &CurrentState), Changed<Cooldowns>>,
-) {
-    for (controller, cooldowns, state) in players.iter() {
-        if state.state < ConnectionState::PlayerLoaded {
-            continue;
-        }
-
-        controller.send_packet(oaPktCooldownUpdate {
-            avatar_id: controller.avatar_id(),
-            field_2: CooldownUpdate {
-                entry_count: cooldowns.0.len() as u32,
-                entries: cooldowns.0.iter().map(|(_, (cooldown, state))| {
-                    match state {
-                        CooldownState::Ready => {
-                            CooldownEntry {
-                                key: cooldown.numeric_id,
-                                field_1: true,
-                                total_duration: 0.0,
-                                remaining_duration: 0.0,
-                            }
-                        },
-                        CooldownState::Consumed => {
-                            CooldownEntry {
-                                key: cooldown.numeric_id,
-                                field_1: false,
-                                total_duration: -1.0,
-                                remaining_duration: -1.0,
-                            }
-                        },
-                        CooldownState::Cooldown(start, duration) => {
-                            let elapsed = start.elapsed().as_secs_f32();
-                            let remaining = duration.as_secs_f32() - elapsed;
-
-                            CooldownEntry {
-                                key: cooldown.numeric_id,
-                                field_1: false,
-                                total_duration: duration.as_secs_f32(),
-                                remaining_duration: remaining,
-                            }
-                        }
-                    }
-                })
-                .collect()
-            },
-            ..Default::default()
-        });
-    }
-}
-
 
 fn send_interaction_events(
     mut events: MessageReader<InteractionEvent>,

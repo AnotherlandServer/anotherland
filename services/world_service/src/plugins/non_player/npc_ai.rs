@@ -14,27 +14,21 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{ecs::{component::Component, entity::Entity, resource::Resource, system::{In, ResMut}, world::World}, platform::collections::HashMap};
+use bevy::{app::App, ecs::{component::Component, entity::Entity, resource::Resource, system::{In, ResMut}, world::World}, platform::collections::HashMap};
 use bonsai_bt::{Behavior, Event, Status, UpdateArgs, BT};
 use log::error;
-use mlua::{Lua, Table};
+use mlua::Table;
 use obj_params::GameObjectData;
-use scripting::{LuaEntity, LuaExt, LuaFunctionExt, LuaRuntime, ScriptObject, ScriptResult};
+use scripting::{LuaEntity, LuaFunctionExt, LuaRuntime, ScriptAppExt, ScriptObject};
 
 use crate::{error::{WorldError, WorldResult}, plugins::Active};
 
 #[derive(Resource, Default)]
 pub struct AiStates(pub HashMap<Entity, BT<Actions, HashMap<String, i32>>>);
 
-pub(super) fn insert_npc_ai_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let ai_api = lua.create_table().unwrap();
-    runtime.register_native("ai", ai_api.clone()).unwrap();
-
-    ai_api.set("InstallBehavior", lua.create_bevy_function(world, 
+pub(super) fn insert_npc_ai_api(app: &mut App) {
+    app
+        .add_lua_api("ai", "InstallBehavior",
         |
             In((obj, behavior)): In<(LuaEntity, Table)>,
             mut states: ResMut<AiStates>,
@@ -47,9 +41,8 @@ pub(super) fn insert_npc_ai_api(
                 ));
 
             Ok(())
-        })?)?;
-
-    ai_api.set("CancelBehavior", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("ai", "CancelBehavior",
         |
             In(obj): In<LuaEntity>,
             mut states: ResMut<AiStates>,
@@ -61,9 +54,7 @@ pub(super) fn insert_npc_ai_api(
             }
 
             Ok(())
-        })?)?;
-
-    Ok(())
+        });
 }
 
 pub(super) fn parse_lua_behavior(table: Table) -> WorldResult<Behavior<Actions>> {

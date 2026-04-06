@@ -32,6 +32,15 @@ pub struct QuestVisibility {
 
 impl QuestVisibility {
     pub fn is_visible(&self, log: &QuestLog) -> bool {
+        if 
+            self.visible_on_available.is_empty() &&
+            self.visible_on_complete.is_empty() &&
+            self.visible_on_finished.is_empty() &&
+            self.visible_on_in_progress.is_empty()
+        {
+            return true;
+        }
+
         for id in &self.visible_on_available {
             if log.available.contains(id) {
                 return true;
@@ -58,6 +67,13 @@ impl QuestVisibility {
 
         false
     }
+
+    pub fn is_mutually_visible(&self, visibility: &QuestVisibility) -> bool {
+        self.visible_on_available == visibility.visible_on_available &&
+        self.visible_on_complete == visibility.visible_on_complete &&
+        self.visible_on_finished == visibility.visible_on_finished &&
+        self.visible_on_in_progress == visibility.visible_on_in_progress
+    }
 }
 
 pub(super) fn init_quest_visibility(
@@ -76,14 +92,8 @@ pub(super) fn init_quest_visibility(
                 .unwrap_or(&vec![]).clone(),
         };
 
-        if !quest_visibility.visible_on_available.is_empty() ||
-            !quest_visibility.visible_on_complete.is_empty() ||
-            !quest_visibility.visible_on_finished.is_empty() ||
-            !quest_visibility.visible_on_in_progress.is_empty()
-        {
-            commands.entity(ent)
-                .insert(quest_visibility);
-        }
+        commands.entity(ent)
+            .insert(quest_visibility);
     }
 }
 

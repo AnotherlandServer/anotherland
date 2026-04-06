@@ -17,11 +17,11 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use bevy::ecs::{component::Component, error::Result, system::EntityCommands};
-use obj_params::{ContentRef, GameObjectData};
+use obj_params::{ContentRef, GameObjectData, ObjectInserter};
 use realm_api::ObjectTemplate;
 use toolkit::types::UUID_NIL;
 
-use crate::plugins::{AbilityOf, AbilityType, ContentCache, ContentCacheRef, ContentInfo, LoadContext, LoadableComponent, Scripted, VirtualComponent, WeakCache};
+use crate::plugins::{AbilityOf, AbilityType, ContentCache, ContentCacheRef, ContentInfo, InitializeObject, LoadContext, LoadableComponent, Scripted, VirtualComponent, WeakCache};
 
 #[derive(Component)]
 pub struct ItemAbilities;
@@ -73,10 +73,11 @@ impl LoadableComponent for ItemAbilities {
                     ContentInfo {
                         placement_id: UUID_NIL,
                         template: template.clone(),
-                    },
-                    GameObjectData::instantiate(template.clone()),
-                    Scripted,
-                ));
+                    }
+                ))
+                .insert_object(GameObjectData::instantiate(template.clone()))
+                .insert(Scripted)
+                .trigger(InitializeObject);
         }
 
         Ok(())

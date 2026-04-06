@@ -13,7 +13,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::ecs::{entity::Entity, message::Message};
+use bevy::ecs::{entity::Entity, event::EntityEvent};
 
-#[derive(Message)]
+#[derive(EntityEvent)]
+pub struct InitializeObject(pub Entity);
+
+#[derive(EntityEvent)]
+pub struct SpawnAvatar(pub Entity);
+
+#[derive(EntityEvent)]
 pub struct DespawnAvatar(pub Entity);
+
+#[derive(EntityEvent)]
+pub struct RemoveObject(pub Entity);

@@ -60,7 +60,9 @@ fn check_lifetime(
             let Ok(lifetime) = obj.get_named::<f32>("aliveTime") &&
             tracker.created.elapsed().as_secs_f32() > *lifetime
         {
-            commands.write_message(DespawnAvatar(entity));
+            commands
+                .entity(entity)
+                .trigger(DespawnAvatar);
         }
     }
 }

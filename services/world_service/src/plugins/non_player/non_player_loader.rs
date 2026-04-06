@@ -16,13 +16,14 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use bevy::ecs::{component::Component, entity::Entity, error::Result, hierarchy::ChildOf, system::EntityCommands, world::EntityWorldMut};
+use bevy::ecs::{component::Component, entity::Entity, error::Result, event::EntityEvent, hierarchy::ChildOf, observer::On, query::Has, system::{Commands, EntityCommands, Query}, world::{EntityRef, EntityWorldMut, World}};
+use log::debug;
 use mlua::Function;
-use obj_params::{Class, ContentRefList, GameObjectData, NpcOtherland};
+use obj_params::{Class, ContentRefList, GameObjectData, NpcOtherland, ObjectInserter, tags::NonClientBaseTag};
 use realm_api::{ObjectPlacement, ObjectTemplate};
 use toolkit::types::{AvatarType, Uuid};
 
-use crate::plugins::{Active, Avatar, AvatarIdManager, ContentCache, ContentCacheRef, ContentInfo, CooldownGroups, Dialogue, DynamicInstance, Factions, FactionsParameters, Inventory, InventoryParameter, LoadContext, LoadableComponent, NpcAbilityLoader, PlayerLocalSets, Scripted, SpawnCallback, SpawnState, Speaker, VirtualComponent, WeakCache};
+use crate::plugins::{Avatar, AvatarIdManager, ContentCache, ContentCacheRef, ContentInfo, Cooldowns, Dialogue, DynamicInstance, Factions, FactionsParameters, InitializeObject, Inventory, InventoryParameter, LoadContext, LoadableComponent, NpcAbilityLoader, PlayerLocalSets, Scripted, SpawnAvatar, SpawnCallback, SpawnState, Speaker, VirtualComponent, WeakCache};
 
 #[derive(Component)]
 pub struct NonPlayerGameObjectLoader;
@@ -110,20 +111,21 @@ impl LoadableComponent for NonPlayerGameObjectLoader {
         if object.class() == Class::NpcOtherland {
             let npc_ent = commands.id();
             let factions = object.get::<_, ContentRefList>(NpcOtherland::Faction)?.clone();
-            let weapons = object.get::<_, ContentRefList>(NpcOtherland::DefaultWeapon)?.clone();
-            let items = object.get::<_, ContentRefList>(NpcOtherland::DefaultItems)?.clone();
             let abilities = object.get::<_, ContentRefList>(NpcOtherland::Abilities)?.clone();
             let dialogues = object.get::<_, Vec<i32>>(NpcOtherland::Dialogs)?.clone();
+            let weapons = object.get::<_, ContentRefList>(NpcOtherland::DefaultWeapon)?.clone();
+            let items = object.get::<_, ContentRefList>(NpcOtherland::DefaultItems)?.clone();
 
             context
                 .load_dependency::<Factions>(FactionsParameters {
                     factions,
                 })
+                .load_dependency::<NpcAbilityLoader>(abilities)
+                .load_dependency::<Cooldowns>(())
                 .load_dependency::<Inventory>(InventoryParameter::Static {
                     weapons,
                     items,
-                })
-                .load_dependency::<NpcAbilityLoader>(abilities);
+                });
 
             for dialog_id in dialogues {
                 let ent = commands
@@ -144,8 +146,12 @@ impl LoadableComponent for NonPlayerGameObjectLoader {
         let placement = data.take().unwrap();
         let owner = placement.owner;
         let is_dynamic = placement.is_dynamic;
-        let class = placement.object.class();
         let callback = placement.callback.clone();
+
+        if let Some(owner) = owner {
+            commands
+                .insert(ChildOf(owner));
+        }
 
         commands
             .queue(move |mut entity: EntityWorldMut<'_>| {
@@ -158,48 +164,57 @@ impl LoadableComponent for NonPlayerGameObjectLoader {
                 let name = placement.name;
                 let template = placement.template.clone();
 
-                entity.insert((
-                    Avatar {
-                        id,
-                        name,
-                    },
-                    ContentInfo {
-                        placement_id,
-                        template,
-                    },
-                    if placement.is_dynamic {
+                if let Some(callback) = callback {
+                    entity
+                        .insert(SpawnCallback(callback));
+                }
+
+                if is_dynamic {
+                    entity
+                        .insert(DynamicInstance);
+                }
+
+                debug!("Loading non-player object {} with id {}", name, id);
+
+                entity
+                    .insert((
+                        Avatar {
+                            id,
+                            name,
+                        },
+                        ContentInfo {
+                            placement_id,
+                            template,
+                        },
+                        SpawnState::default(),
+                        PlayerLocalSets::default(),
+                    ))
+                    .insert_object(if placement.is_dynamic {
                         placement.object
                     } else {
                         GameObjectData::instantiate(Arc::new(placement.object))
-                    },
-                    Active,
-                    SpawnState::default(),
-                    PlayerLocalSets::default(),
-                    Scripted,
-                ));
+                    })
+                    .insert(Scripted)
+                    .trigger(InitializeObject);
 
-                if class == Class::NpcOtherland {
-                    let cooldown_groups = entity.resource::<CooldownGroups>();
-
-                    entity.insert(cooldown_groups.create_cooldowns());
-                }
             });
-
-        if let Some(owner) = owner {
-            commands
-                .insert(ChildOf(owner));
-        }
-
-        if is_dynamic {
-            commands
-                .insert(DynamicInstance);
-        }
-
-        if let Some(callback) = callback {
-            commands
-                .insert(SpawnCallback(callback));
-        }
 
         Ok(())
     }
+}
+
+pub fn on_initialize_non_client(
+    event: On<InitializeObject>,
+    world: &World,
+    has_tag: Query<Has<NonClientBaseTag>>,
+    mut commands: Commands
+) {
+    if !has_tag.get(event.event_target()).unwrap_or(false) {
+        return;
+    }
+
+    let mut commands = commands.entity(event.event_target());
+
+    commands
+        .trigger(SpawnAvatar);
 }

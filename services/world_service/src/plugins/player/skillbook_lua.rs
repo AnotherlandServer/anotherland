@@ -13,22 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::ecs::{relationship::RelationshipTarget, system::{In, Query}, world::World};
-use mlua::Lua;
-use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptResult};
+use bevy::{app::App, ecs::{relationship::RelationshipTarget, system::{In, Query}}};
+use scripting::{LuaEntity, ScriptAppExt};
 use toolkit::types::Uuid;
 
 use crate::{error::WorldResult, plugins::{Abilities, AbilityOf, AbilityType}};
 
-pub(super) fn insert_skillbook_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let skillbook_api = lua.create_table().unwrap();
-    runtime.register_native("skillbook", skillbook_api.clone()).unwrap();
-
-    skillbook_api.set("GetSkill", lua.create_bevy_function(world, 
+pub(super) fn insert_skillbook_api(app: &mut App,) {
+    app
+        .add_lua_api("skillbook", "GetSkill",
         |
             In((player, skill_id)): In<(LuaEntity, String)>,
             query: Query<&Abilities>,
@@ -51,7 +44,5 @@ pub(super) fn insert_skillbook_api(
             }
 
             Ok(None)
-        })?)?;
-
-    Ok(())
+        });
 }

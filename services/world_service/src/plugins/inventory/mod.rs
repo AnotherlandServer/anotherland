@@ -26,19 +26,19 @@ pub use item_ability::*;
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, message::MessageReader, query::Without, resource::Resource, schedule::IntoScheduleConfigs, world::World}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
+use bevy::{app::{Last, Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, error::{BevyError, Result}, hierarchy::ChildOf, lifecycle::HookContext, message::MessageReader, query::Without, resource::Resource, schedule::IntoScheduleConfigs}, platform::collections::{HashMap, HashSet}, prelude::{Added, App, Changed, Commands, DetectChangesMut, Entity, In, Or, Query, Res, With}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use futures::{future::join_all};
 use log::{debug, error, warn};
-use mlua::{Lua, Table};
+use mlua::Table;
 use obj_params::{Class, GameObjectData, GenericParamSet, ItemBase, ParamWriter, Player, tags::{ItemBaseTag, PlayerTag}};
 use protocol::{oaPktItemStorage, oaPktShopCartBuyRequest, oaPktSteamMicroTxn, CPktItemNotify, CPktItemUpdate, ItemStorageParams, OaPktItemStorageUpdateType};
 use realm_api::{Condition, ItemRef, ObjectTemplate, Price, RealmApi};
-use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptObject, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity,  ScriptAppExt, ScriptObject};
 use serde::{Deserialize, Serialize};
 use toolkit::{types::Uuid, NativeParam};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, Movement, QuestState, QuestStateUpdated, Quests, WeakCache, player_error_handler_system}};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ComponentLoaderCommandsTrait, ContentCache, ContentCacheRef, InitialInventoryTransfer, Movement, QuestState, QuestStateUpdated, Quests, RecalculateAttributes, RemoveObject, WeakCache, player_error_handler_system}};
 
 use super::{BehaviorExt, CommandExtPriv, ConnectionState, ContentInfo, CurrentState, MessageType, NetworkExtPriv, PlayerController, StringBehavior};
 
@@ -172,22 +172,13 @@ impl Plugin for InventoryPlugin {
                 registry.0.remove(&storage_id);
             });
 
-        insert_inventory_api(app.world_mut()).unwrap();
+        insert_inventory_api(app);
     }
 }
 
-fn insert_inventory_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let inventory_api = lua.create_table().unwrap();
-    runtime.register_native("inventory", inventory_api.clone()).unwrap();
-
-    //inventory_api.set("AddItem", lua.create_bevy_function(world, lua_add_item)?)?;
-    //inventory_api.set("ApplyClassPreset", lua.create_bevy_function(world, lua_apply_class_preset)?)?;
-    //inventory_api.set("RemoveItem", lua.create_bevy_function(world, lua_remove_item)?)?;
-    inventory_api.set("GetItem", lua.create_bevy_function(world, 
+fn insert_inventory_api(app: &mut App) {
+    app
+        .add_lua_api("inventory", "GetItem",
         |
             In((player, item_id)): In<(LuaEntity, String)>,
             query: Query<&Inventory>,
@@ -202,9 +193,8 @@ fn insert_inventory_api(
             } else {
                 Ok(None)
             }
-        })?)?;
-
-    inventory_api.set("GetEquipment", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("inventory", "GetEquipment", 
         |
             In(player): In<LuaEntity>,
             query: Query<&Inventory>,
@@ -226,9 +216,8 @@ fn insert_inventory_api(
             }
 
             Ok(items)
-        })?)?;
-
-    inventory_api.set("GetItems", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("inventory", "GetItems",
         |
             In(player): In<LuaEntity>,
             query: Query<&Inventory>,
@@ -243,9 +232,8 @@ fn insert_inventory_api(
             }
 
             Ok(items)
-        })?)?;
-
-    inventory_api.set("BeginLoadInventory", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("inventory", "BeginLoadInventory",
         |
             In(player): In<LuaEntity>,
             query: Query<&PlayerController, Added<PlayerTag>>,
@@ -260,10 +248,8 @@ fn insert_inventory_api(
                 .load_component::<InitialInventoryTransfer>(character_id);
             
             Ok(())
-        })?)?;
-        
-    #[allow(clippy::type_complexity)]
-    inventory_api.set("DropItem", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("inventory", "DropItem",
                 |
             In((source, allow_avatar, _allow_party, item, quantity)): In<(LuaEntity, Option<LuaEntity>, Option<Table>, String, i32)>,
             player: Query<&Avatar>,
@@ -296,18 +282,15 @@ fn insert_inventory_api(
                 });
 
             Ok(())
-        })?)?;
-
-    inventory_api.set("DropSoma", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("inventory", "DropSoma",
                 |
             In((_allow_avatar, _allow_party, _item, _quantity)): In<(Option<Table>, Option<Table>, String, i32)>
         | -> WorldResult<()> {
 
 
             todo!()
-        })?)?;
-
-    Ok(())
+        });
 }
 
 #[allow(dead_code)]
@@ -613,7 +596,8 @@ pub fn apply_equipment_result(
         }
 
         commands.entity(instigator)
-            .fire_lua_event("OnEquipmentChanged", ());
+            .fire_lua_event("OnEquipmentChanged", ())
+            .trigger(RecalculateAttributes);
     }
 }
 
@@ -676,10 +660,10 @@ pub fn apply_storage_result(
                     {
                         controller.send_packet(CPktItemUpdate {
                             avatar_id: controller.avatar_id(),
-                            id: item.id,
-                            use_template: 1,
-                            template_id: Some(item.template_id),
-                            class_id: instance.class().id() as u32,
+                            instance_id: item.id,
+                            has_template: true,
+                            content_id: Some(item.template_id),
+                            class_id: instance.class().id() as i32,
                             params: data.clone(),
                             ..Default::default()
                         });
@@ -724,7 +708,9 @@ pub fn apply_storage_result(
                         }
                     }                    
                     
-                    commands.entity(item_ent).despawn();
+                    commands
+                        .entity(item_ent)
+                        .trigger(RemoveObject);
                 }
             }
         }
@@ -770,10 +756,10 @@ fn send_initial_items(
 
                     controller.send_packet(CPktItemUpdate {
                         avatar_id: controller.avatar_id(),
-                        id: content.placement_id,
-                        use_template: 1,
-                        template_id: Some(content.template.id),
-                        class_id: item.class().id() as u32,
+                        instance_id: content.placement_id,
+                        has_template: true,
+                        content_id: Some(content.template.id),
+                        class_id: item.class().id() as i32,
                         params: data,
                         ..Default::default()
                     });
@@ -814,10 +800,10 @@ fn send_item_updates(
             
             ctrl.send_packet(CPktItemUpdate {
                 avatar_id: ctrl.avatar_id(),
-                id: content.placement_id,
-                use_template: 1,
-                template_id: Some(content.template.id),
-                class_id: item.class().id() as u32,
+                instance_id: content.placement_id,
+                has_template: true,
+                content_id: Some(content.template.id),
+                class_id: item.class().id() as i32,
                 params,
                 ..Default::default()
             });

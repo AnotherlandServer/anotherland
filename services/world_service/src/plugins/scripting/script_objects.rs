@@ -13,15 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, Update}, ecs::{component::Component, query::With, system::{In, Res}, world::World}, prelude::{App, Entity, EntityWorldMut, Query}};
+use bevy::{app::{Last, Plugin, Update}, ecs::{component::Component, query::With, system::{In, Res}, world::World}, prelude::{App, Entity, EntityWorldMut, Query}};
 use convert_case::{Case, Casing};
 use log::{error, warn};
-use mlua::{Function, IntoLua, Lua, Table};
+use mlua::{Function, IntoLua, Table};
 use obj_params::{Class, GameObjectData, GenericParamSet, GenericParamSetBoxExt};
-use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptObject, ScriptResult};
+use scripting::{LuaEntity, LuaRuntime, ScriptAppExt, ScriptObject};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, plugins::{Avatar, ContentInfo, PlayerLocalSets}};
+use crate::{error::WorldResult, plugins::{Avatar, ContentInfo, DespawnEntity, PlayerLocalSets, handle_despawn_entity, on_init_script, on_remove_script}};
 
 use super::{create_log_table, insert_timer_api, insert_world_api, param::ParamValue, timers::update_timers};
 
@@ -30,41 +30,41 @@ pub struct ScriptObjectInfoPlugin;
 impl Plugin for ScriptObjectInfoPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, update_timers);
+        app.add_systems(Last, handle_despawn_entity);
 
-        insert_game_object_api(app.world_mut()).unwrap();
+        app.add_message::<DespawnEntity>();
+
+        insert_game_object_api(app);
         insert_log_api(app.world_mut()).unwrap();
-        insert_timer_api(app.world_mut()).unwrap();
-        insert_world_api(app.world_mut()).unwrap();
+        insert_timer_api(app);
+        insert_world_api(app);
+
+        app.add_observer(on_init_script);
+        app.add_observer(on_remove_script);
     }
 }
 
 #[derive(Component)]
 pub struct SpawnCallback(pub Function);
 
-fn insert_game_object_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let object_api = lua.create_table().unwrap();
-    runtime.register_native("gameobject", object_api.clone()).unwrap();
-
-    object_api.set("IsValid", lua.create_bevy_function(world, |
-        In(object): In<LuaEntity>,
-        query: Query<Entity, With<GameObjectData>>,
-    | -> WorldResult<bool> {
-        Ok(
-            query
-                .contains(object.entity())
-        )
-    })?)?;
-
-    object_api.set("Get", lua.create_bevy_function(world, lua_gameobject_get)?)?;
-    object_api.set("Set", lua.create_bevy_function(world, lua_gameobject_set)?)?;
-    object_api.set("ForceSet", lua.create_bevy_function(world, lua_gameobject_force_set)?)?;
-    object_api.set("Reset", lua.create_bevy_function(world, lua_gameobject_reset)?)?;
-
-    object_api.set("GetPlayerLocal", lua.create_bevy_function(world, |
+fn insert_game_object_api(app: &mut App) {
+    app
+        .add_lua_api("gameobject", "IsValid", 
+        |
+            In(object): In<LuaEntity>,
+            query: Query<Entity, With<GameObjectData>>,
+        | -> WorldResult<bool> {
+            Ok(
+                query
+                    .contains(object.entity())
+            )
+        })
+        .add_lua_api("gameobject", "Get", lua_gameobject_get)
+        .add_lua_api("gameobject", "Set", lua_gameobject_set)
+        .add_lua_api("gameobject", "ForceSet", lua_gameobject_force_set)
+        .add_lua_api("gameobject", "Reset", lua_gameobject_reset)
+        .add_lua_api("gameobject", "GetPlayerLocal", 
+        |
             In((object, player, index)): In<(LuaEntity, LuaEntity, String)>,
             query: Query<(&GameObjectData, &PlayerLocalSets)>,
             runtime: Res<LuaRuntime>,
@@ -82,10 +82,9 @@ fn insert_game_object_api(
         
             Ok(ParamValue::new(val.clone())
                 .into_lua(runtime.vm())?)
-        })?
-    )?;
-
-    object_api.set("SetPlayerLocal", lua.create_bevy_function(world, |
+        })
+        .add_lua_api("gameobject", "SetPlayerLocal", 
+        |
             In((object, player, index, value)): In<(LuaEntity, LuaEntity, String, mlua::Value)>,
             mut query: Query<(&GameObjectData, &mut PlayerLocalSets)>,
             runtime: Res<LuaRuntime>,
@@ -107,10 +106,9 @@ fn insert_game_object_api(
             } else {
                 Ok(ParamValue::new(attr.default().clone()).into_lua(runtime.vm())?)
             }
-        })?
-    )?;
-
-    object_api.set("ResetPlayerLocal", lua.create_bevy_function(world, |
+        })
+        .add_lua_api("gameobject", "ResetPlayerLocal", 
+        |
             In((object, player, index,)): In<(LuaEntity, LuaEntity, String)>,
             mut query: Query<&mut PlayerLocalSets>,
             runtime: Res<LuaRuntime>,
@@ -127,10 +125,7 @@ fn insert_game_object_api(
             } else {
                 Ok(mlua::Value::Nil)
             }
-        })?
-    )?;
-
-    Ok(())
+        });
 }
 
 fn insert_log_api(
@@ -285,6 +280,7 @@ pub fn insert_object_info(entity: EntityWorldMut<'_>) {
     if let Some(content_info) = content_info {
         script.object().raw_set("placement_guid", content_info.placement_id.to_string()).unwrap();
         script.object().raw_set("template_guid", content_info.template.id.to_string()).unwrap();
+        script.object().raw_set("template_numeric_id", content_info.template.numeric_id).unwrap();
     }
 }
 

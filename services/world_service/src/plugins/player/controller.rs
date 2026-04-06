@@ -23,7 +23,7 @@ use realm_api::{RealmApi, SessionState};
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use toolkit::types::{AvatarId, Uuid};
 
-use crate::{error::WorldResult, instance::ZoneInstance, plugins::{ComponentLoaderCommandsTrait, CurrentState, DespawnAvatar, DynamicInstance, ForeignResource, MessageHandlers, MessageType, SpawnState, Travelling, WorldEvent, player::loader::{PlayerLoader, disconnect_player_error_handler}}, proto::{TravelMode, TravelRejectReason}};
+use crate::{error::WorldResult, instance::ZoneInstance, plugins::{ComponentLoaderCommandsTrait, CurrentState, DespawnAvatar, DynamicInstance, ForeignResource, MessageHandlers, MessageType, ScriptingEntityCommandsExt, SpawnState, Travelling, WorldEvent, player::loader::{PlayerLoader, disconnect_player_error_handler}}, proto::{TravelMode, TravelRejectReason}};
 
 #[derive(Component, Clone)]
 pub struct PlayerController {
@@ -246,14 +246,20 @@ pub fn cleanup_player_controllers(
 ) {
     while let Ok(ControllerRemoved(ent)) = removed.try_recv() {
         debug!("Controller disconnected. Despawn player character...");
-        commands.write_message(DespawnAvatar(ent));
+        commands
+            .entity(ent)
+            .trigger(DespawnAvatar)
+            .deferred_despawn();
     }
 
     for (ent, controller) in travelling.iter() {
         debug!("Committing travel of peer: {}", controller.id);
 
         let _ = controller.sender.send(WorldEvent::TravelCommited { controller: controller.id });
-        commands.write_message(DespawnAvatar(ent));
+        commands
+            .entity(ent)
+            .trigger(DespawnAvatar)
+            .deferred_despawn();
     }
 }
 

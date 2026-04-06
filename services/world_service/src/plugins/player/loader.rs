@@ -14,15 +14,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{ecs::{component::Component, error::{BevyError, Result}, query::With, system::EntityCommands, world::EntityWorldMut}, math::{Quat, Vec3}, time::{Time, Virtual}};
+use bevy::{ecs::{component::Component, entity::Entity, error::{BevyError, Result}, message::Message, query::With, system::EntityCommands, world::EntityWorldMut}, math::{Quat, Vec3}, time::{Time, Virtual}};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::{debug, error, warn};
-use obj_params::{ContentRefList, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamWriter, Player, Portal, tags::{PortalTag, SpawnNodeTag, StartingPointTag}};
-use protocol::{AbilityBarReference, CPktAvatarUpdate, CPktBlob, CPktServerNotify, MoveManagerInit, Physics, PhysicsState, oaAbilityBarReferences, oaPlayerClassData};
+use obj_params::{ContentRefList, GameObjectData, GenericParamSet, NonClientBase, ObjectInserter, ParamFlag, ParamWriter, Player, Portal, tags::{PortalTag, SpawnNodeTag, StartingPointTag}};
+use protocol::{AbilityBarReference, CPktAvatarUpdate, CPktBlob, CPktServerNotify, MoveManagerInit, Physics, PhysicsState, oaAbilityBarReferences};
 use realm_api::{Character, RealmApi};
 use toolkit::{OtherlandQuatExt, types::Uuid};
 
-use crate::{instance::ZoneInstance, plugins::{Avatar, CombatStyle, ComponentLoaderCommandsTrait, ContentInfo, CooldownGroups, Factions, FactionsParameters, LoadContext, LoadableComponent, Movement, Navmesh, PlayerController, QuestLog, Scripted, Skillbook, SkillbookParams, VirtualComponent}, proto::TravelMode};
+use crate::{instance::ZoneInstance, plugins::{Avatar, CombatStyle, ComponentLoaderCommandsTrait, ContentInfo, Cooldowns, Factions, FactionsParameters, InitializeObject, LoadContext, LoadableComponent, Movement, Navmesh, PlayerController, QuestLog, Scripted, Skillbook, SkillbookParams, VirtualComponent, player::stance::Stance}, proto::TravelMode};
 
 #[derive(Component)]
 pub struct InGame;
@@ -36,6 +36,9 @@ impl LoadContext<Character> {
         self.data().as_ref().unwrap().data()
     }
 }
+
+#[derive(Message)]
+pub struct TransmitAsyncPlayerData(pub Entity);
 
 #[derive(Component)]
 pub struct PlayerLoader;
@@ -104,7 +107,8 @@ impl LoadableComponent for PlayerLoader {
             })
             .load_dependency::<Factions>(FactionsParameters {
                 factions,
-            });
+            })
+            .load_dependency::<Cooldowns>(());
             
         Ok(())
     }
@@ -112,6 +116,7 @@ impl LoadableComponent for PlayerLoader {
     fn post_load(&mut self, commands: &mut EntityCommands<'_>, character: Option<Self::ContextData>) -> Result<()> {
         let mut character = character.unwrap();
         let id = *character.id();
+        let entity = commands.id();
 
         commands
             .queue(|mut entity: EntityWorldMut<'_>| {
@@ -119,8 +124,6 @@ impl LoadableComponent for PlayerLoader {
 
                 let controller: &PlayerController = entity.get::<PlayerController>()
                     .expect("PlayerController component missing");
-
-                let cooldowns = entity.resource::<CooldownGroups>();
 
                 let collision_extent: Vec3 = *character.data().get::<_, Vec3>(Player::CollisionExtent).unwrap();
 
@@ -137,19 +140,34 @@ impl LoadableComponent for PlayerLoader {
                     seconds: 0.0,
                 };
 
-                entity.insert((
-                    Avatar {
-                        id: controller.avatar_id(),
-                        name: character.name().to_owned(),
-                    },
-                    character.take_data(),
-                    cooldowns.create_cooldowns(),
-                    movement,
-                    Scripted,
-                ));
-            })
+                let combat_style = CombatStyle::from_id(*character.data().get(Player::CombatStyle).unwrap());
+                let stance = Stance::new(combat_style);
+                let id = controller.avatar_id();
+                let name = character.name().to_owned();
+
+                entity
+                    .insert_object(character.take_data())
+                    .insert((
+                        Avatar {
+                            id,
+                            name,
+                        },
+                        movement,
+                        stance,
+                        Scripted
+                    ));
+            });
+
+        commands
+            .commands()
+            .write_message(TransmitAsyncPlayerData(entity));
+    
+        commands
             .queue(Self::begin_loading_sequence)
             .load_component::<QuestLog>(id);
+
+        commands
+            .trigger(InitializeObject);
 
         Ok(())
     }
@@ -256,12 +274,6 @@ impl PlayerLoader {
 
             obj.set(Player::Pos, (0u32, pos + Vec3::new(0.0, collision_extent.y + 25.0, 0.0)));
         }
-        
-        // Update stance data
-        obj.set(Player::ClassData, oaPlayerClassData {
-            class_hash: 0x9D35021A,
-            ..Default::default()
-        }.to_bytes());
 
         // Insert skillbook
         {

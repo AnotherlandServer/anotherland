@@ -55,6 +55,8 @@ impl Plugin for NonPlayerPlugin {
 
         app.register_string_behavior(Class::LootScatterContainer, "interact", behavior_loot_scatter_container_interact);
 
-        insert_npc_ai_api(app.world_mut()).unwrap();
+        app.add_observer(on_initialize_non_client);
+
+        insert_npc_ai_api(app);
     }
 }

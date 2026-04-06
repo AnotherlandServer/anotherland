@@ -44,6 +44,7 @@ mod lifetime;
 mod non_player;
 mod content_cache;
 mod async_operation;
+mod attributes;
 
 pub use network::*;
 pub use loader::*;
@@ -76,3 +77,4 @@ pub use lifetime::*;
 pub use non_player::*;
 pub use content_cache::*;
 pub use async_operation::*;
+pub use attributes::*;

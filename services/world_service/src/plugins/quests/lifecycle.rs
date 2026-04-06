@@ -22,7 +22,7 @@ use protocol::{OaPktQuestEventEvent, QuestUpdateData, oaPktQuestEvent, oaPktQues
 use realm_api::{Condition, QuestCondition, QuestProgressionState, QuestRewards, RealmApi};
 use scripting::{LuaEntity, ScriptCommandsExt};
 
-use crate::plugins::{AbandonQuest, AcceptQuest, ActiveQuest, AsyncOperationEntityCommandsExt, AutoReturnQuest, EquipmentResult, Inventory, PlayerController, Quest, QuestLog, QuestProgress, QuestState, QuestStatePending, QuestStateUpdated, Quests, ReturnQuest, RunDeferredQuestDialogues, UpdateAvailableQuests, WeakCache, apply_equipment_result, player_error_handler_system, quests::cache::QuestTemplateCache};
+use crate::plugins::{AbandonQuest, AcceptQuest, ActiveQuest, AsyncOperationEntityCommandsExt, AutoReturnQuest, EquipmentResult, Inventory, PlayerController, Quest, QuestLog, QuestProgress, QuestState, QuestStatePending, QuestStateUpdated, Quests, ReturnQuest, RunDeferredQuestDialogues, ScriptingEntityCommandsExt, UpdateAvailableQuests, WeakCache, apply_equipment_result, player_error_handler_system, quests::cache::QuestTemplateCache};
 
 pub(super) fn quest_accepter(
     mut events: MessageReader<AcceptQuest>,
@@ -313,7 +313,7 @@ pub(super) fn handle_db_quest_update(
     {
         commands
             .entity(quest_ent)
-            .despawn();
+            .deferred_despawn();
 
         // Quest was removed from DB, but player had it in progress
         // Mark it as abandoned

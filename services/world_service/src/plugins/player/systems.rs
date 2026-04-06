@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{ecs::{message::MessageWriter, world::World}, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
+use bevy::{ecs::{event::EntityEvent, message::MessageWriter, observer::On, query::Has, world::World}, math::{Quat, Vec3}, prelude::{Added, Changed, Commands, Entity, In, Or, Query, Res, With}};
 use log::{debug, error, trace, warn};
 use mlua::Function;
 use obj_params::{AttributeInfo, GameObjectData, GenericParamSet, NonClientBase, ParamFlag, ParamSet, Player, Portal, Value, tags::PlayerTag};
@@ -22,7 +22,7 @@ use realm_api::{AbilitySlot, ObjectPlacement, RealmApi};
 use scripting::{EntityScriptCommandsExt, LuaEntity};
 use toolkit::{NativeParam, OtherlandQuatExt, types::Uuid};
 
-use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, HealthUpdateRequest, InitialInventoryTransfer, Inventory, MessageType, PlayerController, ServerAction, WeakCache, apply_equipment_result, player_error_handler_system}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, instance::ZoneInstance, plugins::{Active, AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, HealthUpdateRequest, InitialInventoryTransfer, InitializeObject, Inventory, MessageType, PlayerController, RecalculateAttributes, RemoveObject, ServerAction, WeakCache, apply_equipment_result, player_error_handler_system}, proto::TravelMode};
 
 #[allow(clippy::type_complexity)]
 pub fn spawn_player(
@@ -128,7 +128,7 @@ pub fn cmd_instant_kill(
     In((ent, _)): In<(Entity, Vec<NativeParam>)>,
     mut event: MessageWriter<HealthUpdateRequest>
 ) {
-    event.write(HealthUpdateRequest::kill(ent, None, None));
+    event.write(HealthUpdateRequest::kill(ent, HealthUpdateRequest::next_id(), None, None));
 }
 
 pub fn cmd_travel_to_portal(
@@ -257,4 +257,18 @@ pub fn travel_to_portal(
     } else {
         error!("Player not found!");
     }
+}
+
+pub fn on_initialize_player(
+    event: On<InitializeObject>,
+    has_tag: Query<Has<PlayerTag>>,
+    mut commands: Commands
+) {
+    if !has_tag.get(event.event_target()).unwrap_or(false) {
+        return;
+    }
+
+    commands
+        .entity(event.event_target())
+        .trigger(RecalculateAttributes);
 }

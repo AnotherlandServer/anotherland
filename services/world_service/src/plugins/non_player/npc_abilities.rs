@@ -17,11 +17,11 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use bevy::ecs::{component::Component, error::Result, system::EntityCommands};
-use obj_params::{ContentRefList, GameObjectData};
+use obj_params::{ContentRefList, GameObjectData, ObjectInserter};
 use realm_api::ObjectTemplate;
 use toolkit::types::UUID_NIL;
 
-use crate::plugins::{AbilityOf, AbilityType, ContentCache, ContentCacheRef, ContentInfo, LoadContext, LoadableComponent, Scripted, VirtualComponent, WeakCache};
+use crate::plugins::{AbilityOf, AbilityType, ContentCache, ContentCacheRef, ContentInfo, InitializeObject, LoadContext, LoadableComponent, Scripted, VirtualComponent, WeakCache};
 
 #[derive(Component)]
 pub struct NpcAbilityLoader;
@@ -68,10 +68,11 @@ impl LoadableComponent for NpcAbilityLoader {
                     ContentInfo {
                         placement_id: UUID_NIL,
                         template
-                    },
-                    ability_data,
-                    Scripted,
-                ));
+                    }
+                ))
+                .insert_object(ability_data)
+                .insert(Scripted)
+                .trigger(InitializeObject);
         }
 
         Ok(())

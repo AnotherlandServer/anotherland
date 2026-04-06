@@ -20,7 +20,7 @@ use realm_api::{ItemRef, RealmApi};
 use scripting::{EntityScriptCommandsExt, LuaEntity};
 use toolkit::types::{AvatarId, UUID_NIL, Uuid};
 
-use crate::{plugins::{AsyncOperationEntityCommandsExt, Avatar, Interaction, InteractionEvent, Inventory, StorageResult, StringBehavior, apply_storage_result, player_error_handler_system}};
+use crate::plugins::{AsyncOperationEntityCommandsExt, Avatar, Interaction, InteractionEvent, Inventory, RemoveObject, StorageResult, StringBehavior, apply_storage_result, player_error_handler_system};
 
 pub(super) fn handle_interactions(
     mut events: MessageReader<InteractionEvent>,
@@ -81,5 +81,5 @@ pub(super) fn behavior_loot_scatter_container_interact(
 
     commands
         .entity(target_ent)
-        .despawn();
+        .trigger(RemoveObject);
 }

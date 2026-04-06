@@ -15,13 +15,12 @@
 
 use std::time::Duration;
 
-use bevy::{app::{App, Plugin, PreUpdate}, ecs::{message::{Message, MessageReader, MessageWriter}, query::Added, schedule::IntoScheduleConfigs, system::{In, Res}, world::World}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
+use bevy::{app::{App, Plugin, PreUpdate}, ecs::{message::{Message, MessageReader, MessageWriter}, query::Added, schedule::IntoScheduleConfigs, system::{In, Res}}, platform::collections::HashMap, prelude::{Changed, Commands, Component, Entity, Or, Query, With, Without}, time::common_conditions::on_timer};
 use bitstream_io::{ByteWriter, LittleEndian};
 use log::debug;
-use mlua::Lua;
 use obj_params::{tags::{NonClientBaseTag, NpcOtherlandTag, PlayerTag}, GameObjectData, NonClientBase, ParamWriter};
 use protocol::{oaPktS2XConnectionState, CPktAvatarClientNotify, CPktAvatarUpdate, MoveManagerInit, Physics};
-use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity, ScriptAppExt};
 use toolkit::types::{AvatarId, UUID_NIL};
 use anyhow::anyhow;
 
@@ -52,19 +51,13 @@ impl Plugin for InterestsPlugin {
                     .run_if(on_timer(Duration::from_secs(1)))
             ));
 
-        insert_interests_api(app.world_mut()).unwrap();
+        insert_interests_api(app);
     }
 }
 
-fn insert_interests_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let skillbook_api = lua.create_table().unwrap();
-    runtime.register_native("interests", skillbook_api.clone()).unwrap();
-
-    skillbook_api.set("GetInterests", lua.create_bevy_function(world, 
+fn insert_interests_api(app: &mut App) {
+    app
+        .add_lua_api("interests", "GetInterests",
         |
             In(ent): In<LuaEntity>,
             query: Query<&Interests>,
@@ -79,9 +72,7 @@ fn insert_interests_api(
             }
 
             Ok(result)
-        })?)?;
-
-    Ok(())
+        });
 }
 
 
@@ -256,30 +247,41 @@ fn transmit_entities_to_players(
 #[allow(clippy::type_complexity)]
 fn update_interest_list(
     world_space: Res<WorldSpace>,
-    mut players: Query<(Entity, &GameObjectData, &Movement, &mut Interests, Option<&PlayerController>, Option<&QuestLog>), With<Interests>>,
-    potential_interests: Query<(&GameObjectData, Option<&QuestVisibility>, Option<&DebugPlayer>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
+    mut observer: Query<(Entity, &GameObjectData, &Movement, &mut Interests, Option<&QuestVisibility>, Option<&PlayerController>, Option<&QuestLog>), With<Interests>>,
+    candidates: Query<(&GameObjectData, Option<&QuestVisibility>, Option<&DebugPlayer>, Option<&QuestLog>), (With<Active>, Or<(With<PlayerTag>, With<NonClientBaseTag>)>)>,
     avatar_info: Query<&Avatar>,
     mut interest_added_message: MessageWriter<InterestAdded>,
     mut interest_removed_message: MessageWriter<InterestRemoved>,
 ) {
-    for (current_ent, current_obj, current_pos, mut interests, controller, quest_log) in players.iter_mut() {
-        let aware_range: f32 = *current_obj.get_named("AwareRange").unwrap();
+    for (observer_ent, observer_obj, observer_pos, mut interests, observer_visibility, observer_controller, observer_quest_log) in observer.iter_mut() {
+        let aware_range: f32 = *observer_obj.get_named("AwareRange").unwrap();
 
         let found_interests = world_space
-            .find_in_range(current_pos.position, aware_range)
+            .find_in_range(observer_pos.position, aware_range)
             .into_iter()
             .filter(|&ent| {
                 if
-                    ent != current_ent &&
-                    let Ok((interest_obj, quest_ent, debug)) = potential_interests.get(ent) &&
-                    (debug.is_none() || controller.is_some())
+                    ent != observer_ent &&
+                    let Ok((candidate_obj, candidate_visibility, candiate_debug, candidate_quest_log)) = candidates.get(ent) &&
+                    (candiate_debug.is_none() || observer_controller.is_some())
                 {
-                    if let Some(quest_log) = quest_log {
-                        !interest_obj.get::<_, bool>(NonClientBase::HiddenFromClients).unwrap_or(&false) &&
+                    if let Some(quest_log) = observer_quest_log {
+                        !candidate_obj.get::<_, bool>(NonClientBase::HiddenFromClients).unwrap_or(&false) &&
                         (
-                            *interest_obj.get::<_, bool>(NonClientBase::AlwaysVisibleToPlayers).unwrap_or(&false) ||
-                            (quest_ent.is_none() || quest_ent.unwrap().is_visible(quest_log))
+                            *candidate_obj.get::<_, bool>(NonClientBase::AlwaysVisibleToPlayers).unwrap_or(&false) ||
+                            (candidate_visibility.is_none() || candidate_visibility.unwrap().is_visible(quest_log))
                         )
+                    } else if
+                        let Some(quest_actor) = observer_visibility &&
+                        let Some(quest_ent) = candidate_visibility
+                    {
+                        quest_actor.is_mutually_visible(quest_ent)
+                    } else if 
+                        let Some(quest_actor) = observer_visibility &&
+                        let Some(candidate_log) = candidate_quest_log
+                    {
+                        quest_actor.is_visible(candidate_log) ||
+                        *observer_obj.get::<_, bool>(NonClientBase::AlwaysVisibleToPlayers).unwrap_or(&false)
                     } else {
                         true
                     }
@@ -297,20 +299,20 @@ fn update_interest_list(
                     InterestState::Initial
                 ));
 
-                interest_added_message.write(InterestAdded(current_ent, *ent));
+                interest_added_message.write(InterestAdded(observer_ent, *ent));
             }
         }
 
         // remove interests that are no longer in range
         for ent in interests.interests.keys().cloned().collect::<Vec<_>>() {
             if 
-                let Some(controller) = controller &&
-                !found_interests.contains(&ent)
+                !found_interests.contains(&ent) &&
+                let Some((avatar, state)) = interests.interests.remove(&ent)
             {
-                interest_removed_message.write(InterestRemoved(current_ent, ent));
+                interest_removed_message.write(InterestRemoved(observer_ent, ent));
 
                 if 
-                    let Some((avatar, state)) = interests.interests.remove(&ent) &&
+                    let Some(controller) = observer_controller &&
                     matches!(state, InterestState::Transmitted)
                 {
                     controller.send_packet(CPktAvatarClientNotify {

@@ -15,15 +15,16 @@
 
 use std::sync::Arc;
 
-use bevy::ecs::{component::Component, entity::Entity, error::Result, query::Changed, system::{EntityCommands, Query}};
+use bevy::ecs::{component::Component, entity::Entity, error::Result, message::MessageReader, query::{Changed, With}, relationship::RelationshipTarget, system::{EntityCommands, Query}};
+use bitstream_io::{ByteWriter, LittleEndian};
 use futures::future::join_all;
 use log::{debug, warn};
-use obj_params::{GameObjectData, Player};
-use protocol::{oaAbilityDataPlayer, oaAbilityDataPlayerArray};
+use obj_params::{GameObjectData, ObjectInserter, ParamWriter, Player, tags::EdnaAbilityTag};
+use protocol::{CPktSkillUpdate, oaAbilityDataPlayer, oaAbilityDataPlayerArray};
 use realm_api::{ObjectTemplate, RealmApi, State};
 use toolkit::types::Uuid;
 
-use crate::plugins::{AbilityOf, AbilityType, CombatStyle, ContentCache, ContentCacheRef, ContentInfo, LoadContext, LoadableComponent, Scripted, WeakCache};
+use crate::plugins::{Abilities, AbilityOf, AbilityType, Active, CombatStyle, ContentCache, ContentCacheRef, ContentInfo, InitializeObject, LoadContext, LoadableComponent, PlayerController, Scripted, WeakCache, player::loader::TransmitAsyncPlayerData};
 
 #[derive(Component)]
 pub struct Skillbook(Vec<Skill>);
@@ -39,7 +40,7 @@ impl Skillbook {
                     id: s.id,
                     content_id: s.template_id,
                     group: s.group.clone(),
-                    field_4: s.stance,
+                    stance: s.stance,
                 })
                 .collect(),
         }.to_bytes()
@@ -130,12 +131,13 @@ impl LoadableComponent for Skillbook {
                     ContentInfo {
                         placement_id: skill.id,
                         template: template.clone(),
-                    },
-                    GameObjectData::instantiate(template.clone()),
-                    Scripted,
+                    }
                 ))
+                .insert_object(GameObjectData::instantiate(template.clone()))
+                .insert(Scripted)
+                .trigger(InitializeObject)
                 .id();
-
+            
             self.0.push(skill);
         }
 
@@ -150,5 +152,74 @@ pub fn network_sync_skillbook(
         debug!("Updating skillbook");
 
         player.set(Player::CurrentClassSkills, skillbook.to_bytes());
+    }
+}
+
+pub fn network_sync_skill(
+    query: Query<(&AbilityOf, &ContentInfo, &GameObjectData), (Changed<GameObjectData>, With<EdnaAbilityTag>)>,
+    controllers: Query<&PlayerController, With<Active>>,
+) {
+    for (ability_of, content, obj) in query.iter() {
+        let Ok(ctrl) = controllers.get(ability_of.owner()) else {
+            continue;
+        };
+
+        debug!("Updating skill {}", content.placement_id);
+
+        let mut param_buffer = Vec::new();
+        let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
+
+        obj//.as_set()
+            //.client_params()
+            .write_to_client(&mut writer)
+            .expect("failed to serialize params");
+
+        ctrl.send_packet(CPktSkillUpdate {
+            avatar_id: ctrl.avatar_id(),
+            instance_id: content.placement_id,
+            class_id: obj.class().id() as i32,
+            has_template: true,
+            content_id: Some(content.template.id),
+            params: param_buffer,
+            ..Default::default()
+        });
+    }
+}
+
+pub fn initial_skill_sync(
+    mut messages: MessageReader<TransmitAsyncPlayerData>,
+    query: Query<(&ContentInfo, &GameObjectData), With<EdnaAbilityTag>>,
+    controllers: Query<(&Abilities, &PlayerController)>,
+) {
+    for TransmitAsyncPlayerData(entity) in messages.read() {
+        let Ok((abilities, controller)) = controllers.get(*entity) else {
+            continue;
+        };
+
+        debug!("Performing initial skill sync for player: {}", controller.character_id());
+
+        for ability in abilities.collection() {
+            let Ok((content, obj)) = query.get(*ability) else {
+                continue;
+            };
+
+            let mut param_buffer = Vec::new();
+            let mut writer = ByteWriter::endian(&mut param_buffer, LittleEndian);
+
+            obj//.as_set()
+                //.client_params()
+                .write_to_client(&mut writer)
+                .expect("failed to serialize params");
+
+            controller.send_packet(CPktSkillUpdate {
+                avatar_id: controller.avatar_id(),
+                instance_id: content.placement_id,
+                class_id: obj.class().id() as i32,
+                has_template: true,
+                content_id: Some(content.template.id),
+                params: param_buffer,
+                ..Default::default()
+            });
+        }
     }
 }

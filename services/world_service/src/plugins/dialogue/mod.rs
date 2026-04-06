@@ -22,12 +22,11 @@ use realm_api::{Choice, QuestProgressionState};
 pub use speaker::*;
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PostUpdate, PreStartup, Update}, ecs::{message::{Message, MessageReader}, relationship::RelationshipTarget}, prelude::{App, Commands, Entity, In, Query, Res, With, World}};
+use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{message::{Message, MessageReader}, relationship::RelationshipTarget}, prelude::{App, Commands, Entity, In, Query, Res, With}};
 use log::{debug, warn};
-use mlua::Lua;
 use obj_params::{GameObjectData, Player, tags::PlayerTag};
 use protocol::{CPktStream_166_2, DialogStructure, OaDialogQuestPrototypeMode, OaPktDialogListKind, oaDialogNode, oaDialogQuestPrototype, oaPktDialogChoice, oaPktDialogEnd, oaPktDialogList};
-use scripting::{LuaEntity, LuaExt, LuaRuntime};
+use scripting::{LuaEntity, ScriptAppExt};
 use toolkit::types::AvatarId;
 
 use crate::{error::WorldResult, plugins::{ActiveQuest, Avatar, InstanceManager, QuestLog, QuestProgress, ReturnQuest}};
@@ -38,7 +37,6 @@ pub struct DialoguePlugin;
 
 impl Plugin for DialoguePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreStartup, insert_dialogue_api);
         app.add_systems(Update, (run_dialogues, send_dialogue_end));
         app.add_systems(PostUpdate, run_deferred_quest_dialogues);
 
@@ -49,6 +47,9 @@ impl Plugin for DialoguePlugin {
         app.add_message::<RunDialogue>();
         app.add_message::<RunDeferredQuestDialogues>();
         app.add_message::<DialogueFinished>();
+
+        app
+            .add_lua_api("dialogue", "ShowTutorialMessage", lua_show_tutorial_message);
     }
 }
 
@@ -73,17 +74,6 @@ pub struct DialogueFinished {
 #[derive(Message)]
 pub struct RunDeferredQuestDialogues {
     pub player: Entity,
-}
-
-fn insert_dialogue_api(
-    world: &mut World,
-) {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let dialogue_api = lua.create_table().unwrap();
-    runtime.register_native("dialogue", dialogue_api.clone()).unwrap();
-
-    dialogue_api.set("ShowTutorialMessage", lua.create_bevy_function(world, lua_show_tutorial_message).unwrap()).unwrap();
 }
 
 fn lua_show_tutorial_message(

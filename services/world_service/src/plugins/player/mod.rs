@@ -23,6 +23,7 @@ mod controller;
 mod portalbook_lua;
 mod initial_inventory_transfer;
 mod bevariors;
+mod stance;
 
 use bevy::{app::{First, Last, Plugin, Update}, ecs::{entity::Entity, schedule::IntoScheduleConfigs, system::{In, Query}}, state::condition::in_state};
 pub use controller::*;
@@ -33,13 +34,14 @@ pub use skillbook::*;
 pub use initial_inventory_transfer::*;
 use toolkit::NativeParam;
 
-use crate::{instance::{InstanceShutdown, InstanceState}, plugins::{Avatar, BehaviorExt, CommandExtPriv, Movement, NetworkExtPriv, ServerAction, clear_obj_changes, player::bevariors::{behavior_flight_tube, behavior_loot_avatar}}};
+use crate::{instance::{InstanceShutdown, InstanceState}, plugins::{Avatar, BehaviorExt, CommandExtPriv, InitializeObject, Movement, NetworkExtPriv, ServerAction, clear_obj_changes, player::{bevariors::{behavior_flight_tube, behavior_loot_avatar}, loader::TransmitAsyncPlayerData, stance::sync_class_stance}}};
 
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut bevy::prelude::App) {
         app.add_message::<PlayerJoinRequested>();
+        app.add_message::<TransmitAsyncPlayerData>();
 
         app.add_systems(First, 
             (
@@ -51,7 +53,12 @@ impl Plugin for PlayerPlugin {
             )
         );
 
-        app.add_systems(Update, spawn_player);
+        app.add_systems(Update, (
+            spawn_player,
+            sync_class_stance,
+            network_sync_skill,
+            initial_skill_sync
+        ));
 
         app.add_systems(Last, (
             save_player_data.before(clear_obj_changes),
@@ -99,11 +106,10 @@ impl Plugin for PlayerPlugin {
         app.register_string_behavior(Class::Player, "FlightTube", behavior_flight_tube);
         app.register_binary_behavior(Class::Player, "lootavatar", behavior_loot_avatar);
 
-        skillbook_lua::insert_skillbook_api(app.world_mut())
-            .expect("failed to insert skillbook api");
-        player_lua::insert_player_api(app.world_mut())
-            .expect("failed to insert player api");
-        portalbook_lua::insert_portalbook_api(app.world_mut())
-            .expect("failed to insert portalbook api");
+        app.add_observer(on_initialize_player);
+
+        skillbook_lua::insert_skillbook_api(app);
+        player_lua::insert_player_api(app);
+        portalbook_lua::insert_portalbook_api(app);
     }
 }

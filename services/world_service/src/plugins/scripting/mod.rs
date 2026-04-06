@@ -19,6 +19,8 @@ mod log;
 mod timers;
 mod world;
 mod scripted;
+mod triggers;
+mod ext;
 
 pub use script_objects::*;
 pub use log::*;
@@ -26,3 +28,5 @@ pub use param::*;
 pub use timers::*;
 pub use world::*;
 pub use scripted::*;
+pub use triggers::*;
+pub use ext::*;

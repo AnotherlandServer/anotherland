@@ -16,17 +16,16 @@
 use std::{ops::Div, sync::Mutex};
 
 use anyhow::anyhow;
-use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{component::Component, entity::Entity, lifecycle::RemovedComponents, message::MessageReader, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}, world::World}, math::{Quat, Vec3, Vec3A, bounding::Aabb3d}, time::{Time, Virtual}};
+use bevy::{app::{App, Plugin, PostUpdate, Update}, ecs::{component::Component, entity::Entity, lifecycle::RemovedComponents, message::MessageReader, query::{Changed, With}, resource::Resource, schedule::IntoScheduleConfigs, system::{Commands, In, Query, Res}}, math::{Quat, Vec3, Vec3A, bounding::Aabb3d}, time::{Time, Virtual}};
 use bitstream_io::{ByteWrite, ByteWriter, LittleEndian};
 use futures::{TryStreamExt};
 use log::{debug, error};
-use mlua::Lua;
 use obj_params::{GameObjectData, tags::NonClientBaseTag};
 use protocol::{CPktAvatarBehaviors, NetworkVec3};
 use rand::RngCore;
 use realm_api::{RealmApi, WorldDef};
 use recastnavigation_rs::{detour::{DtBuf, DtNavMesh, DtNavMeshParams, DtNavMeshQuery, DtPolyRef, DtQueryFilter, DtTileRef}, detour_crowd::DtPathCorridor};
-use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptResult};
+use scripting::{LuaEntity, ScriptAppExt};
 use toolkit::{OtherlandQuatExt, Vec3Wrapper, bson};
 
 use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, InterestTransmitted, Interests, Movement, PlayerController}};
@@ -48,19 +47,13 @@ impl Plugin for NavigationPlugin {
             cleanup_targets,
         ));
 
-        insert_navigation_api(app.world_mut()).unwrap();
+        insert_navigation_api(app);
     }
 }
 
-fn insert_navigation_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let navigation_api = lua.create_table().unwrap();
-    runtime.register_native("navigation", navigation_api.clone()).unwrap();
-
-    navigation_api.set("MoveToPosition", lua.create_bevy_function(world, 
+fn insert_navigation_api(app: &mut App) {
+    app
+        .add_lua_api("navigation", "MoveToPosition",
         |
             In((obj, location, speed, callback)): In<(LuaEntity, Vec3Wrapper, f32, mlua::Function)>,
             nav_target: Query<Option<&NavTarget>>,
@@ -82,9 +75,8 @@ fn insert_navigation_api(
                 });
 
             Ok(())
-        })?)?;
-
-    navigation_api.set("CancelMovement", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("navigation", "CancelMovement",
         |
             In(obj): In<LuaEntity>,
             query: Query<&Movement, With<NavTarget>>,
@@ -106,17 +98,15 @@ fn insert_navigation_api(
             }
 
             Ok(())
-        })?)?;
-
-    navigation_api.set("GetFloorHeight", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("navigation", "GetFloorHeight",
         |
             In(pos): In<Vec3Wrapper>,
             navmesh: Res<Navmesh>,
         | -> WorldResult<Option<f32>> {
             Ok(navmesh.get_floor_height(pos.0))
-        })?)?;
-
-    navigation_api.set("GetRandomPointAroundCircle", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("navigation", "GetRandomPointAroundCircle",
         |
             In((pos, radius)): In<(Vec3Wrapper, f32)>,
             navmesh: Res<Navmesh>,
@@ -134,9 +124,7 @@ fn insert_navigation_api(
             })?;
 
             Ok(Some(Vec3Wrapper(Vec3::from_slice(&pos))))
-        })?)?;
-
-    Ok(())
+        });
 }
 
 struct SendDtNavMesh(DtNavMesh);

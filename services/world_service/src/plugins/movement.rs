@@ -13,16 +13,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bevy::{app::{Plugin, PostUpdate, PreUpdate, Update}, ecs::{component::Component, system::Res, world::World}, math::{Quat, Vec3}, prelude::{Added, App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
+use bevy::{app::{Plugin, PostUpdate, Update}, ecs::{component::Component, event::EntityEvent, observer::On, query::Has, system::Res}, math::{Quat, Vec3}, prelude::{App, Changed, Commands, Entity, In, Query, With}, time::{Real, Time, Virtual}};
 use log::{debug, error};
-use mlua::Lua;
-use obj_params::{tags::{NonClientBaseTag, PlayerTag}, Class, GameObjectData, NonClientBase, NpcOtherland, Player};
+use obj_params::{Class, GameObjectData, NonClientBase, NpcOtherland, Player, tags::{NonClientBaseTag, PlayerTag}};
 use protocol::{oaPktMoveManagerPosUpdate, oaPktMoveManagerStateChanged, Physics, PhysicsState};
-use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptResult};
+use scripting::{EntityScriptCommandsExt, LuaEntity, ScriptAppExt};
 use toolkit::{OtherlandQuatExt, QuatWrapper, Vec3Wrapper};
 use anyhow::anyhow;
 
-use crate::{error::WorldResult, plugins::{Interruption, Kind, Navmesh}};
+use crate::{error::WorldResult, plugins::{InitializeObject, Interruption, Kind, Navmesh}};
 
 use super::{Avatar, Interests, NetworkExtPriv, PlayerController};
 
@@ -30,26 +29,22 @@ pub struct MovementPlugin;
 
 impl Plugin for MovementPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreUpdate, setup_non_client_movement);
+        //app.add_systems(PreUpdate, setup_non_client_movement);
         app.add_systems(Update, extrapolate_player_positions);
         app.add_systems(PostUpdate, send_position_updates);
 
         app.register_message_handler(handle_move_manager_state_changed);
         app.register_message_handler(handle_move_manager_pos_update);
 
-        insert_movement_api(app.world_mut()).unwrap();
+        app.add_observer(setup_non_client_movement);
+
+        insert_movement_api(app);
     }
 }
 
-fn insert_movement_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let api = lua.create_table().unwrap();
-    runtime.register_native("movement", api.clone()).unwrap();
-
-    api.set("GetPosition", lua.create_bevy_function(world, 
+fn insert_movement_api(app: &mut App) {
+    app
+        .add_lua_api("movement", "GetPosition",
         |
             In(object): In<LuaEntity>,
             query: Query<&Movement>,
@@ -58,9 +53,8 @@ fn insert_movement_api(
                 .map_err(|_| anyhow!("object not found"))?;
             
             Ok(Vec3Wrapper(movement.position))
-        })?)?;
-
-    api.set("GetRotation", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("movement", "GetRotation",
         |
             In(object): In<LuaEntity>,
             query: Query<&Movement>,
@@ -69,9 +63,9 @@ fn insert_movement_api(
                 .map_err(|_| anyhow!("object not found"))?;
             
             Ok(QuatWrapper(movement.rotation))
-        })?)?;
-
-    api.set("GetVelocity", lua.create_bevy_function(world, |
+        })
+        .add_lua_api("movement", "GetVelocity",
+        |
             In(object): In<LuaEntity>,
             query: Query<&Movement>,
         | -> WorldResult<Vec3Wrapper> {
@@ -79,9 +73,9 @@ fn insert_movement_api(
                 .map_err(|_| anyhow!("object not found"))?;
             
             Ok(Vec3Wrapper(movement.velocity))
-        })?)?;
-
-    api.set("SetMoverKey", lua.create_bevy_function(world, |
+        })
+        .add_lua_api("movement", "SetMoverKey",
+        |
             In((object, mover_key)): In<(LuaEntity, u16)>,
             mut query: Query<&mut Movement>,
         | -> WorldResult<()> {
@@ -90,9 +84,9 @@ fn insert_movement_api(
             
             movement.mover_key = mover_key;
             Ok(())
-        })?)?;
-
-    api.set("SetMoverType", lua.create_bevy_function(world, |
+        })
+        .add_lua_api("movement", "SetMoverType",
+        |
             In((object, mover_type)): In<(LuaEntity, u8)>,
             mut query: Query<&mut Movement>,
         | -> WorldResult<()> {
@@ -101,9 +95,7 @@ fn insert_movement_api(
             
             movement.mover_type = mover_type;
             Ok(())
-        })?)?;  
-
-    Ok(())
+        });  
 }
 
 #[derive(Component)]
@@ -186,44 +178,54 @@ pub fn handle_move_manager_state_changed(
     }
 }
 
-pub fn setup_non_client_movement(
-    mut query: Query<(Entity, &mut GameObjectData), Added<NonClientBaseTag>>,
+fn setup_non_client_movement(
+    event: On<InitializeObject>,
+    has_tag: Query<Has<NonClientBaseTag>>,
+    mut query: Query<&mut GameObjectData>,
     res: Res<Time<Virtual>>,
     navmesh: Res<Navmesh>,
     mut commands: Commands,
 ) {
-    for (ent, mut obj) in query.iter_mut() {
-        let mut pos = *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap();
-        let collision_extent = *obj.get::<_, Vec3>(NonClientBase::CollisionExtent).unwrap();
-
-        if 
-            obj.class() == Class::NpcOtherland &&
-            obj.get::<_, f32>(NpcOtherland::MoveSpeed).copied().unwrap_or_default() > 0.0
-        {
-            pos.y = navmesh.get_floor_height(pos)
-                .unwrap_or_else(|| {
-                    error!("Failed to get floor height for NPC at position {pos}");
-                    pos.y
-                }) + collision_extent.y;
-            
-            obj.set(NonClientBase::Pos, pos);
-        }
-
-        let movement = Movement {
-            position: *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap(),
-            rotation: Quat::from_unit_vector(*obj.get::<_, Vec3>(NonClientBase::Rot).unwrap()),
-            velocity: Vec3::ZERO,
-            radius: collision_extent.x.max(collision_extent.z),
-            mode: PhysicsState::Walking,
-            mover_type: 1,
-            mover_replication_policy: 9,
-            version: 1,
-            seconds: res.elapsed_secs_f64(),
-            mover_key: 0,
-        };
-
-        commands.entity(ent).insert(movement);
+    if !has_tag.get(event.event_target()).unwrap_or(false) {
+        return;
     }
+
+    let Ok(mut obj) = query.get_mut(event.event_target()) else {
+        panic!("Expected GameObjectData for entity {:?} in setup_non_client_movement", event.event_target());
+    };
+
+    let mut pos = *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap();
+    let collision_extent = *obj.get::<_, Vec3>(NonClientBase::CollisionExtent).unwrap();
+
+    if 
+        obj.class() == Class::NpcOtherland &&
+        obj.get::<_, f32>(NpcOtherland::MoveSpeed).copied().unwrap_or_default() > 0.0
+    {
+        pos.y = navmesh.get_floor_height(pos)
+            .unwrap_or_else(|| {
+                error!("Failed to get floor height for NPC at position {pos}");
+                pos.y
+            }) + collision_extent.y;
+        
+        obj.set(NonClientBase::Pos, pos);
+    }
+
+    let movement = Movement {
+        position: *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap(),
+        rotation: Quat::from_unit_vector(*obj.get::<_, Vec3>(NonClientBase::Rot).unwrap()),
+        velocity: Vec3::ZERO,
+        radius: collision_extent.x.max(collision_extent.z),
+        mode: PhysicsState::Walking,
+        mover_type: 1,
+        mover_replication_policy: 9,
+        version: 1,
+        seconds: res.elapsed_secs_f64(),
+        mover_key: 0,
+    };
+
+    commands
+        .entity(event.event_target())
+        .insert(movement);
 }
 
 #[allow(clippy::type_complexity)]

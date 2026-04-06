@@ -16,11 +16,11 @@
 use std::str::FromStr;
 
 use anyhow::anyhow;
-use bevy::{ecs::{entity::Entity, hierarchy::ChildOf, message::{MessageReader, MessageWriter}, query::{Added, Changed, Or, With, Without}, system::{Commands, In, Query, Res}, world::World}, math::Vec3,time::{Time, Virtual}};
+use bevy::{app::App, ecs::{entity::Entity, event::EntityEvent, hierarchy::ChildOf, message::MessageWriter, observer::On, query::{Changed, Has, Or, With, Without}, system::{Commands, In, Query, Res}, world::EntityWorldMut}, math::Vec3, time::{Time, Virtual}};
 use log::debug;
-use mlua::{Function, Lua, Table};
-use obj_params::{Class, GameObjectData, NonClientBase, Player, tag_gameobject_entity, tags::{NpcBaseTag, NpcOtherlandTag, PlayerTag, StructureBaseTag}};
-use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
+use mlua::{Function, Table};
+use obj_params::{Class, GameObjectData, NonClientBase, Player, tags::{NonClientBaseTag, NpcBaseTag, NpcOtherlandTag, PlayerTag, StructureBaseTag}};
+use scripting::{EntityScriptCommandsExt, LuaEntity, LuaRuntime, LuaTableExt, ScriptAppExt};
 use toolkit::{NativeParam, types::{AvatarId,  Uuid}};
 
 use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, AvatarIdManager, ComponentLoaderCommandsTrait, ContentCacheRef, ContentInfo, DebugNpc, DebugPlayer, DespawnAvatar, DynamicInstance, ForceSyncPositionUpdate, HealthUpdateRequest, MessageType, Movement, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, ParamValue, PlayerController, RecalculateAttributes, RemoveObject, ScriptingEntityCommandsExt, SpawnAvatar, SpawnState}};
@@ -49,13 +49,15 @@ pub fn update_spawn_state(
                 let despawn_delay = *obj.get::<_, f32>(NonClientBase::DespawnDelay).unwrap();
 
                 if instant.elapsed().as_secs_f32() >= despawn_delay {
-                    commands.write_message(DespawnAvatar(ent));
+                    commands
+                        .entity(ent)
+                        .trigger(DespawnAvatar);
                 }
             },
             SpawnState::Despawned(instant) => {
-                let despawn_delay = *obj.get::<_, f32>(NonClientBase::DespawnDelay).unwrap();
+                let respawn_delay = *obj.get::<_, f32>(NonClientBase::RespawnDelay).unwrap();
 
-                if instant.elapsed().as_secs_f32() >= despawn_delay {
+                if instant.elapsed().as_secs_f32() >= respawn_delay {
                     debug!("Respawning entity {ent}");
 
                     let obj = GameObjectData::instantiate(obj.parent().unwrap());
@@ -63,35 +65,43 @@ pub fn update_spawn_state(
                     // This should be handled as event
                     movement.position = *obj.get::<_, Vec3>(NonClientBase::Pos).unwrap();
 
+                    health_events.write(HealthUpdateRequest::revive(ent, HealthUpdateRequest::next_id(), None, None, None));
                     state.mark_alive();
-                    health_events.write(HealthUpdateRequest::revive(ent, None, None, None));
                     commands.entity(ent)
                         .insert(obj)
-                        .insert(Active)
-                        .fire_lua_event("Spawned", ());
+                        .trigger(SpawnAvatar);
                 }
             },
         }
     }
 }
 
-#[allow(clippy::type_complexity)]
 pub fn spawn_init_entity(
-    mut entities: Query<(Entity, &mut GameObjectData), Or<(Added<NpcBaseTag>, Added<StructureBaseTag>)>>,
+    event: On<SpawnAvatar>,
+    has_tag: Query<Has<NonClientBaseTag>>,
+    mut entities: Query<&mut GameObjectData>,
     mut commands: Commands,
 ) {
-    for (ent, mut obj) in entities.iter_mut() {
-        let hp_mod = *obj.get_named::<f32>("HpMod").unwrap_or(&1.0);
-        let hp_max = *obj.get_named::<i32>("hpMax").unwrap();
-        let bonus_hp = *obj.get_named::<f32>("BonusHP").unwrap_or(&0.0);
-
-        obj.set_named("alive", true);
-        obj.set_named("hpMax", (hp_max as f32 * hp_mod + bonus_hp).round() as i32);
-        obj.set_named("hpCur", (hp_max as f32 * hp_mod + bonus_hp).round() as i32);
-
-        commands.entity(ent)
-                .fire_lua_event("Spawned", ());
+    if !has_tag.get(event.event_target()).unwrap_or(false) {
+        return;
     }
+
+    let Ok(mut obj) = entities.get_mut(event.event_target()) else {
+        return;
+    };
+
+    let hp_mod = obj.get_named::<f32>("HpMod").cloned().unwrap_or(1.0);
+    let hp_max = obj.get_named::<i32>("hpMax").cloned().unwrap_or(0);
+    let bonus_hp = obj.get_named::<f32>("BonusHP").cloned().unwrap_or(0.0);
+
+    obj.set_named("alive", true);
+    obj.set_named("hpMax", (hp_max as f32 * hp_mod + bonus_hp).round() as i32);
+    obj.set_named("hpCur", (hp_max as f32 * hp_mod + bonus_hp).round() as i32);
+
+    commands.entity(event.event_target())
+            .trigger(RecalculateAttributes)
+            .insert(Active)
+            .fire_lua_event("Spawned", ());
 }
 
 #[allow(clippy::type_complexity)]
@@ -161,71 +171,66 @@ pub(super) fn command_get_avatar_info(
 
 
 #[allow(clippy::type_complexity)]
-pub fn insert_loader_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let loader_api = lua.create_table().unwrap();
-    runtime.register_native("loader", loader_api.clone()).unwrap();
-
-    loader_api.set("RequestSpawnInstance", lua.create_bevy_function(world, |
+pub fn insert_loader_api(app: &mut App) {
+    app
+        .add_lua_api("loader", "RequestSpawnInstance",
+        |
         In((owner, class, template, name, params, callback)): In<(Option<LuaEntity>, String, String, String, Table, Option<Function>)>,
-        runtime: Res<LuaRuntime>,
-        mut commands: Commands
-    | -> WorldResult<()> {
-        let lua = runtime.vm().clone();
-        let class = Class::from_str(&class)?;
-        let mut instance = GameObjectData::new_for_class(class);
+            runtime: Res<LuaRuntime>,
+            mut commands: Commands
+        | -> WorldResult<()> {
+            let lua = runtime.vm().clone();
+            let class = Class::from_str(&class)?;
+            let mut instance = GameObjectData::new_for_class(class);
 
-        for pair in params.pairs::<String, mlua::Value>() {
-            let (key, value) = pair.map_err(WorldError::LuaError)?;
+            for pair in params.pairs::<String, mlua::Value>() {
+                let (key, value) = pair.map_err(WorldError::LuaError)?;
 
-            let attr = instance.class().get_attribute(&key)
-                .ok_or(mlua::Error::runtime("attribute not found"))
-                .map_err(WorldError::LuaError)?;
+                let attr = instance.class().get_attribute(&key)
+                    .ok_or(mlua::Error::runtime("attribute not found"))
+                    .map_err(WorldError::LuaError)?;
 
-            let value = ParamValue::from_lua(attr, value, &lua)
-                .map_err(WorldError::LuaError)?;
+                let value = ParamValue::from_lua(attr, value, &lua)
+                    .map_err(WorldError::LuaError)?;
 
-            instance.set_named(&key, value);
-        }
+                instance.set_named(&key, value);
+            }
 
-        commands
-            .spawn_empty()
-            .load_component_with_error_handler::<NonPlayerGameObjectLoader, _>(
-                NonPlayerGameObjectLoaderParams::Dynamic { 
-                    id: Uuid::new(), 
-                    owner: owner.map(LuaEntity::take), 
-                    name, 
-                    template: ContentCacheRef::Name(template), 
-                    data: instance, 
-                    callback: callback.clone(), 
-                }, 
-                move |e, commands| {
-                    if let Some(callback) = callback {
-                        commands
-                            .call_lua_method(callback, e.to_string());
-                    }
-                });
+            commands
+                .spawn_empty()
+                .load_component_with_error_handler::<NonPlayerGameObjectLoader, _>(
+                    NonPlayerGameObjectLoaderParams::Dynamic { 
+                        id: Uuid::new(), 
+                        owner: owner.map(LuaEntity::take), 
+                        name, 
+                        template: ContentCacheRef::Name(template), 
+                        data: instance, 
+                        callback: callback.clone(), 
+                    }, 
+                    move |e, commands| {
+                        if let Some(callback) = callback {
+                            commands
+                                .call_lua_method(callback, e.to_string());
+                        }
+                    });
 
-        Ok(())
-    })?)?;
+            Ok(())
+        })
+        .add_lua_api("loader", "DespawnAvatar",
+        |
+            In(ent): In<Table>,
+            mut commands: Commands,
+        | -> WorldResult<()> {
+            let Ok(entity) = ent.entity() else {
+                return Err(WorldError::Other(anyhow!("Invalid entity")));
+            };
 
-    loader_api.set("DespawnAvatar", lua.create_bevy_function(world, |
-        In(ent): In<Table>,
-        mut commands: Commands,
-    | -> WorldResult<()> {
-        let Ok(entity) = ent.entity() else {
-            return Err(WorldError::Other(anyhow!("Invalid entity")));
-        };
+            commands
+                .entity(entity)
+                .trigger(DespawnAvatar);
 
-        commands.write_message(DespawnAvatar(entity));
-
-        Ok(())
-    })?)?;
-
-    Ok(())
+            Ok(())
+        });
 }
 
 #[allow(clippy::type_complexity)]
@@ -235,27 +240,35 @@ pub(super) fn cleanup_dynamic_instances(
 ) {
     for (ent, state) in instances.iter() {
         if matches!(*state, SpawnState::Despawned(_)) {
-            commands.entity(ent).despawn();
+            commands.entity(ent).deferred_despawn();
         }
     }
 }
 
 pub(super) fn avatar_despawner(
-    mut events: MessageReader<DespawnAvatar>,
+    event: On<DespawnAvatar>,
     mut query: Query<&mut SpawnState>,
     mut commands: Commands,
 ) {
-    for DespawnAvatar(ent) in events.read() {
-        if 
-            let Ok(mut state) = query.get_mut(*ent) &&
-            !matches!(*state, SpawnState::Despawned(_))
-        {
-            debug!("Despawning entity {ent}");
+    if 
+        let Ok(mut state) = query.get_mut(event.event_target()) &&
+        !matches!(*state, SpawnState::Despawned(_))
+    {
+        debug!("Despawning entity {}", event.event_target());
 
-            state.mark_despawned();
-            commands.entity(*ent)
-                .fire_lua_event("Despawned", ())
-                .remove::<Active>();
-        }
+        state.mark_despawned();
+        commands.entity(event.event_target())
+            .fire_lua_event("Despawned", ())
+            .remove::<Active>();
     }
+}
+
+pub fn on_remove_object(
+    event: On<RemoveObject>,
+    mut commands: Commands,
+) {
+    commands
+        .entity(event.event_target())
+        .remove::<Active>()
+        .deferred_despawn();
 }

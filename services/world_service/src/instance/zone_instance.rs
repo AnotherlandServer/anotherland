@@ -26,7 +26,7 @@ use scripting::{LuaRuntime, LuaRuntimeBuilder, ScriptObject, ScriptingPlugin};
 use serde_json::Value;
 use toolkit::types::Uuid;
 
-use crate::{ARGS, error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, plugins::{AbilitiesPlugin, AsyncOperationCommandsExt, AsyncOperationPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, CooldownGroups, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LifetimePlugin, LoaderPlugin, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, NonPlayerPlugin, PartitioningPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin, WorldSpace}};
+use crate::{ARGS, error::{WorldError, WorldResult}, instance::InstanceLabel, manager::InstanceManager, plugins::{AbilitiesPlugin, AsyncOperationCommandsExt, AsyncOperationPlugin, AttributesPlugin, AvatarPlugin, BehaviorPlugin, BuffsPlugin, CashShopPlugin, ChatPlugin, ClientSyncPlugin, CombatPlugin, CombatStylesPlugin, CommandsPlugin, DialoguePlugin, FactionsPlugin, InterestsPlugin, InventoryPlugin, LifetimePlugin, LoaderPlugin, MovementPlugin, NavigationPlugin, Navmesh, NetworkPlugin, NonPlayerPlugin, PartitioningPlugin, PlayerController, PlayerPlugin, QuestsPlugin, ScriptObjectInfoPlugin, ServerActionPlugin, SocialPlugin, SpecialEventsPlugin, TravelPlugin, WorldSpace}};
 
 #[derive(ScheduleLabel, Hash, Debug, PartialEq, Eq, Clone, Copy)]
 pub struct InstanceShutdown;
@@ -232,13 +232,13 @@ impl ZoneInstanceBuilder {
             NonPlayerPlugin,
             PartitioningPlugin,
             LifetimePlugin,
+            AttributesPlugin,
         ));
 
         let navmesh = Navmesh::load(world_def.as_ref()).await?;
 
         app.insert_resource(WorldSpace::new(navmesh.bounds()));
         app.insert_resource(navmesh);
-        app.insert_resource(CooldownGroups::load().await?);
 
         app.add_systems(PreStartup, spawn_world_controller);
         app.add_systems(OnEnter(InstanceState::Initializing), start_instance);
@@ -272,7 +272,8 @@ fn spawn_world_controller(
     for script_name in &controller_scripts {
         match runtime.load_class(script_name) {
             Ok(lua_class) => {
-                let obj = ScriptObject::new(runtime.vm(), Some(lua_class)).unwrap();
+                let id = commands.spawn_empty().id();
+                let obj = ScriptObject::new(id, runtime.vm(), Some(lua_class)).unwrap();
 
                 let world = runtime.vm().create_table().unwrap();
                 world.set("id", *instance.world_def.id()).unwrap();
@@ -305,10 +306,12 @@ fn spawn_world_controller(
                 obj.object().set("zone", zone).unwrap();
                 obj.object().set("conf", cfg).unwrap();
 
-                let id = commands.spawn((
-                    WorldController, 
-                    obj
-                )).id();
+                commands
+                    .entity(id)
+                    .insert((
+                        WorldController, 
+                        obj
+                    ));
 
                 instance.world_controller = id;
                 break;

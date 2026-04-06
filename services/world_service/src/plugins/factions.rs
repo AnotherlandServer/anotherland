@@ -15,14 +15,13 @@
 
 use std::sync::{Arc, OnceLock};
 
-use bevy::{app::Plugin, ecs::{component::Component, error::Result, world::World}, platform::collections::HashMap, prelude::{App, Entity, In, Query}};
+use bevy::{app::Plugin, ecs::{component::Component, error::Result}, platform::collections::HashMap, prelude::{App, Entity, In, Query}};
 use futures::{TryStreamExt, future::join_all};
 use log::{debug, trace};
-use mlua::Lua;
 use obj_params::{Class, ContentRefList};
 use protocol::{oaPktFactionRequest, oaPktFactionResponse, FactionRelation, FactionRelationList};
 use realm_api::RealmApi;
-use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptResult};
+use scripting::{LuaEntity, ScriptAppExt};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{RwLock, RwLockWriteGuard};
@@ -222,7 +221,7 @@ impl Plugin for FactionsPlugin {
     fn build(&self, app: &mut App) {
         app.register_message_handler(handle_faction_request);
 
-        insert_faction_api(app.world_mut()).unwrap();
+        insert_faction_api(app);
     }
 }
 
@@ -254,27 +253,20 @@ fn handle_faction_request(
     }
 }
 
-pub fn insert_faction_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let object_api = lua.create_table().unwrap();
-    runtime.register_native("faction", object_api.clone()).unwrap();
-
-    object_api.set("EntityRelationship", lua.create_bevy_function(world,         |
-        In((a, b)): In<(LuaEntity, LuaEntity)>,
-        avatars: Query<&Factions>,
-    | -> WorldResult<i32> {
-        if 
-            let Ok(a) = avatars.get(a.entity()) &&
-            let Ok(b) = avatars.get(b.entity())
-        {
-            Ok(a.relation_to(b))
-        } else {
-            Err(anyhow!("entity not found").into())
-        }
-    })?)?;
-    
-    Ok(())
+pub fn insert_faction_api(app: &mut App) {
+    app
+        .add_lua_api("faction", "EntityRelationship", 
+        |
+            In((a, b)): In<(LuaEntity, LuaEntity)>,
+            avatars: Query<&Factions>,
+        | -> WorldResult<i32> {
+            if 
+                let Ok(a) = avatars.get(a.entity()) &&
+                let Ok(b) = avatars.get(b.entity())
+            {
+                Ok(a.relation_to(b))
+            } else {
+                Err(anyhow!("entity not found").into())
+            }
+        });
 }

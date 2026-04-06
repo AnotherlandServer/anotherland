@@ -90,8 +90,8 @@ impl Plugin for QuestsPlugin {
         app.register_message_handler(handle_quest_request);
         app.register_message_handler(handle_quest_action_request);
 
-        insert_questlog_api(app.world_mut()).unwrap();
-
+        insert_questlog_api(app);
+        
         app.add_systems(PostStartup, 
             move |
                 instance: Res<ZoneInstance>,

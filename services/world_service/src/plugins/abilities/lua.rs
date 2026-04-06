@@ -14,24 +14,18 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::ecs::{entity::Entity, query::With, relationship::RelationshipTarget, system::{Commands, In, Query}, world::World};
-use mlua::{Lua, Table};
+use bevy::{app::App, ecs::{entity::Entity, query::With, relationship::RelationshipTarget, system::{Commands, In, Query}}};
+use mlua::Table;
 use obj_params::Class;
 use protocol::{AbilityEffect, OaPktAbilityUseAbilityType, oaPktAbilityUse};
-use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptResult};
+use scripting::{LuaEntity, ScriptAppExt};
 use toolkit::{QuatWrapper, Vec3Wrapper};
 
-use crate::{error::WorldResult, plugins::{Abilities, Active, Avatar, ContentInfo, Interaction, InteractionEvent, Interests, PlayerController}};
+use crate::{error::WorldResult, plugins::{Abilities, Active, Avatar, ContentInfo, Interaction, InteractionEvent, Interests, Interruption, Kind, PlayerController}};
 
-pub fn insert_ability_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let ability_api = lua.create_table().unwrap();
-    runtime.register_native("ability", ability_api.clone()).unwrap();
-
-    ability_api.set("GetAbilities", lua.create_bevy_function(world, 
+pub fn insert_ability_api(app: &mut App) {
+    app
+        .add_lua_api("ability", "GetAbilities", 
         |
             In(obj): In<LuaEntity>,
             abilities: Query<&Abilities>,
@@ -46,14 +40,14 @@ pub fn insert_ability_api(
                     .map(LuaEntity)
                     .collect()
             )
-        })?)?;
-
-    ability_api.set("FireEvent", lua.create_bevy_function(world, 
+        })
+        .add_lua_api("ability", "FireEvent",
         |
             In(params): In<Table>,
             players: Query<(Entity, &PlayerController, &Interests), With<Active>>,
             content: Query<&ContentInfo>,
             targets: Query<&Avatar>,
+            mut commands: Commands,
         | -> WorldResult<()> {
             let ability = params.get::<Option<LuaEntity>>("ability")?;
             let buff = params.get::<Option<LuaEntity>>("buff")?;
@@ -141,6 +135,22 @@ pub fn insert_ability_api(
                 })
                 .collect::<WorldResult<Vec<AbilityEffect>>>()?;
 
+            if event_type == 0 {
+                commands
+                    .write_message(Interruption {
+                        source: Some(source_ent),
+                        target: source_ent,
+                        kind: Kind::AbilityUse
+                    });
+            } else if event_type == 1 {
+                commands
+                    .write_message(Interruption {
+                        source: Some(source_ent),
+                        target: source_ent,
+                        kind: Kind::AbilityStart
+                    });
+            }
+
             for (ent, controller, interests) in players.iter() {
                 if 
                     ent == source_ent ||
@@ -172,20 +182,17 @@ pub fn insert_ability_api(
             }
 
             Ok(())
-        })?)?;
-
-    ability_api.set("FireInteractionEvent", lua.create_bevy_function(world, 
-        |
-            In((sender, interaction, target)): In<(LuaEntity, Interaction, LuaEntity)>,
-            mut commands: Commands,
-        | -> WorldResult<()> {
-            commands.write_message(InteractionEvent {
-                source: sender.entity(),
-                target: target.entity(),
-                interaction,
-            });
-        Ok(())
-    })?)?;
-
-    Ok(())
+        })
+        .add_lua_api("ability", "FireInteractionEvent",
+            |
+                In((sender, interaction, target)): In<(LuaEntity, Interaction, LuaEntity)>,
+                mut commands: Commands,
+            | -> WorldResult<()> {
+                commands.write_message(InteractionEvent {
+                    source: sender.entity(),
+                    target: target.entity(),
+                    interaction,
+                });
+            Ok(())
+        });
 }

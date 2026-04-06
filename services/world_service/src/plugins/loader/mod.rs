@@ -55,21 +55,12 @@ impl Plugin for LoaderPlugin {
                 manager.0.remove(&id);
             });
 
-        app.add_systems(First, (
-            process_loading_components,
-            init_gameobjects
-        ).chain());
+        app.add_systems(First, process_loading_components);
         app.add_systems(PreUpdate, (
             update_spawn_state,
-            spawn_init_entity
         ).chain());
-        app.add_systems(Update, (
-            sync_debug_pos.after(navigation::update),
-            avatar_despawner,
-        ));
+        app.add_systems(Update, sync_debug_pos.after(navigation::update));
         app.add_systems(Last, cleanup_dynamic_instances);
-
-        app.add_message::<DespawnAvatar>();
 
         app.register_command("get_avatar_info", command_get_avatar_info);
         app.register_command("show_hidden_structures", |
@@ -96,7 +87,11 @@ impl Plugin for LoaderPlugin {
             }
         });
 
-        insert_loader_api(app.world_mut()).expect("Failed to insert loader API");
+        app.add_observer(spawn_init_entity);
+        app.add_observer(avatar_despawner);
+        app.add_observer(on_remove_object);
+
+        insert_loader_api(app);
 
         app.init_resource::<LoadingComponents>();
 

@@ -17,12 +17,12 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use bevy::ecs::{component::Component, error::Result, system::EntityCommands};
-use obj_params::{ContentRefList, EdnaFunction, GameObjectData, ItemEdna};
+use obj_params::{ContentRefList, EdnaFunction, GameObjectData, ItemEdna, ObjectInserter};
 use realm_api::ObjectTemplate;
 use serde_json::Value;
 use toolkit::types::Uuid;
 
-use crate::plugins::{ContentCache, ContentCacheRef, ContentInfo, ItemAbilities, ItemAbilityRef, ItemEdnaAbilities, LoadContext, LoadableComponent, Scripted, WeakCache};
+use crate::plugins::{ContentCache, ContentCacheRef, ContentInfo, InitializeObject, ItemAbilities, ItemAbilityRef, ItemEdnaAbilities, LoadContext, LoadableComponent, Scripted, WeakCache};
 
 #[derive(Component)]
 pub struct Item;
@@ -93,14 +93,15 @@ impl LoadableComponent for Item {
         let (instance, template) = data.unwrap();
 
         commands
-            .insert((
+            .insert(
                 ContentInfo {
                     placement_id: instance.id,
                     template,
-                },
-                instance.object,
-                Scripted,
-            ));
+                }
+            )
+            .insert_object(instance.object)
+            .insert(Scripted)
+            .trigger(InitializeObject);
 
         Ok(())
     }

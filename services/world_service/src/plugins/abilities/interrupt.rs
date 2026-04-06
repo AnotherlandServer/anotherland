@@ -14,19 +14,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::ecs::{entity::Entity, message::{Message, MessageReader}, system::{Commands, In}, world::World};
-use mlua::Lua;
-use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, ScriptResult};
+use bevy::{app::App, ecs::{entity::Entity, message::{Message, MessageReader}, system::{Commands, In}}};
+use log::debug;
+use scripting::{EntityScriptCommandsExt, LuaEntity, ScriptAppExt};
 
 use crate::{error::WorldResult, plugins::{CombatEvent, CombatEventType, EffectAmount}};
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 pub struct Interruption {
     pub source: Option<Entity>,
     pub target: Entity,
     pub kind: Kind,
 }
 
+#[derive(Debug)]
 pub enum Kind {
     Cancellation,
     Unspecific,
@@ -36,6 +37,8 @@ pub enum Kind {
     DamageCritical,
     Movement,
     Death,
+    AbilityStart,
+    AbilityUse,
 }
 
 pub fn process_interruptions(
@@ -54,19 +57,15 @@ pub fn process_interruptions(
                 Kind::DamageCritical => "DamageCritical",
                 Kind::Movement => "Movement",
                 Kind::Death => "Death",
+                Kind::AbilityStart => "AbilityStart",
+                Kind::AbilityUse => "AbilityUse",
             }, source.map(LuaEntity)));
     }
 }
 
-pub fn insert_interrupt_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let interrupt_api = lua.create_table().unwrap();
-    runtime.register_native("interrupt", interrupt_api.clone()).unwrap();
-
-    interrupt_api.set("TriggerInterruption", lua.create_bevy_function(world, 
+pub fn insert_interrupt_api(app: &mut App) {
+    app
+        .add_lua_api("interrupt", "TriggerInterruption",
         |
             In((kind, target, source)): In<(String, LuaEntity, Option<LuaEntity>)>,
             mut commands: Commands,
@@ -81,6 +80,8 @@ pub fn insert_interrupt_api(
                     "DamageCritical" => Kind::DamageCritical,
                     "Movement" => Kind::Movement,
                     "Death" => Kind::Death,
+                    "AbilityStart" => Kind::AbilityStart,
+                    "AbilityUse" => Kind::AbilityUse,
                     _ => return Err(anyhow!("Invalid interruption kind: {kind}").into())
                 },
                 target: target.entity(),
@@ -88,9 +89,7 @@ pub fn insert_interrupt_api(
             });
 
             Ok(())
-        })?)?;
-
-    Ok(())
+        });
 }
 
 pub fn generate_combat_interrupt_events(
@@ -100,7 +99,16 @@ pub fn generate_combat_interrupt_events(
     for &CombatEvent { target, instigator: source, update, .. } in events.read() {
         let kind = match update {
             CombatEventType::Damaged(EffectAmount::Normal(_)) => Kind::Damage,
-            CombatEventType::Damaged(EffectAmount::Critical(_)) => Kind::DamageCritical,
+            CombatEventType::Damaged(EffectAmount::Critical(_)) => {
+                // Critical damage is also normal damage, when it comes to interruptions
+                commands.write_message(Interruption {
+                    source,
+                    target,
+                    kind: Kind::Damage,
+                });
+
+                Kind::DamageCritical
+            },
             CombatEventType::Death => Kind::Death,
             _ => continue,
         };

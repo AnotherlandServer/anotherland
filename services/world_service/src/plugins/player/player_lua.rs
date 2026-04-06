@@ -14,27 +14,21 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::anyhow;
-use bevy::{ecs::{entity::Entity, query::Changed, system::{Commands, In, Query}, world::World}};
+use bevy::{app::App, ecs::{entity::Entity, query::Changed, system::{Commands, In, Query}}};
 use futures::TryStreamExt;
 use log::debug;
-use mlua::{Function, Lua};
+use mlua::Function;
 use obj_params::Portal;
 use protocol::{OaPktS2xconnectionStateState, oaPktConfirmTravel, oaPktS2XConnectionState};
 use realm_api::{ObjectPlacement, RealmApi, Zone};
-use scripting::{LuaEntity, LuaExt, LuaRuntime, ScriptResult};
+use scripting::{LuaEntity, ScriptAppExt};
 use toolkit::{QuatWrapper, Vec3Wrapper, types::Uuid};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{Active, AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_class_item_result, player::loader::InGame, player_error_handler_system, travel_to_portal}, proto::TravelMode};
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, AsyncOperationEntityCommandsExt, Avatar, ConnectionState, ContentCache, ContentCacheRef, CurrentState, EquipmentResult, MessageType, Movement, PlayerController, ServerAction, WeakCache, apply_class_item_result, player::{loader::InGame, stance::Stance}, player_error_handler_system, travel_to_portal}, proto::TravelMode};
 
-pub(super) fn insert_player_api(
-    world: &mut World,
-) -> ScriptResult<()> {
-    let runtime = world.get_resource::<LuaRuntime>().unwrap();
-    let lua: Lua = runtime.vm().clone();
-    let player_api = lua.create_table().unwrap();
-    runtime.register_native("player", player_api.clone()).unwrap();
-
-    player_api.set("Spawn", lua.create_bevy_function(world, 
+pub(super) fn insert_player_api(app: &mut App,) {
+    app
+        .add_lua_api("player", "Spawn",
         |
             In(player): In<LuaEntity>,
             mut query: Query<(&Avatar, &Movement, &mut PlayerController, &mut CurrentState), Changed<CurrentState>>,
@@ -70,9 +64,8 @@ pub(super) fn insert_player_api(
             } else {
                 Err(anyhow!("Player not found!").into())
             }
-        })?)?;
-
-    player_api.set("ApplyClassItem", lua.create_bevy_function(world,
+        })
+        .add_lua_api("player", "ApplyClassItem",
         |
             In((player, class_item, clear_inventory, callback)): In<(LuaEntity, String, bool, Option<Function>)>,
             query: Query<&PlayerController>,
@@ -102,9 +95,8 @@ pub(super) fn insert_player_api(
                 .on_error_run_system(player_error_handler_system);
 
             Ok(())
-        })?)?;
-
-    player_api.set("TravelToZone", lua.create_bevy_function(world,
+        })
+        .add_lua_api("player", "TravelToZone",
         |
             In((player, zone, movie)): In<(LuaEntity, String, Option<String>)>,
             mut commands: Commands,
@@ -143,9 +135,8 @@ pub(super) fn insert_player_api(
                 .on_error_run_system(player_error_handler_system);
 
             Ok(())
-        })?)?;
-
-    player_api.set("TravelToPortal", lua.create_bevy_function(world,
+        })
+        .add_lua_api("player", "TravelToPortal",
         |
             In((player, portal_guid)): In<(LuaEntity, String)>,
             mut commands: Commands
@@ -186,9 +177,8 @@ pub(super) fn insert_player_api(
                 .on_error_run_system(player_error_handler_system);
 
             Ok(())
-        })?)?;
-
-        player_api.set("ConfirmTravel", lua.create_bevy_function(world,
+        })
+        .add_lua_api("player", "ConfirmTravel",
             |
                 In(player): In<LuaEntity>,
                 query: Query<&PlayerController>,
@@ -201,9 +191,8 @@ pub(super) fn insert_player_api(
                 }
     
                 Ok(())
-            })?)?;
-
-        player_api.set("RunCinematic", lua.create_bevy_function(world,
+            })
+            .add_lua_api("player", "RunCinematic",
             |
                 In((player, cinematic_name, level)): In<(LuaEntity, String, Option<String>)>,
                 query: Query<(&Avatar, &Movement, &PlayerController)>,
@@ -220,9 +209,8 @@ pub(super) fn insert_player_api(
                 }
 
                 Ok(())
-            })?)?;
-
-        player_api.set("TriggerRemoteEvent", lua.create_bevy_function(world,
+            })
+            .add_lua_api("player", "TriggerRemoteEvent",
             |
                 In((player, event)): In<(LuaEntity, String)>,
                 query: Query<(&Movement, &PlayerController)>,
@@ -234,9 +222,8 @@ pub(super) fn insert_player_api(
                 }
 
                 Ok(())
-            })?)?;
-
-        player_api.set("SendMessage", lua.create_bevy_function(world,
+            })
+            .add_lua_api("player", "SendMessage",
             |
                 In((player, message, message_type)): In<(LuaEntity, String, Option<String>)>,
                 query: Query<&PlayerController>,
@@ -260,9 +247,8 @@ pub(super) fn insert_player_api(
                 }
 
                 Ok(())
-            })?)?;
-
-        player_api.set("Respawn", lua.create_bevy_function(world,
+            })
+            .add_lua_api("player", "Respawn",
             |
                 In((player, position, rotation)): In<(LuaEntity, Vec3Wrapper, QuatWrapper)>,
                 query: Query<&PlayerController>,
@@ -279,8 +265,16 @@ pub(super) fn insert_player_api(
                 );
 
                 Ok(())
-            }
-        )?)?;
+            })
+            .add_lua_api("player", "ChangeStance",
+            |
+                In((player, id, rank)): In<(LuaEntity, u8, u8)>,
+                mut query: Query<&mut Stance>,
+            | -> WorldResult<()> {
+                let Ok(mut stance) = query.get_mut(player.entity()) else {
+                    return Err(anyhow!("Player not found").into());
+                };
 
-    Ok(())
+                stance.update_stance(id, rank)
+            });
 }

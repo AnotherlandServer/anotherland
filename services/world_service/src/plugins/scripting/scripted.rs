@@ -18,7 +18,7 @@ use bevy::ecs::{component::Component, lifecycle::HookContext, world::{DeferredWo
 use mlua::LuaSerdeExt;
 use obj_params::GameObjectData;
 use log::error;
-use scripting::{EntityScriptCommandsExt, LuaRuntime, ScriptApi, ScriptCommandsExt, ScriptObject};
+use scripting::{LuaRuntime, ScriptCommandsExt, ScriptObject};
 
 use crate::{error::WorldError, plugins::{SpawnCallback, insert_object_info, load_class_script}};
 
@@ -56,9 +56,8 @@ fn on_scripted_inserted(mut world: DeferredWorld<'_>, ctx: HookContext) {
                         world
                             .commands()
                             .entity(ctx.entity)
-                            .insert(ScriptObject::new(&runtime, Some(lua_class.clone())).unwrap())
-                            .queue(insert_object_info)
-                            .call_named_lua_method(ScriptApi::Attach, ());
+                            .insert(ScriptObject::new(ctx.entity, &runtime, Some(lua_class.clone())).unwrap())
+                            .queue(insert_object_info);
 
                         if let Some(SpawnCallback(callback)) = spawn_callback {
                             world
