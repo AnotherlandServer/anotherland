@@ -948,9 +948,9 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         }
 
         if components.len() == 1 {
-            quote!{Class::#class_name => { commands.insert(#(#components),*); }}
+            quote!{Class::#class_name => { target.insert(#(#components),*); }}
         } else {
-            quote!{Class::#class_name => { commands.insert((#(#components),*)); }}
+            quote!{Class::#class_name => { target.insert((#(#components),*)); }}
         }
     }).collect();
 
@@ -1044,11 +1044,12 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         use bevy::prelude::*;
         use crate::Class;
         use crate::GameObjectData;
+        use crate::ObjectReceiver;
 
         #(#class_tag_components)*
 
-        pub fn tag_gameobject_entity(data: &GameObjectData, commands: &mut EntityCommands<'_>) {
-            match data.class() {
+        pub(crate) fn tag_gameobject_entity<T: ObjectReceiver>(class: Class, target: &mut T) {
+            match class{
                 #(#class_tag_bundles),*
             }
         }
@@ -1071,7 +1072,6 @@ pub fn generate_param_code(client_path: &Path) -> io::Result<()> {
         mod class;
         #(#mods)*
 
-        pub use tags::tag_gameobject_entity;
         pub use class::*;
         #(#uses)*
     })
