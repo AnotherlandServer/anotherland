@@ -13,15 +13,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{sync::{LazyLock, RwLock}};
-
-use bevy::{ecs::{entity::Entity, lifecycle::HookContext, world::DeferredWorld}, platform::collections::HashMap, prelude::Component};
+use bevy::{ecs::{entity::Entity, lifecycle::HookContext, world::DeferredWorld}, prelude::Component};
 use mlua::{FromLua, IntoLua, Lua, Table};
 
-use crate::{LuaTableExt, ScriptResult};
+use crate::{LuaRuntime, LuaTableExt, ScriptResult};
 
 #[derive(Component)]
-#[component(on_insert = on_script_object_inserted)]
 #[component(on_remove = on_script_object_removed)]
 pub struct ScriptObject {
     pub(crate) lua: Lua,
@@ -29,15 +26,29 @@ pub struct ScriptObject {
 }
 
 impl ScriptObject {
-    pub fn new(runtime: &Lua, base: Option<Table>) -> ScriptResult<ScriptObject> {
-        let object = runtime.create_table()?;
+    pub fn new(ent: Entity, runtime: &Lua, base: Option<Table>) -> ScriptResult<ScriptObject> {
+        let registry = runtime.named_registry_value::<Table>("_ENTITIES").unwrap();
 
+        let object = 
+            if let Ok(table) = registry.raw_get::<Table>(ent.to_bits()) {
+                table.clone()
+            } else {
+                let table = runtime.create_table()?;
+                registry.raw_set(ent.to_bits(), table.clone())?;
+                table
+            };
+                
         if let Some(base) = base {
             let meta = runtime.create_table()?;
             meta.set("__index", base.clone())?;
 
             object.set_metatable(Some(meta))?;
+        } else {
+            object.set_metatable(None)?;
         }
+
+        object.raw_set("__ent", runtime.create_any_userdata(ent).unwrap())
+            .expect("failed to attach entity to script object");
 
         Ok(Self {
             lua: runtime.clone(),
@@ -49,24 +60,11 @@ impl ScriptObject {
     pub fn object(&self) -> &Table { &self.object }
 }
 
-static TABLE_MAP: LazyLock<RwLock<HashMap<Entity, Table>>> = LazyLock::new(|| {
-    RwLock::new(HashMap::<Entity, Table>::new())
-});
+fn on_script_object_removed(world: DeferredWorld<'_>, ctx: HookContext) {
+    let lua = world.get_resource::<LuaRuntime>().unwrap().vm().clone();
+    let registry = lua.named_registry_value::<Table>("_ENTITIES").unwrap();
 
-fn on_script_object_inserted(world: DeferredWorld<'_>, ctx: HookContext) {
-    let script = world
-        .entity(ctx.entity)
-        .get::<ScriptObject>()
-        .unwrap();
-    
-    script.object.raw_set("__ent", script.lua.create_any_userdata(ctx.entity).unwrap())
-        .expect("failed to attach entity to script object");
-
-    TABLE_MAP.write().unwrap().insert(ctx.entity, script.object.clone());
-}
-
-fn on_script_object_removed(_world: DeferredWorld<'_>, ctx: HookContext) {
-    TABLE_MAP.write().unwrap().remove(&ctx.entity);
+    registry.set(ctx.entity.to_bits(), mlua::Value::Nil).unwrap();
 }
 
 #[derive(Clone, Copy)]
@@ -104,11 +102,25 @@ impl FromLua for LuaEntity {
 }
 
 impl IntoLua for LuaEntity {
-    fn into_lua(self, _lua: &Lua) -> mlua::Result<mlua::Value> {
-        if let Some(table) = TABLE_MAP.read().unwrap().get(&self.0) {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<mlua::Value> {
+        let registry = lua.named_registry_value::<Table>("_ENTITIES").unwrap();
+
+        if let Ok(table) = registry.raw_get::<Table>(self.0.to_bits()) {
             Ok(mlua::Value::Table(table.clone()))
         } else {
-            Err(mlua::Error::runtime("entity does not have an associated script object"))
+            let table = lua.create_table()?;
+
+            let meta = lua.create_table()?;
+            meta.set("__index", lua.create_function(object_not_ready)?)?;
+
+            table.set_metatable(Some(meta))?;
+
+            registry.raw_set(self.0.to_bits(), table.clone())?;
+            Ok(mlua::Value::Table(table))
         }
     }
+}
+
+fn object_not_ready(_lua: &Lua, _args: mlua::MultiValue) -> mlua::Result<()> {
+     Err(mlua::Error::runtime("script object is not ready yet"))
 }

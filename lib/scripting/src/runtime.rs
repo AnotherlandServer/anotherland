@@ -23,7 +23,7 @@ use notify::{EventKind, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
 use toolkit::init_vector_api;
 
-use crate::{api_names::ScriptApi, EntityScriptCommandsExt, LuaScriptReloaded, ScriptError, ScriptObject, ScriptResult};
+use crate::{EntityScriptCommandsExt, LuaScriptReloaded, ScriptError, ScriptObject, ScriptResult, api_names::ScriptApi};
 
 pub(crate) const REG_WORLD: &str = "world";
 
@@ -86,6 +86,7 @@ impl LuaRuntimeBuilder {
 
             lua.set_named_registry_value("_MODULE_PATHS", lua.create_table()?)?;
             lua.set_named_registry_value("_MODULE_ENVS", lua.create_table()?)?;
+            lua.set_named_registry_value("_ENTITIES", lua.create_table()?)?;
 
             lua.globals().set("require", lua.create_function(move |lua: &Lua, modname: String| {
                 let (module, loader_data): (Value, Value) = require.call(modname.clone())?;
@@ -155,13 +156,6 @@ impl ApiType {
 
 impl LuaRuntime {
     pub fn vm(&self) -> &Lua { &self.lua }
-
-    pub fn register_native(&self, name: &str, functions: Table) -> ScriptResult<()> {
-        let globals = self.lua.globals();
-        let native_api = globals.get::<Table>("__engine")?;
-        native_api.set(name, functions)?;
-        Ok(())
-    }
 
     pub fn is_script_file(&self, name: &str) -> bool {
         self.require_lookup_directories.iter()

@@ -19,23 +19,23 @@ use mlua::{AnyUserData, FromLuaMulti, Function, IntoLuaMulti, Lua, Table, UserDa
 use crate::{ScriptResult, REG_WORLD};
 
 pub trait LuaExt {
-    fn create_bevy_function<'i, F: IntoSystem<In, Result<Out, E>, Marker> + 'static, Marker, E, In, Out>(&self, world: &mut World, system: F) 
+    fn create_bevy_function<'i, F: IntoSystem<In, Result<Out, E>, Marker> + 'static, In, Out, E, Marker>(&self, world: &mut World, system: F) 
         -> ScriptResult<Function>
-        where 
-            In: SystemInput + 'static,
-            <In as SystemInput>::Inner<'static>: FromLuaMulti,
-            Out: IntoLuaMulti + 'static,
-            E: std::error::Error + Send + Sync + 'static;
+    where 
+        In: SystemInput + 'static,
+        <In as SystemInput>::Inner<'static>: FromLuaMulti,
+        Out: IntoLuaMulti + 'static,
+        E: std::error::Error + Send + Sync + 'static;
 }
 
 impl LuaExt for Lua {
-    fn create_bevy_function<F: IntoSystem<In, Result<Out, E>, Marker> + 'static, Marker, E, In, Out>(&self, world: &mut World, system: F) 
+    fn create_bevy_function<F: IntoSystem<In, Result<Out, E>, Marker> + 'static, In, Out, E, Marker>(&self, world: &mut World, system: F) 
         -> ScriptResult<Function>
-        where 
-            In: SystemInput + 'static,
-            <In as SystemInput>::Inner<'static>: FromLuaMulti,
-            Out: IntoLuaMulti + 'static,
-            E: std::error::Error + Send + Sync + 'static
+    where 
+        In: SystemInput + 'static,
+        <In as SystemInput>::Inner<'static>: FromLuaMulti,
+        Out: IntoLuaMulti + 'static,
+        E: std::error::Error + Send + Sync + 'static
     {
         let system = world.register_system(system);
 

@@ -13,6 +13,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Error;
+
+use log::error;
 use thiserror::Error;
 
 use crate::LuaRuntimeBuilderError;
@@ -33,3 +36,15 @@ pub enum ScriptError {
 }
 
 pub type ScriptResult<T> = Result<T, ScriptError>;
+
+pub trait ScriptResultExt {
+    fn handle(self);
+}
+
+impl<T> ScriptResultExt for ScriptResult<T> {
+    fn handle(self) {
+        if let Err(e) = self {
+            error!("Script error: {e}");
+        }
+    }
+}

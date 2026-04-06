@@ -16,7 +16,7 @@
 mod plugin;
 mod script_component;
 mod error;
-mod commands;
+mod bevy_ext;
 mod runtime;
 mod mlua_ext;
 mod api_names;
@@ -24,7 +24,7 @@ mod api_names;
 pub use plugin::*;
 pub use script_component::*;
 pub use error::*;
-pub use commands::*;
+pub use bevy_ext::*;
 pub use runtime::*;
 pub use mlua_ext::*;
 pub use api_names::*;
