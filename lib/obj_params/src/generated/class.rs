@@ -29,334 +29,334 @@ use crate::GenericParamSet;
 use crate::generated::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub enum Class {
-    AiTemplate,
-    Instance,
-    CooldownGroupExternal,
-    Trigger,
-    LocalTacticNode,
-    BilliardBall,
-    ServerGateway,
-    MinigameScoreBoard,
-    MinigameItem,
-    Portal,
-    Party,
-    SteamDlc,
-    StandaloneLootPartition,
-    NpcShopConfig,
-    SpawnerBase,
-    ItemMyLandTheme,
-    EdnaContainer,
-    Spawner,
-    CompinstMasterRedirectSrv,
-    EdnaModule,
-    PresetPoint,
-    ChessMetaGameLogic,
-    VehicleBase,
-    CompinstCommunitysrv,
-    ItemBase,
-    PortalItem,
-    CombatSystemGroup,
-    NonSpawnPlacement,
-    SomaforgeItem,
-    Clan,
-    ItemEdna,
-    MyLandSettings,
-    PhysicsActor,
-    OaZoneConfig,
     BuffBase,
     CompinstClustersrv,
-    ItemPreset,
-    ClassItem,
-    ClanRank,
-    ClanMember,
-    Metagame,
-    NpcOtherland,
-    Version,
-    CommonConfig,
-    AbilityList,
-    CompinstMulticlusterAvatarLookup,
-    Trade,
-    SkillGroup,
-    StructureBase,
-    StartingPoint,
-    CustomTrigger,
-    NonClientBase,
-    LootSystem,
-    ShopFilterSchema,
-    NonSpawnPlacementRadius,
-    CompinstLoginsrv,
-    ServerGatewayExitPhase,
-    Compinst,
-    SteamItem,
-    LootScatterContainer,
-    CompinstClusternode,
-    Ship,
-    MinigameInfo,
-    CompinstCommunicationsrv,
-    MylandScoreboard,
-    CompinstClusterapp,
-    WorldDisplay,
-    MoverBase,
-    LifeDirector,
-    EdnaBase,
-    Door,
-    JsonSchema,
-    MypadRoomDoor,
-    NpcBase,
-    OaCommonConfig,
-    OaBuff2,
-    EdnaReceptor,
-    SpawnNode,
-    Player,
-    QuestBeacon,
-    MinigameMine,
-    OtherlandStructure,
-    Mail,
-    CtfGameFlag,
-    CompinstFrontendsrv,
-    VehicleFlying,
     BundleItem,
-    CompinstDaemon,
-    EdnaFunction,
-    Config,
-    BuffGroup,
-    Structure,
-    Planet,
-    EdnaAbility,
+    ItemMyLandTheme,
+    AiTemplate,
     InteractObject,
-    CooldownGroup,
-    ChessPiece,
+    ChessMetaGameLogic,
+    CompinstMulticlusterAvatarLookup,
+    StructureBase,
+    CompinstCommunicationsrv,
+    ServerGatewayExitPhase,
+    OtherlandStructure,
+    VehicleFlying,
+    OaBuff2,
+    CompinstDaemon,
+    Structure,
+    MinigameScoreBoard,
+    QuestBeacon,
+    ShopFilterSchema,
+    Party,
+    NpcBase,
+    PhysicsActor,
+    CompinstClusterapp,
+    ClanRank,
     PatrolNode,
-    OtherlandArea,
+    NpcShopConfig,
+    EdnaBase,
+    Clan,
+    VehicleBase,
+    NonSpawnPlacementRadius,
+    CompinstCommunitysrv,
     GameSession,
+    CompinstFrontendsrv,
+    SkillGroup,
+    CooldownGroupExternal,
+    StandaloneLootPartition,
+    Version,
+    PortalItem,
+    CombatSystemGroup,
+    ItemBase,
+    EdnaContainer,
+    OaZoneConfig,
+    Portal,
+    Compinst,
+    NpcOtherland,
+    ItemPreset,
+    EdnaModule,
+    MyLandSettings,
+    LootSystem,
+    MoverBase,
+    SpawnerBase,
+    Door,
+    Ship,
+    ItemEdna,
+    BilliardBall,
+    OtherlandArea,
+    NonSpawnPlacement,
+    StartingPoint,
+    Instance,
+    WorldDisplay,
+    CtfGameFlag,
+    CooldownGroup,
+    Metagame,
+    NonClientBase,
+    LocalTacticNode,
+    JsonSchema,
+    SpawnNode,
+    Trade,
+    EdnaAbility,
+    CompinstClusternode,
+    Mail,
+    Planet,
+    AbilityList,
+    MypadRoomDoor,
+    CompinstMasterRedirectSrv,
+    MinigameItem,
+    Trigger,
+    ChessPiece,
+    PresetPoint,
+    ServerGateway,
+    SteamDlc,
     Faction,
+    EdnaFunction,
+    LootScatterContainer,
+    SomaforgeItem,
+    MinigameInfo,
+    MylandScoreboard,
+    CustomTrigger,
+    ClanMember,
+    CommonConfig,
+    SteamItem,
+    ClassItem,
+    BuffGroup,
+    Spawner,
+    LifeDirector,
+    MinigameMine,
+    OaCommonConfig,
+    CompinstLoginsrv,
+    EdnaReceptor,
+    Player,
+    Config,
 }
 impl Class {
     pub fn get_attribute(&self, attr: &str) -> Option<&'static dyn AttributeInfo> {
         match self {
-            Self::AiTemplate => AI_TEMPLATE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::Instance => INSTANCE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::CooldownGroupExternal => {
-                COOLDOWN_GROUP_EXTERNAL_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::Trigger => TRIGGER_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::LocalTacticNode => {
-                LOCAL_TACTIC_NODE_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::BilliardBall => {
-                BILLIARD_BALL_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::ServerGateway => {
-                SERVER_GATEWAY_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::MinigameScoreBoard => {
-                MINIGAME_SCORE_BOARD_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::MinigameItem => {
-                MINIGAME_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::Portal => PORTAL_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::Party => PARTY_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::SteamDlc => STEAM_DLC_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::StandaloneLootPartition => {
-                STANDALONE_LOOT_PARTITION_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::NpcShopConfig => {
-                NPC_SHOP_CONFIG_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::SpawnerBase => {
-                SPAWNER_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::ItemMyLandTheme => {
-                ITEM_MY_LAND_THEME_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::EdnaContainer => {
-                EDNA_CONTAINER_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::Spawner => SPAWNER_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::CompinstMasterRedirectSrv => {
-                COMPINST_MASTER_REDIRECT_SRV_ATTRIBUTES
-                    .get(attr)
-                    .map(|a| a.static_info())
-            }
-            Self::EdnaModule => EDNA_MODULE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::PresetPoint => {
-                PRESET_POINT_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::ChessMetaGameLogic => {
-                CHESS_META_GAME_LOGIC_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::VehicleBase => {
-                VEHICLE_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::CompinstCommunitysrv => {
-                COMPINST_COMMUNITYSRV_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::ItemBase => ITEM_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::PortalItem => PORTAL_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::CombatSystemGroup => {
-                COMBAT_SYSTEM_GROUP_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::NonSpawnPlacement => {
-                NON_SPAWN_PLACEMENT_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::SomaforgeItem => {
-                SOMAFORGE_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::Clan => CLAN_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::ItemEdna => ITEM_EDNA_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::MyLandSettings => {
-                MY_LAND_SETTINGS_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::PhysicsActor => {
-                PHYSICS_ACTOR_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::OaZoneConfig => {
-                OA_ZONE_CONFIG_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
             Self::BuffBase => BUFF_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
             Self::CompinstClustersrv => {
                 COMPINST_CLUSTERSRV_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
-            Self::ItemPreset => ITEM_PRESET_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::ClassItem => CLASS_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::ClanRank => CLAN_RANK_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::ClanMember => CLAN_MEMBER_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::Metagame => METAGAME_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::NpcOtherland => {
-                NPC_OTHERLAND_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            Self::BundleItem => BUNDLE_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::ItemMyLandTheme => {
+                ITEM_MY_LAND_THEME_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
-            Self::Version => VERSION_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::CommonConfig => {
-                COMMON_CONFIG_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            Self::AiTemplate => AI_TEMPLATE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::InteractObject => {
+                INTERACT_OBJECT_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
-            Self::AbilityList => {
-                ABILITY_LIST_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            Self::ChessMetaGameLogic => {
+                CHESS_META_GAME_LOGIC_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
             Self::CompinstMulticlusterAvatarLookup => {
                 COMPINST_MULTICLUSTER_AVATAR_LOOKUP_ATTRIBUTES
                     .get(attr)
                     .map(|a| a.static_info())
             }
-            Self::Trade => TRADE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::SkillGroup => SKILL_GROUP_ATTRIBUTES.get(attr).map(|a| a.static_info()),
             Self::StructureBase => {
                 STRUCTURE_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::StartingPoint => {
-                STARTING_POINT_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::CustomTrigger => {
-                CUSTOM_TRIGGER_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::NonClientBase => {
-                NON_CLIENT_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::LootSystem => LOOT_SYSTEM_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::ShopFilterSchema => {
-                SHOP_FILTER_SCHEMA_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::NonSpawnPlacementRadius => {
-                NON_SPAWN_PLACEMENT_RADIUS_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::CompinstLoginsrv => {
-                COMPINST_LOGINSRV_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::ServerGatewayExitPhase => {
-                SERVER_GATEWAY_EXIT_PHASE_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::Compinst => COMPINST_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::SteamItem => STEAM_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::LootScatterContainer => {
-                LOOT_SCATTER_CONTAINER_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::CompinstClusternode => {
-                COMPINST_CLUSTERNODE_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::Ship => SHIP_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::MinigameInfo => {
-                MINIGAME_INFO_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
             Self::CompinstCommunicationsrv => {
                 COMPINST_COMMUNICATIONSRV_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
-            Self::MylandScoreboard => {
-                MYLAND_SCOREBOARD_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::CompinstClusterapp => {
-                COMPINST_CLUSTERAPP_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::WorldDisplay => {
-                WORLD_DISPLAY_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::MoverBase => MOVER_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::LifeDirector => {
-                LIFE_DIRECTOR_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::EdnaBase => EDNA_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::Door => DOOR_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::JsonSchema => JSON_SCHEMA_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::MypadRoomDoor => {
-                MYPAD_ROOM_DOOR_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::NpcBase => NPC_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::OaCommonConfig => {
-                OA_COMMON_CONFIG_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::OaBuff2 => OA_BUFF_2_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::EdnaReceptor => {
-                EDNA_RECEPTOR_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::SpawnNode => SPAWN_NODE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::Player => PLAYER_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::QuestBeacon => {
-                QUEST_BEACON_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::MinigameMine => {
-                MINIGAME_MINE_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            Self::ServerGatewayExitPhase => {
+                SERVER_GATEWAY_EXIT_PHASE_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
             Self::OtherlandStructure => {
                 OTHERLAND_STRUCTURE_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
-            Self::Mail => MAIL_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::CtfGameFlag => {
-                CTF_GAME_FLAG_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::CompinstFrontendsrv => {
-                COMPINST_FRONTENDSRV_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
             Self::VehicleFlying => {
                 VEHICLE_FLYING_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
-            Self::BundleItem => BUNDLE_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::OaBuff2 => OA_BUFF_2_ATTRIBUTES.get(attr).map(|a| a.static_info()),
             Self::CompinstDaemon => {
                 COMPINST_DAEMON_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
-            Self::EdnaFunction => {
-                EDNA_FUNCTION_ATTRIBUTES.get(attr).map(|a| a.static_info())
-            }
-            Self::Config => CONFIG_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::BuffGroup => BUFF_GROUP_ATTRIBUTES.get(attr).map(|a| a.static_info()),
             Self::Structure => STRUCTURE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::Planet => PLANET_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::EdnaAbility => {
-                EDNA_ABILITY_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            Self::MinigameScoreBoard => {
+                MINIGAME_SCORE_BOARD_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
-            Self::InteractObject => {
-                INTERACT_OBJECT_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            Self::QuestBeacon => {
+                QUEST_BEACON_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
-            Self::CooldownGroup => {
-                COOLDOWN_GROUP_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            Self::ShopFilterSchema => {
+                SHOP_FILTER_SCHEMA_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
-            Self::ChessPiece => CHESS_PIECE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::Party => PARTY_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::NpcBase => NPC_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::PhysicsActor => {
+                PHYSICS_ACTOR_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::CompinstClusterapp => {
+                COMPINST_CLUSTERAPP_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::ClanRank => CLAN_RANK_ATTRIBUTES.get(attr).map(|a| a.static_info()),
             Self::PatrolNode => PATROL_NODE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
-            Self::OtherlandArea => {
-                OTHERLAND_AREA_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            Self::NpcShopConfig => {
+                NPC_SHOP_CONFIG_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::EdnaBase => EDNA_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::Clan => CLAN_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::VehicleBase => {
+                VEHICLE_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::NonSpawnPlacementRadius => {
+                NON_SPAWN_PLACEMENT_RADIUS_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::CompinstCommunitysrv => {
+                COMPINST_COMMUNITYSRV_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
             Self::GameSession => {
                 GAME_SESSION_ATTRIBUTES.get(attr).map(|a| a.static_info())
             }
+            Self::CompinstFrontendsrv => {
+                COMPINST_FRONTENDSRV_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::SkillGroup => SKILL_GROUP_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::CooldownGroupExternal => {
+                COOLDOWN_GROUP_EXTERNAL_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::StandaloneLootPartition => {
+                STANDALONE_LOOT_PARTITION_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::Version => VERSION_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::PortalItem => PORTAL_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::CombatSystemGroup => {
+                COMBAT_SYSTEM_GROUP_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::ItemBase => ITEM_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::EdnaContainer => {
+                EDNA_CONTAINER_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::OaZoneConfig => {
+                OA_ZONE_CONFIG_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::Portal => PORTAL_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::Compinst => COMPINST_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::NpcOtherland => {
+                NPC_OTHERLAND_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::ItemPreset => ITEM_PRESET_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::EdnaModule => EDNA_MODULE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::MyLandSettings => {
+                MY_LAND_SETTINGS_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::LootSystem => LOOT_SYSTEM_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::MoverBase => MOVER_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::SpawnerBase => {
+                SPAWNER_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::Door => DOOR_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::Ship => SHIP_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::ItemEdna => ITEM_EDNA_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::BilliardBall => {
+                BILLIARD_BALL_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::OtherlandArea => {
+                OTHERLAND_AREA_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::NonSpawnPlacement => {
+                NON_SPAWN_PLACEMENT_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::StartingPoint => {
+                STARTING_POINT_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::Instance => INSTANCE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::WorldDisplay => {
+                WORLD_DISPLAY_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::CtfGameFlag => {
+                CTF_GAME_FLAG_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::CooldownGroup => {
+                COOLDOWN_GROUP_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::Metagame => METAGAME_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::NonClientBase => {
+                NON_CLIENT_BASE_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::LocalTacticNode => {
+                LOCAL_TACTIC_NODE_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::JsonSchema => JSON_SCHEMA_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::SpawnNode => SPAWN_NODE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::Trade => TRADE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::EdnaAbility => {
+                EDNA_ABILITY_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::CompinstClusternode => {
+                COMPINST_CLUSTERNODE_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::Mail => MAIL_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::Planet => PLANET_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::AbilityList => {
+                ABILITY_LIST_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::MypadRoomDoor => {
+                MYPAD_ROOM_DOOR_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::CompinstMasterRedirectSrv => {
+                COMPINST_MASTER_REDIRECT_SRV_ATTRIBUTES
+                    .get(attr)
+                    .map(|a| a.static_info())
+            }
+            Self::MinigameItem => {
+                MINIGAME_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::Trigger => TRIGGER_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::ChessPiece => CHESS_PIECE_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::PresetPoint => {
+                PRESET_POINT_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::ServerGateway => {
+                SERVER_GATEWAY_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::SteamDlc => STEAM_DLC_ATTRIBUTES.get(attr).map(|a| a.static_info()),
             Self::Faction => FACTION_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::EdnaFunction => {
+                EDNA_FUNCTION_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::LootScatterContainer => {
+                LOOT_SCATTER_CONTAINER_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::SomaforgeItem => {
+                SOMAFORGE_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::MinigameInfo => {
+                MINIGAME_INFO_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::MylandScoreboard => {
+                MYLAND_SCOREBOARD_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::CustomTrigger => {
+                CUSTOM_TRIGGER_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::ClanMember => CLAN_MEMBER_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::CommonConfig => {
+                COMMON_CONFIG_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::SteamItem => STEAM_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::ClassItem => CLASS_ITEM_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::BuffGroup => BUFF_GROUP_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::Spawner => SPAWNER_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::LifeDirector => {
+                LIFE_DIRECTOR_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::MinigameMine => {
+                MINIGAME_MINE_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::OaCommonConfig => {
+                OA_COMMON_CONFIG_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::CompinstLoginsrv => {
+                COMPINST_LOGINSRV_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::EdnaReceptor => {
+                EDNA_RECEPTOR_ATTRIBUTES.get(attr).map(|a| a.static_info())
+            }
+            Self::Player => PLAYER_ATTRIBUTES.get(attr).map(|a| a.static_info()),
+            Self::Config => CONFIG_ATTRIBUTES.get(attr).map(|a| a.static_info()),
         }
     }
     pub fn get_attribute_from_id(
@@ -364,692 +364,692 @@ impl Class {
         attr: u16,
     ) -> Option<&'static dyn AttributeInfo> {
         match self {
-            Self::AiTemplate => {
-                AI_TEMPLATE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::Instance => INSTANCE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::CooldownGroupExternal => {
-                COOLDOWN_GROUP_EXTERNAL_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::Trigger => TRIGGER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::LocalTacticNode => {
-                LOCAL_TACTIC_NODE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::BilliardBall => {
-                BILLIARD_BALL_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::ServerGateway => {
-                SERVER_GATEWAY_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::MinigameScoreBoard => {
-                MINIGAME_SCORE_BOARD_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::MinigameItem => {
-                MINIGAME_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::Portal => PORTAL_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::Party => PARTY_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::SteamDlc => STEAM_DLC_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::StandaloneLootPartition => {
-                STANDALONE_LOOT_PARTITION_ATTRIBUTES_ID
-                    .get(&attr)
-                    .map(|a| a.static_info())
-            }
-            Self::NpcShopConfig => {
-                NPC_SHOP_CONFIG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::SpawnerBase => {
-                SPAWNER_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::ItemMyLandTheme => {
-                ITEM_MY_LAND_THEME_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::EdnaContainer => {
-                EDNA_CONTAINER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::Spawner => SPAWNER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::CompinstMasterRedirectSrv => {
-                COMPINST_MASTER_REDIRECT_SRV_ATTRIBUTES_ID
-                    .get(&attr)
-                    .map(|a| a.static_info())
-            }
-            Self::EdnaModule => {
-                EDNA_MODULE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::PresetPoint => {
-                PRESET_POINT_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::ChessMetaGameLogic => {
-                CHESS_META_GAME_LOGIC_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::VehicleBase => {
-                VEHICLE_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::CompinstCommunitysrv => {
-                COMPINST_COMMUNITYSRV_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::ItemBase => ITEM_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::PortalItem => {
-                PORTAL_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::CombatSystemGroup => {
-                COMBAT_SYSTEM_GROUP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::NonSpawnPlacement => {
-                NON_SPAWN_PLACEMENT_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::SomaforgeItem => {
-                SOMAFORGE_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::Clan => CLAN_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::ItemEdna => ITEM_EDNA_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::MyLandSettings => {
-                MY_LAND_SETTINGS_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::PhysicsActor => {
-                PHYSICS_ACTOR_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::OaZoneConfig => {
-                OA_ZONE_CONFIG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
             Self::BuffBase => BUFF_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
             Self::CompinstClustersrv => {
                 COMPINST_CLUSTERSRV_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::ItemPreset => {
-                ITEM_PRESET_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::BundleItem => {
+                BUNDLE_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::ClassItem => {
-                CLASS_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::ItemMyLandTheme => {
+                ITEM_MY_LAND_THEME_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::ClanRank => CLAN_RANK_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::ClanMember => {
-                CLAN_MEMBER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::AiTemplate => {
+                AI_TEMPLATE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::Metagame => METAGAME_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::NpcOtherland => {
-                NPC_OTHERLAND_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::InteractObject => {
+                INTERACT_OBJECT_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::Version => VERSION_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::CommonConfig => {
-                COMMON_CONFIG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::AbilityList => {
-                ABILITY_LIST_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::ChessMetaGameLogic => {
+                CHESS_META_GAME_LOGIC_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
             Self::CompinstMulticlusterAvatarLookup => {
                 COMPINST_MULTICLUSTER_AVATAR_LOOKUP_ATTRIBUTES_ID
                     .get(&attr)
                     .map(|a| a.static_info())
             }
-            Self::Trade => TRADE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::SkillGroup => {
-                SKILL_GROUP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
             Self::StructureBase => {
                 STRUCTURE_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::StartingPoint => {
-                STARTING_POINT_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::CustomTrigger => {
-                CUSTOM_TRIGGER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::NonClientBase => {
-                NON_CLIENT_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::LootSystem => {
-                LOOT_SYSTEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::ShopFilterSchema => {
-                SHOP_FILTER_SCHEMA_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::NonSpawnPlacementRadius => {
-                NON_SPAWN_PLACEMENT_RADIUS_ATTRIBUTES_ID
-                    .get(&attr)
-                    .map(|a| a.static_info())
-            }
-            Self::CompinstLoginsrv => {
-                COMPINST_LOGINSRV_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::ServerGatewayExitPhase => {
-                SERVER_GATEWAY_EXIT_PHASE_ATTRIBUTES_ID
-                    .get(&attr)
-                    .map(|a| a.static_info())
-            }
-            Self::Compinst => COMPINST_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::SteamItem => {
-                STEAM_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::LootScatterContainer => {
-                LOOT_SCATTER_CONTAINER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::CompinstClusternode => {
-                COMPINST_CLUSTERNODE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::Ship => SHIP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::MinigameInfo => {
-                MINIGAME_INFO_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
             Self::CompinstCommunicationsrv => {
                 COMPINST_COMMUNICATIONSRV_ATTRIBUTES_ID
                     .get(&attr)
                     .map(|a| a.static_info())
             }
-            Self::MylandScoreboard => {
-                MYLAND_SCOREBOARD_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::CompinstClusterapp => {
-                COMPINST_CLUSTERAPP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::WorldDisplay => {
-                WORLD_DISPLAY_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::MoverBase => {
-                MOVER_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::LifeDirector => {
-                LIFE_DIRECTOR_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::EdnaBase => EDNA_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::Door => DOOR_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::JsonSchema => {
-                JSON_SCHEMA_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::MypadRoomDoor => {
-                MYPAD_ROOM_DOOR_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::NpcBase => NPC_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::OaCommonConfig => {
-                OA_COMMON_CONFIG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::OaBuff2 => OA_BUFF_2_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::EdnaReceptor => {
-                EDNA_RECEPTOR_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::SpawnNode => {
-                SPAWN_NODE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::Player => PLAYER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::QuestBeacon => {
-                QUEST_BEACON_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::MinigameMine => {
-                MINIGAME_MINE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::ServerGatewayExitPhase => {
+                SERVER_GATEWAY_EXIT_PHASE_ATTRIBUTES_ID
+                    .get(&attr)
+                    .map(|a| a.static_info())
             }
             Self::OtherlandStructure => {
                 OTHERLAND_STRUCTURE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::Mail => MAIL_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::CtfGameFlag => {
-                CTF_GAME_FLAG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::CompinstFrontendsrv => {
-                COMPINST_FRONTENDSRV_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
             Self::VehicleFlying => {
                 VEHICLE_FLYING_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::BundleItem => {
-                BUNDLE_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
+            Self::OaBuff2 => OA_BUFF_2_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
             Self::CompinstDaemon => {
                 COMPINST_DAEMON_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::EdnaFunction => {
-                EDNA_FUNCTION_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
-            }
-            Self::Config => CONFIG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::BuffGroup => {
-                BUFF_GROUP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
             Self::Structure => {
                 STRUCTURE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::Planet => PLANET_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
-            Self::EdnaAbility => {
-                EDNA_ABILITY_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::MinigameScoreBoard => {
+                MINIGAME_SCORE_BOARD_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::InteractObject => {
-                INTERACT_OBJECT_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::QuestBeacon => {
+                QUEST_BEACON_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::CooldownGroup => {
-                COOLDOWN_GROUP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::ShopFilterSchema => {
+                SHOP_FILTER_SCHEMA_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::ChessPiece => {
-                CHESS_PIECE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::Party => PARTY_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::NpcBase => NPC_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::PhysicsActor => {
+                PHYSICS_ACTOR_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
+            Self::CompinstClusterapp => {
+                COMPINST_CLUSTERAPP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::ClanRank => CLAN_RANK_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
             Self::PatrolNode => {
                 PATROL_NODE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
-            Self::OtherlandArea => {
-                OTHERLAND_AREA_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            Self::NpcShopConfig => {
+                NPC_SHOP_CONFIG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::EdnaBase => EDNA_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::Clan => CLAN_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::VehicleBase => {
+                VEHICLE_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::NonSpawnPlacementRadius => {
+                NON_SPAWN_PLACEMENT_RADIUS_ATTRIBUTES_ID
+                    .get(&attr)
+                    .map(|a| a.static_info())
+            }
+            Self::CompinstCommunitysrv => {
+                COMPINST_COMMUNITYSRV_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
             Self::GameSession => {
                 GAME_SESSION_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
             }
+            Self::CompinstFrontendsrv => {
+                COMPINST_FRONTENDSRV_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::SkillGroup => {
+                SKILL_GROUP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::CooldownGroupExternal => {
+                COOLDOWN_GROUP_EXTERNAL_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::StandaloneLootPartition => {
+                STANDALONE_LOOT_PARTITION_ATTRIBUTES_ID
+                    .get(&attr)
+                    .map(|a| a.static_info())
+            }
+            Self::Version => VERSION_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::PortalItem => {
+                PORTAL_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::CombatSystemGroup => {
+                COMBAT_SYSTEM_GROUP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::ItemBase => ITEM_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::EdnaContainer => {
+                EDNA_CONTAINER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::OaZoneConfig => {
+                OA_ZONE_CONFIG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::Portal => PORTAL_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::Compinst => COMPINST_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::NpcOtherland => {
+                NPC_OTHERLAND_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::ItemPreset => {
+                ITEM_PRESET_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::EdnaModule => {
+                EDNA_MODULE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::MyLandSettings => {
+                MY_LAND_SETTINGS_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::LootSystem => {
+                LOOT_SYSTEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::MoverBase => {
+                MOVER_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::SpawnerBase => {
+                SPAWNER_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::Door => DOOR_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::Ship => SHIP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::ItemEdna => ITEM_EDNA_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::BilliardBall => {
+                BILLIARD_BALL_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::OtherlandArea => {
+                OTHERLAND_AREA_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::NonSpawnPlacement => {
+                NON_SPAWN_PLACEMENT_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::StartingPoint => {
+                STARTING_POINT_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::Instance => INSTANCE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::WorldDisplay => {
+                WORLD_DISPLAY_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::CtfGameFlag => {
+                CTF_GAME_FLAG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::CooldownGroup => {
+                COOLDOWN_GROUP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::Metagame => METAGAME_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::NonClientBase => {
+                NON_CLIENT_BASE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::LocalTacticNode => {
+                LOCAL_TACTIC_NODE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::JsonSchema => {
+                JSON_SCHEMA_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::SpawnNode => {
+                SPAWN_NODE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::Trade => TRADE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::EdnaAbility => {
+                EDNA_ABILITY_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::CompinstClusternode => {
+                COMPINST_CLUSTERNODE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::Mail => MAIL_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::Planet => PLANET_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::AbilityList => {
+                ABILITY_LIST_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::MypadRoomDoor => {
+                MYPAD_ROOM_DOOR_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::CompinstMasterRedirectSrv => {
+                COMPINST_MASTER_REDIRECT_SRV_ATTRIBUTES_ID
+                    .get(&attr)
+                    .map(|a| a.static_info())
+            }
+            Self::MinigameItem => {
+                MINIGAME_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::Trigger => TRIGGER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::ChessPiece => {
+                CHESS_PIECE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::PresetPoint => {
+                PRESET_POINT_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::ServerGateway => {
+                SERVER_GATEWAY_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::SteamDlc => STEAM_DLC_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
             Self::Faction => FACTION_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::EdnaFunction => {
+                EDNA_FUNCTION_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::LootScatterContainer => {
+                LOOT_SCATTER_CONTAINER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::SomaforgeItem => {
+                SOMAFORGE_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::MinigameInfo => {
+                MINIGAME_INFO_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::MylandScoreboard => {
+                MYLAND_SCOREBOARD_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::CustomTrigger => {
+                CUSTOM_TRIGGER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::ClanMember => {
+                CLAN_MEMBER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::CommonConfig => {
+                COMMON_CONFIG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::SteamItem => {
+                STEAM_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::ClassItem => {
+                CLASS_ITEM_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::BuffGroup => {
+                BUFF_GROUP_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::Spawner => SPAWNER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::LifeDirector => {
+                LIFE_DIRECTOR_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::MinigameMine => {
+                MINIGAME_MINE_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::OaCommonConfig => {
+                OA_COMMON_CONFIG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::CompinstLoginsrv => {
+                COMPINST_LOGINSRV_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::EdnaReceptor => {
+                EDNA_RECEPTOR_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info())
+            }
+            Self::Player => PLAYER_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
+            Self::Config => CONFIG_ATTRIBUTES_ID.get(&attr).map(|a| a.static_info()),
         }
     }
     pub fn from_id(id: u16) -> Option<Self> {
         match id {
-            147u16 => Some(Self::AiTemplate),
-            185u16 => Some(Self::Instance),
-            182u16 => Some(Self::CooldownGroupExternal),
-            61u16 => Some(Self::Trigger),
-            136u16 => Some(Self::LocalTacticNode),
-            114u16 => Some(Self::BilliardBall),
-            129u16 => Some(Self::ServerGateway),
-            122u16 => Some(Self::MinigameScoreBoard),
-            116u16 => Some(Self::MinigameItem),
-            56u16 => Some(Self::Portal),
-            76u16 => Some(Self::Party),
-            188u16 => Some(Self::SteamDlc),
-            120u16 => Some(Self::StandaloneLootPartition),
-            184u16 => Some(Self::NpcShopConfig),
-            42u16 => Some(Self::SpawnerBase),
-            137u16 => Some(Self::ItemMyLandTheme),
-            109u16 => Some(Self::EdnaContainer),
-            44u16 => Some(Self::Spawner),
-            133u16 => Some(Self::CompinstMasterRedirectSrv),
-            37u16 => Some(Self::EdnaModule),
-            124u16 => Some(Self::PresetPoint),
-            105u16 => Some(Self::ChessMetaGameLogic),
-            98u16 => Some(Self::VehicleBase),
-            14u16 => Some(Self::CompinstCommunitysrv),
-            26u16 => Some(Self::ItemBase),
-            140u16 => Some(Self::PortalItem),
-            179u16 => Some(Self::CombatSystemGroup),
-            132u16 => Some(Self::NonSpawnPlacement),
-            150u16 => Some(Self::SomaforgeItem),
-            149u16 => Some(Self::Clan),
-            34u16 => Some(Self::ItemEdna),
-            135u16 => Some(Self::MyLandSettings),
-            108u16 => Some(Self::PhysicsActor),
-            134u16 => Some(Self::OaZoneConfig),
             7u16 => Some(Self::BuffBase),
             19u16 => Some(Self::CompinstClustersrv),
-            139u16 => Some(Self::ItemPreset),
-            144u16 => Some(Self::ClassItem),
-            175u16 => Some(Self::ClanRank),
-            174u16 => Some(Self::ClanMember),
-            142u16 => Some(Self::Metagame),
-            47u16 => Some(Self::NpcOtherland),
-            97u16 => Some(Self::Version),
-            191u16 => Some(Self::CommonConfig),
-            152u16 => Some(Self::AbilityList),
-            11u16 => Some(Self::CompinstMulticlusterAvatarLookup),
-            95u16 => Some(Self::Trade),
-            181u16 => Some(Self::SkillGroup),
-            54u16 => Some(Self::StructureBase),
-            57u16 => Some(Self::StartingPoint),
-            192u16 => Some(Self::CustomTrigger),
-            41u16 => Some(Self::NonClientBase),
-            143u16 => Some(Self::LootSystem),
-            177u16 => Some(Self::ShopFilterSchema),
-            153u16 => Some(Self::NonSpawnPlacementRadius),
-            16u16 => Some(Self::CompinstLoginsrv),
-            130u16 => Some(Self::ServerGatewayExitPhase),
-            10u16 => Some(Self::Compinst),
-            190u16 => Some(Self::SteamItem),
-            145u16 => Some(Self::LootScatterContainer),
-            18u16 => Some(Self::CompinstClusternode),
-            66u16 => Some(Self::Ship),
-            104u16 => Some(Self::MinigameInfo),
-            15u16 => Some(Self::CompinstCommunicationsrv),
-            131u16 => Some(Self::MylandScoreboard),
-            17u16 => Some(Self::CompinstClusterapp),
-            146u16 => Some(Self::WorldDisplay),
-            106u16 => Some(Self::MoverBase),
-            148u16 => Some(Self::LifeDirector),
-            35u16 => Some(Self::EdnaBase),
-            127u16 => Some(Self::Door),
-            119u16 => Some(Self::JsonSchema),
-            154u16 => Some(Self::MypadRoomDoor),
-            46u16 => Some(Self::NpcBase),
-            155u16 => Some(Self::OaCommonConfig),
-            9u16 => Some(Self::OaBuff2),
-            69u16 => Some(Self::EdnaReceptor),
-            71u16 => Some(Self::SpawnNode),
-            77u16 => Some(Self::Player),
-            178u16 => Some(Self::QuestBeacon),
-            126u16 => Some(Self::MinigameMine),
-            121u16 => Some(Self::OtherlandStructure),
-            40u16 => Some(Self::Mail),
-            128u16 => Some(Self::CtfGameFlag),
-            12u16 => Some(Self::CompinstFrontendsrv),
-            99u16 => Some(Self::VehicleFlying),
             176u16 => Some(Self::BundleItem),
-            13u16 => Some(Self::CompinstDaemon),
-            36u16 => Some(Self::EdnaFunction),
-            183u16 => Some(Self::Config),
-            180u16 => Some(Self::BuffGroup),
-            55u16 => Some(Self::Structure),
-            67u16 => Some(Self::Planet),
-            21u16 => Some(Self::EdnaAbility),
+            137u16 => Some(Self::ItemMyLandTheme),
+            147u16 => Some(Self::AiTemplate),
             68u16 => Some(Self::InteractObject),
-            113u16 => Some(Self::CooldownGroup),
-            62u16 => Some(Self::ChessPiece),
+            105u16 => Some(Self::ChessMetaGameLogic),
+            11u16 => Some(Self::CompinstMulticlusterAvatarLookup),
+            54u16 => Some(Self::StructureBase),
+            15u16 => Some(Self::CompinstCommunicationsrv),
+            130u16 => Some(Self::ServerGatewayExitPhase),
+            121u16 => Some(Self::OtherlandStructure),
+            99u16 => Some(Self::VehicleFlying),
+            9u16 => Some(Self::OaBuff2),
+            13u16 => Some(Self::CompinstDaemon),
+            55u16 => Some(Self::Structure),
+            122u16 => Some(Self::MinigameScoreBoard),
+            178u16 => Some(Self::QuestBeacon),
+            177u16 => Some(Self::ShopFilterSchema),
+            76u16 => Some(Self::Party),
+            46u16 => Some(Self::NpcBase),
+            108u16 => Some(Self::PhysicsActor),
+            17u16 => Some(Self::CompinstClusterapp),
+            175u16 => Some(Self::ClanRank),
             70u16 => Some(Self::PatrolNode),
-            1u16 => Some(Self::OtherlandArea),
+            184u16 => Some(Self::NpcShopConfig),
+            35u16 => Some(Self::EdnaBase),
+            149u16 => Some(Self::Clan),
+            98u16 => Some(Self::VehicleBase),
+            153u16 => Some(Self::NonSpawnPlacementRadius),
+            14u16 => Some(Self::CompinstCommunitysrv),
             22u16 => Some(Self::GameSession),
+            12u16 => Some(Self::CompinstFrontendsrv),
+            181u16 => Some(Self::SkillGroup),
+            182u16 => Some(Self::CooldownGroupExternal),
+            120u16 => Some(Self::StandaloneLootPartition),
+            97u16 => Some(Self::Version),
+            140u16 => Some(Self::PortalItem),
+            179u16 => Some(Self::CombatSystemGroup),
+            26u16 => Some(Self::ItemBase),
+            109u16 => Some(Self::EdnaContainer),
+            134u16 => Some(Self::OaZoneConfig),
+            56u16 => Some(Self::Portal),
+            10u16 => Some(Self::Compinst),
+            47u16 => Some(Self::NpcOtherland),
+            139u16 => Some(Self::ItemPreset),
+            37u16 => Some(Self::EdnaModule),
+            135u16 => Some(Self::MyLandSettings),
+            143u16 => Some(Self::LootSystem),
+            106u16 => Some(Self::MoverBase),
+            42u16 => Some(Self::SpawnerBase),
+            127u16 => Some(Self::Door),
+            66u16 => Some(Self::Ship),
+            34u16 => Some(Self::ItemEdna),
+            114u16 => Some(Self::BilliardBall),
+            1u16 => Some(Self::OtherlandArea),
+            132u16 => Some(Self::NonSpawnPlacement),
+            57u16 => Some(Self::StartingPoint),
+            185u16 => Some(Self::Instance),
+            146u16 => Some(Self::WorldDisplay),
+            128u16 => Some(Self::CtfGameFlag),
+            113u16 => Some(Self::CooldownGroup),
+            142u16 => Some(Self::Metagame),
+            41u16 => Some(Self::NonClientBase),
+            136u16 => Some(Self::LocalTacticNode),
+            119u16 => Some(Self::JsonSchema),
+            71u16 => Some(Self::SpawnNode),
+            95u16 => Some(Self::Trade),
+            21u16 => Some(Self::EdnaAbility),
+            18u16 => Some(Self::CompinstClusternode),
+            40u16 => Some(Self::Mail),
+            67u16 => Some(Self::Planet),
+            152u16 => Some(Self::AbilityList),
+            154u16 => Some(Self::MypadRoomDoor),
+            133u16 => Some(Self::CompinstMasterRedirectSrv),
+            116u16 => Some(Self::MinigameItem),
+            61u16 => Some(Self::Trigger),
+            62u16 => Some(Self::ChessPiece),
+            124u16 => Some(Self::PresetPoint),
+            129u16 => Some(Self::ServerGateway),
+            188u16 => Some(Self::SteamDlc),
             151u16 => Some(Self::Faction),
+            36u16 => Some(Self::EdnaFunction),
+            145u16 => Some(Self::LootScatterContainer),
+            150u16 => Some(Self::SomaforgeItem),
+            104u16 => Some(Self::MinigameInfo),
+            131u16 => Some(Self::MylandScoreboard),
+            192u16 => Some(Self::CustomTrigger),
+            174u16 => Some(Self::ClanMember),
+            191u16 => Some(Self::CommonConfig),
+            190u16 => Some(Self::SteamItem),
+            144u16 => Some(Self::ClassItem),
+            180u16 => Some(Self::BuffGroup),
+            44u16 => Some(Self::Spawner),
+            148u16 => Some(Self::LifeDirector),
+            126u16 => Some(Self::MinigameMine),
+            155u16 => Some(Self::OaCommonConfig),
+            16u16 => Some(Self::CompinstLoginsrv),
+            69u16 => Some(Self::EdnaReceptor),
+            77u16 => Some(Self::Player),
+            183u16 => Some(Self::Config),
             _ => None,
         }
     }
     pub fn id(&self) -> u16 {
         match self {
-            Self::AiTemplate => 147u16,
-            Self::Instance => 185u16,
-            Self::CooldownGroupExternal => 182u16,
-            Self::Trigger => 61u16,
-            Self::LocalTacticNode => 136u16,
-            Self::BilliardBall => 114u16,
-            Self::ServerGateway => 129u16,
-            Self::MinigameScoreBoard => 122u16,
-            Self::MinigameItem => 116u16,
-            Self::Portal => 56u16,
-            Self::Party => 76u16,
-            Self::SteamDlc => 188u16,
-            Self::StandaloneLootPartition => 120u16,
-            Self::NpcShopConfig => 184u16,
-            Self::SpawnerBase => 42u16,
-            Self::ItemMyLandTheme => 137u16,
-            Self::EdnaContainer => 109u16,
-            Self::Spawner => 44u16,
-            Self::CompinstMasterRedirectSrv => 133u16,
-            Self::EdnaModule => 37u16,
-            Self::PresetPoint => 124u16,
-            Self::ChessMetaGameLogic => 105u16,
-            Self::VehicleBase => 98u16,
-            Self::CompinstCommunitysrv => 14u16,
-            Self::ItemBase => 26u16,
-            Self::PortalItem => 140u16,
-            Self::CombatSystemGroup => 179u16,
-            Self::NonSpawnPlacement => 132u16,
-            Self::SomaforgeItem => 150u16,
-            Self::Clan => 149u16,
-            Self::ItemEdna => 34u16,
-            Self::MyLandSettings => 135u16,
-            Self::PhysicsActor => 108u16,
-            Self::OaZoneConfig => 134u16,
             Self::BuffBase => 7u16,
             Self::CompinstClustersrv => 19u16,
-            Self::ItemPreset => 139u16,
-            Self::ClassItem => 144u16,
-            Self::ClanRank => 175u16,
-            Self::ClanMember => 174u16,
-            Self::Metagame => 142u16,
-            Self::NpcOtherland => 47u16,
-            Self::Version => 97u16,
-            Self::CommonConfig => 191u16,
-            Self::AbilityList => 152u16,
-            Self::CompinstMulticlusterAvatarLookup => 11u16,
-            Self::Trade => 95u16,
-            Self::SkillGroup => 181u16,
-            Self::StructureBase => 54u16,
-            Self::StartingPoint => 57u16,
-            Self::CustomTrigger => 192u16,
-            Self::NonClientBase => 41u16,
-            Self::LootSystem => 143u16,
-            Self::ShopFilterSchema => 177u16,
-            Self::NonSpawnPlacementRadius => 153u16,
-            Self::CompinstLoginsrv => 16u16,
-            Self::ServerGatewayExitPhase => 130u16,
-            Self::Compinst => 10u16,
-            Self::SteamItem => 190u16,
-            Self::LootScatterContainer => 145u16,
-            Self::CompinstClusternode => 18u16,
-            Self::Ship => 66u16,
-            Self::MinigameInfo => 104u16,
-            Self::CompinstCommunicationsrv => 15u16,
-            Self::MylandScoreboard => 131u16,
-            Self::CompinstClusterapp => 17u16,
-            Self::WorldDisplay => 146u16,
-            Self::MoverBase => 106u16,
-            Self::LifeDirector => 148u16,
-            Self::EdnaBase => 35u16,
-            Self::Door => 127u16,
-            Self::JsonSchema => 119u16,
-            Self::MypadRoomDoor => 154u16,
-            Self::NpcBase => 46u16,
-            Self::OaCommonConfig => 155u16,
-            Self::OaBuff2 => 9u16,
-            Self::EdnaReceptor => 69u16,
-            Self::SpawnNode => 71u16,
-            Self::Player => 77u16,
-            Self::QuestBeacon => 178u16,
-            Self::MinigameMine => 126u16,
-            Self::OtherlandStructure => 121u16,
-            Self::Mail => 40u16,
-            Self::CtfGameFlag => 128u16,
-            Self::CompinstFrontendsrv => 12u16,
-            Self::VehicleFlying => 99u16,
             Self::BundleItem => 176u16,
-            Self::CompinstDaemon => 13u16,
-            Self::EdnaFunction => 36u16,
-            Self::Config => 183u16,
-            Self::BuffGroup => 180u16,
-            Self::Structure => 55u16,
-            Self::Planet => 67u16,
-            Self::EdnaAbility => 21u16,
+            Self::ItemMyLandTheme => 137u16,
+            Self::AiTemplate => 147u16,
             Self::InteractObject => 68u16,
-            Self::CooldownGroup => 113u16,
-            Self::ChessPiece => 62u16,
+            Self::ChessMetaGameLogic => 105u16,
+            Self::CompinstMulticlusterAvatarLookup => 11u16,
+            Self::StructureBase => 54u16,
+            Self::CompinstCommunicationsrv => 15u16,
+            Self::ServerGatewayExitPhase => 130u16,
+            Self::OtherlandStructure => 121u16,
+            Self::VehicleFlying => 99u16,
+            Self::OaBuff2 => 9u16,
+            Self::CompinstDaemon => 13u16,
+            Self::Structure => 55u16,
+            Self::MinigameScoreBoard => 122u16,
+            Self::QuestBeacon => 178u16,
+            Self::ShopFilterSchema => 177u16,
+            Self::Party => 76u16,
+            Self::NpcBase => 46u16,
+            Self::PhysicsActor => 108u16,
+            Self::CompinstClusterapp => 17u16,
+            Self::ClanRank => 175u16,
             Self::PatrolNode => 70u16,
-            Self::OtherlandArea => 1u16,
+            Self::NpcShopConfig => 184u16,
+            Self::EdnaBase => 35u16,
+            Self::Clan => 149u16,
+            Self::VehicleBase => 98u16,
+            Self::NonSpawnPlacementRadius => 153u16,
+            Self::CompinstCommunitysrv => 14u16,
             Self::GameSession => 22u16,
+            Self::CompinstFrontendsrv => 12u16,
+            Self::SkillGroup => 181u16,
+            Self::CooldownGroupExternal => 182u16,
+            Self::StandaloneLootPartition => 120u16,
+            Self::Version => 97u16,
+            Self::PortalItem => 140u16,
+            Self::CombatSystemGroup => 179u16,
+            Self::ItemBase => 26u16,
+            Self::EdnaContainer => 109u16,
+            Self::OaZoneConfig => 134u16,
+            Self::Portal => 56u16,
+            Self::Compinst => 10u16,
+            Self::NpcOtherland => 47u16,
+            Self::ItemPreset => 139u16,
+            Self::EdnaModule => 37u16,
+            Self::MyLandSettings => 135u16,
+            Self::LootSystem => 143u16,
+            Self::MoverBase => 106u16,
+            Self::SpawnerBase => 42u16,
+            Self::Door => 127u16,
+            Self::Ship => 66u16,
+            Self::ItemEdna => 34u16,
+            Self::BilliardBall => 114u16,
+            Self::OtherlandArea => 1u16,
+            Self::NonSpawnPlacement => 132u16,
+            Self::StartingPoint => 57u16,
+            Self::Instance => 185u16,
+            Self::WorldDisplay => 146u16,
+            Self::CtfGameFlag => 128u16,
+            Self::CooldownGroup => 113u16,
+            Self::Metagame => 142u16,
+            Self::NonClientBase => 41u16,
+            Self::LocalTacticNode => 136u16,
+            Self::JsonSchema => 119u16,
+            Self::SpawnNode => 71u16,
+            Self::Trade => 95u16,
+            Self::EdnaAbility => 21u16,
+            Self::CompinstClusternode => 18u16,
+            Self::Mail => 40u16,
+            Self::Planet => 67u16,
+            Self::AbilityList => 152u16,
+            Self::MypadRoomDoor => 154u16,
+            Self::CompinstMasterRedirectSrv => 133u16,
+            Self::MinigameItem => 116u16,
+            Self::Trigger => 61u16,
+            Self::ChessPiece => 62u16,
+            Self::PresetPoint => 124u16,
+            Self::ServerGateway => 129u16,
+            Self::SteamDlc => 188u16,
             Self::Faction => 151u16,
+            Self::EdnaFunction => 36u16,
+            Self::LootScatterContainer => 145u16,
+            Self::SomaforgeItem => 150u16,
+            Self::MinigameInfo => 104u16,
+            Self::MylandScoreboard => 131u16,
+            Self::CustomTrigger => 192u16,
+            Self::ClanMember => 174u16,
+            Self::CommonConfig => 191u16,
+            Self::SteamItem => 190u16,
+            Self::ClassItem => 144u16,
+            Self::BuffGroup => 180u16,
+            Self::Spawner => 44u16,
+            Self::LifeDirector => 148u16,
+            Self::MinigameMine => 126u16,
+            Self::OaCommonConfig => 155u16,
+            Self::CompinstLoginsrv => 16u16,
+            Self::EdnaReceptor => 69u16,
+            Self::Player => 77u16,
+            Self::Config => 183u16,
         }
     }
     pub fn name(&self) -> &'static str {
         match self {
-            Self::AiTemplate => "AITemplate",
-            Self::Instance => "instance",
-            Self::CooldownGroupExternal => "CooldownGroupExternal",
-            Self::Trigger => "Trigger",
-            Self::LocalTacticNode => "LocalTacticNode",
-            Self::BilliardBall => "billiardBall",
-            Self::ServerGateway => "ServerGateway",
-            Self::MinigameScoreBoard => "minigameScoreBoard",
-            Self::MinigameItem => "minigameItem",
-            Self::Portal => "portal",
-            Self::Party => "party",
-            Self::SteamDlc => "SteamDlc",
-            Self::StandaloneLootPartition => "standaloneLootPartition",
-            Self::NpcShopConfig => "npcShopConfig",
-            Self::SpawnerBase => "spawnerBase",
-            Self::ItemMyLandTheme => "itemMyLandTheme",
-            Self::EdnaContainer => "EDNAContainer",
-            Self::Spawner => "spawner",
-            Self::CompinstMasterRedirectSrv => "compinst_masterRedirectSrv",
-            Self::EdnaModule => "ednaModule",
-            Self::PresetPoint => "presetPoint",
-            Self::ChessMetaGameLogic => "chessMetaGameLogic",
-            Self::VehicleBase => "vehicleBase",
-            Self::CompinstCommunitysrv => "compinst_communitysrv",
-            Self::ItemBase => "itemBase",
-            Self::PortalItem => "PortalItem",
-            Self::CombatSystemGroup => "combatSystemGroup",
-            Self::NonSpawnPlacement => "NonSpawnPlacement",
-            Self::SomaforgeItem => "SomaforgeItem",
-            Self::Clan => "clan",
-            Self::ItemEdna => "itemEdna",
-            Self::MyLandSettings => "MyLandSettings",
-            Self::PhysicsActor => "physicsActor",
-            Self::OaZoneConfig => "oaZoneConfig",
             Self::BuffBase => "buffBase",
             Self::CompinstClustersrv => "compinst_clustersrv",
-            Self::ItemPreset => "ItemPreset",
-            Self::ClassItem => "classItem",
-            Self::ClanRank => "clanRank",
-            Self::ClanMember => "clanMember",
-            Self::Metagame => "metagame",
-            Self::NpcOtherland => "npcOtherland",
-            Self::Version => "version",
-            Self::CommonConfig => "CommonConfig",
-            Self::AbilityList => "abilityList",
-            Self::CompinstMulticlusterAvatarLookup => "compinst_multiclusterAvatarLookup",
-            Self::Trade => "trade",
-            Self::SkillGroup => "SkillGroup",
-            Self::StructureBase => "structureBase",
-            Self::StartingPoint => "startingPoint",
-            Self::CustomTrigger => "CustomTrigger",
-            Self::NonClientBase => "nonClientBase",
-            Self::LootSystem => "lootSystem",
-            Self::ShopFilterSchema => "shopFilterSchema",
-            Self::NonSpawnPlacementRadius => "NonSpawnPlacementRadius",
-            Self::CompinstLoginsrv => "compinst_loginsrv",
-            Self::ServerGatewayExitPhase => "ServerGatewayExitPhase",
-            Self::Compinst => "compinst",
-            Self::SteamItem => "SteamItem",
-            Self::LootScatterContainer => "LootScatterContainer",
-            Self::CompinstClusternode => "compinst_clusternode",
-            Self::Ship => "Ship",
-            Self::MinigameInfo => "minigameInfo",
-            Self::CompinstCommunicationsrv => "compinst_communicationsrv",
-            Self::MylandScoreboard => "mylandScoreboard",
-            Self::CompinstClusterapp => "compinst_clusterapp",
-            Self::WorldDisplay => "WorldDisplay",
-            Self::MoverBase => "moverBase",
-            Self::LifeDirector => "LifeDirector",
-            Self::EdnaBase => "ednaBase",
-            Self::Door => "door",
-            Self::JsonSchema => "jsonSchema",
-            Self::MypadRoomDoor => "mypadRoomDoor",
-            Self::NpcBase => "npcBase",
-            Self::OaCommonConfig => "oaCommonConfig",
-            Self::OaBuff2 => "oaBuff_2",
-            Self::EdnaReceptor => "EDNAReceptor",
-            Self::SpawnNode => "spawnNode",
-            Self::Player => "player",
-            Self::QuestBeacon => "QuestBeacon",
-            Self::MinigameMine => "MinigameMine",
-            Self::OtherlandStructure => "OtherlandStructure",
-            Self::Mail => "mail",
-            Self::CtfGameFlag => "CTFGameFlag",
-            Self::CompinstFrontendsrv => "compinst_frontendsrv",
-            Self::VehicleFlying => "vehicleFlying",
             Self::BundleItem => "bundleItem",
-            Self::CompinstDaemon => "compinst_daemon",
-            Self::EdnaFunction => "ednaFunction",
-            Self::Config => "config",
-            Self::BuffGroup => "BuffGroup",
-            Self::Structure => "structure",
-            Self::Planet => "Planet",
-            Self::EdnaAbility => "ednaAbility",
+            Self::ItemMyLandTheme => "itemMyLandTheme",
+            Self::AiTemplate => "AITemplate",
             Self::InteractObject => "InteractObject",
-            Self::CooldownGroup => "cooldownGroup",
-            Self::ChessPiece => "chessPiece",
+            Self::ChessMetaGameLogic => "chessMetaGameLogic",
+            Self::CompinstMulticlusterAvatarLookup => "compinst_multiclusterAvatarLookup",
+            Self::StructureBase => "structureBase",
+            Self::CompinstCommunicationsrv => "compinst_communicationsrv",
+            Self::ServerGatewayExitPhase => "ServerGatewayExitPhase",
+            Self::OtherlandStructure => "OtherlandStructure",
+            Self::VehicleFlying => "vehicleFlying",
+            Self::OaBuff2 => "oaBuff_2",
+            Self::CompinstDaemon => "compinst_daemon",
+            Self::Structure => "structure",
+            Self::MinigameScoreBoard => "minigameScoreBoard",
+            Self::QuestBeacon => "QuestBeacon",
+            Self::ShopFilterSchema => "shopFilterSchema",
+            Self::Party => "party",
+            Self::NpcBase => "npcBase",
+            Self::PhysicsActor => "physicsActor",
+            Self::CompinstClusterapp => "compinst_clusterapp",
+            Self::ClanRank => "clanRank",
             Self::PatrolNode => "patrolNode",
-            Self::OtherlandArea => "OtherlandArea",
+            Self::NpcShopConfig => "npcShopConfig",
+            Self::EdnaBase => "ednaBase",
+            Self::Clan => "clan",
+            Self::VehicleBase => "vehicleBase",
+            Self::NonSpawnPlacementRadius => "NonSpawnPlacementRadius",
+            Self::CompinstCommunitysrv => "compinst_communitysrv",
             Self::GameSession => "gameSession",
+            Self::CompinstFrontendsrv => "compinst_frontendsrv",
+            Self::SkillGroup => "SkillGroup",
+            Self::CooldownGroupExternal => "CooldownGroupExternal",
+            Self::StandaloneLootPartition => "standaloneLootPartition",
+            Self::Version => "version",
+            Self::PortalItem => "PortalItem",
+            Self::CombatSystemGroup => "combatSystemGroup",
+            Self::ItemBase => "itemBase",
+            Self::EdnaContainer => "EDNAContainer",
+            Self::OaZoneConfig => "oaZoneConfig",
+            Self::Portal => "portal",
+            Self::Compinst => "compinst",
+            Self::NpcOtherland => "npcOtherland",
+            Self::ItemPreset => "ItemPreset",
+            Self::EdnaModule => "ednaModule",
+            Self::MyLandSettings => "MyLandSettings",
+            Self::LootSystem => "lootSystem",
+            Self::MoverBase => "moverBase",
+            Self::SpawnerBase => "spawnerBase",
+            Self::Door => "door",
+            Self::Ship => "Ship",
+            Self::ItemEdna => "itemEdna",
+            Self::BilliardBall => "billiardBall",
+            Self::OtherlandArea => "OtherlandArea",
+            Self::NonSpawnPlacement => "NonSpawnPlacement",
+            Self::StartingPoint => "startingPoint",
+            Self::Instance => "instance",
+            Self::WorldDisplay => "WorldDisplay",
+            Self::CtfGameFlag => "CTFGameFlag",
+            Self::CooldownGroup => "cooldownGroup",
+            Self::Metagame => "metagame",
+            Self::NonClientBase => "nonClientBase",
+            Self::LocalTacticNode => "LocalTacticNode",
+            Self::JsonSchema => "jsonSchema",
+            Self::SpawnNode => "spawnNode",
+            Self::Trade => "trade",
+            Self::EdnaAbility => "ednaAbility",
+            Self::CompinstClusternode => "compinst_clusternode",
+            Self::Mail => "mail",
+            Self::Planet => "Planet",
+            Self::AbilityList => "abilityList",
+            Self::MypadRoomDoor => "mypadRoomDoor",
+            Self::CompinstMasterRedirectSrv => "compinst_masterRedirectSrv",
+            Self::MinigameItem => "minigameItem",
+            Self::Trigger => "Trigger",
+            Self::ChessPiece => "chessPiece",
+            Self::PresetPoint => "presetPoint",
+            Self::ServerGateway => "ServerGateway",
+            Self::SteamDlc => "SteamDlc",
             Self::Faction => "faction",
+            Self::EdnaFunction => "ednaFunction",
+            Self::LootScatterContainer => "LootScatterContainer",
+            Self::SomaforgeItem => "SomaforgeItem",
+            Self::MinigameInfo => "minigameInfo",
+            Self::MylandScoreboard => "mylandScoreboard",
+            Self::CustomTrigger => "CustomTrigger",
+            Self::ClanMember => "clanMember",
+            Self::CommonConfig => "CommonConfig",
+            Self::SteamItem => "SteamItem",
+            Self::ClassItem => "classItem",
+            Self::BuffGroup => "BuffGroup",
+            Self::Spawner => "spawner",
+            Self::LifeDirector => "LifeDirector",
+            Self::MinigameMine => "MinigameMine",
+            Self::OaCommonConfig => "oaCommonConfig",
+            Self::CompinstLoginsrv => "compinst_loginsrv",
+            Self::EdnaReceptor => "EDNAReceptor",
+            Self::Player => "player",
+            Self::Config => "config",
         }
     }
     pub fn parent(&self) -> Option<Class> {
         match self {
-            Self::AiTemplate => None,
-            Self::Instance => Some(Class::Config),
-            Self::CooldownGroupExternal => Some(Class::CombatSystemGroup),
-            Self::Trigger => Some(Class::Structure),
-            Self::LocalTacticNode => Some(Class::Structure),
-            Self::BilliardBall => Some(Class::PhysicsActor),
-            Self::ServerGateway => Some(Class::Structure),
-            Self::MinigameScoreBoard => Some(Class::NonClientBase),
-            Self::MinigameItem => Some(Class::ItemBase),
-            Self::Portal => Some(Class::Structure),
-            Self::Party => None,
-            Self::SteamDlc => None,
-            Self::StandaloneLootPartition => None,
-            Self::NpcShopConfig => Some(Class::Config),
-            Self::SpawnerBase => Some(Class::NonClientBase),
-            Self::ItemMyLandTheme => Some(Class::ItemBase),
-            Self::EdnaContainer => Some(Class::InteractObject),
-            Self::Spawner => Some(Class::SpawnerBase),
-            Self::CompinstMasterRedirectSrv => Some(Class::Compinst),
-            Self::EdnaModule => Some(Class::ItemEdna),
-            Self::PresetPoint => Some(Class::Structure),
-            Self::ChessMetaGameLogic => Some(Class::Structure),
-            Self::VehicleBase => Some(Class::NonClientBase),
-            Self::CompinstCommunitysrv => Some(Class::Compinst),
-            Self::ItemBase => None,
-            Self::PortalItem => Some(Class::ItemBase),
-            Self::CombatSystemGroup => Some(Class::Metagame),
-            Self::NonSpawnPlacement => None,
-            Self::SomaforgeItem => Some(Class::ItemEdna),
-            Self::Clan => None,
-            Self::ItemEdna => Some(Class::ItemBase),
-            Self::MyLandSettings => Some(Class::Structure),
-            Self::PhysicsActor => Some(Class::MoverBase),
-            Self::OaZoneConfig => None,
             Self::BuffBase => None,
             Self::CompinstClustersrv => Some(Class::CompinstClusterapp),
-            Self::ItemPreset => None,
-            Self::ClassItem => Some(Class::ItemBase),
-            Self::ClanRank => None,
-            Self::ClanMember => None,
-            Self::Metagame => None,
-            Self::NpcOtherland => Some(Class::NpcBase),
-            Self::Version => None,
-            Self::CommonConfig => Some(Class::OaCommonConfig),
-            Self::AbilityList => None,
-            Self::CompinstMulticlusterAvatarLookup => Some(Class::Compinst),
-            Self::Trade => None,
-            Self::SkillGroup => Some(Class::CombatSystemGroup),
-            Self::StructureBase => Some(Class::NonClientBase),
-            Self::StartingPoint => Some(Class::Structure),
-            Self::CustomTrigger => Some(Class::Structure),
-            Self::NonClientBase => None,
-            Self::LootSystem => Some(Class::Metagame),
-            Self::ShopFilterSchema => Some(Class::OaCommonConfig),
-            Self::NonSpawnPlacementRadius => Some(Class::NonSpawnPlacement),
-            Self::CompinstLoginsrv => Some(Class::Compinst),
-            Self::ServerGatewayExitPhase => Some(Class::Structure),
-            Self::Compinst => None,
-            Self::SteamItem => None,
-            Self::LootScatterContainer => Some(Class::Structure),
-            Self::CompinstClusternode => Some(Class::CompinstClusterapp),
-            Self::Ship => Some(Class::Structure),
-            Self::MinigameInfo => Some(Class::NonClientBase),
-            Self::CompinstCommunicationsrv => Some(Class::Compinst),
-            Self::MylandScoreboard => Some(Class::NonClientBase),
-            Self::CompinstClusterapp => Some(Class::Compinst),
-            Self::WorldDisplay => Some(Class::Structure),
-            Self::MoverBase => Some(Class::NonClientBase),
-            Self::LifeDirector => None,
-            Self::EdnaBase => Some(Class::ItemEdna),
-            Self::Door => Some(Class::Structure),
-            Self::JsonSchema => None,
-            Self::MypadRoomDoor => Some(Class::Structure),
-            Self::NpcBase => Some(Class::NonClientBase),
-            Self::OaCommonConfig => None,
-            Self::OaBuff2 => Some(Class::BuffBase),
-            Self::EdnaReceptor => Some(Class::InteractObject),
-            Self::SpawnNode => Some(Class::Structure),
-            Self::Player => None,
-            Self::QuestBeacon => Some(Class::NonSpawnPlacement),
-            Self::MinigameMine => Some(Class::Structure),
-            Self::OtherlandStructure => Some(Class::Structure),
-            Self::Mail => None,
-            Self::CtfGameFlag => Some(Class::Structure),
-            Self::CompinstFrontendsrv => Some(Class::Compinst),
-            Self::VehicleFlying => Some(Class::VehicleBase),
             Self::BundleItem => Some(Class::ItemEdna),
-            Self::CompinstDaemon => Some(Class::Compinst),
-            Self::EdnaFunction => Some(Class::ItemEdna),
-            Self::Config => None,
-            Self::BuffGroup => Some(Class::CombatSystemGroup),
-            Self::Structure => Some(Class::StructureBase),
-            Self::Planet => Some(Class::Structure),
-            Self::EdnaAbility => None,
+            Self::ItemMyLandTheme => Some(Class::ItemBase),
+            Self::AiTemplate => None,
             Self::InteractObject => Some(Class::Structure),
-            Self::CooldownGroup => None,
-            Self::ChessPiece => Some(Class::Structure),
+            Self::ChessMetaGameLogic => Some(Class::Structure),
+            Self::CompinstMulticlusterAvatarLookup => Some(Class::Compinst),
+            Self::StructureBase => Some(Class::NonClientBase),
+            Self::CompinstCommunicationsrv => Some(Class::Compinst),
+            Self::ServerGatewayExitPhase => Some(Class::Structure),
+            Self::OtherlandStructure => Some(Class::Structure),
+            Self::VehicleFlying => Some(Class::VehicleBase),
+            Self::OaBuff2 => Some(Class::BuffBase),
+            Self::CompinstDaemon => Some(Class::Compinst),
+            Self::Structure => Some(Class::StructureBase),
+            Self::MinigameScoreBoard => Some(Class::NonClientBase),
+            Self::QuestBeacon => Some(Class::NonSpawnPlacement),
+            Self::ShopFilterSchema => Some(Class::OaCommonConfig),
+            Self::Party => None,
+            Self::NpcBase => Some(Class::NonClientBase),
+            Self::PhysicsActor => Some(Class::MoverBase),
+            Self::CompinstClusterapp => Some(Class::Compinst),
+            Self::ClanRank => None,
             Self::PatrolNode => Some(Class::Structure),
-            Self::OtherlandArea => None,
+            Self::NpcShopConfig => Some(Class::Config),
+            Self::EdnaBase => Some(Class::ItemEdna),
+            Self::Clan => None,
+            Self::VehicleBase => Some(Class::NonClientBase),
+            Self::NonSpawnPlacementRadius => Some(Class::NonSpawnPlacement),
+            Self::CompinstCommunitysrv => Some(Class::Compinst),
             Self::GameSession => None,
+            Self::CompinstFrontendsrv => Some(Class::Compinst),
+            Self::SkillGroup => Some(Class::CombatSystemGroup),
+            Self::CooldownGroupExternal => Some(Class::CombatSystemGroup),
+            Self::StandaloneLootPartition => None,
+            Self::Version => None,
+            Self::PortalItem => Some(Class::ItemBase),
+            Self::CombatSystemGroup => Some(Class::Metagame),
+            Self::ItemBase => None,
+            Self::EdnaContainer => Some(Class::InteractObject),
+            Self::OaZoneConfig => None,
+            Self::Portal => Some(Class::Structure),
+            Self::Compinst => None,
+            Self::NpcOtherland => Some(Class::NpcBase),
+            Self::ItemPreset => None,
+            Self::EdnaModule => Some(Class::ItemEdna),
+            Self::MyLandSettings => Some(Class::Structure),
+            Self::LootSystem => Some(Class::Metagame),
+            Self::MoverBase => Some(Class::NonClientBase),
+            Self::SpawnerBase => Some(Class::NonClientBase),
+            Self::Door => Some(Class::Structure),
+            Self::Ship => Some(Class::Structure),
+            Self::ItemEdna => Some(Class::ItemBase),
+            Self::BilliardBall => Some(Class::PhysicsActor),
+            Self::OtherlandArea => None,
+            Self::NonSpawnPlacement => None,
+            Self::StartingPoint => Some(Class::Structure),
+            Self::Instance => Some(Class::Config),
+            Self::WorldDisplay => Some(Class::Structure),
+            Self::CtfGameFlag => Some(Class::Structure),
+            Self::CooldownGroup => None,
+            Self::Metagame => None,
+            Self::NonClientBase => None,
+            Self::LocalTacticNode => Some(Class::Structure),
+            Self::JsonSchema => None,
+            Self::SpawnNode => Some(Class::Structure),
+            Self::Trade => None,
+            Self::EdnaAbility => None,
+            Self::CompinstClusternode => Some(Class::CompinstClusterapp),
+            Self::Mail => None,
+            Self::Planet => Some(Class::Structure),
+            Self::AbilityList => None,
+            Self::MypadRoomDoor => Some(Class::Structure),
+            Self::CompinstMasterRedirectSrv => Some(Class::Compinst),
+            Self::MinigameItem => Some(Class::ItemBase),
+            Self::Trigger => Some(Class::Structure),
+            Self::ChessPiece => Some(Class::Structure),
+            Self::PresetPoint => Some(Class::Structure),
+            Self::ServerGateway => Some(Class::Structure),
+            Self::SteamDlc => None,
             Self::Faction => None,
+            Self::EdnaFunction => Some(Class::ItemEdna),
+            Self::LootScatterContainer => Some(Class::Structure),
+            Self::SomaforgeItem => Some(Class::ItemEdna),
+            Self::MinigameInfo => Some(Class::NonClientBase),
+            Self::MylandScoreboard => Some(Class::NonClientBase),
+            Self::CustomTrigger => Some(Class::Structure),
+            Self::ClanMember => None,
+            Self::CommonConfig => Some(Class::OaCommonConfig),
+            Self::SteamItem => None,
+            Self::ClassItem => Some(Class::ItemBase),
+            Self::BuffGroup => Some(Class::CombatSystemGroup),
+            Self::Spawner => Some(Class::SpawnerBase),
+            Self::LifeDirector => None,
+            Self::MinigameMine => Some(Class::Structure),
+            Self::OaCommonConfig => None,
+            Self::CompinstLoginsrv => Some(Class::Compinst),
+            Self::EdnaReceptor => Some(Class::InteractObject),
+            Self::Player => None,
+            Self::Config => None,
         }
     }
     pub(crate) fn create_param_set(
@@ -1057,144 +1057,26 @@ impl Class {
         attributes: Vec<(&'static dyn AttributeInfo, Value)>,
     ) -> Box<dyn GenericParamSet> {
         match self {
-            Self::AiTemplate => {
-                Box::new(ParamSet::<AiTemplate>::new_from_attributes(attributes))
-            }
-            Self::Instance => {
-                Box::new(ParamSet::<Instance>::new_from_attributes(attributes))
-            }
-            Self::CooldownGroupExternal => {
-                Box::new(
-                    ParamSet::<CooldownGroupExternal>::new_from_attributes(attributes),
-                )
-            }
-            Self::Trigger => {
-                Box::new(ParamSet::<Trigger>::new_from_attributes(attributes))
-            }
-            Self::LocalTacticNode => {
-                Box::new(ParamSet::<LocalTacticNode>::new_from_attributes(attributes))
-            }
-            Self::BilliardBall => {
-                Box::new(ParamSet::<BilliardBall>::new_from_attributes(attributes))
-            }
-            Self::ServerGateway => {
-                Box::new(ParamSet::<ServerGateway>::new_from_attributes(attributes))
-            }
-            Self::MinigameScoreBoard => {
-                Box::new(ParamSet::<MinigameScoreBoard>::new_from_attributes(attributes))
-            }
-            Self::MinigameItem => {
-                Box::new(ParamSet::<MinigameItem>::new_from_attributes(attributes))
-            }
-            Self::Portal => Box::new(ParamSet::<Portal>::new_from_attributes(attributes)),
-            Self::Party => Box::new(ParamSet::<Party>::new_from_attributes(attributes)),
-            Self::SteamDlc => {
-                Box::new(ParamSet::<SteamDlc>::new_from_attributes(attributes))
-            }
-            Self::StandaloneLootPartition => {
-                Box::new(
-                    ParamSet::<StandaloneLootPartition>::new_from_attributes(attributes),
-                )
-            }
-            Self::NpcShopConfig => {
-                Box::new(ParamSet::<NpcShopConfig>::new_from_attributes(attributes))
-            }
-            Self::SpawnerBase => {
-                Box::new(ParamSet::<SpawnerBase>::new_from_attributes(attributes))
-            }
-            Self::ItemMyLandTheme => {
-                Box::new(ParamSet::<ItemMyLandTheme>::new_from_attributes(attributes))
-            }
-            Self::EdnaContainer => {
-                Box::new(ParamSet::<EdnaContainer>::new_from_attributes(attributes))
-            }
-            Self::Spawner => {
-                Box::new(ParamSet::<Spawner>::new_from_attributes(attributes))
-            }
-            Self::CompinstMasterRedirectSrv => {
-                Box::new(
-                    ParamSet::<
-                        CompinstMasterRedirectSrv,
-                    >::new_from_attributes(attributes),
-                )
-            }
-            Self::EdnaModule => {
-                Box::new(ParamSet::<EdnaModule>::new_from_attributes(attributes))
-            }
-            Self::PresetPoint => {
-                Box::new(ParamSet::<PresetPoint>::new_from_attributes(attributes))
-            }
-            Self::ChessMetaGameLogic => {
-                Box::new(ParamSet::<ChessMetaGameLogic>::new_from_attributes(attributes))
-            }
-            Self::VehicleBase => {
-                Box::new(ParamSet::<VehicleBase>::new_from_attributes(attributes))
-            }
-            Self::CompinstCommunitysrv => {
-                Box::new(
-                    ParamSet::<CompinstCommunitysrv>::new_from_attributes(attributes),
-                )
-            }
-            Self::ItemBase => {
-                Box::new(ParamSet::<ItemBase>::new_from_attributes(attributes))
-            }
-            Self::PortalItem => {
-                Box::new(ParamSet::<PortalItem>::new_from_attributes(attributes))
-            }
-            Self::CombatSystemGroup => {
-                Box::new(ParamSet::<CombatSystemGroup>::new_from_attributes(attributes))
-            }
-            Self::NonSpawnPlacement => {
-                Box::new(ParamSet::<NonSpawnPlacement>::new_from_attributes(attributes))
-            }
-            Self::SomaforgeItem => {
-                Box::new(ParamSet::<SomaforgeItem>::new_from_attributes(attributes))
-            }
-            Self::Clan => Box::new(ParamSet::<Clan>::new_from_attributes(attributes)),
-            Self::ItemEdna => {
-                Box::new(ParamSet::<ItemEdna>::new_from_attributes(attributes))
-            }
-            Self::MyLandSettings => {
-                Box::new(ParamSet::<MyLandSettings>::new_from_attributes(attributes))
-            }
-            Self::PhysicsActor => {
-                Box::new(ParamSet::<PhysicsActor>::new_from_attributes(attributes))
-            }
-            Self::OaZoneConfig => {
-                Box::new(ParamSet::<OaZoneConfig>::new_from_attributes(attributes))
-            }
             Self::BuffBase => {
                 Box::new(ParamSet::<BuffBase>::new_from_attributes(attributes))
             }
             Self::CompinstClustersrv => {
                 Box::new(ParamSet::<CompinstClustersrv>::new_from_attributes(attributes))
             }
-            Self::ItemPreset => {
-                Box::new(ParamSet::<ItemPreset>::new_from_attributes(attributes))
+            Self::BundleItem => {
+                Box::new(ParamSet::<BundleItem>::new_from_attributes(attributes))
             }
-            Self::ClassItem => {
-                Box::new(ParamSet::<ClassItem>::new_from_attributes(attributes))
+            Self::ItemMyLandTheme => {
+                Box::new(ParamSet::<ItemMyLandTheme>::new_from_attributes(attributes))
             }
-            Self::ClanRank => {
-                Box::new(ParamSet::<ClanRank>::new_from_attributes(attributes))
+            Self::AiTemplate => {
+                Box::new(ParamSet::<AiTemplate>::new_from_attributes(attributes))
             }
-            Self::ClanMember => {
-                Box::new(ParamSet::<ClanMember>::new_from_attributes(attributes))
+            Self::InteractObject => {
+                Box::new(ParamSet::<InteractObject>::new_from_attributes(attributes))
             }
-            Self::Metagame => {
-                Box::new(ParamSet::<Metagame>::new_from_attributes(attributes))
-            }
-            Self::NpcOtherland => {
-                Box::new(ParamSet::<NpcOtherland>::new_from_attributes(attributes))
-            }
-            Self::Version => {
-                Box::new(ParamSet::<Version>::new_from_attributes(attributes))
-            }
-            Self::CommonConfig => {
-                Box::new(ParamSet::<CommonConfig>::new_from_attributes(attributes))
-            }
-            Self::AbilityList => {
-                Box::new(ParamSet::<AbilityList>::new_from_attributes(attributes))
+            Self::ChessMetaGameLogic => {
+                Box::new(ParamSet::<ChessMetaGameLogic>::new_from_attributes(attributes))
             }
             Self::CompinstMulticlusterAvatarLookup => {
                 Box::new(
@@ -1203,169 +1085,287 @@ impl Class {
                     >::new_from_attributes(attributes),
                 )
             }
-            Self::Trade => Box::new(ParamSet::<Trade>::new_from_attributes(attributes)),
-            Self::SkillGroup => {
-                Box::new(ParamSet::<SkillGroup>::new_from_attributes(attributes))
-            }
             Self::StructureBase => {
                 Box::new(ParamSet::<StructureBase>::new_from_attributes(attributes))
-            }
-            Self::StartingPoint => {
-                Box::new(ParamSet::<StartingPoint>::new_from_attributes(attributes))
-            }
-            Self::CustomTrigger => {
-                Box::new(ParamSet::<CustomTrigger>::new_from_attributes(attributes))
-            }
-            Self::NonClientBase => {
-                Box::new(ParamSet::<NonClientBase>::new_from_attributes(attributes))
-            }
-            Self::LootSystem => {
-                Box::new(ParamSet::<LootSystem>::new_from_attributes(attributes))
-            }
-            Self::ShopFilterSchema => {
-                Box::new(ParamSet::<ShopFilterSchema>::new_from_attributes(attributes))
-            }
-            Self::NonSpawnPlacementRadius => {
-                Box::new(
-                    ParamSet::<NonSpawnPlacementRadius>::new_from_attributes(attributes),
-                )
-            }
-            Self::CompinstLoginsrv => {
-                Box::new(ParamSet::<CompinstLoginsrv>::new_from_attributes(attributes))
-            }
-            Self::ServerGatewayExitPhase => {
-                Box::new(
-                    ParamSet::<ServerGatewayExitPhase>::new_from_attributes(attributes),
-                )
-            }
-            Self::Compinst => {
-                Box::new(ParamSet::<Compinst>::new_from_attributes(attributes))
-            }
-            Self::SteamItem => {
-                Box::new(ParamSet::<SteamItem>::new_from_attributes(attributes))
-            }
-            Self::LootScatterContainer => {
-                Box::new(
-                    ParamSet::<LootScatterContainer>::new_from_attributes(attributes),
-                )
-            }
-            Self::CompinstClusternode => {
-                Box::new(
-                    ParamSet::<CompinstClusternode>::new_from_attributes(attributes),
-                )
-            }
-            Self::Ship => Box::new(ParamSet::<Ship>::new_from_attributes(attributes)),
-            Self::MinigameInfo => {
-                Box::new(ParamSet::<MinigameInfo>::new_from_attributes(attributes))
             }
             Self::CompinstCommunicationsrv => {
                 Box::new(
                     ParamSet::<CompinstCommunicationsrv>::new_from_attributes(attributes),
                 )
             }
-            Self::MylandScoreboard => {
-                Box::new(ParamSet::<MylandScoreboard>::new_from_attributes(attributes))
-            }
-            Self::CompinstClusterapp => {
-                Box::new(ParamSet::<CompinstClusterapp>::new_from_attributes(attributes))
-            }
-            Self::WorldDisplay => {
-                Box::new(ParamSet::<WorldDisplay>::new_from_attributes(attributes))
-            }
-            Self::MoverBase => {
-                Box::new(ParamSet::<MoverBase>::new_from_attributes(attributes))
-            }
-            Self::LifeDirector => {
-                Box::new(ParamSet::<LifeDirector>::new_from_attributes(attributes))
-            }
-            Self::EdnaBase => {
-                Box::new(ParamSet::<EdnaBase>::new_from_attributes(attributes))
-            }
-            Self::Door => Box::new(ParamSet::<Door>::new_from_attributes(attributes)),
-            Self::JsonSchema => {
-                Box::new(ParamSet::<JsonSchema>::new_from_attributes(attributes))
-            }
-            Self::MypadRoomDoor => {
-                Box::new(ParamSet::<MypadRoomDoor>::new_from_attributes(attributes))
-            }
-            Self::NpcBase => {
-                Box::new(ParamSet::<NpcBase>::new_from_attributes(attributes))
-            }
-            Self::OaCommonConfig => {
-                Box::new(ParamSet::<OaCommonConfig>::new_from_attributes(attributes))
-            }
-            Self::OaBuff2 => {
-                Box::new(ParamSet::<OaBuff2>::new_from_attributes(attributes))
-            }
-            Self::EdnaReceptor => {
-                Box::new(ParamSet::<EdnaReceptor>::new_from_attributes(attributes))
-            }
-            Self::SpawnNode => {
-                Box::new(ParamSet::<SpawnNode>::new_from_attributes(attributes))
-            }
-            Self::Player => Box::new(ParamSet::<Player>::new_from_attributes(attributes)),
-            Self::QuestBeacon => {
-                Box::new(ParamSet::<QuestBeacon>::new_from_attributes(attributes))
-            }
-            Self::MinigameMine => {
-                Box::new(ParamSet::<MinigameMine>::new_from_attributes(attributes))
+            Self::ServerGatewayExitPhase => {
+                Box::new(
+                    ParamSet::<ServerGatewayExitPhase>::new_from_attributes(attributes),
+                )
             }
             Self::OtherlandStructure => {
                 Box::new(ParamSet::<OtherlandStructure>::new_from_attributes(attributes))
             }
-            Self::Mail => Box::new(ParamSet::<Mail>::new_from_attributes(attributes)),
-            Self::CtfGameFlag => {
-                Box::new(ParamSet::<CtfGameFlag>::new_from_attributes(attributes))
+            Self::VehicleFlying => {
+                Box::new(ParamSet::<VehicleFlying>::new_from_attributes(attributes))
+            }
+            Self::OaBuff2 => {
+                Box::new(ParamSet::<OaBuff2>::new_from_attributes(attributes))
+            }
+            Self::CompinstDaemon => {
+                Box::new(ParamSet::<CompinstDaemon>::new_from_attributes(attributes))
+            }
+            Self::Structure => {
+                Box::new(ParamSet::<Structure>::new_from_attributes(attributes))
+            }
+            Self::MinigameScoreBoard => {
+                Box::new(ParamSet::<MinigameScoreBoard>::new_from_attributes(attributes))
+            }
+            Self::QuestBeacon => {
+                Box::new(ParamSet::<QuestBeacon>::new_from_attributes(attributes))
+            }
+            Self::ShopFilterSchema => {
+                Box::new(ParamSet::<ShopFilterSchema>::new_from_attributes(attributes))
+            }
+            Self::Party => Box::new(ParamSet::<Party>::new_from_attributes(attributes)),
+            Self::NpcBase => {
+                Box::new(ParamSet::<NpcBase>::new_from_attributes(attributes))
+            }
+            Self::PhysicsActor => {
+                Box::new(ParamSet::<PhysicsActor>::new_from_attributes(attributes))
+            }
+            Self::CompinstClusterapp => {
+                Box::new(ParamSet::<CompinstClusterapp>::new_from_attributes(attributes))
+            }
+            Self::ClanRank => {
+                Box::new(ParamSet::<ClanRank>::new_from_attributes(attributes))
+            }
+            Self::PatrolNode => {
+                Box::new(ParamSet::<PatrolNode>::new_from_attributes(attributes))
+            }
+            Self::NpcShopConfig => {
+                Box::new(ParamSet::<NpcShopConfig>::new_from_attributes(attributes))
+            }
+            Self::EdnaBase => {
+                Box::new(ParamSet::<EdnaBase>::new_from_attributes(attributes))
+            }
+            Self::Clan => Box::new(ParamSet::<Clan>::new_from_attributes(attributes)),
+            Self::VehicleBase => {
+                Box::new(ParamSet::<VehicleBase>::new_from_attributes(attributes))
+            }
+            Self::NonSpawnPlacementRadius => {
+                Box::new(
+                    ParamSet::<NonSpawnPlacementRadius>::new_from_attributes(attributes),
+                )
+            }
+            Self::CompinstCommunitysrv => {
+                Box::new(
+                    ParamSet::<CompinstCommunitysrv>::new_from_attributes(attributes),
+                )
+            }
+            Self::GameSession => {
+                Box::new(ParamSet::<GameSession>::new_from_attributes(attributes))
             }
             Self::CompinstFrontendsrv => {
                 Box::new(
                     ParamSet::<CompinstFrontendsrv>::new_from_attributes(attributes),
                 )
             }
-            Self::VehicleFlying => {
-                Box::new(ParamSet::<VehicleFlying>::new_from_attributes(attributes))
+            Self::SkillGroup => {
+                Box::new(ParamSet::<SkillGroup>::new_from_attributes(attributes))
             }
-            Self::BundleItem => {
-                Box::new(ParamSet::<BundleItem>::new_from_attributes(attributes))
+            Self::CooldownGroupExternal => {
+                Box::new(
+                    ParamSet::<CooldownGroupExternal>::new_from_attributes(attributes),
+                )
             }
-            Self::CompinstDaemon => {
-                Box::new(ParamSet::<CompinstDaemon>::new_from_attributes(attributes))
+            Self::StandaloneLootPartition => {
+                Box::new(
+                    ParamSet::<StandaloneLootPartition>::new_from_attributes(attributes),
+                )
             }
-            Self::EdnaFunction => {
-                Box::new(ParamSet::<EdnaFunction>::new_from_attributes(attributes))
+            Self::Version => {
+                Box::new(ParamSet::<Version>::new_from_attributes(attributes))
             }
-            Self::Config => Box::new(ParamSet::<Config>::new_from_attributes(attributes)),
-            Self::BuffGroup => {
-                Box::new(ParamSet::<BuffGroup>::new_from_attributes(attributes))
+            Self::PortalItem => {
+                Box::new(ParamSet::<PortalItem>::new_from_attributes(attributes))
             }
-            Self::Structure => {
-                Box::new(ParamSet::<Structure>::new_from_attributes(attributes))
+            Self::CombatSystemGroup => {
+                Box::new(ParamSet::<CombatSystemGroup>::new_from_attributes(attributes))
             }
-            Self::Planet => Box::new(ParamSet::<Planet>::new_from_attributes(attributes)),
-            Self::EdnaAbility => {
-                Box::new(ParamSet::<EdnaAbility>::new_from_attributes(attributes))
+            Self::ItemBase => {
+                Box::new(ParamSet::<ItemBase>::new_from_attributes(attributes))
             }
-            Self::InteractObject => {
-                Box::new(ParamSet::<InteractObject>::new_from_attributes(attributes))
+            Self::EdnaContainer => {
+                Box::new(ParamSet::<EdnaContainer>::new_from_attributes(attributes))
             }
-            Self::CooldownGroup => {
-                Box::new(ParamSet::<CooldownGroup>::new_from_attributes(attributes))
+            Self::OaZoneConfig => {
+                Box::new(ParamSet::<OaZoneConfig>::new_from_attributes(attributes))
             }
-            Self::ChessPiece => {
-                Box::new(ParamSet::<ChessPiece>::new_from_attributes(attributes))
+            Self::Portal => Box::new(ParamSet::<Portal>::new_from_attributes(attributes)),
+            Self::Compinst => {
+                Box::new(ParamSet::<Compinst>::new_from_attributes(attributes))
             }
-            Self::PatrolNode => {
-                Box::new(ParamSet::<PatrolNode>::new_from_attributes(attributes))
+            Self::NpcOtherland => {
+                Box::new(ParamSet::<NpcOtherland>::new_from_attributes(attributes))
+            }
+            Self::ItemPreset => {
+                Box::new(ParamSet::<ItemPreset>::new_from_attributes(attributes))
+            }
+            Self::EdnaModule => {
+                Box::new(ParamSet::<EdnaModule>::new_from_attributes(attributes))
+            }
+            Self::MyLandSettings => {
+                Box::new(ParamSet::<MyLandSettings>::new_from_attributes(attributes))
+            }
+            Self::LootSystem => {
+                Box::new(ParamSet::<LootSystem>::new_from_attributes(attributes))
+            }
+            Self::MoverBase => {
+                Box::new(ParamSet::<MoverBase>::new_from_attributes(attributes))
+            }
+            Self::SpawnerBase => {
+                Box::new(ParamSet::<SpawnerBase>::new_from_attributes(attributes))
+            }
+            Self::Door => Box::new(ParamSet::<Door>::new_from_attributes(attributes)),
+            Self::Ship => Box::new(ParamSet::<Ship>::new_from_attributes(attributes)),
+            Self::ItemEdna => {
+                Box::new(ParamSet::<ItemEdna>::new_from_attributes(attributes))
+            }
+            Self::BilliardBall => {
+                Box::new(ParamSet::<BilliardBall>::new_from_attributes(attributes))
             }
             Self::OtherlandArea => {
                 Box::new(ParamSet::<OtherlandArea>::new_from_attributes(attributes))
             }
-            Self::GameSession => {
-                Box::new(ParamSet::<GameSession>::new_from_attributes(attributes))
+            Self::NonSpawnPlacement => {
+                Box::new(ParamSet::<NonSpawnPlacement>::new_from_attributes(attributes))
+            }
+            Self::StartingPoint => {
+                Box::new(ParamSet::<StartingPoint>::new_from_attributes(attributes))
+            }
+            Self::Instance => {
+                Box::new(ParamSet::<Instance>::new_from_attributes(attributes))
+            }
+            Self::WorldDisplay => {
+                Box::new(ParamSet::<WorldDisplay>::new_from_attributes(attributes))
+            }
+            Self::CtfGameFlag => {
+                Box::new(ParamSet::<CtfGameFlag>::new_from_attributes(attributes))
+            }
+            Self::CooldownGroup => {
+                Box::new(ParamSet::<CooldownGroup>::new_from_attributes(attributes))
+            }
+            Self::Metagame => {
+                Box::new(ParamSet::<Metagame>::new_from_attributes(attributes))
+            }
+            Self::NonClientBase => {
+                Box::new(ParamSet::<NonClientBase>::new_from_attributes(attributes))
+            }
+            Self::LocalTacticNode => {
+                Box::new(ParamSet::<LocalTacticNode>::new_from_attributes(attributes))
+            }
+            Self::JsonSchema => {
+                Box::new(ParamSet::<JsonSchema>::new_from_attributes(attributes))
+            }
+            Self::SpawnNode => {
+                Box::new(ParamSet::<SpawnNode>::new_from_attributes(attributes))
+            }
+            Self::Trade => Box::new(ParamSet::<Trade>::new_from_attributes(attributes)),
+            Self::EdnaAbility => {
+                Box::new(ParamSet::<EdnaAbility>::new_from_attributes(attributes))
+            }
+            Self::CompinstClusternode => {
+                Box::new(
+                    ParamSet::<CompinstClusternode>::new_from_attributes(attributes),
+                )
+            }
+            Self::Mail => Box::new(ParamSet::<Mail>::new_from_attributes(attributes)),
+            Self::Planet => Box::new(ParamSet::<Planet>::new_from_attributes(attributes)),
+            Self::AbilityList => {
+                Box::new(ParamSet::<AbilityList>::new_from_attributes(attributes))
+            }
+            Self::MypadRoomDoor => {
+                Box::new(ParamSet::<MypadRoomDoor>::new_from_attributes(attributes))
+            }
+            Self::CompinstMasterRedirectSrv => {
+                Box::new(
+                    ParamSet::<
+                        CompinstMasterRedirectSrv,
+                    >::new_from_attributes(attributes),
+                )
+            }
+            Self::MinigameItem => {
+                Box::new(ParamSet::<MinigameItem>::new_from_attributes(attributes))
+            }
+            Self::Trigger => {
+                Box::new(ParamSet::<Trigger>::new_from_attributes(attributes))
+            }
+            Self::ChessPiece => {
+                Box::new(ParamSet::<ChessPiece>::new_from_attributes(attributes))
+            }
+            Self::PresetPoint => {
+                Box::new(ParamSet::<PresetPoint>::new_from_attributes(attributes))
+            }
+            Self::ServerGateway => {
+                Box::new(ParamSet::<ServerGateway>::new_from_attributes(attributes))
+            }
+            Self::SteamDlc => {
+                Box::new(ParamSet::<SteamDlc>::new_from_attributes(attributes))
             }
             Self::Faction => {
                 Box::new(ParamSet::<Faction>::new_from_attributes(attributes))
             }
+            Self::EdnaFunction => {
+                Box::new(ParamSet::<EdnaFunction>::new_from_attributes(attributes))
+            }
+            Self::LootScatterContainer => {
+                Box::new(
+                    ParamSet::<LootScatterContainer>::new_from_attributes(attributes),
+                )
+            }
+            Self::SomaforgeItem => {
+                Box::new(ParamSet::<SomaforgeItem>::new_from_attributes(attributes))
+            }
+            Self::MinigameInfo => {
+                Box::new(ParamSet::<MinigameInfo>::new_from_attributes(attributes))
+            }
+            Self::MylandScoreboard => {
+                Box::new(ParamSet::<MylandScoreboard>::new_from_attributes(attributes))
+            }
+            Self::CustomTrigger => {
+                Box::new(ParamSet::<CustomTrigger>::new_from_attributes(attributes))
+            }
+            Self::ClanMember => {
+                Box::new(ParamSet::<ClanMember>::new_from_attributes(attributes))
+            }
+            Self::CommonConfig => {
+                Box::new(ParamSet::<CommonConfig>::new_from_attributes(attributes))
+            }
+            Self::SteamItem => {
+                Box::new(ParamSet::<SteamItem>::new_from_attributes(attributes))
+            }
+            Self::ClassItem => {
+                Box::new(ParamSet::<ClassItem>::new_from_attributes(attributes))
+            }
+            Self::BuffGroup => {
+                Box::new(ParamSet::<BuffGroup>::new_from_attributes(attributes))
+            }
+            Self::Spawner => {
+                Box::new(ParamSet::<Spawner>::new_from_attributes(attributes))
+            }
+            Self::LifeDirector => {
+                Box::new(ParamSet::<LifeDirector>::new_from_attributes(attributes))
+            }
+            Self::MinigameMine => {
+                Box::new(ParamSet::<MinigameMine>::new_from_attributes(attributes))
+            }
+            Self::OaCommonConfig => {
+                Box::new(ParamSet::<OaCommonConfig>::new_from_attributes(attributes))
+            }
+            Self::CompinstLoginsrv => {
+                Box::new(ParamSet::<CompinstLoginsrv>::new_from_attributes(attributes))
+            }
+            Self::EdnaReceptor => {
+                Box::new(ParamSet::<EdnaReceptor>::new_from_attributes(attributes))
+            }
+            Self::Player => Box::new(ParamSet::<Player>::new_from_attributes(attributes)),
+            Self::Config => Box::new(ParamSet::<Config>::new_from_attributes(attributes)),
         }
     }
 }
@@ -1373,109 +1373,109 @@ impl FromStr for Class {
     type Err = ParamError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "AITemplate" => Ok(Self::AiTemplate),
-            "instance" => Ok(Self::Instance),
-            "CooldownGroupExternal" => Ok(Self::CooldownGroupExternal),
-            "Trigger" => Ok(Self::Trigger),
-            "LocalTacticNode" => Ok(Self::LocalTacticNode),
-            "billiardBall" => Ok(Self::BilliardBall),
-            "ServerGateway" => Ok(Self::ServerGateway),
-            "minigameScoreBoard" => Ok(Self::MinigameScoreBoard),
-            "minigameItem" => Ok(Self::MinigameItem),
-            "portal" => Ok(Self::Portal),
-            "party" => Ok(Self::Party),
-            "SteamDlc" => Ok(Self::SteamDlc),
-            "standaloneLootPartition" => Ok(Self::StandaloneLootPartition),
-            "npcShopConfig" => Ok(Self::NpcShopConfig),
-            "spawnerBase" => Ok(Self::SpawnerBase),
-            "itemMyLandTheme" => Ok(Self::ItemMyLandTheme),
-            "EDNAContainer" => Ok(Self::EdnaContainer),
-            "spawner" => Ok(Self::Spawner),
-            "compinst_masterRedirectSrv" => Ok(Self::CompinstMasterRedirectSrv),
-            "ednaModule" => Ok(Self::EdnaModule),
-            "presetPoint" => Ok(Self::PresetPoint),
-            "chessMetaGameLogic" => Ok(Self::ChessMetaGameLogic),
-            "vehicleBase" => Ok(Self::VehicleBase),
-            "compinst_communitysrv" => Ok(Self::CompinstCommunitysrv),
-            "itemBase" => Ok(Self::ItemBase),
-            "PortalItem" => Ok(Self::PortalItem),
-            "combatSystemGroup" => Ok(Self::CombatSystemGroup),
-            "NonSpawnPlacement" => Ok(Self::NonSpawnPlacement),
-            "SomaforgeItem" => Ok(Self::SomaforgeItem),
-            "clan" => Ok(Self::Clan),
-            "itemEdna" => Ok(Self::ItemEdna),
-            "MyLandSettings" => Ok(Self::MyLandSettings),
-            "physicsActor" => Ok(Self::PhysicsActor),
-            "oaZoneConfig" => Ok(Self::OaZoneConfig),
             "buffBase" => Ok(Self::BuffBase),
             "compinst_clustersrv" => Ok(Self::CompinstClustersrv),
-            "ItemPreset" => Ok(Self::ItemPreset),
-            "classItem" => Ok(Self::ClassItem),
-            "clanRank" => Ok(Self::ClanRank),
-            "clanMember" => Ok(Self::ClanMember),
-            "metagame" => Ok(Self::Metagame),
-            "npcOtherland" => Ok(Self::NpcOtherland),
-            "version" => Ok(Self::Version),
-            "CommonConfig" => Ok(Self::CommonConfig),
-            "abilityList" => Ok(Self::AbilityList),
+            "bundleItem" => Ok(Self::BundleItem),
+            "itemMyLandTheme" => Ok(Self::ItemMyLandTheme),
+            "AITemplate" => Ok(Self::AiTemplate),
+            "InteractObject" => Ok(Self::InteractObject),
+            "chessMetaGameLogic" => Ok(Self::ChessMetaGameLogic),
             "compinst_multiclusterAvatarLookup" => {
                 Ok(Self::CompinstMulticlusterAvatarLookup)
             }
-            "trade" => Ok(Self::Trade),
-            "SkillGroup" => Ok(Self::SkillGroup),
             "structureBase" => Ok(Self::StructureBase),
-            "startingPoint" => Ok(Self::StartingPoint),
-            "CustomTrigger" => Ok(Self::CustomTrigger),
-            "nonClientBase" => Ok(Self::NonClientBase),
-            "lootSystem" => Ok(Self::LootSystem),
-            "shopFilterSchema" => Ok(Self::ShopFilterSchema),
-            "NonSpawnPlacementRadius" => Ok(Self::NonSpawnPlacementRadius),
-            "compinst_loginsrv" => Ok(Self::CompinstLoginsrv),
-            "ServerGatewayExitPhase" => Ok(Self::ServerGatewayExitPhase),
-            "compinst" => Ok(Self::Compinst),
-            "SteamItem" => Ok(Self::SteamItem),
-            "LootScatterContainer" => Ok(Self::LootScatterContainer),
-            "compinst_clusternode" => Ok(Self::CompinstClusternode),
-            "Ship" => Ok(Self::Ship),
-            "minigameInfo" => Ok(Self::MinigameInfo),
             "compinst_communicationsrv" => Ok(Self::CompinstCommunicationsrv),
-            "mylandScoreboard" => Ok(Self::MylandScoreboard),
-            "compinst_clusterapp" => Ok(Self::CompinstClusterapp),
-            "WorldDisplay" => Ok(Self::WorldDisplay),
-            "moverBase" => Ok(Self::MoverBase),
-            "LifeDirector" => Ok(Self::LifeDirector),
-            "ednaBase" => Ok(Self::EdnaBase),
-            "door" => Ok(Self::Door),
-            "jsonSchema" => Ok(Self::JsonSchema),
-            "mypadRoomDoor" => Ok(Self::MypadRoomDoor),
-            "npcBase" => Ok(Self::NpcBase),
-            "oaCommonConfig" => Ok(Self::OaCommonConfig),
-            "oaBuff_2" => Ok(Self::OaBuff2),
-            "EDNAReceptor" => Ok(Self::EdnaReceptor),
-            "spawnNode" => Ok(Self::SpawnNode),
-            "player" => Ok(Self::Player),
-            "QuestBeacon" => Ok(Self::QuestBeacon),
-            "MinigameMine" => Ok(Self::MinigameMine),
+            "ServerGatewayExitPhase" => Ok(Self::ServerGatewayExitPhase),
             "OtherlandStructure" => Ok(Self::OtherlandStructure),
-            "mail" => Ok(Self::Mail),
-            "CTFGameFlag" => Ok(Self::CtfGameFlag),
-            "compinst_frontendsrv" => Ok(Self::CompinstFrontendsrv),
             "vehicleFlying" => Ok(Self::VehicleFlying),
-            "bundleItem" => Ok(Self::BundleItem),
+            "oaBuff_2" => Ok(Self::OaBuff2),
             "compinst_daemon" => Ok(Self::CompinstDaemon),
-            "ednaFunction" => Ok(Self::EdnaFunction),
-            "config" => Ok(Self::Config),
-            "BuffGroup" => Ok(Self::BuffGroup),
             "structure" => Ok(Self::Structure),
-            "Planet" => Ok(Self::Planet),
-            "ednaAbility" => Ok(Self::EdnaAbility),
-            "InteractObject" => Ok(Self::InteractObject),
-            "cooldownGroup" => Ok(Self::CooldownGroup),
-            "chessPiece" => Ok(Self::ChessPiece),
+            "minigameScoreBoard" => Ok(Self::MinigameScoreBoard),
+            "QuestBeacon" => Ok(Self::QuestBeacon),
+            "shopFilterSchema" => Ok(Self::ShopFilterSchema),
+            "party" => Ok(Self::Party),
+            "npcBase" => Ok(Self::NpcBase),
+            "physicsActor" => Ok(Self::PhysicsActor),
+            "compinst_clusterapp" => Ok(Self::CompinstClusterapp),
+            "clanRank" => Ok(Self::ClanRank),
             "patrolNode" => Ok(Self::PatrolNode),
-            "OtherlandArea" => Ok(Self::OtherlandArea),
+            "npcShopConfig" => Ok(Self::NpcShopConfig),
+            "ednaBase" => Ok(Self::EdnaBase),
+            "clan" => Ok(Self::Clan),
+            "vehicleBase" => Ok(Self::VehicleBase),
+            "NonSpawnPlacementRadius" => Ok(Self::NonSpawnPlacementRadius),
+            "compinst_communitysrv" => Ok(Self::CompinstCommunitysrv),
             "gameSession" => Ok(Self::GameSession),
+            "compinst_frontendsrv" => Ok(Self::CompinstFrontendsrv),
+            "SkillGroup" => Ok(Self::SkillGroup),
+            "CooldownGroupExternal" => Ok(Self::CooldownGroupExternal),
+            "standaloneLootPartition" => Ok(Self::StandaloneLootPartition),
+            "version" => Ok(Self::Version),
+            "PortalItem" => Ok(Self::PortalItem),
+            "combatSystemGroup" => Ok(Self::CombatSystemGroup),
+            "itemBase" => Ok(Self::ItemBase),
+            "EDNAContainer" => Ok(Self::EdnaContainer),
+            "oaZoneConfig" => Ok(Self::OaZoneConfig),
+            "portal" => Ok(Self::Portal),
+            "compinst" => Ok(Self::Compinst),
+            "npcOtherland" => Ok(Self::NpcOtherland),
+            "ItemPreset" => Ok(Self::ItemPreset),
+            "ednaModule" => Ok(Self::EdnaModule),
+            "MyLandSettings" => Ok(Self::MyLandSettings),
+            "lootSystem" => Ok(Self::LootSystem),
+            "moverBase" => Ok(Self::MoverBase),
+            "spawnerBase" => Ok(Self::SpawnerBase),
+            "door" => Ok(Self::Door),
+            "Ship" => Ok(Self::Ship),
+            "itemEdna" => Ok(Self::ItemEdna),
+            "billiardBall" => Ok(Self::BilliardBall),
+            "OtherlandArea" => Ok(Self::OtherlandArea),
+            "NonSpawnPlacement" => Ok(Self::NonSpawnPlacement),
+            "startingPoint" => Ok(Self::StartingPoint),
+            "instance" => Ok(Self::Instance),
+            "WorldDisplay" => Ok(Self::WorldDisplay),
+            "CTFGameFlag" => Ok(Self::CtfGameFlag),
+            "cooldownGroup" => Ok(Self::CooldownGroup),
+            "metagame" => Ok(Self::Metagame),
+            "nonClientBase" => Ok(Self::NonClientBase),
+            "LocalTacticNode" => Ok(Self::LocalTacticNode),
+            "jsonSchema" => Ok(Self::JsonSchema),
+            "spawnNode" => Ok(Self::SpawnNode),
+            "trade" => Ok(Self::Trade),
+            "ednaAbility" => Ok(Self::EdnaAbility),
+            "compinst_clusternode" => Ok(Self::CompinstClusternode),
+            "mail" => Ok(Self::Mail),
+            "Planet" => Ok(Self::Planet),
+            "abilityList" => Ok(Self::AbilityList),
+            "mypadRoomDoor" => Ok(Self::MypadRoomDoor),
+            "compinst_masterRedirectSrv" => Ok(Self::CompinstMasterRedirectSrv),
+            "minigameItem" => Ok(Self::MinigameItem),
+            "Trigger" => Ok(Self::Trigger),
+            "chessPiece" => Ok(Self::ChessPiece),
+            "presetPoint" => Ok(Self::PresetPoint),
+            "ServerGateway" => Ok(Self::ServerGateway),
+            "SteamDlc" => Ok(Self::SteamDlc),
             "faction" => Ok(Self::Faction),
+            "ednaFunction" => Ok(Self::EdnaFunction),
+            "LootScatterContainer" => Ok(Self::LootScatterContainer),
+            "SomaforgeItem" => Ok(Self::SomaforgeItem),
+            "minigameInfo" => Ok(Self::MinigameInfo),
+            "mylandScoreboard" => Ok(Self::MylandScoreboard),
+            "CustomTrigger" => Ok(Self::CustomTrigger),
+            "clanMember" => Ok(Self::ClanMember),
+            "CommonConfig" => Ok(Self::CommonConfig),
+            "SteamItem" => Ok(Self::SteamItem),
+            "classItem" => Ok(Self::ClassItem),
+            "BuffGroup" => Ok(Self::BuffGroup),
+            "spawner" => Ok(Self::Spawner),
+            "LifeDirector" => Ok(Self::LifeDirector),
+            "MinigameMine" => Ok(Self::MinigameMine),
+            "oaCommonConfig" => Ok(Self::OaCommonConfig),
+            "compinst_loginsrv" => Ok(Self::CompinstLoginsrv),
+            "EDNAReceptor" => Ok(Self::EdnaReceptor),
+            "player" => Ok(Self::Player),
+            "config" => Ok(Self::Config),
             _ => Err(ParamError::UnknownClass),
         }
     }

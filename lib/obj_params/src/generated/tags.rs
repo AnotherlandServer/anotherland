@@ -20,281 +20,363 @@
 use bevy::prelude::*;
 use crate::Class;
 use crate::GameObjectData;
-#[derive(Component)]
-pub struct AiTemplateTag;
-#[derive(Component)]
-pub struct InstanceTag;
-#[derive(Component)]
-pub struct CooldownGroupExternalTag;
-#[derive(Component)]
-pub struct TriggerTag;
-#[derive(Component)]
-pub struct LocalTacticNodeTag;
-#[derive(Component)]
-pub struct BilliardBallTag;
-#[derive(Component)]
-pub struct ServerGatewayTag;
-#[derive(Component)]
-pub struct MinigameScoreBoardTag;
-#[derive(Component)]
-pub struct MinigameItemTag;
-#[derive(Component)]
-pub struct PortalTag;
-#[derive(Component)]
-pub struct PartyTag;
-#[derive(Component)]
-pub struct SteamDlcTag;
-#[derive(Component)]
-pub struct StandaloneLootPartitionTag;
-#[derive(Component)]
-pub struct NpcShopConfigTag;
-#[derive(Component)]
-pub struct SpawnerBaseTag;
-#[derive(Component)]
-pub struct ItemMyLandThemeTag;
-#[derive(Component)]
-pub struct EdnaContainerTag;
-#[derive(Component)]
-pub struct SpawnerTag;
-#[derive(Component)]
-pub struct CompinstMasterRedirectSrvTag;
-#[derive(Component)]
-pub struct EdnaModuleTag;
-#[derive(Component)]
-pub struct PresetPointTag;
-#[derive(Component)]
-pub struct ChessMetaGameLogicTag;
-#[derive(Component)]
-pub struct VehicleBaseTag;
-#[derive(Component)]
-pub struct CompinstCommunitysrvTag;
-#[derive(Component)]
-pub struct ItemBaseTag;
-#[derive(Component)]
-pub struct PortalItemTag;
-#[derive(Component)]
-pub struct CombatSystemGroupTag;
-#[derive(Component)]
-pub struct NonSpawnPlacementTag;
-#[derive(Component)]
-pub struct SomaforgeItemTag;
-#[derive(Component)]
-pub struct ClanTag;
-#[derive(Component)]
-pub struct ItemEdnaTag;
-#[derive(Component)]
-pub struct MyLandSettingsTag;
-#[derive(Component)]
-pub struct PhysicsActorTag;
-#[derive(Component)]
-pub struct OaZoneConfigTag;
+use crate::ObjectReceiver;
 #[derive(Component)]
 pub struct BuffBaseTag;
 #[derive(Component)]
 pub struct CompinstClustersrvTag;
 #[derive(Component)]
-pub struct ItemPresetTag;
-#[derive(Component)]
-pub struct ClassItemTag;
-#[derive(Component)]
-pub struct ClanRankTag;
-#[derive(Component)]
-pub struct ClanMemberTag;
-#[derive(Component)]
-pub struct MetagameTag;
-#[derive(Component)]
-pub struct NpcOtherlandTag;
-#[derive(Component)]
-pub struct VersionTag;
-#[derive(Component)]
-pub struct CommonConfigTag;
-#[derive(Component)]
-pub struct AbilityListTag;
-#[derive(Component)]
-pub struct CompinstMulticlusterAvatarLookupTag;
-#[derive(Component)]
-pub struct TradeTag;
-#[derive(Component)]
-pub struct SkillGroupTag;
-#[derive(Component)]
-pub struct StructureBaseTag;
-#[derive(Component)]
-pub struct StartingPointTag;
-#[derive(Component)]
-pub struct CustomTriggerTag;
-#[derive(Component)]
-pub struct NonClientBaseTag;
-#[derive(Component)]
-pub struct LootSystemTag;
-#[derive(Component)]
-pub struct ShopFilterSchemaTag;
-#[derive(Component)]
-pub struct NonSpawnPlacementRadiusTag;
-#[derive(Component)]
-pub struct CompinstLoginsrvTag;
-#[derive(Component)]
-pub struct ServerGatewayExitPhaseTag;
-#[derive(Component)]
-pub struct CompinstTag;
-#[derive(Component)]
-pub struct SteamItemTag;
-#[derive(Component)]
-pub struct LootScatterContainerTag;
-#[derive(Component)]
-pub struct CompinstClusternodeTag;
-#[derive(Component)]
-pub struct ShipTag;
-#[derive(Component)]
-pub struct MinigameInfoTag;
-#[derive(Component)]
-pub struct CompinstCommunicationsrvTag;
-#[derive(Component)]
-pub struct MylandScoreboardTag;
-#[derive(Component)]
-pub struct CompinstClusterappTag;
-#[derive(Component)]
-pub struct WorldDisplayTag;
-#[derive(Component)]
-pub struct MoverBaseTag;
-#[derive(Component)]
-pub struct LifeDirectorTag;
-#[derive(Component)]
-pub struct EdnaBaseTag;
-#[derive(Component)]
-pub struct DoorTag;
-#[derive(Component)]
-pub struct JsonSchemaTag;
-#[derive(Component)]
-pub struct MypadRoomDoorTag;
-#[derive(Component)]
-pub struct NpcBaseTag;
-#[derive(Component)]
-pub struct OaCommonConfigTag;
-#[derive(Component)]
-pub struct OaBuff2Tag;
-#[derive(Component)]
-pub struct EdnaReceptorTag;
-#[derive(Component)]
-pub struct SpawnNodeTag;
-#[derive(Component)]
-pub struct PlayerTag;
-#[derive(Component)]
-pub struct QuestBeaconTag;
-#[derive(Component)]
-pub struct MinigameMineTag;
-#[derive(Component)]
-pub struct OtherlandStructureTag;
-#[derive(Component)]
-pub struct MailTag;
-#[derive(Component)]
-pub struct CtfGameFlagTag;
-#[derive(Component)]
-pub struct CompinstFrontendsrvTag;
-#[derive(Component)]
-pub struct VehicleFlyingTag;
-#[derive(Component)]
 pub struct BundleItemTag;
 #[derive(Component)]
-pub struct CompinstDaemonTag;
+pub struct ItemMyLandThemeTag;
 #[derive(Component)]
-pub struct EdnaFunctionTag;
-#[derive(Component)]
-pub struct ConfigTag;
-#[derive(Component)]
-pub struct BuffGroupTag;
-#[derive(Component)]
-pub struct StructureTag;
-#[derive(Component)]
-pub struct PlanetTag;
-#[derive(Component)]
-pub struct EdnaAbilityTag;
+pub struct AiTemplateTag;
 #[derive(Component)]
 pub struct InteractObjectTag;
 #[derive(Component)]
-pub struct CooldownGroupTag;
+pub struct ChessMetaGameLogicTag;
 #[derive(Component)]
-pub struct ChessPieceTag;
+pub struct CompinstMulticlusterAvatarLookupTag;
+#[derive(Component)]
+pub struct StructureBaseTag;
+#[derive(Component)]
+pub struct CompinstCommunicationsrvTag;
+#[derive(Component)]
+pub struct ServerGatewayExitPhaseTag;
+#[derive(Component)]
+pub struct OtherlandStructureTag;
+#[derive(Component)]
+pub struct VehicleFlyingTag;
+#[derive(Component)]
+pub struct OaBuff2Tag;
+#[derive(Component)]
+pub struct CompinstDaemonTag;
+#[derive(Component)]
+pub struct StructureTag;
+#[derive(Component)]
+pub struct MinigameScoreBoardTag;
+#[derive(Component)]
+pub struct QuestBeaconTag;
+#[derive(Component)]
+pub struct ShopFilterSchemaTag;
+#[derive(Component)]
+pub struct PartyTag;
+#[derive(Component)]
+pub struct NpcBaseTag;
+#[derive(Component)]
+pub struct PhysicsActorTag;
+#[derive(Component)]
+pub struct CompinstClusterappTag;
+#[derive(Component)]
+pub struct ClanRankTag;
 #[derive(Component)]
 pub struct PatrolNodeTag;
 #[derive(Component)]
-pub struct OtherlandAreaTag;
+pub struct NpcShopConfigTag;
+#[derive(Component)]
+pub struct EdnaBaseTag;
+#[derive(Component)]
+pub struct ClanTag;
+#[derive(Component)]
+pub struct VehicleBaseTag;
+#[derive(Component)]
+pub struct NonSpawnPlacementRadiusTag;
+#[derive(Component)]
+pub struct CompinstCommunitysrvTag;
 #[derive(Component)]
 pub struct GameSessionTag;
 #[derive(Component)]
+pub struct CompinstFrontendsrvTag;
+#[derive(Component)]
+pub struct SkillGroupTag;
+#[derive(Component)]
+pub struct CooldownGroupExternalTag;
+#[derive(Component)]
+pub struct StandaloneLootPartitionTag;
+#[derive(Component)]
+pub struct VersionTag;
+#[derive(Component)]
+pub struct PortalItemTag;
+#[derive(Component)]
+pub struct CombatSystemGroupTag;
+#[derive(Component)]
+pub struct ItemBaseTag;
+#[derive(Component)]
+pub struct EdnaContainerTag;
+#[derive(Component)]
+pub struct OaZoneConfigTag;
+#[derive(Component)]
+pub struct PortalTag;
+#[derive(Component)]
+pub struct CompinstTag;
+#[derive(Component)]
+pub struct NpcOtherlandTag;
+#[derive(Component)]
+pub struct ItemPresetTag;
+#[derive(Component)]
+pub struct EdnaModuleTag;
+#[derive(Component)]
+pub struct MyLandSettingsTag;
+#[derive(Component)]
+pub struct LootSystemTag;
+#[derive(Component)]
+pub struct MoverBaseTag;
+#[derive(Component)]
+pub struct SpawnerBaseTag;
+#[derive(Component)]
+pub struct DoorTag;
+#[derive(Component)]
+pub struct ShipTag;
+#[derive(Component)]
+pub struct ItemEdnaTag;
+#[derive(Component)]
+pub struct BilliardBallTag;
+#[derive(Component)]
+pub struct OtherlandAreaTag;
+#[derive(Component)]
+pub struct NonSpawnPlacementTag;
+#[derive(Component)]
+pub struct StartingPointTag;
+#[derive(Component)]
+pub struct InstanceTag;
+#[derive(Component)]
+pub struct WorldDisplayTag;
+#[derive(Component)]
+pub struct CtfGameFlagTag;
+#[derive(Component)]
+pub struct CooldownGroupTag;
+#[derive(Component)]
+pub struct MetagameTag;
+#[derive(Component)]
+pub struct NonClientBaseTag;
+#[derive(Component)]
+pub struct LocalTacticNodeTag;
+#[derive(Component)]
+pub struct JsonSchemaTag;
+#[derive(Component)]
+pub struct SpawnNodeTag;
+#[derive(Component)]
+pub struct TradeTag;
+#[derive(Component)]
+pub struct EdnaAbilityTag;
+#[derive(Component)]
+pub struct CompinstClusternodeTag;
+#[derive(Component)]
+pub struct MailTag;
+#[derive(Component)]
+pub struct PlanetTag;
+#[derive(Component)]
+pub struct AbilityListTag;
+#[derive(Component)]
+pub struct MypadRoomDoorTag;
+#[derive(Component)]
+pub struct CompinstMasterRedirectSrvTag;
+#[derive(Component)]
+pub struct MinigameItemTag;
+#[derive(Component)]
+pub struct TriggerTag;
+#[derive(Component)]
+pub struct ChessPieceTag;
+#[derive(Component)]
+pub struct PresetPointTag;
+#[derive(Component)]
+pub struct ServerGatewayTag;
+#[derive(Component)]
+pub struct SteamDlcTag;
+#[derive(Component)]
 pub struct FactionTag;
-pub fn tag_gameobject_entity(data: &GameObjectData, commands: &mut EntityCommands<'_>) {
-    match data.class() {
-        Class::AiTemplate => {
-            commands.insert(AiTemplateTag);
+#[derive(Component)]
+pub struct EdnaFunctionTag;
+#[derive(Component)]
+pub struct LootScatterContainerTag;
+#[derive(Component)]
+pub struct SomaforgeItemTag;
+#[derive(Component)]
+pub struct MinigameInfoTag;
+#[derive(Component)]
+pub struct MylandScoreboardTag;
+#[derive(Component)]
+pub struct CustomTriggerTag;
+#[derive(Component)]
+pub struct ClanMemberTag;
+#[derive(Component)]
+pub struct CommonConfigTag;
+#[derive(Component)]
+pub struct SteamItemTag;
+#[derive(Component)]
+pub struct ClassItemTag;
+#[derive(Component)]
+pub struct BuffGroupTag;
+#[derive(Component)]
+pub struct SpawnerTag;
+#[derive(Component)]
+pub struct LifeDirectorTag;
+#[derive(Component)]
+pub struct MinigameMineTag;
+#[derive(Component)]
+pub struct OaCommonConfigTag;
+#[derive(Component)]
+pub struct CompinstLoginsrvTag;
+#[derive(Component)]
+pub struct EdnaReceptorTag;
+#[derive(Component)]
+pub struct PlayerTag;
+#[derive(Component)]
+pub struct ConfigTag;
+pub(crate) fn tag_gameobject_entity<T: ObjectReceiver>(class: Class, target: &mut T) {
+    match class {
+        Class::BuffBase => {
+            target.insert(BuffBaseTag);
         }
-        Class::Instance => {
-            commands.insert((InstanceTag, ConfigTag));
+        Class::CompinstClustersrv => {
+            target.insert((CompinstClustersrvTag, CompinstClusterappTag, CompinstTag));
         }
-        Class::CooldownGroupExternal => {
-            commands
-                .insert((CooldownGroupExternalTag, CombatSystemGroupTag, MetagameTag));
-        }
-        Class::Trigger => {
-            commands
-                .insert((TriggerTag, StructureTag, StructureBaseTag, NonClientBaseTag));
-        }
-        Class::LocalTacticNode => {
-            commands
-                .insert((
-                    LocalTacticNodeTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::BilliardBall => {
-            commands
-                .insert((
-                    BilliardBallTag,
-                    PhysicsActorTag,
-                    MoverBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::ServerGateway => {
-            commands
-                .insert((
-                    ServerGatewayTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::MinigameScoreBoard => {
-            commands.insert((MinigameScoreBoardTag, NonClientBaseTag));
-        }
-        Class::MinigameItem => {
-            commands.insert((MinigameItemTag, ItemBaseTag));
-        }
-        Class::Portal => {
-            commands
-                .insert((PortalTag, StructureTag, StructureBaseTag, NonClientBaseTag));
-        }
-        Class::Party => {
-            commands.insert(PartyTag);
-        }
-        Class::SteamDlc => {
-            commands.insert(SteamDlcTag);
-        }
-        Class::StandaloneLootPartition => {
-            commands.insert(StandaloneLootPartitionTag);
-        }
-        Class::NpcShopConfig => {
-            commands.insert((NpcShopConfigTag, ConfigTag));
-        }
-        Class::SpawnerBase => {
-            commands.insert((SpawnerBaseTag, NonClientBaseTag));
+        Class::BundleItem => {
+            target.insert((BundleItemTag, ItemEdnaTag, ItemBaseTag));
         }
         Class::ItemMyLandTheme => {
-            commands.insert((ItemMyLandThemeTag, ItemBaseTag));
+            target.insert((ItemMyLandThemeTag, ItemBaseTag));
+        }
+        Class::AiTemplate => {
+            target.insert(AiTemplateTag);
+        }
+        Class::InteractObject => {
+            target
+                .insert((
+                    InteractObjectTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::ChessMetaGameLogic => {
+            target
+                .insert((
+                    ChessMetaGameLogicTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::CompinstMulticlusterAvatarLookup => {
+            target.insert((CompinstMulticlusterAvatarLookupTag, CompinstTag));
+        }
+        Class::StructureBase => {
+            target.insert((StructureBaseTag, NonClientBaseTag));
+        }
+        Class::CompinstCommunicationsrv => {
+            target.insert((CompinstCommunicationsrvTag, CompinstTag));
+        }
+        Class::ServerGatewayExitPhase => {
+            target
+                .insert((
+                    ServerGatewayExitPhaseTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::OtherlandStructure => {
+            target
+                .insert((
+                    OtherlandStructureTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::VehicleFlying => {
+            target.insert((VehicleFlyingTag, VehicleBaseTag, NonClientBaseTag));
+        }
+        Class::OaBuff2 => {
+            target.insert((OaBuff2Tag, BuffBaseTag));
+        }
+        Class::CompinstDaemon => {
+            target.insert((CompinstDaemonTag, CompinstTag));
+        }
+        Class::Structure => {
+            target.insert((StructureTag, StructureBaseTag, NonClientBaseTag));
+        }
+        Class::MinigameScoreBoard => {
+            target.insert((MinigameScoreBoardTag, NonClientBaseTag));
+        }
+        Class::QuestBeacon => {
+            target.insert((QuestBeaconTag, NonSpawnPlacementTag));
+        }
+        Class::ShopFilterSchema => {
+            target.insert((ShopFilterSchemaTag, OaCommonConfigTag));
+        }
+        Class::Party => {
+            target.insert(PartyTag);
+        }
+        Class::NpcBase => {
+            target.insert((NpcBaseTag, NonClientBaseTag));
+        }
+        Class::PhysicsActor => {
+            target.insert((PhysicsActorTag, MoverBaseTag, NonClientBaseTag));
+        }
+        Class::CompinstClusterapp => {
+            target.insert((CompinstClusterappTag, CompinstTag));
+        }
+        Class::ClanRank => {
+            target.insert(ClanRankTag);
+        }
+        Class::PatrolNode => {
+            target
+                .insert((
+                    PatrolNodeTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::NpcShopConfig => {
+            target.insert((NpcShopConfigTag, ConfigTag));
+        }
+        Class::EdnaBase => {
+            target.insert((EdnaBaseTag, ItemEdnaTag, ItemBaseTag));
+        }
+        Class::Clan => {
+            target.insert(ClanTag);
+        }
+        Class::VehicleBase => {
+            target.insert((VehicleBaseTag, NonClientBaseTag));
+        }
+        Class::NonSpawnPlacementRadius => {
+            target.insert((NonSpawnPlacementRadiusTag, NonSpawnPlacementTag));
+        }
+        Class::CompinstCommunitysrv => {
+            target.insert((CompinstCommunitysrvTag, CompinstTag));
+        }
+        Class::GameSession => {
+            target.insert(GameSessionTag);
+        }
+        Class::CompinstFrontendsrv => {
+            target.insert((CompinstFrontendsrvTag, CompinstTag));
+        }
+        Class::SkillGroup => {
+            target.insert((SkillGroupTag, CombatSystemGroupTag, MetagameTag));
+        }
+        Class::CooldownGroupExternal => {
+            target.insert((CooldownGroupExternalTag, CombatSystemGroupTag, MetagameTag));
+        }
+        Class::StandaloneLootPartition => {
+            target.insert(StandaloneLootPartitionTag);
+        }
+        Class::Version => {
+            target.insert(VersionTag);
+        }
+        Class::PortalItem => {
+            target.insert((PortalItemTag, ItemBaseTag));
+        }
+        Class::CombatSystemGroup => {
+            target.insert((CombatSystemGroupTag, MetagameTag));
+        }
+        Class::ItemBase => {
+            target.insert(ItemBaseTag);
         }
         Class::EdnaContainer => {
-            commands
+            target
                 .insert((
                     EdnaContainerTag,
                     InteractObjectTag,
@@ -303,62 +385,26 @@ pub fn tag_gameobject_entity(data: &GameObjectData, commands: &mut EntityCommand
                     NonClientBaseTag,
                 ));
         }
-        Class::Spawner => {
-            commands.insert((SpawnerTag, SpawnerBaseTag, NonClientBaseTag));
+        Class::OaZoneConfig => {
+            target.insert(OaZoneConfigTag);
         }
-        Class::CompinstMasterRedirectSrv => {
-            commands.insert((CompinstMasterRedirectSrvTag, CompinstTag));
+        Class::Portal => {
+            target.insert((PortalTag, StructureTag, StructureBaseTag, NonClientBaseTag));
+        }
+        Class::Compinst => {
+            target.insert(CompinstTag);
+        }
+        Class::NpcOtherland => {
+            target.insert((NpcOtherlandTag, NpcBaseTag, NonClientBaseTag));
+        }
+        Class::ItemPreset => {
+            target.insert(ItemPresetTag);
         }
         Class::EdnaModule => {
-            commands.insert((EdnaModuleTag, ItemEdnaTag, ItemBaseTag));
-        }
-        Class::PresetPoint => {
-            commands
-                .insert((
-                    PresetPointTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::ChessMetaGameLogic => {
-            commands
-                .insert((
-                    ChessMetaGameLogicTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::VehicleBase => {
-            commands.insert((VehicleBaseTag, NonClientBaseTag));
-        }
-        Class::CompinstCommunitysrv => {
-            commands.insert((CompinstCommunitysrvTag, CompinstTag));
-        }
-        Class::ItemBase => {
-            commands.insert(ItemBaseTag);
-        }
-        Class::PortalItem => {
-            commands.insert((PortalItemTag, ItemBaseTag));
-        }
-        Class::CombatSystemGroup => {
-            commands.insert((CombatSystemGroupTag, MetagameTag));
-        }
-        Class::NonSpawnPlacement => {
-            commands.insert(NonSpawnPlacementTag);
-        }
-        Class::SomaforgeItem => {
-            commands.insert((SomaforgeItemTag, ItemEdnaTag, ItemBaseTag));
-        }
-        Class::Clan => {
-            commands.insert(ClanTag);
-        }
-        Class::ItemEdna => {
-            commands.insert((ItemEdnaTag, ItemBaseTag));
+            target.insert((EdnaModuleTag, ItemEdnaTag, ItemBaseTag));
         }
         Class::MyLandSettings => {
-            commands
+            target
                 .insert((
                     MyLandSettingsTag,
                     StructureTag,
@@ -366,59 +412,41 @@ pub fn tag_gameobject_entity(data: &GameObjectData, commands: &mut EntityCommand
                     NonClientBaseTag,
                 ));
         }
-        Class::PhysicsActor => {
-            commands.insert((PhysicsActorTag, MoverBaseTag, NonClientBaseTag));
+        Class::LootSystem => {
+            target.insert((LootSystemTag, MetagameTag));
         }
-        Class::OaZoneConfig => {
-            commands.insert(OaZoneConfigTag);
+        Class::MoverBase => {
+            target.insert((MoverBaseTag, NonClientBaseTag));
         }
-        Class::BuffBase => {
-            commands.insert(BuffBaseTag);
+        Class::SpawnerBase => {
+            target.insert((SpawnerBaseTag, NonClientBaseTag));
         }
-        Class::CompinstClustersrv => {
-            commands.insert((CompinstClustersrvTag, CompinstClusterappTag, CompinstTag));
+        Class::Door => {
+            target.insert((DoorTag, StructureTag, StructureBaseTag, NonClientBaseTag));
         }
-        Class::ItemPreset => {
-            commands.insert(ItemPresetTag);
+        Class::Ship => {
+            target.insert((ShipTag, StructureTag, StructureBaseTag, NonClientBaseTag));
         }
-        Class::ClassItem => {
-            commands.insert((ClassItemTag, ItemBaseTag));
+        Class::ItemEdna => {
+            target.insert((ItemEdnaTag, ItemBaseTag));
         }
-        Class::ClanRank => {
-            commands.insert(ClanRankTag);
+        Class::BilliardBall => {
+            target
+                .insert((
+                    BilliardBallTag,
+                    PhysicsActorTag,
+                    MoverBaseTag,
+                    NonClientBaseTag,
+                ));
         }
-        Class::ClanMember => {
-            commands.insert(ClanMemberTag);
+        Class::OtherlandArea => {
+            target.insert(OtherlandAreaTag);
         }
-        Class::Metagame => {
-            commands.insert(MetagameTag);
-        }
-        Class::NpcOtherland => {
-            commands.insert((NpcOtherlandTag, NpcBaseTag, NonClientBaseTag));
-        }
-        Class::Version => {
-            commands.insert(VersionTag);
-        }
-        Class::CommonConfig => {
-            commands.insert((CommonConfigTag, OaCommonConfigTag));
-        }
-        Class::AbilityList => {
-            commands.insert(AbilityListTag);
-        }
-        Class::CompinstMulticlusterAvatarLookup => {
-            commands.insert((CompinstMulticlusterAvatarLookupTag, CompinstTag));
-        }
-        Class::Trade => {
-            commands.insert(TradeTag);
-        }
-        Class::SkillGroup => {
-            commands.insert((SkillGroupTag, CombatSystemGroupTag, MetagameTag));
-        }
-        Class::StructureBase => {
-            commands.insert((StructureBaseTag, NonClientBaseTag));
+        Class::NonSpawnPlacement => {
+            target.insert(NonSpawnPlacementTag);
         }
         Class::StartingPoint => {
-            commands
+            target
                 .insert((
                     StartingPointTag,
                     StructureTag,
@@ -426,75 +454,11 @@ pub fn tag_gameobject_entity(data: &GameObjectData, commands: &mut EntityCommand
                     NonClientBaseTag,
                 ));
         }
-        Class::CustomTrigger => {
-            commands
-                .insert((
-                    CustomTriggerTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::NonClientBase => {
-            commands.insert(NonClientBaseTag);
-        }
-        Class::LootSystem => {
-            commands.insert((LootSystemTag, MetagameTag));
-        }
-        Class::ShopFilterSchema => {
-            commands.insert((ShopFilterSchemaTag, OaCommonConfigTag));
-        }
-        Class::NonSpawnPlacementRadius => {
-            commands.insert((NonSpawnPlacementRadiusTag, NonSpawnPlacementTag));
-        }
-        Class::CompinstLoginsrv => {
-            commands.insert((CompinstLoginsrvTag, CompinstTag));
-        }
-        Class::ServerGatewayExitPhase => {
-            commands
-                .insert((
-                    ServerGatewayExitPhaseTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::Compinst => {
-            commands.insert(CompinstTag);
-        }
-        Class::SteamItem => {
-            commands.insert(SteamItemTag);
-        }
-        Class::LootScatterContainer => {
-            commands
-                .insert((
-                    LootScatterContainerTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::CompinstClusternode => {
-            commands
-                .insert((CompinstClusternodeTag, CompinstClusterappTag, CompinstTag));
-        }
-        Class::Ship => {
-            commands.insert((ShipTag, StructureTag, StructureBaseTag, NonClientBaseTag));
-        }
-        Class::MinigameInfo => {
-            commands.insert((MinigameInfoTag, NonClientBaseTag));
-        }
-        Class::CompinstCommunicationsrv => {
-            commands.insert((CompinstCommunicationsrvTag, CompinstTag));
-        }
-        Class::MylandScoreboard => {
-            commands.insert((MylandScoreboardTag, NonClientBaseTag));
-        }
-        Class::CompinstClusterapp => {
-            commands.insert((CompinstClusterappTag, CompinstTag));
+        Class::Instance => {
+            target.insert((InstanceTag, ConfigTag));
         }
         Class::WorldDisplay => {
-            commands
+            target
                 .insert((
                     WorldDisplayTag,
                     StructureTag,
@@ -502,23 +466,65 @@ pub fn tag_gameobject_entity(data: &GameObjectData, commands: &mut EntityCommand
                     NonClientBaseTag,
                 ));
         }
-        Class::MoverBase => {
-            commands.insert((MoverBaseTag, NonClientBaseTag));
+        Class::CtfGameFlag => {
+            target
+                .insert((
+                    CtfGameFlagTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
         }
-        Class::LifeDirector => {
-            commands.insert(LifeDirectorTag);
+        Class::CooldownGroup => {
+            target.insert(CooldownGroupTag);
         }
-        Class::EdnaBase => {
-            commands.insert((EdnaBaseTag, ItemEdnaTag, ItemBaseTag));
+        Class::Metagame => {
+            target.insert(MetagameTag);
         }
-        Class::Door => {
-            commands.insert((DoorTag, StructureTag, StructureBaseTag, NonClientBaseTag));
+        Class::NonClientBase => {
+            target.insert(NonClientBaseTag);
+        }
+        Class::LocalTacticNode => {
+            target
+                .insert((
+                    LocalTacticNodeTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
         }
         Class::JsonSchema => {
-            commands.insert(JsonSchemaTag);
+            target.insert(JsonSchemaTag);
+        }
+        Class::SpawnNode => {
+            target
+                .insert((
+                    SpawnNodeTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::Trade => {
+            target.insert(TradeTag);
+        }
+        Class::EdnaAbility => {
+            target.insert(EdnaAbilityTag);
+        }
+        Class::CompinstClusternode => {
+            target.insert((CompinstClusternodeTag, CompinstClusterappTag, CompinstTag));
+        }
+        Class::Mail => {
+            target.insert(MailTag);
+        }
+        Class::Planet => {
+            target.insert((PlanetTag, StructureTag, StructureBaseTag, NonClientBaseTag));
+        }
+        Class::AbilityList => {
+            target.insert(AbilityListTag);
         }
         Class::MypadRoomDoor => {
-            commands
+            target
                 .insert((
                     MypadRoomDoorTag,
                     StructureTag,
@@ -526,17 +532,117 @@ pub fn tag_gameobject_entity(data: &GameObjectData, commands: &mut EntityCommand
                     NonClientBaseTag,
                 ));
         }
-        Class::NpcBase => {
-            commands.insert((NpcBaseTag, NonClientBaseTag));
+        Class::CompinstMasterRedirectSrv => {
+            target.insert((CompinstMasterRedirectSrvTag, CompinstTag));
+        }
+        Class::MinigameItem => {
+            target.insert((MinigameItemTag, ItemBaseTag));
+        }
+        Class::Trigger => {
+            target
+                .insert((TriggerTag, StructureTag, StructureBaseTag, NonClientBaseTag));
+        }
+        Class::ChessPiece => {
+            target
+                .insert((
+                    ChessPieceTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::PresetPoint => {
+            target
+                .insert((
+                    PresetPointTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::ServerGateway => {
+            target
+                .insert((
+                    ServerGatewayTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::SteamDlc => {
+            target.insert(SteamDlcTag);
+        }
+        Class::Faction => {
+            target.insert(FactionTag);
+        }
+        Class::EdnaFunction => {
+            target.insert((EdnaFunctionTag, ItemEdnaTag, ItemBaseTag));
+        }
+        Class::LootScatterContainer => {
+            target
+                .insert((
+                    LootScatterContainerTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::SomaforgeItem => {
+            target.insert((SomaforgeItemTag, ItemEdnaTag, ItemBaseTag));
+        }
+        Class::MinigameInfo => {
+            target.insert((MinigameInfoTag, NonClientBaseTag));
+        }
+        Class::MylandScoreboard => {
+            target.insert((MylandScoreboardTag, NonClientBaseTag));
+        }
+        Class::CustomTrigger => {
+            target
+                .insert((
+                    CustomTriggerTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
+        }
+        Class::ClanMember => {
+            target.insert(ClanMemberTag);
+        }
+        Class::CommonConfig => {
+            target.insert((CommonConfigTag, OaCommonConfigTag));
+        }
+        Class::SteamItem => {
+            target.insert(SteamItemTag);
+        }
+        Class::ClassItem => {
+            target.insert((ClassItemTag, ItemBaseTag));
+        }
+        Class::BuffGroup => {
+            target.insert((BuffGroupTag, CombatSystemGroupTag, MetagameTag));
+        }
+        Class::Spawner => {
+            target.insert((SpawnerTag, SpawnerBaseTag, NonClientBaseTag));
+        }
+        Class::LifeDirector => {
+            target.insert(LifeDirectorTag);
+        }
+        Class::MinigameMine => {
+            target
+                .insert((
+                    MinigameMineTag,
+                    StructureTag,
+                    StructureBaseTag,
+                    NonClientBaseTag,
+                ));
         }
         Class::OaCommonConfig => {
-            commands.insert(OaCommonConfigTag);
+            target.insert(OaCommonConfigTag);
         }
-        Class::OaBuff2 => {
-            commands.insert((OaBuff2Tag, BuffBaseTag));
+        Class::CompinstLoginsrv => {
+            target.insert((CompinstLoginsrvTag, CompinstTag));
         }
         Class::EdnaReceptor => {
-            commands
+            target
                 .insert((
                     EdnaReceptorTag,
                     InteractObjectTag,
@@ -545,120 +651,11 @@ pub fn tag_gameobject_entity(data: &GameObjectData, commands: &mut EntityCommand
                     NonClientBaseTag,
                 ));
         }
-        Class::SpawnNode => {
-            commands
-                .insert((
-                    SpawnNodeTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
         Class::Player => {
-            commands.insert(PlayerTag);
-        }
-        Class::QuestBeacon => {
-            commands.insert((QuestBeaconTag, NonSpawnPlacementTag));
-        }
-        Class::MinigameMine => {
-            commands
-                .insert((
-                    MinigameMineTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::OtherlandStructure => {
-            commands
-                .insert((
-                    OtherlandStructureTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::Mail => {
-            commands.insert(MailTag);
-        }
-        Class::CtfGameFlag => {
-            commands
-                .insert((
-                    CtfGameFlagTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::CompinstFrontendsrv => {
-            commands.insert((CompinstFrontendsrvTag, CompinstTag));
-        }
-        Class::VehicleFlying => {
-            commands.insert((VehicleFlyingTag, VehicleBaseTag, NonClientBaseTag));
-        }
-        Class::BundleItem => {
-            commands.insert((BundleItemTag, ItemEdnaTag, ItemBaseTag));
-        }
-        Class::CompinstDaemon => {
-            commands.insert((CompinstDaemonTag, CompinstTag));
-        }
-        Class::EdnaFunction => {
-            commands.insert((EdnaFunctionTag, ItemEdnaTag, ItemBaseTag));
+            target.insert(PlayerTag);
         }
         Class::Config => {
-            commands.insert(ConfigTag);
-        }
-        Class::BuffGroup => {
-            commands.insert((BuffGroupTag, CombatSystemGroupTag, MetagameTag));
-        }
-        Class::Structure => {
-            commands.insert((StructureTag, StructureBaseTag, NonClientBaseTag));
-        }
-        Class::Planet => {
-            commands
-                .insert((PlanetTag, StructureTag, StructureBaseTag, NonClientBaseTag));
-        }
-        Class::EdnaAbility => {
-            commands.insert(EdnaAbilityTag);
-        }
-        Class::InteractObject => {
-            commands
-                .insert((
-                    InteractObjectTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::CooldownGroup => {
-            commands.insert(CooldownGroupTag);
-        }
-        Class::ChessPiece => {
-            commands
-                .insert((
-                    ChessPieceTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::PatrolNode => {
-            commands
-                .insert((
-                    PatrolNodeTag,
-                    StructureTag,
-                    StructureBaseTag,
-                    NonClientBaseTag,
-                ));
-        }
-        Class::OtherlandArea => {
-            commands.insert(OtherlandAreaTag);
-        }
-        Class::GameSession => {
-            commands.insert(GameSessionTag);
-        }
-        Class::Faction => {
-            commands.insert(FactionTag);
+            target.insert(ConfigTag);
         }
     }
 }

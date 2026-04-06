@@ -15,10 +15,10 @@
 
 use std::{fmt::Debug, ops::Deref};
 
-use bevy::{platform::collections::HashMap, prelude::Component};
+use bevy::{ecs::{bundle::Bundle, lifecycle::HookContext, system::EntityCommands, world::{DeferredWorld, EntityWorldMut}}, platform::collections::HashMap, prelude::Component};
 use serde::{Deserialize, Serialize};
 
-use crate::{Attribute, AttributeInfo, Class, GenericParamSet, ParamError, ParamFlag, ParamResult, ParamSet, ParamWriter, Value};
+use crate::{Attribute, AttributeInfo, Class, GenericParamSet, ParamError, ParamFlag, ParamResult, ParamSet, ParamWriter, Value, tags::tag_gameobject_entity};
 
 pub trait AsGameObjectDataRef {
     fn as_data_ref(&self) -> &GameObjectData;
@@ -83,8 +83,11 @@ impl IntoGameObjectParent for &dyn GameObjectParent {
     }
 }
 
+#[derive(Component)]
+struct GameObjectGuard;
 
 #[derive(Serialize, Deserialize, Component)]
+#[component(on_add = on_add_game_object_data)]
 #[serde(transparent)]
 pub struct GameObjectData {
     #[serde(skip)]
@@ -360,6 +363,45 @@ impl TryFrom<GameObjectData> for serde_json::Value {
         serde_json::to_value(value)
     }
 }
+
+pub trait ObjectInserter {
+    fn insert_object(&mut self, obj: GameObjectData) -> &mut Self;
+}
+
+impl <T: ObjectReceiver> ObjectInserter for T {
+    fn insert_object(&mut self, obj: GameObjectData) -> &mut Self {
+        let class = obj.class();
+
+        self.insert((GameObjectGuard, obj));
+        tag_gameobject_entity(class, self);
+
+        self
+    }
+}
+
+pub(crate) trait ObjectReceiver {
+    fn insert<T: Bundle>(&mut self, bundle: T) -> &mut Self;
+}
+
+impl ObjectReceiver for EntityWorldMut<'_> {
+    fn insert<T: Bundle>(&mut self, bundle: T) -> &mut Self {
+        self.insert(bundle)
+    }
+}
+
+impl ObjectReceiver for EntityCommands<'_> {
+    fn insert<T: Bundle>(&mut self, bundle: T) -> &mut Self {
+        self.insert(bundle)
+    }
+}
+
+fn on_add_game_object_data(world: DeferredWorld, context: HookContext) {
+    let _ = world
+        .entity(context.entity)
+        .get::<GameObjectGuard>()
+        .or_else(|| panic!("you have to add GameObjectData components by using ObjectInserter::insert_object. Caller: {}", context.caller));
+}
+
 
 #[cfg(test)]
 mod test {

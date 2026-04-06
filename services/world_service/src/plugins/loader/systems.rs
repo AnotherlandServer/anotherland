@@ -23,16 +23,7 @@ use obj_params::{Class, GameObjectData, NonClientBase, Player, tag_gameobject_en
 use scripting::{EntityScriptCommandsExt, LuaEntity, LuaExt, LuaRuntime, LuaTableExt, ScriptResult};
 use toolkit::{NativeParam, types::{AvatarId,  Uuid}};
 
-use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, AvatarIdManager, ComponentLoaderCommandsTrait, ContentCacheRef, ContentInfo, DebugNpc, DebugPlayer, DespawnAvatar, DynamicInstance, ForceSyncPositionUpdate, HealthUpdateRequest, MessageType, Movement, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, ParamValue, PlayerController, SpawnState}};
-
-pub fn init_gameobjects(
-    added: Query<(Entity, &GameObjectData), Added<GameObjectData>>,
-    mut commands: Commands,
-) {
-    for (ent, obj) in added.iter() {
-        tag_gameobject_entity(obj, &mut commands.entity(ent));
-    }
-}
+use crate::{error::{WorldError, WorldResult}, plugins::{Active, Avatar, AvatarIdManager, ComponentLoaderCommandsTrait, ContentCacheRef, ContentInfo, DebugNpc, DebugPlayer, DespawnAvatar, DynamicInstance, ForceSyncPositionUpdate, HealthUpdateRequest, MessageType, Movement, NonPlayerGameObjectLoader, NonPlayerGameObjectLoaderParams, ParamValue, PlayerController, RecalculateAttributes, RemoveObject, ScriptingEntityCommandsExt, SpawnAvatar, SpawnState}};
 
 #[allow(clippy::type_complexity)]
 pub fn update_spawn_state(
