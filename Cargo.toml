@@ -53,7 +53,7 @@ core_service = { version = "0.1.0", path = "services/core_service" }
 cynic = { version = "3.13.1", features = ["http-reqwest", "http-reqwest-blocking"] }
 reqwest = "0.13.2"
 steamworks = "0.12.2"
-mongodb = "3.5.1"
+mongodb = "3.5.2"
 bitstream-io = "4.9.0"
 glam = { version = "0.30.9", features = ["serde"] }
 nom = { version = "7.1.3", features = ["alloc"] }
@@ -69,7 +69,7 @@ portable-atomic = "1.10.0"
 rand = "0.8.5"
 rsa = { version = "0.9.10", features = ["hazmat"] }
 sha1 = "0.10.6"
-uuid = { version = "1.20.0", features = ["v1", "v4"] }
+uuid = { version = "1.23.0", features = ["v1", "v4"] }
 futures = "0.3.31"
 realm_manager_service = { version = "0.1.0", path = "services/realm_manager_service" }
 async-graphql = { version = "7.2.1", features = ["bson", "chrono", "chrono-tz", "uuid"] }
@@ -85,7 +85,7 @@ env_logger = "0.11.10"
 dotenvy = "0.15.7"
 raknet = { version = "0.1.0", path = "lib/raknet" }
 bcrypt = "0.16.0"
-serde_with = "3.17.0"
+serde_with = "3.18.0"
 poem = "3.1.5"
 protocol = { version = "0.1.0", path = "lib/protocol" }
 upk = { version = "0.1.0", path = "lib/upk" }
