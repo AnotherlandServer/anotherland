@@ -34,7 +34,7 @@ on:
 jobs:
   rust-clippy-analyze:
     name: Run rust-clippy analyzing
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntu-latest]
     permissions:
       contents: read
       security-events: write

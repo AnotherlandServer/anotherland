@@ -10,7 +10,7 @@ env:
 jobs:
   build-docker:
     name: Build Docker image (no push)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntu-latest]
     if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 240
     permissions:

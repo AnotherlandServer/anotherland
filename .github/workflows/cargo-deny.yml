@@ -10,7 +10,7 @@ on:
       - '**/Cargo.toml'
 jobs:
   cargo-deny:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, ubuntu-22.04]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v5
