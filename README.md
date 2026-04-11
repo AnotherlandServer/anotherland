@@ -5,6 +5,10 @@
 ## Introduction
 Welcome to the **Anotherland Server Emulator** project, a community-driven initiative to resurrect the MMORPG, *Otherland*. This emulator aims to recreate the experience of *Otherland* by providing tools and instructions to set up and run your own server for the game.
 
+## Test Server
+If you just want to explore otherland without hosting anotherland yourself, check out the instructions to connect to the testserver:
+https://github.com/AnotherlandServer/anotherland/discussions/45
+
 ## Prerequisites
 Before you begin, ensure you have the following installed:
 - **Rust 1.95.0-nightly** (use rustup to automatically install the correct toolchain)
