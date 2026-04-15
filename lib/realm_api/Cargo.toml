@@ -20,5 +20,5 @@ thiserror = { workspace = true }
 toolkit = { workspace = true }
 
 [build-dependencies]
-cynic-codegen = "3.9.1"
+cynic-codegen = "3.13.2"
 realm_manager_service = { version = "0.1.0", path = "../../services/realm_manager_service" }

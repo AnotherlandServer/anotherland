@@ -17,4 +17,4 @@ toolkit = { workspace = true }
 
 [build-dependencies]
 core_service = { version = "0.1.0", path = "../../services/core_service" }
-cynic-codegen = "3.9.1"
+cynic-codegen = "3.13.2"
