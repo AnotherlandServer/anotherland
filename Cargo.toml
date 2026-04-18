@@ -75,7 +75,7 @@ realm_manager_service = { version = "0.1.0", path = "services/realm_manager_serv
 async-graphql = { version = "7.2.1", features = ["bson", "chrono", "chrono-tz", "uuid"] }
 async-graphql-poem = "7.2.1"
 config = { version = "0.1.0", path = "lib/config" }
-cynic-codegen = "3.9.1"
+cynic-codegen = "3.13.2"
 database = { version = "0.1.0", path = "lib/database" }
 anyhow = "1.0.102"
 macros = { version = "0.1.0", path = "lib/macros" }
