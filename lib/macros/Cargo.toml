@@ -12,4 +12,4 @@ proc-macro = true
 darling = "0.23.0"
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
-syn = { version = "2.0.105", features = ["full", "extra-traits"] }
+syn = { version = "2.0.117", features = ["full", "extra-traits"] }

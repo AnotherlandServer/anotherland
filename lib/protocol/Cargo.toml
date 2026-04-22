@@ -11,7 +11,7 @@ itertools = "0.14.0"
 prettyplease = "0.2.37"
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
-syn = "2.0.105"
+syn = "2.0.117"
 yaml-rust = "0.4.5"
 
 [dependencies]
