@@ -54,7 +54,7 @@ cynic = { version = "3.13.2", features = ["http-reqwest", "http-reqwest-blocking
 reqwest = "0.13.2"
 steamworks = "0.12.2"
 mongodb = "3.5.2"
-bitstream-io = "4.9.0"
+bitstream-io = "4.10.0"
 glam = { version = "0.30.9", features = ["serde"] }
 nom = { version = "7.1.3", features = ["alloc"] }
 phf = { version = "0.13.1", features = ["macros"] }
