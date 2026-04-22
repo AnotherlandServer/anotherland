@@ -50,7 +50,7 @@ base64 = "0.22.1"
 chrono = { version = "0.4.44", features = ["serde"] }
 cluster = { version = "0.1.0", path = "lib/cluster" }
 core_service = { version = "0.1.0", path = "services/core_service" }
-cynic = { version = "3.13.1", features = ["http-reqwest", "http-reqwest-blocking"] }
+cynic = { version = "3.13.2", features = ["http-reqwest", "http-reqwest-blocking"] }
 reqwest = "0.13.2"
 steamworks = "0.12.2"
 mongodb = "3.5.2"
