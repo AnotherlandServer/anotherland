@@ -1577,6 +1577,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "convert_case"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "affbf0190ed2caf063e3def54ff444b449371d55c58e513a95ab98eca50adb49"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4807,7 +4816,7 @@ version = "0.1.0"
 dependencies = [
  "bitstream-io",
  "bson",
- "convert_case 0.10.0",
+ "convert_case 0.11.0",
  "glam",
  "itertools",
  "log",
@@ -5608,7 +5617,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bevy",
- "convert_case 0.10.0",
+ "convert_case 0.11.0",
  "derive_builder",
  "log",
  "mlua",
@@ -6865,7 +6874,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 name = "update-bindings"
 version = "0.1.0"
 dependencies = [
- "convert_case 0.10.0",
+ "convert_case 0.11.0",
  "itertools",
  "nom",
  "prettyplease",
@@ -7761,7 +7770,7 @@ dependencies = [
  "clap",
  "cluster",
  "content",
- "convert_case 0.10.0",
+ "convert_case 0.11.0",
  "core_api",
  "crc16",
  "derive_builder",
