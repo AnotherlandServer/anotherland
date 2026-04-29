@@ -20,7 +20,7 @@ nom.workspace = true
 once_cell.workspace = true
 pepkg = { version = "0.1.0", path = "../../lib/pepkg" }
 plexus = { git = "https://github.com/AnotherlandServer/plexus.git", version = "0.0.11", features = ["geometry-glam"] }
-rayon = "1.10.0"
+rayon = "1.12.0"
 realm_api = { version = "0.1.0", path = "../../lib/realm_api" }
 recastnavigation-rs = { workspace = true }
 sqlite = "0.37.0"
