@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 async-trait = "0.1.83"
-bitflags = "2.11.0"
+bitflags = "2.11.1"
 derive_builder.workspace = true
 futures = { workspace = true }
 glam.workspace = true
